@@ -61,6 +61,9 @@ def test_rutas_de_la_convencion():
     assert m().chequeo("sql") == ".claude/reglas/verificar_sql.py"
     assert m().skill("sql") == ".claude/skills/capa-sql/SKILL.md"
     assert m().revisor("sql") == ".claude/agents/revisor-sql.md"
+    assert m().writer("sql") == ".claude/agents/writer-sql.md"
+    assert m().agente("writer-sql") == ".claude/agents/writer-sql.md"
+    assert m().PRIMER_TOQUE == ".claude/estado/primer-toque"
     assert m().CRITERIOS_SKILL == ".claude/skills/criterios/SKILL.md"
     assert m().CRITERIOS_REFS == ".claude/skills/criterios/references/"
     assert m().EVIDENCIA == ".claude/reglas/evidencia.md"
@@ -68,8 +71,8 @@ def test_rutas_de_la_convencion():
 
 
 def test_las_rutas_son_relativas_y_con_barra():
-    for ruta in (m().chequeo("x"), m().skill("x"), m().revisor("x"), m().CRITERIOS_SKILL,
-                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ):
+    for ruta in (m().chequeo("x"), m().skill("x"), m().revisor("x"), m().writer("x"), m().agente("x"), m().CRITERIOS_SKILL,
+                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE):
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
