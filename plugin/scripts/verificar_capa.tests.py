@@ -253,6 +253,21 @@ def test_falla_abierta_ante_cualquier_error_interno():
         assert w.correr(evento(ruta))[0] == 2, "control: sin las fallas, bloquea"
 
 
+def test_un_hallazgo_invalido_calla_el_archivo_entero():
+    valido = '{"id": "T-02", "modo": "bloqueo", "severidad": "", "linea": None, "fragmento": None, "mensaje": "valido"}'
+    for extra in ("", ', {"id": "T-02", "modo": "bloqueo"}', ', {"modo": "bloqueo", "mensaje": "sin id"}', ', "no soy un hallazgo"',
+                  ', {"id": "T-02", "modo": "bloqueo", "severidad": "", "linea": None, "fragmento": None, "mensaje": ""}',
+                  ', {"id": "", "modo": "bloqueo", "severidad": "", "linea": None, "fragmento": None, "mensaje": "sin id"}'):
+        with Mundo() as w:
+            w.modulo("web", "def verificar(ctx):\n    return [%s%s]\n" % (valido, extra))
+            ruta = escribir(w.web, "Core/A.cs", "int a;\n")
+            codigo, out, err = w.correr(evento(ruta))
+            if extra:
+                assert (codigo, out, err) == (0, "", b""), extra
+            else:
+                assert codigo == 2 and b"valido" in err, "control: solo el valido bloquea"
+
+
 def test_sin_instancia_o_con_config_rota_calla():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
