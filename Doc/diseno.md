@@ -31,6 +31,14 @@ Llevar un motor de trabajo con agentes de un proyecto a otro. Al llegar a un equ
 | P5 | Estado **por tipo:** efímero de sesión en `.claude/estado/` de la raíz de la instancia (ignorado, poda a 7 días); **decisiones con autoridad** en `.claude/registro/` (versionado); evidencia (recibos) en la carpeta del ticket; en `CLAUDE_PLUGIN_DATA` solo lo reconstruible | Desinstalar el plugin borra `CLAUDE_PLUGIN_DATA`; una decisión con autoridad es evidencia, no estado |
 | P6 | El **plazo** de cada hook viaja como argumento junto a su **timeout**, en la misma entrada de `hooks/hooks.json`, en forma exec; sin `--plazo`, 8 s; la suite valida plazo ≤ timeout − 2 s | Claude Code descarta toda la salida de un hook que llega a su timeout. La forma exec no depende del shell |
 
+### Contrato de los módulos de capa (P1)
+
+Cada capa con reglas de dominio tiene un módulo en la instancia, `.claude/reglas/verificar_<capa>.py`, con una función `verificar(ctx) -> [hallazgos]`. El dispatcher del plugin (`verificar_capa.py`) lo carga en cada `Edit` o `Write` sobre un archivo de esa capa. El módulo puede importar `odd_ws`.
+
+- **`ctx`:** `ruta`, `relativa` (en el taller, el nombre del archivo), `relativa_repo` (en el taller, la ruta del original en el repo si hay línea base; si no, `None`), `origen` (`repo` | `taller`), `capa`, `bytes`, `texto`, `es_nuevo`, `agregadas` `[(n, texto)]`, `hunks` `[{agregadas, quitadas}]` y `limite` (deadline del reloj monotónico, o `None`).
+- **Hallazgo:** `{id, modo (aviso | bloqueo), severidad, linea, fragmento, mensaje}`. Un hallazgo cuyo `fragmento` ya estaba en una línea quitada del mismo hunk se descarta. Si el módulo devuelve algo que no es un hallazgo válido, el archivo entero se calla: nunca se bloquea sin poder explicarlo.
+- **Línea base del taller** (`layers.<capa>.workshop_baseline`, opcional): `{repo, under?, strip_prefix?}`. Una copia sin trackear se compara con el original de ese nombre en la rama de `origin/HEAD` del repo; con cero o con más de un candidato, no hay base.
+
 ## 5. Gobernanza, RDD y mejora continua
 
 **D2 — Gobernanza.** Lo único que cambia entre un proyecto estricto, uno legacy y uno nuevo es **de dónde sale el molde**. Una perilla por capa, `layers.<capa>.mold_source`:

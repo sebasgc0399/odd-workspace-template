@@ -447,6 +447,29 @@ def test_sin_capas_es_rota():
         assert e.tipo == "rota" and "layers" in e.razon, e
 
 
+def test_workshop_baseline_valido_se_conserva():
+    for base in ({"repo": "db"}, {"repo": "db", "under": "src/sp", "strip_prefix": "esq."}):
+        config = config_valida()
+        config["layers"]["sql"]["workshop_baseline"] = base
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "ok", (base, e)
+            assert e.config["layers"]["sql"]["workshop_baseline"] == base
+
+
+def test_workshop_baseline_invalido_es_rota():
+    malos = ["db", None, {}, {"repo": "fantasma"}, {"repo": 3}, {"repo": "db", "otro": 1},
+             {"repo": "db", "under": ""}, {"repo": "db", "under": "/abs"}, {"repo": "db", "under": "a/../b"},
+             {"repo": "db", "under": "a\\b"}, {"repo": "db", "under": "C:/x"}, {"repo": "db", "strip_prefix": 3},
+             {"repo": "db", "strip_prefix": ""}]
+    for malo in malos:
+        config = config_valida()
+        config["layers"]["sql"]["workshop_baseline"] = malo
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "rota" and "workshop_baseline" in e.razon, (malo, e)
+
+
 def test_clasifica_un_archivo_de_un_repo():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)
