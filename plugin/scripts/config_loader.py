@@ -2,7 +2,7 @@ import json
 import os
 import re
 from collections import namedtuple
-from fnmatch import fnmatch
+from functools import lru_cache
 from pathlib import Path
 
 NOMBRE = "workspace.config.json"
@@ -66,8 +66,75 @@ def _repos(config, local):
             raise ConfigRota(f"falta la ruta del repo {clave!r} en {NOMBRE_LOCAL}")
         if not os.path.isdir(ruta):
             raise ConfigRota(f"la ruta del repo {clave!r} no existe: {ruta}")
-        repos[clave] = {**(valores or {}), "path": ruta}
+        repos[clave] = {**(valores or {}), "path": ruta, "worktrees": _worktrees(ruta)}
     return repos
+
+
+def _worktrees(ruta):
+    registro = Path(ruta) / ".git" / "worktrees"
+    try:
+        entradas = sorted(registro.iterdir())
+    except OSError:
+        return []
+    arboles = []
+    for entrada in entradas:
+        try:
+            texto = (entrada / "gitdir").read_text(encoding="utf-8").strip()
+        except (OSError, ValueError):
+            continue
+        if not texto:
+            continue
+        gitdir = texto if os.path.isabs(texto) else os.path.join(entrada, texto)
+        arbol = os.path.dirname(os.path.normpath(gitdir))
+        if os.path.isdir(arbol):
+            arboles.append(arbol)
+    return arboles
+
+
+def _globs(capa, nombre, campo):
+    if campo not in capa:
+        return
+    valor = capa[campo]
+    if not isinstance(valor, list) or not valor or not all(isinstance(p, str) and p for p in valor):
+        raise ConfigRota(f"layers.{nombre}.{campo} debe ser una lista de globs no vacíos")
+
+
+def _segmento(parte):
+    salida, i = [], 0
+    while i < len(parte):
+        letra = parte[i]
+        if letra == "*":
+            salida.append("[^/]*")
+        elif letra == "?":
+            salida.append("[^/]")
+        elif letra == "[" and "]" in parte[i + 2:]:
+            fin = parte.index("]", i + 2)
+            clase = parte[i + 1:fin]
+            negada = clase.startswith("!")
+            clase = clase[1:] if negada else clase
+            salida.append("[%s%s]" % ("^/" if negada else "", clase.replace("\\", "\\\\")))
+            i = fin
+        else:
+            salida.append(re.escape(letra))
+        i += 1
+    return "".join(salida)
+
+
+@lru_cache(maxsize=256)
+def _glob_a_regex(patron):
+    partes = patron.split("/")
+    salida = []
+    for i, parte in enumerate(partes):
+        ultima = i == len(partes) - 1
+        if parte == "**":
+            salida.append(".*" if ultima else "(?:[^/]*/)*")
+        else:
+            salida.append(_segmento(parte) + ("" if ultima else "/"))
+    return re.compile("".join(salida), re.IGNORECASE | re.DOTALL)
+
+
+def coincide(ruta, patron):
+    return _glob_a_regex(patron).fullmatch(ruta) is not None
 
 
 def _capas(config, repos, molde):
@@ -84,6 +151,8 @@ def _capas(config, repos, molde):
             if clave not in repos:
                 raise ConfigRota(f"layers.{nombre} usa el repo {clave!r}, que no está declarado en repos")
         _molde(capa.get("mold_source", molde), f"layers.{nombre}.mold_source")
+        _globs(capa, nombre, "workshop")
+        _globs(capa, nombre, "match")
         if "rule_prefix" in capa:
             prefijo = capa["rule_prefix"]
             if not isinstance(prefijo, str) or not PREFIJO_RE.fullmatch(prefijo):
@@ -138,19 +207,27 @@ def _reclama(capa, extension):
     return extension in (e.lower() for e in capa["extensions"])
 
 
+def _relativa(archivo, carpeta):
+    return Path(os.path.relpath(archivo, carpeta)).as_posix()
+
+
 def clasificar(ruta, config):
     archivo = canonica(ruta)
     extension = os.path.splitext(archivo)[1].lower()
     for clave, repo in config["repos"].items():
-        if _dentro(archivo, canonica(repo["path"])):
-            for nombre, capa in config["layers"].items():
-                if clave in (capa.get("repos") or []) and _reclama(capa, extension):
+        arbol = next((canonica(r) for r in [repo["path"], *repo.get("worktrees", [])] if _dentro(archivo, canonica(r))), None)
+        if arbol is None:
+            continue
+        relativa = _relativa(archivo, arbol)
+        for nombre, capa in config["layers"].items():
+            if clave in (capa.get("repos") or []) and _reclama(capa, extension):
+                if "match" not in capa or any(coincide(relativa, patron) for patron in capa["match"]):
                     return (nombre, clave)
-            return None
+        return None
     raiz = canonica(config["raiz"])
     if _dentro(archivo, raiz):
-        relativa = Path(os.path.relpath(archivo, raiz)).as_posix()
+        relativa = _relativa(archivo, raiz)
         for nombre, capa in config["layers"].items():
-            if _reclama(capa, extension) and any(fnmatch(relativa, patron) for patron in capa.get("workshop") or []):
+            if _reclama(capa, extension) and any(coincide(relativa, patron) for patron in capa.get("workshop") or []):
                 return (nombre, "taller")
     return None
