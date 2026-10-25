@@ -51,7 +51,7 @@ Llevar un motor de trabajo con agentes de un proyecto a otro. Al llegar a un equ
 
 ## 6. Fuera del plugin
 
-- **Capa 0, `/doctor`:** lee, reporta e instala ítem por ítem con autorización. Revisa Claude Code (versión mínima), gentle-ai, engram, `jq`, los MCP, git (identidad por carpeta, `diff.autoRefreshIndex=false`, `core.longpaths`, fin de línea, credenciales), Python **por comportamiento y por latencia** (§7, S1.6), PowerShell 5.1 vs 7, Node, secretos presentes sin imprimirlos, y equipos corporativos (sin admin o con proxy: degrada a instrucciones).
+- **Capa 0, `/odd-ws:doctor`** (`plugin/scripts/doctor.py`): solo lee por defecto y arregla de a un ítem con `--arreglar <id>`. La v1 revisa los hooks y la lista negra del clon (cierra el riesgo B2b), Python por comportamiento y por latencia (S1.6), las credenciales de git, Claude Code ≥ 2.1.284, el marketplace, gentle-ai ≥ 4.2.0 con su RDD y su telemetría, engram ≥ 3.5.0 y `jq`. Quedaron afuera: `diff.autoRefreshIndex`, que el motor fija por proceso y viaja con él; `core.longpaths`, sin incidente que lo justifique; y MCPs, secretos, proxy corporativo, perfil de modelos y exportación de memoria, que entran cuando un caso real los pida.
 - **Perfil de modelos:** `rol → (alias, effort)`, nunca IDs; umbral del modo ahorro; medición de costo real (los tokens que se reportan de un subagente son su contexto final, no su costo).
 - **Memoria partida:** la de metodología y lo personal se puede exportar; la de dominio se queda con su proyecto.
 
@@ -90,7 +90,7 @@ Además:
 
 La lista negra vive fuera del repo, en `~/.odd-ws/denylist.txt` (o donde diga `ODD_WS_DENYLIST`).
 
-**Riesgo residual:** un clon sin `core.hooksPath .githooks` no corre ningún hook, porque git no los instala solo. Lo cubren el paso 1 del README y `/doctor`. Un escaneo del lado del servidor obligaría a subir la lista negra, lo que contradice el principio 3.
+**Riesgo residual:** un clon sin `core.hooksPath .githooks` no corre ningún hook, porque git no los instala solo. Lo cubre `/odd-ws:doctor` (ítem `repo-hooks`), verificado con un clon nuevo: lo marca FALTA y `--arreglar repo-hooks` lo configura. Un escaneo del lado del servidor obligaría a subir la lista negra, lo que contradice el principio 3.
 
 ## 9. Propuestas abiertas
 
