@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections import namedtuple
 from fnmatch import fnmatch
 from pathlib import Path
@@ -8,6 +9,7 @@ NOMBRE = "workspace.config.json"
 NOMBRE_LOCAL = "workspace.local.json"
 VERSION_SOPORTADA = 1
 MOLDES = ("repo", "propio")
+PREFIJO_RE = re.compile(r"[A-Z][A-Z0-9]*")
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -82,7 +84,21 @@ def _capas(config, repos, molde):
             if clave not in repos:
                 raise ConfigRota(f"layers.{nombre} usa el repo {clave!r}, que no está declarado en repos")
         _molde(capa.get("mold_source", molde), f"layers.{nombre}.mold_source")
+        if "rule_prefix" in capa:
+            prefijo = capa["rule_prefix"]
+            if not isinstance(prefijo, str) or not PREFIJO_RE.fullmatch(prefijo):
+                raise ConfigRota(f"layers.{nombre}.rule_prefix {prefijo!r} debe ser mayúsculas y dígitos, empezando por letra")
+            duenos = [otra for otra, datos in capas.items() if otra != nombre and isinstance(datos, dict) and datos.get("rule_prefix") == prefijo]
+            if duenos:
+                raise ConfigRota(f"layers.{nombre}.rule_prefix {prefijo!r} ya lo usa layers.{duenos[0]}")
     return capas
+
+
+def capas(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    molde = _molde((config.get("defaults") or {}).get("mold_source", "repo"), "defaults.mold_source")
+    return _capas(config, config.get("repos") or {}, molde)
 
 
 def cargar(raiz):
