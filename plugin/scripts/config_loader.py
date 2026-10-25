@@ -106,6 +106,23 @@ def _globs(capa, nombre, campo):
             raise ConfigRota(f"layers.{nombre}.{campo}: el glob {patron!r} no es válido ({error})")
 
 
+def _linea_base(capa, nombre, repos):
+    if "workshop_baseline" not in capa:
+        return
+    base = capa["workshop_baseline"]
+    donde = f"layers.{nombre}.workshop_baseline"
+    if not isinstance(base, dict) or set(base) - {"repo", "under", "strip_prefix"}:
+        raise ConfigRota(f"{donde} debe ser un objeto con repo y, opcionales, under y strip_prefix")
+    if base.get("repo") not in repos:
+        raise ConfigRota(f"{donde}.repo {base.get('repo')!r} no está declarado en repos")
+    if "under" in base:
+        under = base["under"]
+        if not isinstance(under, str) or not under or under.startswith("/") or "\\" in under or ":" in under or ".." in under.split("/"):
+            raise ConfigRota(f"{donde}.under {under!r} debe ser una carpeta relativa al repo, con /")
+    if "strip_prefix" in base and (not isinstance(base["strip_prefix"], str) or not base["strip_prefix"]):
+        raise ConfigRota(f"{donde}.strip_prefix debe ser un texto no vacío")
+
+
 def _cierre_de_clase(parte, i):
     j = i + 1
     if j < len(parte) and parte[j] in "!^":
@@ -170,6 +187,7 @@ def _capas(config, repos, molde):
         _molde(capa.get("mold_source", molde), f"layers.{nombre}.mold_source")
         _globs(capa, nombre, "workshop")
         _globs(capa, nombre, "match")
+        _linea_base(capa, nombre, repos)
         if "rule_prefix" in capa:
             prefijo = capa["rule_prefix"]
             if not isinstance(prefijo, str) or not PREFIJO_RE.fullmatch(prefijo):

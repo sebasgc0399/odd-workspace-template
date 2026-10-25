@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "25"], "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
