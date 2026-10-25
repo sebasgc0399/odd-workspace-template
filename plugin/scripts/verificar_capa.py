@@ -7,16 +7,18 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import time
 
 import config_loader
 from odd_ws import capas as convencion
-from odd_ws.comun import SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, lineas, raiz_de_instancia
+from odd_ws.comun import SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas, raiz_de_instancia
 
 PLAZO_POR_DEFECTO = 8
 TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
+DIAS_PODA = 7
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
@@ -225,8 +227,168 @@ def _post_tool_use(evento, config):
     return _salida(*resultado)
 
 
+def no_negociables(capa, raiz):
+    ruta = os.path.join(raiz, convencion.skill(capa))
+    if not os.path.isfile(ruta):
+        return None
+    with open(ruta, encoding="utf-8-sig") as f:
+        dentro, _, estado = convencion.partir_bloque(f.read().splitlines())
+    texto = "\n".join(dentro).strip()
+    return texto if estado == "ok" and texto else None
+
+
+def _clave(evento):
+    sesion = evento.get("session_id")
+    agente = evento.get("agent_id") or "principal"
+    if not (id_valido(sesion) and id_valido(agente)):
+        return None
+    return sesion, agente
+
+
+def _marcas_dir(raiz):
+    return os.path.join(raiz, convencion.PRIMER_TOQUE)
+
+
+def _podar(base, actual):
+    limite = time.time() - DIAS_PODA * 86400
+    try:
+        for nombre in os.listdir(base):
+            ruta = os.path.join(base, nombre)
+            if nombre != actual and os.path.isdir(ruta) and os.path.getmtime(ruta) < limite:
+                shutil.rmtree(ruta, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def _marcar(raiz, sesion, agente, capa):
+    base = _marcas_dir(raiz)
+    carpeta = os.path.join(base, sesion)
+    try:
+        if not os.path.isdir(carpeta):
+            os.makedirs(carpeta, exist_ok=True)
+            _podar(base, sesion)
+        with open(os.path.join(carpeta, "%s.%s" % (agente, capa)), "x"):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def skills_del_frontmatter(texto):
+    lineas_ = texto.lstrip("﻿").splitlines()
+    if not lineas_ or lineas_[0].strip() != "---":
+        return None
+    try:
+        fin = next(i for i in range(1, len(lineas_)) if lineas_[i].strip() == "---")
+    except StopIteration:
+        return None
+    skills, en_skills = [], False
+    for linea in lineas_[1:fin]:
+        linea = re.sub(r"(^|\s)#.*$", "", linea)
+        if re.match(r"skills\s*:", linea):
+            resto = linea.split(":", 1)[1].strip()
+            en_skills = not resto
+            if resto.startswith("[") and resto.endswith("]"):
+                skills += [x.strip().strip("'\"") for x in resto[1:-1].split(",") if x.strip()]
+            continue
+        if en_skills:
+            m = re.match(r"\s*-\s+(\S+)\s*$", linea)
+            if m:
+                skills.append(m.group(1).strip("'\""))
+            elif linea.strip() and not linea.startswith((" ", "\t")):
+                en_skills = False
+    return skills
+
+
+def _precarga(evento, capa, raiz):
+    tipo = evento.get("agent_type")
+    if not id_valido(tipo):
+        return False
+    try:
+        with open(os.path.join(raiz, convencion.agente(tipo)), encoding="utf-8-sig") as f:
+            skills = skills_del_frontmatter(f.read())
+    except (OSError, ValueError):
+        return False
+    return bool(skills) and "capa-%s" % capa in skills
+
+
+def _tocar(evento, config):
+    ruta = (evento.get("tool_input") or {}).get("file_path")
+    if not isinstance(ruta, str) or not ruta:
+        return None
+    info = config_loader.clasificar(ruta, config)
+    clave = _clave(evento) if info else None
+    if clave is None:
+        return None
+    capa, raiz = info[0], config["raiz"]
+    sesion, agente = clave
+    if _precarga(evento, capa, raiz):
+        return None
+    if os.path.exists(os.path.join(_marcas_dir(raiz), sesion, "%s.%s" % (agente, capa))):
+        return None
+    bloque = no_negociables(capa, raiz)
+    if bloque is None or not _marcar(raiz, sesion, agente, capa):
+        return None
+    return capa, bloque
+
+
+def _texto_primer_toque(capa, raiz, encabezado, bloque):
+    partes = [encabezado, bloque]
+    if os.path.isfile(os.path.join(raiz, convencion.writer(capa))):
+        partes.append("Para más que un ajuste mínimo, delegar en `writer-%s`." % capa)
+    return "\n".join(partes)
+
+
+def _primer_read(evento, config):
+    toque = _tocar(evento, config)
+    if toque is None:
+        return SILENCIO
+    capa, bloque = toque
+    encabezado = ("primer toque (capa-%s): los no negociables de la capa %s, una vez por sesión y agente. "
+                  "Aplicarlos en todo lo que se escriba en esta capa (fuente: %s)." % (capa, capa, convencion.skill(capa)))
+    contexto = {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                       "additionalContext": _texto_primer_toque(capa, config["raiz"], encabezado, bloque)}}
+    return 0, json.dumps(contexto), b""
+
+
+def _pre_tool_use(evento, config):
+    if evento.get("tool_name") not in ("Edit", "Write"):
+        return SILENCIO
+    toque = _tocar(evento, config)
+    if toque is None:
+        return SILENCIO
+    capa, bloque = toque
+    encabezado = ("primer toque (capa-%s): este %s no se aplicó. Antes de escribir en la capa %s, leer sus no "
+                  "negociables y reintentar el mismo cambio, ajustado a ellos (el reintento pasa)."
+                  % (capa, evento["tool_name"], capa))
+    return 2, "", (_texto_primer_toque(capa, config["raiz"], encabezado, bloque) + "\n").encode("utf-8")
+
+
+def _session_start(evento, config):
+    sesion = evento.get("session_id")
+    if evento.get("source") not in ("compact", "clear") or not id_valido(sesion):
+        return SILENCIO
+    carpeta = os.path.join(_marcas_dir(config["raiz"]), sesion)
+    if os.path.isdir(carpeta):
+        for nombre in os.listdir(carpeta):
+            if nombre.startswith("principal."):
+                try:
+                    os.remove(os.path.join(carpeta, nombre))
+                except OSError:
+                    pass
+    return SILENCIO
+
+
+def _post_tool_use_o_read(evento, config):
+    if evento.get("tool_name") == "Read":
+        return _primer_read(evento, config)
+    return _post_tool_use(evento, config)
+
+
 MANEJADORES = {
-    "PostToolUse": _post_tool_use,
+    "PostToolUse": _post_tool_use_o_read,
+    "PreToolUse": _pre_tool_use,
+    "SessionStart": _session_start,
 }
 
 

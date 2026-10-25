@@ -6,6 +6,7 @@ MATRIZ = REGLAS + "/matriz.csv"
 EVIDENCIA = REGLAS + "/evidencia.md"
 CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
+PRIMER_TOQUE = ".claude/estado/primer-toque"
 
 
 def chequeo(capa):
@@ -18,6 +19,14 @@ def skill(capa):
 
 def revisor(capa):
     return ".claude/agents/revisor-%s.md" % capa
+
+
+def writer(capa):
+    return agente("writer-%s" % capa)
+
+
+def agente(nombre):
+    return ".claude/agents/%s.md" % nombre
 
 
 def partir_bloque(lineas):

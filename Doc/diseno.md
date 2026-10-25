@@ -37,6 +37,7 @@ Cada capa con reglas de dominio tiene un módulo en la instancia, `.claude/regla
 
 - **`ctx`:** `ruta`, `relativa` (en el taller, el nombre del archivo), `relativa_repo` (en el taller, la ruta del original en el repo si hay línea base; si no, `None`), `origen` (`repo` | `taller`), `capa`, `bytes`, `texto`, `es_nuevo`, `agregadas` `[(n, texto)]`, `hunks` `[{agregadas, quitadas}]` y `limite` (deadline del reloj monotónico, o `None`).
 - **Hallazgo:** `{id, modo (aviso | bloqueo), severidad, linea, fragmento, mensaje}`. Un hallazgo cuyo `fragmento` ya estaba en una línea quitada del mismo hunk se descarta. Si el módulo devuelve algo que no es un hallazgo válido, el archivo entero se calla: nunca se bloquea sin poder explicarlo.
+- **Primer toque:** el primer `Read` de una capa en (sesión, agente) inyecta el bloque `<!-- no-negociables -->` de `.claude/skills/capa-<capa>/SKILL.md`; el primer `Edit`/`Write` sin esa inyección se bloquea una vez y el reintento pasa. `compact` y `clear` lo reinician para la sesión principal. Un agente que precarga `capa-<capa>` en su frontmatter no lo recibe.
 - **Línea base del taller** (`layers.<capa>.workshop_baseline`, opcional): `{repo, under?, strip_prefix?}`. Una copia sin trackear se compara con el original de ese nombre en la rama de `origin/HEAD` del repo; con cero o con más de un candidato, no hay base.
 
 ## 5. Gobernanza, RDD y mejora continua

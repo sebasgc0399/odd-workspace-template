@@ -666,7 +666,7 @@ def test_cada_hook_del_plugin_tiene_plazo_menor_que_su_timeout():
 
 def test_el_dispatcher_esta_cableado_en_post_tool_use_edit_y_write_con_25_s():
     cableados = [(e, m, h) for e, m, h in _hooks_del_plugin() if h["args"][0].endswith("/scripts/verificar_capa.py")]
-    post = [(m, h) for e, m, h in cableados if e == "PostToolUse"]
+    post = [(m, h) for e, m, h in cableados if e == "PostToolUse" and "Edit" in m.split("|")]
     assert len(post) == 1, cableados
     matcher, h = post[0]
     assert set(matcher.split("|")) >= {"Edit", "Write"}, matcher
@@ -724,6 +724,286 @@ def test_la_raiz_sale_de_la_sesion_si_no_se_pasa():
                 os.environ["CLAUDE_PROJECT_DIR"] = previo
         e = evento(ruta, cwd=str(ticket))
         assert M.correr(e, plazo=25)[0] == 2
+
+
+REGLA = "- **%s-01** Abrir el molde antes de escribir → así, con 16 y 151."
+
+
+def skill(capa, cuerpo=None):
+    if cuerpo is None:
+        cuerpo = "<!-- no-negociables -->\n%s\n<!-- /no-negociables -->\n" % (REGLA % capa.upper())
+    return "---\nname: capa-%s\nuser-invocable: false\n---\nCENTINELA capa-%s 2026-10-25\n\n%s\nFUERA DEL BLOQUE\n" % (capa, capa, cuerpo)
+
+
+class Toque(Mundo):
+    def __init__(self, capas=("web", "sql"), writers=()):
+        super().__init__()
+        self.capas = capas
+        self.writers = writers
+
+    def __enter__(self):
+        super().__enter__()
+        for capa in self.capas:
+            escribir(self.raiz, ".claude/skills/capa-%s/SKILL.md" % capa, skill(capa))
+        for capa in self.writers:
+            escribir(self.raiz, ".claude/agents/writer-%s.md" % capa, "---\nname: writer-%s\n---\n" % capa)
+        self.sql = str(self.db / "src" / "Proc_X.sql")
+        self.sql2 = str(self.db / "src" / "Proc_Y.sql")
+        self.cs = str(self.web / "Core" / "A" / "B.cs")
+        self.taller_sql = str(self.raiz / "tickets" / "T-1-x" / "SQL" / "esq.Proc_A.sql")
+        return self
+
+    def marcas(self):
+        base = self.raiz / ".claude" / "estado" / "primer-toque"
+        if not base.is_dir():
+            return []
+        return sorted(str(p.relative_to(base)).replace("\\", "/") for p in base.rglob("*") if p.is_file())
+
+    def agente(self, nombre, frontmatter):
+        escribir(self.raiz, ".claude/agents/%s.md" % nombre, frontmatter)
+
+
+def leer(ruta, sesion="s1", agente=None):
+    e = evento(ruta, "Read", session_id=sesion)
+    if agente:
+        e.update(agent_id=agente, agent_type="Explore")
+    return e
+
+
+def a_escribir(ruta, herramienta="Write", sesion="s1", agente=None):
+    e = evento(ruta, herramienta, nombre="PreToolUse", session_id=sesion)
+    if agente:
+        e.update(agent_id=agente, agent_type="general-purpose")
+    return e
+
+
+def inicio(source, sesion="s1"):
+    return {"hook_event_name": "SessionStart", "source": source, "session_id": sesion}
+
+
+def contexto(out):
+    try:
+        datos = json.loads(out)
+    except ValueError:
+        return None
+    hso = (datos or {}).get("hookSpecificOutput") or {}
+    return hso.get("additionalContext") if hso.get("hookEventName") == "PostToolUse" else None
+
+
+def test_primer_read_inyecta_una_vez_por_sesion_agente_y_capa():
+    with Toque() as w:
+        codigo, out, err = w.correr(leer(w.sql))
+        texto = contexto(out)
+        assert codigo == 0 and err == b"" and texto is not None, (codigo, out, err)
+        assert (REGLA % "SQL") in texto and "FUERA DEL BLOQUE" not in texto and "CENTINELA" not in texto, texto
+        assert ".claude/skills/capa-sql/SKILL.md" in texto, texto
+        assert w.marcas() == ["s1/principal.sql"], w.marcas()
+        assert w.correr(leer(w.sql)) == (0, "", b"")
+        assert w.correr(leer(w.sql2)) == (0, "", b""), "otro archivo de la misma capa calla"
+        assert (REGLA % "WEB") in contexto(w.correr(leer(w.cs))[1])
+        assert (REGLA % "SQL") in contexto(w.correr(leer(w.sql, agente="a1b2"))[1]), "un subagente recibe su propia inyeccion"
+        assert contexto(w.correr(leer(w.sql, sesion="s2"))[1]) is not None
+        assert w.marcas() == ["s1/a1b2.sql", "s1/principal.sql", "s1/principal.web", "s2/principal.sql"], w.marcas()
+
+
+def test_primer_toque_sin_subprocess_y_calla_fuera_de_las_capas():
+    with Toque() as w:
+        with SinSubprocess() as guardia:
+            for i, (ruta, prefijo) in enumerate([(w.sql, "SQL"), (w.taller_sql, "SQL"), (w.cs, "WEB")]):
+                assert (REGLA % prefijo) in contexto(w.correr(leer(ruta, sesion="r%d" % i))[1]), ruta
+                codigo, out, err = w.correr(a_escribir(ruta, sesion="w%d" % i))
+                assert codigo == 2 and (REGLA % prefijo).encode("utf-8") in err, (ruta, err)
+            antes = w.marcas()
+            for ruta in (str(w.raiz / "README.md"), str(w.raiz / "tickets" / "T-1-x" / "SQL" / "otro.Proc_A.sql"),
+                         str(w.base / "otro" / "A.cs"), str(w.web / "build.gradle")):
+                for e in (leer(ruta, sesion="z"), a_escribir(ruta, sesion="z"), a_escribir(ruta, "Edit", sesion="z")):
+                    assert w.correr(e) == (0, "", b""), (e["hook_event_name"], ruta)
+            assert w.marcas() == antes
+        assert not guardia.llamadas, guardia.llamadas
+
+
+def test_write_sin_inyeccion_previa_bloquea_una_sola_vez_en_bytes_utf8():
+    with Toque() as w:
+        codigo, out, err = w.correr(a_escribir(w.sql))
+        assert codigo == 2 and out == "", (codigo, out)
+        assert (REGLA % "SQL").encode("utf-8") in err, err
+        assert b"reintent" in err and b"FUERA DEL BLOQUE" not in err, err
+        assert w.marcas() == ["s1/principal.sql"], w.marcas()
+        assert w.correr(a_escribir(w.sql)) == (0, "", b""), "el reintento pasa"
+        assert w.correr(a_escribir(w.sql, "Edit")) == (0, "", b"")
+        assert w.correr(leer(w.sql)) == (0, "", b"")
+        w.correr(leer(w.cs))
+        assert w.correr(a_escribir(w.cs, "Edit")) == (0, "", b"")
+        codigo, _, err = w.correr(a_escribir(w.sql, "Edit", agente="a1"))
+        assert codigo == 2 and (REGLA % "SQL").encode("utf-8") in err, err
+        for herr in ("Bash", "Read", "MultiEdit", "NotebookEdit"):
+            assert w.correr(a_escribir(w.sql, herr, sesion="s9")) == (0, "", b""), herr
+        assert not any(m.startswith("s9/") for m in w.marcas()), w.marcas()
+
+
+def test_compact_y_clear_resetean_solo_la_sesion_principal():
+    with Toque() as w:
+        for source in ("compact", "clear"):
+            for e in (leer(w.sql), leer(w.cs), leer(w.sql, agente="a1"), leer(w.sql, sesion="s2")):
+                w.correr(e)
+            assert w.correr(inicio(source)) == (0, "", b""), source
+            assert w.marcas() == ["s1/a1.sql", "s2/principal.sql"], (source, w.marcas())
+            assert contexto(w.correr(leer(w.sql))[1]) is not None, source
+        for source in ("startup", "resume", None):
+            antes = w.marcas()
+            assert w.correr(inicio(source)) == (0, "", b"") and w.marcas() == antes, source
+        assert w.correr(inicio("compact", sesion="../s2")) == (0, "", b"") and "s2/principal.sql" in w.marcas()
+
+
+def test_sin_skill_sin_bloque_o_sin_marca_falla_abierto_y_nunca_bloquea():
+    casos = {
+        "sin skill": None,
+        "sin bloque": skill("sql", cuerpo="solo texto\n"),
+        "bloque abierto": skill("sql", cuerpo="<!-- no-negociables -->\n- regla\n"),
+        "bloque vacio": skill("sql", cuerpo="<!-- no-negociables -->\n\n<!-- /no-negociables -->\n"),
+    }
+    for nombre, texto in casos.items():
+        with Toque(capas=()) as w:
+            if texto is not None:
+                escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", texto)
+            for e in (leer(w.sql), a_escribir(w.sql), a_escribir(w.sql, "Edit")):
+                assert w.correr(e) == (0, "", b""), (nombre, e["hook_event_name"])
+            assert w.marcas() == [], nombre
+    with Toque() as w:
+        escribir(w.raiz, ".claude/estado/primer-toque", "un archivo donde va la carpeta de marcas")
+        for e in (leer(w.sql), a_escribir(w.sql), a_escribir(w.sql)):
+            assert w.correr(e) == (0, "", b""), e["hook_event_name"]
+
+
+def test_ids_invalidos_o_ausentes_callan():
+    with Toque() as w:
+        malos = [leer(w.sql, sesion=s) for s in ("", "../fuera", "a/b", "a b", None, 7)]
+        sin_sesion = leer(w.sql)
+        sin_sesion.pop("session_id")
+        malos.append(sin_sesion)
+        malos += [leer(w.sql, agente=a) for a in ("../x", "a\\b", "x" * 200, "odd-ws:writer")]
+        malos += [a_escribir(w.sql, sesion="../fuera"), a_escribir(w.sql, agente="../x")]
+        for e in malos:
+            assert w.correr(e) == (0, "", b""), (e.get("session_id"), e.get("agent_id"))
+        assert w.marcas() == [] and not (w.raiz / ".claude" / "estado" / "fuera").exists(), w.marcas()
+
+
+def test_enrutamiento_solo_si_existe_el_writer_de_la_capa():
+    with Toque(writers=("sql",)) as w:
+        texto_sql = contexto(w.correr(leer(w.sql))[1])
+        texto_web = contexto(w.correr(leer(w.cs))[1])
+        assert "writer-sql" in texto_sql, texto_sql
+        assert "writer" not in texto_web, texto_web
+        codigo, _, err = w.correr(a_escribir(w.sql, sesion="s2"))
+        assert codigo == 2 and b"writer-sql" in err, err
+
+
+def test_poda_las_sesiones_de_mas_de_7_dias_al_abrir_una_nueva():
+    with Toque() as w:
+        base = w.raiz / ".claude" / "estado" / "primer-toque"
+        ahora = time.time()
+        for nombre, dias in (("vieja", 8), ("reciente", 1)):
+            marca = escribir(base, "%s/principal.sql" % nombre, "")
+            os.utime(marca.parent, (ahora - dias * 86400, ahora - dias * 86400))
+        escribir(base, "suelto.txt", "")
+        w.correr(leer(w.cs, sesion="reciente"))
+        assert "vieja/principal.sql" in w.marcas(), w.marcas()
+        w.correr(leer(w.sql, sesion="nueva"))
+        assert w.marcas() == ["nueva/principal.sql", "reciente/principal.sql", "reciente/principal.web", "suelto.txt"], w.marcas()
+
+
+def test_main_real_primer_toque_read_y_write_bajo_la_raiz_de_la_instancia():
+    with Toque() as w:
+        env = {k: v for k, v in _entorno_sin_git().items() if k not in ("PYTHONPATH", "PYTHONUTF8")}
+        env.update(CLAUDE_PROJECT_DIR=str(w.raiz), PYTHONIOENCODING="cp1252")
+
+        def real(e):
+            return subprocess.run([sys.executable, str(_RUTA), "--plazo", "8"], input=json.dumps(e).encode("utf-8"),
+                                  capture_output=True, timeout=60, env=env, cwd=str(w.base))
+
+        r = real(leer(w.cs))
+        texto = contexto(r.stdout.decode("utf-8", errors="replace"))
+        assert r.returncode == 0 and r.stderr == b"" and texto and (REGLA % "WEB") in texto, r
+        r = real(a_escribir(w.sql))
+        assert r.returncode == 2 and r.stdout == b"" and (REGLA % "SQL").encode("utf-8") in r.stderr, r
+        assert w.marcas() == ["s1/principal.sql", "s1/principal.web"], w.marcas()
+
+
+def test_agente_con_la_skill_precargada_no_repite_el_primer_toque():
+    with Toque() as w:
+        w.agente("writer-sql", "---\nname: writer-sql\nskills:\n  - criterios\n  - capa-sql\n---\ncuerpo\n")
+        w.agente("en-linea", "---\nname: en-linea\nskills: [criterios, capa-sql]\n---\n")
+        for tipo, aid in (("writer-sql", "a1"), ("en-linea", "a2")):
+            for herr in ("Read", "Write", "Edit"):
+                e = leer(w.sql, agente=aid) if herr == "Read" else a_escribir(w.sql, herr, agente=aid)
+                e["agent_type"] = tipo
+                assert w.correr(e) == (0, "", b""), (tipo, herr)
+        assert w.marcas() == [], w.marcas()
+        e = leer(w.cs, agente="a1")
+        e["agent_type"] = "writer-sql"
+        c, o, _ = w.correr(e)
+        assert c == 0 and contexto(o) is not None, "otra capa que no precarga si inyecta"
+        assert contexto(w.correr(leer(w.sql))[1]) is not None, "la sesion principal inyecta"
+
+
+def test_agente_sin_la_skill_o_con_frontmatter_ilegible_inyecta_igual():
+    with Toque() as w:
+        w.agente("otra-capa", "---\nname: otra-capa\nskills:\n  - capa-web\n---\n")
+        w.agente("casi", "---\nname: casi\nskills:\n  - capa-sql-extra\n---\n")
+        w.agente("roto", "---\nname: roto\nskills:\n  - capa-sql\n")
+        w.agente("sin-skills", "---\nname: sin-skills\ntools: Read\n---\n")
+        w.agente("en-el-cuerpo", "---\nname: en-el-cuerpo\n---\nskills:\n  - capa-sql\n")
+        (w.raiz / ".claude" / "agents" / "carpeta.md").mkdir(parents=True)
+        casos = [("otra-capa", "a1"), ("casi", "a2"), ("roto", "a3"), ("sin-skills", "a4"), ("en-el-cuerpo", "a5"),
+                 ("carpeta", "a6"), ("no-existe", "a7"), ("odd-ws:writer-sql", "a8"), ("../x", "a9"), ("", "a10"), (None, "a11")]
+        for tipo, aid in casos:
+            e = leer(w.sql, agente=aid)
+            if tipo is None:
+                del e["agent_type"]
+            else:
+                e["agent_type"] = tipo
+            c, o, _ = w.correr(e)
+            assert c == 0 and contexto(o) is not None, tipo
+        e = a_escribir(w.sql, "Write", agente="b1")
+        e["agent_type"] = "roto"
+        c, _, err = w.correr(e)
+        assert c == 2 and "capa-sql" in err.decode("utf-8"), c
+
+
+def test_skills_del_frontmatter_formas_de_yaml_validas():
+    f = M.skills_del_frontmatter
+    casos = [
+        ("lista de bloque sin sangria", "---\nname: x\nskills:\n- criterios\n- capa-sql\n---\n", ["criterios", "capa-sql"]),
+        ("sin sangria y la clave siguiente la corta", "---\nskills:\n- a\ntools:\n- Read\n---\n", ["a"]),
+        ("comentario tras la clave", "---\nskills: # las de la capa\n  - capa-sql\n---\n", ["capa-sql"]),
+        ("comentario tras un item", "---\nskills:\n  - criterios # base\n  - capa-sql # capa\n---\n", ["criterios", "capa-sql"]),
+        ("comentario tras la lista en linea", "---\nskills: [a, b] # c\n---\n", ["a", "b"]),
+        ("item entre comillas con comentario", "---\nskills:\n  - 'capa-sql'  # c\n---\n", ["capa-sql"]),
+        ("linea de comentario y linea en blanco dentro", "---\nskills:\n  # nota\n  - a\n\n  - b\n---\n", ["a", "b"]),
+        ("lista en linea", "---\nskills: [criterios, \"capa-sql\"]\n---\n", ["criterios", "capa-sql"]),
+        ("lista de bloque con sangria", "---\nskills:\n  - criterios\n  - capa-sql\ntools: Read\n---\n", ["criterios", "capa-sql"]),
+        ("sin skills", "---\nname: x\ntools: Read\n---\n", []),
+        ("sin cerrar", "---\nskills:\n  - a\n", None),
+        ("sin frontmatter", "skills:\n  - a\n", None),
+        ("el cuerpo no cuenta", "---\nname: x\n---\nskills:\n- a\n", []),
+        ("con BOM", "﻿---\nskills: [a]\n---\n", ["a"]),
+    ]
+    for etiqueta, texto, esperado in casos:
+        assert f(texto) == esperado, (etiqueta, f(texto))
+
+
+def test_cada_evento_del_primer_toque_esta_cableado():
+    cableados = {}
+    for e, m, h in _hooks_del_plugin():
+        if h["args"][0].endswith("/scripts/verificar_capa.py"):
+            for parte in m.split("|"):
+                cableados[(e, parte)] = (h["timeout"], M.plazo_de(h["args"][1:]))
+    for clave in (("PostToolUse", "Edit"), ("PostToolUse", "Write"), ("PostToolUse", "Read"), ("PreToolUse", "Edit"),
+                  ("PreToolUse", "Write"), ("SessionStart", "compact"), ("SessionStart", "clear")):
+        assert clave in cableados, (clave, cableados)
+    for clave in (("PostToolUse", "Read"), ("PreToolUse", "Edit"), ("PreToolUse", "Write"), ("SessionStart", "compact")):
+        assert cableados[clave] == (10, 8), (clave, cableados[clave])
+    assert ("SessionStart", "startup") not in cableados and ("SessionStart", "resume") not in cableados
 
 
 def main():
