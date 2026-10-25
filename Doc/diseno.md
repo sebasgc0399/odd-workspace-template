@@ -67,7 +67,7 @@ Llevar un motor de trabajo con agentes de un proyecto a otro. Al llegar a un equ
 | `CLAUDE_PROJECT_DIR`: la carpeta de ticket si la sesión se abre ahí; la **primera** carpeta en un workspace multi-raíz | ✅ |
 | Python: el alias de la Store arranca en 216 ms; el mismo intérprete llamado directo, en 51 ms | medido |
 | Con `--plugin-dir`, `CLAUDE_PLUGIN_DATA` es otra carpeta que la del plugin instalado | ✅ |
-| Instalación desde el repo privado de GitHub (S1.5) | pendiente |
+| Instalación desde el repo privado de GitHub (S1.5), por HTTPS con Git Credential Manager y sin interacción | ✅ |
 | Dos proyectos con versiones distintas en una misma máquina (S1.8) | pendiente; no bloquea (P4 asume el peor caso) |
 
 ## 8. Barrido de confidencialidad
