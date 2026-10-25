@@ -72,15 +72,25 @@ Llevar un motor de trabajo con agentes de un proyecto a otro. Al llegar a un equ
 
 ## 8. Barrido de confidencialidad
 
-`tools/barrido.py` corre en el pre-commit antes que nada:
+`tools/barrido.py` corre en tres hooks:
 
-- lee lo **stageado** (el índice, no el árbol) y las rutas;
-- normaliza mayúsculas, tildes y espacios;
-- entiende UTF-16;
-- **falla cerrado** si la lista negra falta o está vacía;
-- `--autoprueba` demuestra que detecta su control positivo antes de cada barrido.
+| Hook | Qué barre |
+|---|---|
+| `pre-commit` | Lo stageado: el índice (no el árbol) y las rutas |
+| `commit-msg` | El mensaje del commit |
+| `pre-push` | Todo lo que se empuja: contenido, rutas y mensajes. Es la garantía real, porque `rebase --continue` y `git am` commitean sin pasar por el pre-commit |
+
+Además:
+
+- **Normaliza** mayúsculas, tildes, espacios, caracteres de formato (espacio de ancho cero, guion suave) y separadores (`\`, `\\` y `/` valen lo mismo).
+- **Busca en el texto completo**, así que un término de varias palabras partido por un salto de línea también se encuentra.
+- **Lee** UTF-8, UTF-16 con y sin BOM, y cp1252 (lo que escribe por defecto `Set-Content` en PowerShell 5.1).
+- **Falla cerrado** si la lista negra falta, está vacía o tiene caracteres ilegibles.
+- **`--autoprueba`** demuestra, antes de cada barrido, que **cada** término se detecta en UTF-8, UTF-16 y cp1252, y dice qué lista usó.
 
 La lista negra vive fuera del repo, en `~/.odd-ws/denylist.txt` (o donde diga `ODD_WS_DENYLIST`).
+
+**Riesgo residual:** un clon sin `core.hooksPath .githooks` no corre ningún hook, porque git no los instala solo. Lo cubren el paso 1 del README y `/doctor`. Un escaneo del lado del servidor obligaría a subir la lista negra, lo que contradice el principio 3.
 
 ## 9. Propuestas abiertas
 
