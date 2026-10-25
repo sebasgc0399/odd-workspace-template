@@ -11,6 +11,7 @@ ESPACIOS = re.compile(r"\s+")
 SEPARADORES = re.compile(r"[\\/]+")
 CEROS = "0" * 40
 FILTRO = "--diff-filter=ACMRT"
+SEPARADORES_INVISIBLES = frozenset("​⁠﻿­")
 MODOS = ("--staged", "--paths", "--mensaje", "--pre-push", "--autoprueba")
 USO = "uso: barrido.py --staged | --paths <ruta>... | --mensaje <archivo> | --pre-push | --autoprueba"
 
@@ -19,10 +20,17 @@ class NoSePuedeBarrer(Exception):
     pass
 
 
-def normalizar(texto):
-    descompuesto = unicodedata.normalize("NFKD", texto)
-    visible = "".join(c for c in descompuesto if not unicodedata.combining(c) and unicodedata.category(c) != "Cf")
-    return ESPACIOS.sub(" ", SEPARADORES.sub("/", visible.casefold()))
+def normalizar(texto, invisibles_como_espacio=False):
+    caracteres = []
+    for c in unicodedata.normalize("NFKD", texto):
+        if unicodedata.combining(c):
+            continue
+        if unicodedata.category(c) == "Cf":
+            if invisibles_como_espacio and c in SEPARADORES_INVISIBLES:
+                caracteres.append(" ")
+            continue
+        caracteres.append(c)
+    return ESPACIOS.sub(" ", SEPARADORES.sub("/", "".join(caracteres).casefold()))
 
 
 def decodificar(datos):
@@ -64,20 +72,27 @@ def cargar_lista(ruta):
     return terminos
 
 
-def buscar(texto, terminos):
+def _buscar_en_variante(lineas, terminos, invisibles_como_espacio, hallazgos):
     partes, inicios, posicion = [], [], 0
-    for linea in texto.splitlines():
-        normalizada = normalizar(linea).strip()
+    for linea in lineas:
+        normalizada = normalizar(linea, invisibles_como_espacio).strip()
         inicios.append(posicion)
         partes.append(normalizada)
         posicion += len(normalizada) + 1
     completo = " ".join(partes)
-    hallazgos = set()
     for original, termino in terminos:
         indice = completo.find(termino)
         while indice != -1:
             hallazgos.add((bisect.bisect_right(inicios, indice), original))
             indice = completo.find(termino, indice + 1)
+
+
+def buscar(texto, terminos):
+    lineas = texto.splitlines()
+    hallazgos = set()
+    _buscar_en_variante(lineas, terminos, False, hallazgos)
+    if SEPARADORES_INVISIBLES.intersection(texto):
+        _buscar_en_variante(lineas, terminos, True, hallazgos)
     return sorted(hallazgos)
 
 

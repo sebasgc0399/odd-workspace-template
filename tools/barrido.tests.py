@@ -254,6 +254,22 @@ def test_ignora_caracteres_de_formato_dentro_del_termino():
         assert salida.count("a.txt:1") == 1, salida
 
 
+def test_caracter_de_formato_como_unico_separador_entre_palabras():
+    with Escenario(lista="acme corp interna\n") as e:
+        (e.obra / "a.txt").write_text("lo dijo la Acme​Corp​Interna\n", encoding="utf-8")
+        (e.obra / "b.txt").write_text("lo dijo la Acme­Corp­Interna\n", encoding="utf-8")
+        codigo, salida = correr(["--paths", "a.txt", "b.txt"], e.obra, e.lista)
+        assert codigo == 1, salida
+        assert "a.txt:1" in salida and "b.txt:1" in salida, salida
+
+
+def test_caracter_de_formato_dentro_de_una_palabra_sigue_detectandose():
+    with Escenario(lista="acmecorp\n") as e:
+        (e.obra / "a.txt").write_text("hola Acme​Corp\n", encoding="utf-8")
+        codigo, salida = correr(["--paths", "a.txt"], e.obra, e.lista)
+        assert codigo == 1, salida
+
+
 def test_lista_en_cp1252_se_lee():
     with Escenario(lista=None) as e:
         e.lista.write_bytes("Pérez\n".encode("cp1252"))
