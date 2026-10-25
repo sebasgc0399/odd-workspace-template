@@ -20,7 +20,7 @@ Runner de tests: Python sin pytest, `<nombre>.tests.py` junto a cada script. Esp
 | T3 | S5 | decisión de Sebastián | **hecho:** repo y marketplace `odd-workspace-template`, plugin `odd-ws` | L8, L9 |
 | T4 | S2 (y S1.5, S1.8 con el repo privado, si S4 se autoriza) | inline; test primero para el barrido | **hecho:** push autorizado a `origin/main`; S1.5 ✅; S1.8 sigue pendiente (no bloqueante) | `4c8677f`, `0a7d159`, `3ec972e`, `6c29dcb`; L11, L12, L15–L17 |
 | T5 | S3 | inline, test primero | **hecho** | L13, L14 |
-| T6 | Riesgo residual B2b | próxima sesión | pendiente: `/doctor` configura y verifica `core.hooksPath` y la lista negra al clonar en otra máquina | L17 |
+| T6 | Riesgo residual B2b | feature propia | **hecho:** `/odd-ws:doctor`, ítem `repo-hooks`, verificado con un clon nuevo (ver `odd/tasks/doctor.md`) | L17; `784ba3f`, `7779594` |
 
 ## Log
 
