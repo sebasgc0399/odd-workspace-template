@@ -267,6 +267,8 @@ def test_la_mayor_del_plugin_es_la_api():
 
 PUBLICO_V1 = {
     "comun": ("VARIABLES_DE_REPO_GIT", "decodificar", "entorno_git", "id_valido", "lineas"),
+    "tsql": ("analizar", "argumentos", "bloques_catch", "comentarios_agregados", "depurar", "linea_de",
+             "precalcular", "problemas_de_bytes", "sql_dinamico"),
 }
 
 

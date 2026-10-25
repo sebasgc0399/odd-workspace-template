@@ -40,6 +40,15 @@ Cada capa con reglas de dominio tiene un módulo en la instancia, `.claude/regla
 - **Primer toque:** el primer `Read` de una capa en (sesión, agente) inyecta el bloque `<!-- no-negociables -->` de `.claude/skills/capa-<capa>/SKILL.md`; el primer `Edit`/`Write` sin esa inyección se bloquea una vez y el reintento pasa. `compact` y `clear` lo reinician para la sesión principal. Un agente que precarga `capa-<capa>` en su frontmatter no lo recibe.
 - **Línea base del taller** (`layers.<capa>.workshop_baseline`, opcional): `{repo, under?, strip_prefix?}`. Una copia sin trackear se compara con el original de ese nombre en la rama de `origin/HEAD` del repo; con cero o con más de un candidato, no hay base.
 
+### Biblioteca T-SQL (`odd_ws.tsql`)
+
+Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.
+
+- **Texto:** `depurar(texto, literales=False)` pasa los comentarios (y, con `literales`, el contenido de los literales) a espacios, con el mismo largo y los mismos saltos de línea; `linea_de(texto, pos)`; `bloques_catch(depurado)` da `[(ini, fin, linea_ini, linea_fin)]` (un bloque sin cerrar llega hasta el final); `argumentos(texto, inicio)` da los argumentos a profundidad 0 de la sentencia que sigue.
+- **AST:** `analizar(ctx)` corre ScriptDom (`scriptdom.ps1`, PowerShell) y devuelve `(análisis, motivo)`, sin escribir en el `ctx`. `motivo` es `None`, `sin_helper` (no hay PowerShell o DLL, el helper falló y queda roto para el resto del proceso, o no pudo leer ese archivo) o `sin_tiempo` (no queda el mínimo antes de `limite`, o el helper venció). El resultado se cachea por ruta y contenido, **también el vencimiento**: otra regla que pide el mismo archivo no relanza el helper, porque el plazo del hook alcanza para un solo intento. Un `limite` ya vencido no se cachea. `precalcular(ctxs)` analiza un lote en una sola invocación; si vence, todo el lote queda en `sin_tiempo`.
+- **Chequeos genéricos:** `sql_dinamico(ctx)` (EXEC de una cadena armada con `+`, o `sp_executesql` con la sentencia concatenada) y `comentarios_agregados(ctx)` dan `[(línea, fragmento)]` sobre las líneas agregadas; sin análisis devuelven `[]`, y la instancia decide si avisa según el `motivo`. Dónde aplican es política de la instancia. `problemas_de_bytes(datos, bom=False, fin="crlf")` da la lista de problemas de BOM, fin de línea y UTF-8.
+- **Normalizador** (CLI, fuera de la API): `normalizar_sql.py --check | --fix ARCHIVO... [--tabs] [--fin crlf|lf]`.
+
 ## 5. Gobernanza, RDD y mejora continua
 
 **D2 — Gobernanza.** Lo único que cambia entre un proyecto estricto, uno legacy y uno nuevo es **de dónde sale el molde**. Una perilla por capa, `layers.<capa>.mold_source`:
