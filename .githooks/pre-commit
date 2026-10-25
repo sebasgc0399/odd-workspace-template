@@ -1,0 +1,6 @@
+#!/bin/sh
+python tools/barrido.py --autoprueba || exit 1
+python tools/barrido.py --staged || exit 1
+for suite in $(git ls-files -- '*.tests.py'); do
+    python "$suite" > /dev/null || { echo "suite en rojo: $suite (correla a mano para ver el detalle)"; exit 1; }
+done
