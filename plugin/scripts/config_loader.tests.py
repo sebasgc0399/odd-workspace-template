@@ -1,0 +1,267 @@
+import importlib
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+AQUI = Path(__file__).resolve().parent
+sys.path.insert(0, str(AQUI))
+EN_WINDOWS = os.name == "nt"
+
+
+def m():
+    return importlib.import_module("config_loader")
+
+
+def config_valida():
+    return {
+        "schema_version": 1,
+        "defaults": {"mold_source": "repo"},
+        "repos": {"db": {}},
+        "layers": {"sql": {"extensions": [".sql"], "repos": ["db"], "workshop": ["tickets/**/*.sql"]}},
+    }
+
+
+def _forzar_borrado(funcion, ruta, _error):
+    os.chmod(ruta, stat.S_IWRITE)
+    funcion(ruta)
+
+
+class Instancia:
+    def __init__(self, config=None, local=None):
+        self.config = config_valida() if config is None else config
+        self.local = local
+
+    def __enter__(self):
+        self.base = Path(tempfile.mkdtemp(prefix="config-"))
+        self.repo = self.base / "repos" / "DB"
+        self.repo.mkdir(parents=True)
+        self.raiz = self.base / "instancia"
+        self.ticket = self.raiz / "tickets" / "T-1"
+        self.ticket.mkdir(parents=True)
+        if self.config is not False:
+            texto = self.config if isinstance(self.config, str) else json.dumps(self.config)
+            (self.raiz / "workspace.config.json").write_text(texto, encoding="utf-8")
+        local = {"repos": {"db": {"path": str(self.repo)}}} if self.local is None else self.local
+        if local is not False:
+            texto = local if isinstance(local, str) else json.dumps(local)
+            (self.raiz / "workspace.local.json").write_text(texto, encoding="utf-8")
+        self.junctions = []
+        return self
+
+    def junction(self, nombre, destino):
+        enlace = self.base / nombre
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(destino)], capture_output=True, check=True)
+        self.junctions.append(enlace)
+        return enlace
+
+    def __exit__(self, *_):
+        for enlace in self.junctions:
+            os.rmdir(enlace)
+        shutil.rmtree(self.base, onexc=_forzar_borrado)
+
+
+def mismo(a, b):
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def test_inicio_usa_claude_project_dir_y_si_falta_cwd():
+    assert m().inicio_de_sesion({"CLAUDE_PROJECT_DIR": "X"}, "Y") == "X"
+    assert m().inicio_de_sesion({}, "Y") == "Y"
+    assert m().inicio_de_sesion({"CLAUDE_PROJECT_DIR": ""}, "Y") == "Y"
+
+
+def test_encuentra_la_raiz_desde_una_carpeta_de_ticket():
+    with Instancia() as i:
+        assert mismo(m().encontrar_raiz(i.ticket), i.raiz)
+
+
+def test_la_instancia_mas_cercana_gana():
+    with Instancia() as i:
+        (i.ticket / "workspace.config.json").write_text(json.dumps(config_valida()), encoding="utf-8")
+        assert mismo(m().encontrar_raiz(i.ticket), i.ticket)
+
+
+def test_sin_config_es_ausente():
+    with Instancia(config=False) as i:
+        e = m().estado(i.ticket)
+        assert e.tipo == "ausente" and e.raiz is None, e
+
+
+def test_config_valida_carga():
+    with Instancia() as i:
+        e = m().estado(i.ticket)
+        assert e.tipo == "ok", e
+        assert mismo(e.raiz, i.raiz), e
+        assert mismo(e.config["repos"]["db"]["path"], i.repo), e
+
+
+def test_json_invalido_es_rota_y_conserva_la_raiz():
+    with Instancia(config="{ no es json") as i:
+        e = m().estado(i.ticket)
+        assert e.tipo == "rota", e
+        assert "workspace.config.json" in e.razon, e
+        assert mismo(e.raiz, i.raiz), e
+
+
+def test_sin_schema_version_es_rota():
+    config = config_valida()
+    del config["schema_version"]
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "schema_version" in e.razon, e
+
+
+def test_schema_version_desconocida_es_rota():
+    config = config_valida()
+    config["schema_version"] = 2
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "schema_version" in e.razon, e
+
+
+def test_schema_version_booleana_es_rota():
+    config = config_valida()
+    config["schema_version"] = True
+    with Instancia(config=config) as i:
+        assert m().estado(i.raiz).tipo == "rota"
+
+
+def test_local_invalido_es_rota():
+    with Instancia(local="[roto") as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "workspace.local.json" in e.razon, e
+
+
+def test_falta_la_ruta_del_repo_es_rota():
+    with Instancia(local=False) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "workspace.local.json" in e.razon and "db" in e.razon, e
+
+
+def test_ruta_del_repo_inexistente_es_rota():
+    with Instancia(local={"repos": {"db": {"path": "Z:/no/existe/nunca"}}}) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "no existe" in e.razon, e
+
+
+def test_mold_source_invalido_es_rota():
+    config = config_valida()
+    config["defaults"]["mold_source"] = "boy_scout"
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "mold_source" in e.razon, e
+
+
+def test_mold_source_por_defecto_es_repo_y_la_capa_lo_puede_cambiar():
+    config = config_valida()
+    del config["defaults"]
+    config["layers"]["ts"] = {"extensions": [".ts"], "mold_source": "propio"}
+    with Instancia(config=config) as i:
+        cargada = m().cargar(i.raiz)
+        assert m().molde_de(cargada, "sql") == "repo"
+        assert m().molde_de(cargada, "ts") == "propio"
+
+
+def test_capa_con_repo_no_declarado_es_rota():
+    config = config_valida()
+    config["layers"]["sql"]["repos"] = ["fantasma"]
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "fantasma" in e.razon, e
+
+
+def test_extension_sin_punto_es_rota():
+    config = config_valida()
+    config["layers"]["sql"]["extensions"] = ["sql"]
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "extensions" in e.razon, e
+
+
+def test_sin_capas_es_rota():
+    config = config_valida()
+    config["layers"] = {}
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "layers" in e.razon, e
+
+
+def test_clasifica_un_archivo_de_un_repo():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "sp" / "Uno.sql", cargada) == ("sql", "db")
+
+
+def test_clasifica_un_archivo_del_taller():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.ticket / "SQL" / "dos.sql", cargada) == ("sql", "taller")
+
+
+def test_un_archivo_de_afuera_no_se_clasifica():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.base / "otro" / "tres.sql", cargada) is None
+
+
+def test_una_extension_sin_capa_no_se_clasifica():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "notas.txt", cargada) is None
+
+
+def test_clasifica_con_la_letra_del_disco_en_otra_caja():
+    if not EN_WINDOWS:
+        return
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        ruta = str(i.repo / "sp" / "Uno.sql")
+        otra_caja = (ruta[0].lower() if ruta[0].isupper() else ruta[0].upper()) + ruta[1:]
+        assert m().clasificar(otra_caja, cargada) == ("sql", "db")
+
+
+def test_clasifica_a_traves_de_una_junction():
+    if not EN_WINDOWS:
+        return
+    with Instancia() as i:
+        atajo = i.junction("atajo", i.repo)
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(atajo / "sp" / "Uno.sql", cargada) == ("sql", "db")
+
+
+def test_el_repo_declarado_por_junction_reconoce_la_ruta_real():
+    if not EN_WINDOWS:
+        return
+    with Instancia(local=False) as i:
+        atajo = i.junction("atajo", i.repo)
+        (i.raiz / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(atajo)}}}), encoding="utf-8")
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "sp" / "Uno.sql", cargada) == ("sql", "db")
+
+
+def main():
+    for flujo in (sys.stdout, sys.stderr):
+        flujo.reconfigure(encoding="utf-8", errors="replace")
+    pruebas = [(nombre, funcion) for nombre, funcion in globals().items() if nombre.startswith("test_") and callable(funcion)]
+    fallas = 0
+    for nombre, prueba in pruebas:
+        try:
+            prueba()
+            print(f"ok    {nombre}")
+        except AssertionError as error:
+            fallas += 1
+            print(f"FALLA {nombre}: {error}")
+        except Exception as error:
+            fallas += 1
+            print(f"ERROR {nombre}: {type(error).__name__}: {error}")
+    print(f"{len(pruebas) - fallas}/{len(pruebas)} pruebas en verde")
+    return 1 if fallas else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
