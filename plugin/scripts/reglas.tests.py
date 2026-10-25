@@ -355,6 +355,28 @@ def test_test_corre_la_suite_de_la_instancia_como_main_y_devuelve_su_codigo():
             assert sys.argv == previo, sys.argv
 
 
+def test_test_sin_capa_corre_la_suite_de_cada_capa_que_tiene_una():
+    capas = {"sql": {"extensions": [".sql"]}, "docs": {"extensions": [".md"]}, "web": {"extensions": [".cs"]}}
+    for codigo_web, esperado in ((0, 0), (3, 1)):
+        with temporal() as raiz:
+            instancia(raiz, suite=SUITE.replace("CODIGO", "0"), capas=capas)
+            escribir(raiz, {".claude/reglas/verificar_web.tests.py": "import sys\nprint('suite web')\nsys.exit(%d)\n" % codigo_web})
+            codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+            assert codigo == esperado, (codigo_web, codigo, out, err)
+            ls = out.splitlines()
+            assert ls.index("== sql: .claude/reglas/verificar_sql.tests.py") < ls.index("== web: .claude/reglas/verificar_web.tests.py"), ls
+            assert ls.index("suite web") > ls.index("== web: .claude/reglas/verificar_web.tests.py"), ls
+            assert "sin suite: docs" in ls, ls
+            assert ls[-1] == ("suites en rojo: web" if codigo_web else "suites: 2, todas en verde"), ls[-1]
+
+
+def test_test_sin_capa_y_sin_ninguna_suite_sale_0_y_lo_dice():
+    with temporal() as raiz:
+        instancia(raiz)
+        codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+        assert codigo == 0 and out.splitlines() == ["sin suite: sql, docs", "ninguna capa tiene suite"], (codigo, out, err)
+
+
 def test_test_una_suite_que_revienta_o_sale_con_un_mensaje_sale_1():
     for suite, rastro in (("raise RuntimeError('suite rota')\n", "suite rota"),
                           ("import sys\nsys.exit('mensaje de falla')\n", "mensaje de falla")):

@@ -9,6 +9,8 @@ import time
 from collections import namedtuple
 from pathlib import Path
 
+import config_loader
+
 MARKETPLACE = "odd-workspace-template"
 URL_MARKETPLACE = "https://github.com/sebasgc0399/odd-workspace-template.git"
 UMBRAL_MS = 100
@@ -27,12 +29,14 @@ AYUDA_RDD = "D3: el RDD nativo no ve el dominio (su reviewer corre sin herramien
 AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
 AYUDA_ENGRAM = "Actualizá engram a 3.5 o superior desde su release oficial (en Windows, renombrá el .exe en uso antes de reemplazarlo)."
 AYUDA_JQ = "scoop install jq (lo exige engram setup)."
+AYUDA_LOCAL = "Se arregla a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
+COPIA_DE_EMERGENCIA = ".claude/plugin"
 
-Resultado = namedtuple("Resultado", "id estado detalle comando ayuda")
+Resultado = namedtuple("Resultado", "id estado detalle comando ayuda arreglo")
 
 
-def resultado(id, estado, detalle, comando=None, ayuda=""):
-    return Resultado(id, estado, detalle, comando, ayuda)
+def resultado(id, estado, detalle, comando=None, ayuda="", arreglo=None):
+    return Resultado(id, estado, detalle, comando, ayuda, arreglo)
 
 
 def leer_version(texto):
@@ -58,6 +62,8 @@ class Contexto:
         self.cwd = Path(cwd or os.getcwd())
         self.ejecutable = sys.executable
         self.windows = os.name == "nt"
+        self.entorno = os.environ
+        self.plugin = Path(__file__).resolve().parents[1]
 
     def ejecutar(self, args, cwd=None):
         try:
@@ -110,6 +116,40 @@ def chequear_lista_negra(ctx, raiz):
     if codigo == 0:
         return resultado("lista-negra", OK, lineas[0] if lineas else "autoprueba ok")
     return resultado("lista-negra", FALTA, lineas[-1] if lineas else "la autoprueba del barrido falló", None, AYUDA_LISTA)
+
+
+def anotar_plugin_root(local, datos, plugin):
+    local.write_bytes((json.dumps({**datos, "plugin_root": str(plugin)}, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    return f"plugin_root = {plugin} en {local}"
+
+
+def chequear_plugin_root(ctx):
+    raiz = config_loader.encontrar_raiz(config_loader.inicio_de_sesion(ctx.entorno, str(ctx.cwd)))
+    if raiz is None:
+        return resultado("plugin-root", NO_APLICA, f"no estás dentro de una instancia (no hay {config_loader.NOMBRE})")
+    if (raiz / COPIA_DE_EMERGENCIA / "scripts" / "reglas.py").is_file():
+        return resultado("plugin-root", OK, f"la instancia usa la copia de emergencia en {COPIA_DE_EMERGENCIA}")
+    local = raiz / config_loader.NOMBRE_LOCAL
+    try:
+        datos = json.loads(local.read_text(encoding="utf-8-sig")) if local.is_file() else {}
+    except (OSError, ValueError):
+        datos = None
+    if not isinstance(datos, dict):
+        return resultado("plugin-root", FALTA, f"{local} no se puede leer como un objeto JSON", None, AYUDA_LOCAL)
+    anotado = datos.get("plugin_root")
+
+    def arreglo():
+        return anotar_plugin_root(local, datos, ctx.plugin)
+
+    if not isinstance(anotado, str) or not anotado:
+        return resultado("plugin-root", FALTA, f"plugin_root sin anotar en {local}: el pre-commit de la instancia no encuentra el plugin",
+                         arreglo=arreglo)
+    if not (Path(anotado) / "scripts" / "reglas.py").is_file():
+        return resultado("plugin-root", FALTA, f"plugin_root = {anotado} no existe (una versión desinstalada o movida)", arreglo=arreglo)
+    if config_loader.canonica(anotado) != config_loader.canonica(ctx.plugin):
+        return resultado("plugin-root", FALTA, f"plugin_root = {anotado} es otra copia del plugin; el doctor corre desde {ctx.plugin}",
+                         arreglo=arreglo)
+    return resultado("plugin-root", OK, f"plugin_root = {anotado}")
 
 
 def chequear_python(ctx):
@@ -190,6 +230,7 @@ def diagnosticar(ctx):
     return [
         chequear_repo_hooks(ctx, raiz),
         chequear_lista_negra(ctx, raiz),
+        chequear_plugin_root(ctx),
         chequear_python(ctx),
         chequear_credenciales(ctx),
         claude,
@@ -210,6 +251,8 @@ def imprimir(resultados):
         if r.estado in (FALTA, AVISO):
             if r.comando:
                 print(f"{sangria}arreglo: --arreglar {r.id}  ({' '.join(r.comando)})")
+            elif r.arreglo:
+                print(f"{sangria}arreglo: --arreglar {r.id}")
             if r.ayuda:
                 print(f"{sangria}cómo: {r.ayuda}")
     faltas = sum(r.estado == FALTA for r in resultados)
@@ -225,13 +268,16 @@ def arreglar(ctx, resultados, objetivo):
     if elegido.estado in (OK, NO_APLICA):
         print(f"{objetivo}: {elegido.estado}; no hay nada que arreglar")
         return 0
-    if not elegido.comando:
+    if not elegido.comando and not elegido.arreglo:
         print(f"{objetivo} no tiene arreglo automático. {elegido.ayuda}")
         return 2
-    print("ejecutando: " + " ".join(elegido.comando))
-    _, salida = ctx.ejecutar(elegido.comando)
-    if salida.strip():
-        print(salida.strip())
+    if elegido.arreglo:
+        print("escribiendo: " + elegido.arreglo())
+    else:
+        print("ejecutando: " + " ".join(elegido.comando))
+        _, salida = ctx.ejecutar(elegido.comando)
+        if salida.strip():
+            print(salida.strip())
     nuevo = next(r for r in diagnosticar(ctx) if r.id == objetivo)
     print(f"{objetivo}: {nuevo.estado} — {nuevo.detalle}")
     return 1 if nuevo.estado == FALTA else 0

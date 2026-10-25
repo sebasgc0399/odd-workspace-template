@@ -56,6 +56,10 @@ class Falso:
         self.ejecutable = PYTHON_REAL
         self.windows = True
         self.llamadas = []
+        self.entorno = {}
+        self.plugin = base / "plugin-instalado"
+        (self.plugin / "scripts").mkdir(parents=True, exist_ok=True)
+        (self.plugin / "scripts" / "reglas.py").write_text("", encoding="utf-8")
         plugins = self.home / ".claude" / "plugins"
         plugins.mkdir(parents=True)
         if marketplace is not None:
@@ -96,6 +100,14 @@ class Escenario:
         (raiz / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"name": "odd-workspace-template"}), encoding="utf-8")
         if hooks:
             subprocess.run(["git", "config", "core.hooksPath", hooks], cwd=raiz, env=entorno_sin_git(), check=True)
+        return raiz
+
+    def instancia(self, local=None):
+        raiz = self.base / "instancia"
+        (raiz / "tickets" / "T-1").mkdir(parents=True)
+        (raiz / "workspace.config.json").write_text(json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}}}), encoding="utf-8")
+        if local is not None:
+            (raiz / "workspace.local.json").write_bytes(local.encode("utf-8") if isinstance(local, str) else local)
         return raiz
 
     def __exit__(self, *_):
@@ -152,6 +164,105 @@ def test_lista_negra_que_falla_la_autoprueba_es_falta_sin_arreglo_automatico():
         ctx = Falso(e.base, git_real=True, cwd=raiz, respuestas={"autoprueba": (2, "BARRIDO BLOQUEADO: no existe la lista negra (x)\n")})
         r = por_id(ctx)["lista-negra"]
         assert r.estado == "FALTA" and "no existe la lista negra" in r.detalle and r.comando is None and r.ayuda, r
+
+
+def leer_local(raiz):
+    return (raiz / "workspace.local.json").read_bytes()
+
+
+def test_fuera_de_una_instancia_plugin_root_no_aplica():
+    with Escenario() as e:
+        r = por_id(Falso(e.base))["plugin-root"]
+        assert r.estado == "NO APLICA" and "workspace.config.json" in r.detalle, r
+
+
+def test_instancia_sin_plugin_root_es_falta_y_arreglar_lo_anota_conservando_el_resto():
+    with Escenario() as e:
+        raiz = e.instancia(json.dumps({"repos": {"db": {"path": "C:/repos/db"}}, "extra": "ñ"}, ensure_ascii=False))
+        ctx = Falso(e.base, cwd=raiz / "tickets" / "T-1")
+        r = por_id(ctx)["plugin-root"]
+        assert r.estado == "FALTA" and "plugin_root" in r.detalle and r.arreglo is not None, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 1 and "arreglo: --arreglar plugin-root" in salida, salida
+        codigo, salida = correr(["--arreglar", "plugin-root"], ctx)
+        assert codigo == 0, salida
+        crudo = leer_local(raiz)
+        assert not crudo.startswith(b"\xef\xbb\xbf"), crudo[:3]
+        datos = json.loads(crudo.decode("utf-8"))
+        assert datos == {"repos": {"db": {"path": "C:/repos/db"}}, "extra": "ñ", "plugin_root": str(ctx.plugin)}, datos
+        assert por_id(ctx)["plugin-root"].estado == "OK"
+        assert "plugin-root: OK" in salida, salida
+
+
+def test_sin_workspace_local_arreglar_lo_crea():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        assert por_id(ctx)["plugin-root"].estado == "FALTA"
+        codigo, salida = correr(["--arreglar", "plugin-root"], ctx)
+        assert codigo == 0, salida
+        assert json.loads(leer_local(raiz).decode("utf-8")) == {"plugin_root": str(ctx.plugin)}
+
+
+def test_plugin_root_viejo_o_de_otra_copia_es_falta_y_arreglar_lo_corrige():
+    with Escenario() as e:
+        otra = e.base / "otra-version"
+        (otra / "scripts").mkdir(parents=True)
+        (otra / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+        ctx = Falso(e.base)
+        for anotado, rastro in ((str(e.base / "borrada"), "no existe"), (str(otra), "otra copia")):
+            raiz = e.instancia(json.dumps({"plugin_root": anotado}))
+            ctx.cwd = raiz
+            r = por_id(ctx)["plugin-root"]
+            assert r.estado == "FALTA" and rastro in r.detalle and anotado in r.detalle, (anotado, r)
+            codigo, salida = correr(["--arreglar", "plugin-root"], ctx)
+            assert codigo == 0, salida
+            assert json.loads(leer_local(raiz).decode("utf-8")) == {"plugin_root": str(ctx.plugin)}
+            shutil.rmtree(raiz, onexc=_forzar_borrado)
+
+
+def test_plugin_root_que_apunta_al_mismo_plugin_con_otra_forma_es_ok():
+    with Escenario() as e:
+        ctx = Falso(e.base)
+        raiz = e.instancia(json.dumps({"plugin_root": str(ctx.plugin).upper() + os.sep}))
+        ctx.cwd = raiz
+        r = por_id(ctx)["plugin-root"]
+        assert r.estado == "OK", r
+
+
+def test_con_la_copia_de_emergencia_plugin_root_es_ok():
+    with Escenario() as e:
+        raiz = e.instancia()
+        (raiz / ".claude" / "plugin" / "scripts").mkdir(parents=True)
+        (raiz / ".claude" / "plugin" / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+        r = por_id(Falso(e.base, cwd=raiz))["plugin-root"]
+        assert r.estado == "OK" and ".claude/plugin" in r.detalle, r
+
+
+def test_workspace_local_ilegible_es_falta_sin_arreglo_y_no_se_pisa():
+    for malo in ("{no es json", "[1, 2]"):
+        with Escenario() as e:
+            raiz = e.instancia(malo)
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)["plugin-root"]
+            assert r.estado == "FALTA" and r.arreglo is None and r.comando is None and r.ayuda, (malo, r)
+            codigo, salida = correr(["--arreglar", "plugin-root"], ctx)
+            assert codigo == 2, salida
+            assert leer_local(raiz) == malo.encode("utf-8")
+
+
+def test_la_instancia_sale_de_la_carpeta_de_la_sesion():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base)
+        ctx.entorno = {"CLAUDE_PROJECT_DIR": str(raiz / "tickets" / "T-1")}
+        assert por_id(ctx)["plugin-root"].estado == "FALTA"
+
+
+def test_el_plugin_del_contexto_real_es_la_carpeta_del_plugin():
+    ctx = d().Contexto()
+    assert ctx.plugin == AQUI.parent and (ctx.plugin / "scripts" / "reglas.py").is_file(), ctx.plugin
+    assert ctx.entorno is os.environ
 
 
 def test_python_lento_por_el_alias_es_aviso_con_la_ayuda():

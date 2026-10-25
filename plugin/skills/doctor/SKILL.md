@@ -5,7 +5,7 @@ description: Chequeo de la máquina (Capa 0) para trabajar con la plantilla ODD.
 
 # /odd-ws:doctor
 
-Corre el diagnóstico desde el directorio del proyecto (si es un clon de `odd-workspace-template`, también revisa sus hooks y la lista negra):
+Corre el diagnóstico desde el directorio del proyecto (si es un clon de `odd-workspace-template`, también revisa sus hooks y la lista negra; si es una instancia, `plugin-root`: la ruta del plugin que usa su pre-commit, anotada en `workspace.local.json`):
 
 ```bash
 python "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
