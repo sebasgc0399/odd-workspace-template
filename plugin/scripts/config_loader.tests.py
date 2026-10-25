@@ -183,6 +183,67 @@ def test_extension_sin_punto_es_rota():
         assert e.tipo == "rota" and "extensions" in e.razon, e
 
 
+def test_rule_prefix_valido_se_conserva():
+    config = config_valida()
+    config["layers"]["sql"]["rule_prefix"] = "SQL"
+    config["layers"]["web"] = {"extensions": [".cs"], "rule_prefix": "W2"}
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "ok", e
+        assert e.config["layers"]["sql"]["rule_prefix"] == "SQL"
+        assert e.config["layers"]["web"]["rule_prefix"] == "W2"
+
+
+def test_rule_prefix_invalido_es_rota():
+    for malo in ("sql", "1A", "", "S-Q", "SQL ", 3, None, ["SQL"]):
+        config = config_valida()
+        config["layers"]["sql"]["rule_prefix"] = malo
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "rota" and "rule_prefix" in e.razon, (malo, e)
+
+
+def test_rule_prefix_repetido_es_rota():
+    config = config_valida()
+    config["layers"]["sql"]["rule_prefix"] = "SQL"
+    config["layers"]["otra"] = {"extensions": [".txt"], "rule_prefix": "SQL"}
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "rule_prefix" in e.razon and "otra" in e.razon, e
+
+
+def test_capas_no_necesita_las_rutas_de_la_maquina():
+    config = config_valida()
+    config["layers"]["sql"]["rule_prefix"] = "SQL"
+    with Instancia(config=config, local=False) as i:
+        assert m().estado(i.raiz).tipo == "rota", "control: sin workspace.local.json, cargar() la da por rota"
+        capas = m().capas(i.raiz)
+        assert capas["sql"]["rule_prefix"] == "SQL"
+    with Instancia(config=config, local={"repos": {"db": {"path": "C:/no/existe"}}}) as i:
+        assert m().capas(i.raiz)["sql"]["extensions"] == [".sql"]
+
+
+def test_capas_valida_el_resto_del_esquema():
+    casos = []
+    config = config_valida()
+    config["schema_version"] = 2
+    casos.append((config, "schema_version"))
+    config = config_valida()
+    config["layers"]["sql"]["repos"] = ["fantasma"]
+    casos.append((config, "fantasma"))
+    config = config_valida()
+    config["layers"]["sql"]["rule_prefix"] = "sql"
+    casos.append((config, "rule_prefix"))
+    for config, palabra in casos:
+        with Instancia(config=config, local=False) as i:
+            try:
+                m().capas(i.raiz)
+            except m().ConfigRota as error:
+                assert palabra in str(error), (palabra, error)
+            else:
+                raise AssertionError(f"debia ser rota por {palabra}")
+
+
 def test_sin_capas_es_rota():
     config = config_valida()
     config["layers"] = {}
