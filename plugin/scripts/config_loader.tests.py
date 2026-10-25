@@ -244,6 +244,145 @@ def test_capas_valida_el_resto_del_esquema():
                 raise AssertionError(f"debia ser rota por {palabra}")
 
 
+def test_glob_el_asterisco_no_cruza_carpetas():
+    c = m().coincide
+    assert c("a/x.sql", "a/*.sql")
+    assert not c("a/b/x.sql", "a/*.sql")
+    assert not c("a/x.sql", "*.sql")
+    assert c("x.sql", "*.sql")
+    assert not c("a/x.sql", "a?x.sql")
+
+
+def test_glob_doble_asterisco_es_cero_o_mas_carpetas():
+    c = m().coincide
+    for ruta in ("x.sql", "a/x.sql", "a/b/c/x.sql"):
+        assert c(ruta, "**/x.sql"), ruta
+    for ruta in ("a/x.sql", "a/b/x.sql", "a/b/c/d.txt"):
+        assert c(ruta, "a/**"), ruta
+    assert c("a/x/b", "a/**/b") and c("a/b", "a/**/b") and c("a/x/y/b", "a/**/b")
+    assert not c("ab", "a/**/b") and not c("xa/b", "a/**/b")
+
+
+def test_glob_clases_signos_y_mayusculas():
+    c = m().coincide
+    assert c("T-12", "T-[0-9]*") and not c("T-x1", "T-[0-9]*")
+    assert c("b", "[!a]") and not c("a", "[!a]")
+    assert c("a.b", "a?b") and not c("a/b", "a?b")
+    assert c("Tickets/T-1/SQL/X.SQL", "tickets/t-1/sql/x.sql")
+    assert c("a+b(1).sql", "a+b(1).sql") and not c("aab(1).sql", "a+b(1).sql")
+    assert not c("a.sql", "a.sqlx") and not c("a.sqlx", "a.sql")
+
+
+def test_taller_con_la_carpeta_sql_como_hija_directa_del_ticket():
+    config = config_valida()
+    config["layers"]["sql"]["workshop"] = ["tickets/**/T-[0-9]*/SQL/esq.*.sql"]
+    with Instancia(config=config) as i:
+        cargada = m().cargar(i.raiz)
+        for ruta in ("tickets/T-1-x/SQL/esq.uno.sql", "tickets/Publicados/v1/T-22/SQL/esq.dos.sql"):
+            assert m().clasificar(i.raiz / ruta, cargada) == ("sql", "taller"), ruta
+        for ruta in ("tickets/T-1/SQL/sub/esq.uno.sql", "tickets/T-1/otra/SQL/esq.uno.sql",
+                     "tickets/T-1/SQL/otro.uno.sql", "tickets/T-x/SQL/esq.uno.sql", "T-1/SQL/esq.uno.sql"):
+            assert m().clasificar(i.raiz / ruta, cargada) is None, ruta
+
+
+def capa_movil():
+    config = config_valida()
+    config["repos"]["app"] = {}
+    config["layers"]["movil"] = {"extensions": [".java", ".xml"], "repos": ["app"], "match": ["**/*.java", "**/res/**/*.xml"]}
+    return config
+
+
+def test_match_restringe_los_archivos_del_repo_que_reclama_la_capa():
+    with Instancia(config=capa_movil(), local=False) as i:
+        app = i.base / "repos" / "App"
+        app.mkdir(parents=True)
+        (i.raiz / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(i.repo)}, "app": {"path": str(app)}}}), encoding="utf-8")
+        cargada = m().cargar(i.raiz)
+        for ruta in ("src/main/res/values/a.xml", "res/a.xml", "src/A.java", "A.java"):
+            assert m().clasificar(app / ruta, cargada) == ("movil", "app"), ruta
+        for ruta in ("build.xml", "src/resources/a.xml", "fres/a.xml"):
+            assert m().clasificar(app / ruta, cargada) is None, ruta
+
+
+def test_sin_match_la_capa_reclama_toda_su_extension():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "a" / "b" / "Uno.sql", cargada) == ("sql", "db")
+
+
+def test_match_invalido_es_rota():
+    for malo in ("**/*.java", [], [""], [3], None):
+        config = config_valida()
+        config["layers"]["sql"]["match"] = malo
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "rota" and "match" in e.razon, (malo, e)
+
+
+def test_workshop_invalido_es_rota():
+    for malo in ("tickets/**", [""], [3]):
+        config = config_valida()
+        config["layers"]["sql"]["workshop"] = malo
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "rota" and "workshop" in e.razon, (malo, e)
+
+
+def _git(repo, *args):
+    entorno = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-C", str(repo), *args],
+                          capture_output=True, check=True, env=entorno)
+
+
+def repo_con_commit(repo):
+    _git(repo, "init", "-q")
+    (repo / "base.sql").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+
+
+def test_un_worktree_del_repo_cuenta_como_el_repo():
+    for extra in ([], ["--relative-paths"]):
+        with Instancia() as i:
+            repo_con_commit(i.repo)
+            arbol = i.base / "worktrees" / "db--rama"
+            _git(i.repo, "worktree", "add", "-q", *extra, "-b", "rama", str(arbol))
+            cargada = m().cargar(i.raiz)
+            assert m().clasificar(arbol / "sp" / "Uno.sql", cargada) == ("sql", "db"), extra
+            assert m().clasificar(i.base / "worktrees" / "otro" / "Uno.sql", cargada) is None, extra
+
+
+def test_control_sin_registro_de_git_el_worktree_no_se_reconoce():
+    with Instancia() as i:
+        repo_con_commit(i.repo)
+        arbol = i.base / "worktrees" / "db--rama"
+        _git(i.repo, "worktree", "add", "-q", "-b", "rama", str(arbol))
+        shutil.rmtree(i.repo / ".git" / "worktrees", onexc=_forzar_borrado)
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(arbol / "sp" / "Uno.sql", cargada) is None
+
+
+def test_worktree_borrado_o_registro_ilegible_no_rompe_la_carga():
+    with Instancia() as i:
+        repo_con_commit(i.repo)
+        arbol = i.base / "worktrees" / "db--rama"
+        _git(i.repo, "worktree", "add", "-q", "-b", "rama", str(arbol))
+        shutil.rmtree(arbol, onexc=_forzar_borrado)
+        roto = i.repo / ".git" / "worktrees" / "roto"
+        roto.mkdir()
+        (roto / "gitdir").write_bytes(b"\xff\xfe\x00")
+        vacio = i.repo / ".git" / "worktrees" / "vacio"
+        vacio.mkdir()
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "Uno.sql", cargada) == ("sql", "db")
+
+
+def test_un_repo_sin_git_no_rompe_la_carga():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(i.repo / "Uno.sql", cargada) == ("sql", "db")
+
+
 def test_sin_capas_es_rota():
     config = config_valida()
     config["layers"] = {}
