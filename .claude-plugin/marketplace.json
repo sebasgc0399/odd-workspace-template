@@ -1,0 +1,12 @@
+{
+  "name": "odd-workspace-template",
+  "description": "Marketplace personal: el motor de la metodología ODD por capas como plugin",
+  "owner": { "name": "Sebastián Gutiérrez Clavijo" },
+  "plugins": [
+    {
+      "name": "odd-ws",
+      "source": "./plugin",
+      "description": "Motor ODD: hooks deterministas por capa, primer toque, writers con compuerta y revisión con recibo atado al diff"
+    }
+  ]
+}
