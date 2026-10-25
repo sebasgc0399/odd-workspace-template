@@ -196,6 +196,10 @@ def _salida(relativa, hallazgos):
     return 0, json.dumps(contexto), b""
 
 
+def es_hallazgo(h):
+    return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
+
+
 def verificar_archivo(ruta, config):
     info = config_loader.clasificar(ruta, config)
     if info is None:
@@ -209,7 +213,7 @@ def verificar_archivo(ruta, config):
         return None
     modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_modulo_%s" % capa)
     encontrados = modulo.verificar(ctx)
-    hallazgos = [h for h in encontrados if isinstance(h, dict) and h.get("id") and h.get("mensaje")]
+    hallazgos = [h for h in encontrados if es_hallazgo(h)]
     if len(hallazgos) != len(encontrados):
         return None
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])

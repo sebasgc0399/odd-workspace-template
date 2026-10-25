@@ -13,6 +13,10 @@ def chequeo(capa):
     return "%s/verificar_%s.py" % (REGLAS, capa)
 
 
+def prueba(capa):
+    return "%s/verificar_%s.tests.py" % (REGLAS, capa)
+
+
 def skill(capa):
     return ".claude/skills/capa-%s/SKILL.md" % capa
 

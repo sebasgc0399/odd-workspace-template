@@ -59,6 +59,7 @@ def test_partir_bloque_cierre_suelto_queda_fuera():
 
 def test_rutas_de_la_convencion():
     assert m().chequeo("sql") == ".claude/reglas/verificar_sql.py"
+    assert m().prueba("sql") == ".claude/reglas/verificar_sql.tests.py"
     assert m().skill("sql") == ".claude/skills/capa-sql/SKILL.md"
     assert m().revisor("sql") == ".claude/agents/revisor-sql.md"
     assert m().writer("sql") == ".claude/agents/writer-sql.md"
@@ -71,7 +72,7 @@ def test_rutas_de_la_convencion():
 
 
 def test_las_rutas_son_relativas_y_con_barra():
-    for ruta in (m().chequeo("x"), m().skill("x"), m().revisor("x"), m().writer("x"), m().agente("x"), m().CRITERIOS_SKILL,
+    for ruta in (m().chequeo("x"), m().prueba("x"), m().skill("x"), m().revisor("x"), m().writer("x"), m().agente("x"), m().CRITERIOS_SKILL,
                  m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE):
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
