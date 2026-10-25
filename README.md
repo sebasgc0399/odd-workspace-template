@@ -9,7 +9,7 @@ Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una meto
 | Ruta | Qué es |
 |---|---|
 | `.claude-plugin/marketplace.json` | El catálogo: un solo plugin, `odd-ws` |
-| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json` y `skills/doctor` |
+| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor` y `plantillas/pre-commit` (el pre-commit de una instancia) |
 | `tools/barrido.py` | Barrido de confidencialidad |
 | `.githooks/pre-commit` | Autoprueba del barrido, barrido de lo stageado y suites `*.tests.py` |
 | `.githooks/commit-msg` | Barrido del mensaje del commit |

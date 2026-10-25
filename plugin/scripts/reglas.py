@@ -15,19 +15,24 @@ from verificar_capa import es_hallazgo
 
 IGNORADAS = (".git", "node_modules")
 TOPE_DETALLE = 20
+TODAS = object()
 
 
 class ErrorEntorno(Exception):
     pass
 
 
-def _capa(raiz, capa):
+def _declaradas(raiz):
     if not (Path(raiz) / config_loader.NOMBRE).is_file():
         raise ErrorEntorno("no hay %s en %s" % (config_loader.NOMBRE, raiz))
     try:
-        declaradas = config_loader.capas(raiz)
+        return config_loader.capas(raiz)
     except config_loader.ConfigRota as exc:
         raise ErrorEntorno("%s roto: %s" % (config_loader.NOMBRE, exc))
+
+
+def _capa(raiz, capa):
+    declaradas = _declaradas(raiz)
     if capa not in declaradas:
         raise ErrorEntorno("la capa %s no esta declarada en %s (capas: %s)"
                            % (capa, config_loader.NOMBRE, ", ".join(declaradas)))
@@ -131,12 +136,30 @@ def correr_suite(suite):
     return 0
 
 
+def correr_todas(raiz, capas):
+    con = [capa for capa in capas if (Path(raiz) / convencion.prueba(capa)).is_file()]
+    sin = [capa for capa in capas if capa not in con]
+    if sin:
+        print("sin suite: %s" % ", ".join(sin))
+    if not con:
+        print("ninguna capa tiene suite")
+        return 0
+    rojas = []
+    for capa in con:
+        print("== %s: %s" % (capa, convencion.prueba(capa)))
+        if correr_suite(Path(raiz) / convencion.prueba(capa)) != 0:
+            rojas.append(capa)
+    print("suites en rojo: %s" % ", ".join(rojas) if rojas else "suites: %d, todas en verde" % len(con))
+    return 1 if rojas else 0
+
+
 def construir_parser():
     p = argparse.ArgumentParser(prog="reglas.py", allow_abbrev=False,
                                 description="Corridas sueltas del modulo de una capa de la instancia: su suite y su calibracion.")
     modo = p.add_mutually_exclusive_group(required=True)
-    modo.add_argument("--test", metavar="CAPA",
-                      help="corre %s como __main__ y sale con su codigo" % convencion.prueba("<capa>"))
+    modo.add_argument("--test", nargs="?", const=TODAS, metavar="CAPA",
+                      help="corre %s como __main__ y sale con su codigo; sin CAPA, la suite de cada capa que tenga una"
+                      % convencion.prueba("<capa>"))
     modo.add_argument("--calibrar", nargs=2, metavar=("CAPA", "CARPETA"),
                       help="pasa los archivos de la capa bajo CARPETA por %s como nuevos y cuenta los aciertos por regla"
                       % convencion.chequeo("<capa>"))
@@ -154,22 +177,27 @@ def main(argv=None):
             parser.error("--detalle solo va con --calibrar")
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
-    capa = args.test or args.calibrar[0]
+    capa = args.calibrar[0] if args.calibrar else args.test
     try:
         raiz = args.raiz or raiz_de_instancia(os.environ, os.getcwd())
         if raiz is None:
             raise ErrorEntorno("no hay %s en la carpeta de la sesion ni en sus padres (pasa --raiz)" % config_loader.NOMBRE)
-        datos = _capa(raiz, capa)
-        if args.test:
-            suite = _existente(raiz, convencion.prueba(capa), "suite", capa)
+        if capa is TODAS:
+            capas = list(_declaradas(raiz))
         else:
-            carpeta = args.calibrar[1]
-            if not os.path.isdir(carpeta):
-                raise ErrorEntorno("%s no es una carpeta" % carpeta)
-            modulo = _existente(raiz, convencion.chequeo(capa), "modulo", capa)
+            datos = _capa(raiz, capa)
+            if args.test:
+                suite = _existente(raiz, convencion.prueba(capa), "suite", capa)
+            else:
+                carpeta = args.calibrar[1]
+                if not os.path.isdir(carpeta):
+                    raise ErrorEntorno("%s no es una carpeta" % carpeta)
+                modulo = _existente(raiz, convencion.chequeo(capa), "modulo", capa)
     except ErrorEntorno as exc:
         print("reglas: %s" % exc, file=sys.stderr)
         return 2
+    if capa is TODAS:
+        return correr_todas(raiz, capas)
     if args.test:
         return correr_suite(suite)
     return calibrar(modulo, capa, carpeta, {e.lower() for e in datos["extensions"]}, args.detalle)
