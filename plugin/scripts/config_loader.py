@@ -95,8 +95,24 @@ def _globs(capa, nombre, campo):
     if campo not in capa:
         return
     valor = capa[campo]
+    if campo == "workshop" and valor in (None, []):
+        return
     if not isinstance(valor, list) or not valor or not all(isinstance(p, str) and p for p in valor):
         raise ConfigRota(f"layers.{nombre}.{campo} debe ser una lista de globs no vacíos")
+    for patron in valor:
+        try:
+            _glob_a_regex(patron)
+        except re.error as error:
+            raise ConfigRota(f"layers.{nombre}.{campo}: el glob {patron!r} no es válido ({error})")
+
+
+def _cierre_de_clase(parte, i):
+    j = i + 1
+    if j < len(parte) and parte[j] in "!^":
+        j += 1
+    if j < len(parte) and parte[j] == "]":
+        j += 1
+    return parte.find("]", j)
 
 
 def _segmento(parte):
@@ -107,12 +123,13 @@ def _segmento(parte):
             salida.append("[^/]*")
         elif letra == "?":
             salida.append("[^/]")
-        elif letra == "[" and "]" in parte[i + 2:]:
-            fin = parte.index("]", i + 2)
-            clase = parte[i + 1:fin]
-            negada = clase.startswith("!")
-            clase = clase[1:] if negada else clase
-            salida.append("[%s%s]" % ("^/" if negada else "", clase.replace("\\", "\\\\")))
+        elif letra == "[" and _cierre_de_clase(parte, i) != -1:
+            fin = _cierre_de_clase(parte, i)
+            inicio = i + 1
+            negada = parte[inicio] in "!^"
+            clase = parte[inicio + 1 if negada else inicio:fin]
+            clase = "".join("\\" + ch if ch in "\\[]&~|^" else ch for ch in clase)
+            salida.append("[%s%s]" % ("^/" if negada else "", clase))
             i = fin
         else:
             salida.append(re.escape(letra))
@@ -215,9 +232,11 @@ def clasificar(ruta, config):
     archivo = canonica(ruta)
     extension = os.path.splitext(archivo)[1].lower()
     for clave, repo in config["repos"].items():
-        arbol = next((canonica(r) for r in [repo["path"], *repo.get("worktrees", [])] if _dentro(archivo, canonica(r))), None)
-        if arbol is None:
+        arboles = [canonica(r) for r in [repo["path"], *repo.get("worktrees", [])]]
+        arboles = [r for r in arboles if _dentro(archivo, r)]
+        if not arboles:
             continue
+        arbol = max(arboles, key=len)
         relativa = _relativa(archivo, arbol)
         for nombre, capa in config["layers"].items():
             if clave in (capa.get("repos") or []) and _reclama(capa, extension):

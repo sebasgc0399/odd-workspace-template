@@ -328,6 +328,49 @@ def test_workshop_invalido_es_rota():
             assert e.tipo == "rota" and "workshop" in e.razon, (malo, e)
 
 
+def test_workshop_vacio_o_nulo_sigue_siendo_valido_y_no_reclama_nada():
+    for vacio in ([], None):
+        config = config_valida()
+        config["layers"]["sql"]["workshop"] = vacio
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "ok", (vacio, e)
+            assert m().clasificar(i.ticket / "a.sql", e.config) is None, vacio
+            assert m().capas(i.raiz)["sql"]["workshop"] == vacio
+
+
+def test_glob_mal_formado_deja_la_config_rota_en_vez_de_romper():
+    for campo in ("workshop", "match"):
+        for malo in ("tickets/[z-a]*/x.sql", "a[9-0]"):
+            config = config_valida()
+            config["layers"]["sql"][campo] = [malo]
+            with Instancia(config=config) as i:
+                e = m().estado(i.raiz)
+                assert e.tipo == "rota" and campo in e.razon and malo in e.razon, (campo, malo, e)
+
+
+def test_glob_la_clase_negada_con_circunflejo_tampoco_cruza_carpetas():
+    c = m().coincide
+    assert not c("x/y", "x[^a]y") and not c("x/y", "x[!a]y")
+    assert c("xby", "x[^a]y") and not c("xay", "x[^a]y")
+
+
+def test_glob_corchete_de_cierre_al_principio_de_la_clase_es_literal():
+    c = m().coincide
+    assert c("]", "[]]") and c("a]", "a[]x]") and not c("b", "[]]")
+    assert c("a", "[!]]") and not c("]", "[!]]") and not c("/", "[!]]")
+    assert c("x[^]y", "x[^]y") and c("x[!]y", "x[!]y") and c("a[b", "a[b"), "un corchete sin cerrar es literal"
+
+
+def test_glob_caracteres_especiales_dentro_de_la_clase_son_literales():
+    import warnings
+    c = m().coincide
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert c("a[b", "a[[]b") and c("a&b", "a[&]b") and c("a~b", "a[~]b") and c("a|b", "a[|]b")
+        assert c("a\\b", "a[\\]b") and not c("axb", "a[[]b")
+
+
 def _git(repo, *args):
     entorno = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-C", str(repo), *args],
@@ -381,6 +424,19 @@ def test_un_repo_sin_git_no_rompe_la_carga():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)
         assert m().clasificar(i.repo / "Uno.sql", cargada) == ("sql", "db")
+
+
+def test_worktree_dentro_de_la_carpeta_del_repo_aplica_match_desde_su_propia_raiz():
+    config = config_valida()
+    config["layers"]["sql"]["match"] = ["res/**/*.sql"]
+    with Instancia(config=config) as i:
+        repo_con_commit(i.repo)
+        arbol = i.repo / ".worktrees" / "w1"
+        _git(i.repo, "worktree", "add", "-q", "-b", "w1", str(arbol))
+        cargada = m().cargar(i.raiz)
+        assert m().clasificar(arbol / "res" / "a.sql", cargada) == ("sql", "db")
+        assert m().clasificar(i.repo / "res" / "a.sql", cargada) == ("sql", "db")
+        assert m().clasificar(arbol / "otra" / "a.sql", cargada) is None
 
 
 def test_sin_capas_es_rota():
