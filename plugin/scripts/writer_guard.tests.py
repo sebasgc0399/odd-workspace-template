@@ -772,6 +772,24 @@ def test_una_ruta_que_no_se_resuelve_no_usa_el_cwd_del_proceso():
         os.chdir(previo)
 
 
+def test_una_ruta_sin_unidad_toma_la_unidad_del_cwd_del_shell():
+    if not NT:
+        return
+    sin_unidad = fw(DB)[2:]
+    otra = "Z:/otra" if fw(DB)[0].upper() != "Z" else "Y:/otra"
+    previo = os.getcwd()
+    os.chdir(DB)
+    try:
+        comprobar(tabla(["echo x > " + sin_unidad + "/x.sql", "Set-Content " + bw(sin_unidad) + "\\x.sql x",
+                         "cd " + bw(sin_unidad) + " && echo x > y.txt"], False),
+                  con_cwd(["echo x > " + sin_unidad + "/x.sql", "cd " + bw(sin_unidad) + "; Set-Content y.txt x"], otra, False),
+                  con_cwd(["echo x > " + sin_unidad + "/x.sql", "Set-Content " + bw(sin_unidad) + "\\x.sql x",
+                           "cd " + bw(sin_unidad) + "; Set-Content y.txt x"], fw(DB)[:2] + "/", True),
+                  con_cwd(["echo x > /dev/null", "echo x > //srv/sh/x.sql"], REPO_CWD, False))
+    finally:
+        os.chdir(previo)
+
+
 def test_la_carpeta_de_un_cd_con_variable_decide_sola():
     comprobar(tabla(["cd $REPOS/db && echo x > notas.txt", "cd ${REPOS}/web; Set-Content B.cs x", "cd ~/equipo/db && rm x.sql"], True),
               tabla(["cd $NOEXISTE && echo x > notas.txt"], False))
