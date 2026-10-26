@@ -65,6 +65,7 @@ def test_rutas_de_la_convencion():
     assert m().writer("sql") == ".claude/agents/writer-sql.md"
     assert m().agente("writer-sql") == ".claude/agents/writer-sql.md"
     assert m().PRIMER_TOQUE == ".claude/estado/primer-toque"
+    assert m().ESTADO_WRITERS == ".claude/estado/writers"
     assert m().CRITERIOS_SKILL == ".claude/skills/criterios/SKILL.md"
     assert m().CRITERIOS_REFS == ".claude/skills/criterios/references/"
     assert m().EVIDENCIA == ".claude/reglas/evidencia.md"
@@ -73,7 +74,7 @@ def test_rutas_de_la_convencion():
 
 def test_las_rutas_son_relativas_y_con_barra():
     for ruta in (m().chequeo("x"), m().prueba("x"), m().skill("x"), m().revisor("x"), m().writer("x"), m().agente("x"), m().CRITERIOS_SKILL,
-                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE):
+                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE, m().ESTADO_WRITERS):
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 

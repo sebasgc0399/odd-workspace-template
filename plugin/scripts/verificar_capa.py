@@ -4,7 +4,6 @@ sys.dont_write_bytecode = True
 
 import difflib
 import json
-import math
 import os
 import re
 import shutil
@@ -13,9 +12,9 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
-from odd_ws.comun import SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas, raiz_de_instancia
+from odd_ws.comun import (PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas,
+                          plazo_de, raiz_de_instancia)
 
-PLAZO_POR_DEFECTO = 8
 TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
 DIAS_PODA = 7
@@ -23,14 +22,6 @@ REMOTO_HEAD = "refs/remotes/origin/HEAD"
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 _LIMITE = None
-
-
-def plazo_de(argv):
-    try:
-        valor = float(argv[argv.index("--plazo") + 1])
-    except (ValueError, IndexError):
-        return PLAZO_POR_DEFECTO
-    return valor if math.isfinite(valor) and valor > 0 else PLAZO_POR_DEFECTO
 
 
 def _restante(tope):

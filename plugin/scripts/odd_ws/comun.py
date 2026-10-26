@@ -1,10 +1,12 @@
 import importlib.util
+import math
 import os
 import re
 import sys
 
 ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 SILENCIO = (0, "", b"")
+PLAZO_POR_DEFECTO = 8
 
 VARIABLES_DE_REPO_GIT = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
@@ -22,6 +24,14 @@ def entorno_git(base=None):
     env["GIT_CONFIG_KEY_0"] = "diff.autoRefreshIndex"
     env["GIT_CONFIG_VALUE_0"] = "false"
     return env
+
+
+def plazo_de(argv):
+    try:
+        valor = float(argv[argv.index("--plazo") + 1])
+    except (ValueError, IndexError):
+        return PLAZO_POR_DEFECTO
+    return valor if math.isfinite(valor) and valor > 0 else PLAZO_POR_DEFECTO
 
 
 def id_valido(valor):
