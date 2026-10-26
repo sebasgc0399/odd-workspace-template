@@ -2,14 +2,14 @@
 
 Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una metodología de trabajo con agentes donde lo aprendido se vuelve mecanismo verificable (*Mecanismo > Memoria*).
 
-**Estado:** extrayendo el motor (T7). Hay esqueleto, barrido de confidencialidad y `/odd-ws:doctor`; del motor ya están el recibo atado al diff, el validador de la matriz de reglas, el dispatcher de capas (chequeos en cada `Edit` y `Write`), la biblioteca T-SQL, las corridas sueltas de los módulos de capa (`reglas.py`), el guard de los writers (`writer_guard.py`: sin git de escritura ni escritura por shell sobre los repos y el taller) y su compuerta de cierre (`writer_stop.py`: líneas reales contra la foto del primer toque, chequeos de capa y el bloque `## Resultado`).
+**Estado:** extrayendo el motor (T7). Hay esqueleto, barrido de confidencialidad y `/odd-ws:doctor`; del motor ya están el recibo atado al diff, el validador de la matriz de reglas, el dispatcher de capas (chequeos en cada `Edit` y `Write`), la biblioteca T-SQL, las corridas sueltas de los módulos de capa (`reglas.py`), el guard de los writers (`writer_guard.py`: sin git de escritura ni escritura por shell sobre los repos y el taller) y su compuerta de cierre (`writer_stop.py`: líneas reales contra la foto del primer toque, chequeos de capa y el bloque `## Resultado`), la plantilla de los writers y el triaje (`triaje.py`: las señales de riesgo sobre el diff antes de elegir la revisión; el conteo de consumidores todavía no está).
 
 ## Estructura
 
 | Ruta | Qué es |
 |---|---|
 | `.claude-plugin/marketplace.json` | El catálogo: un solo plugin, `odd-ws` |
-| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py`, `writer_guard.py`, `writer_stop.py`, `plantilla_writer.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor` y `plantillas/` (`pre-commit`, el pre-commit de una instancia, y `writer.md`, la plantilla de los writers de la instancia) |
+| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py`, `writer_guard.py`, `writer_stop.py`, `plantilla_writer.py`, `triaje.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor` y `plantillas/` (`pre-commit`, el pre-commit de una instancia, y `writer.md`, la plantilla de los writers de la instancia) |
 | `tools/barrido.py` | Barrido de confidencialidad |
 | `.githooks/pre-commit` | Autoprueba del barrido, barrido de lo stageado y suites `*.tests.py` |
 | `.githooks/commit-msg` | Barrido del mensaje del commit |
