@@ -56,6 +56,18 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
 - `destinos(comando, cwd)` da los destinos de escritura que ve el mismo parser, sin decidir: la compuerta los deja en su sidecar.
 - Falla abierta siempre; `--plazo` (8 s, timeout 10) es el límite del análisis, y al vencer calla.
 
+### Writers: la compuerta de cierre (`writer_stop.py`, L25–L28, L35)
+
+Corre en `SubagentStop` con el matcher `^writer-[a-z0-9][a-z0-9-]*$`, que es `capas.WRITER_RE` anclada (una prueba las ata), y solo actúa con un `agent_type` que la cumple completa. Sin instancia, o con la config rota, calla (P3). De un solo tiro, antes de dejar cerrar al writer:
+
+- **Archivos tocados:** los `file_path` de los `tool_use` `Edit`, `Write` y `MultiEdit` del transcript del subagente, en orden y sin repetir (no del `git status`: el cwd del hook es el de la sesión).
+- **Líneas reales:** contra la foto del primer toque que dejó el guard, con `git diff --no-index --numstat --ignore-cr-at-eol` (un cambio de LF a CRLF no infla); un archivo que no existía cuenta todo como agregado. Sin foto (lo escribió el shell, el guard no pudo guardarla, o pesa más de 8 MB) cae a `HEAD` y lo marca: «contra HEAD: sin foto». Solo lee: nunca toca el índice ni el árbol. Se miden **antes** que los chequeos: son unos pocos git por archivo, y un chequeo lento no las deja sin tiempo.
+- **Chequeos de capa:** `verificar_archivo(ruta, config, limite)` del dispatcher sobre cada archivo; un hallazgo `bloqueo` bloquea y un `aviso` solo queda registrado. Un archivo cuyo chequeo revienta o se queda sin tiempo va a `errores_internos` y no tumba la compuerta.
+- **Formato del cierre:** el último bloque `## Resultado` del último mensaje contra `PLANTILLA`, la constante de `writer_stop.py` que el generador de U6c inserta tal cual en la plantilla de writer. Los campos van en español: `estado` (ok, partial o blocked), `regla`, `intento`, `presupuesto`, `reales`, `arbol` y `verificacion`. Un `<placeholder>` sin completar no valida, y `arbol: sin cambios` con líneas reales medidas es incoherente.
+- **Decisión:** con `stop_hook_active` en `false` y algo faltante, imprime `{"decision": "block", "reason": …}` (JSON en ASCII) con todo junto, las líneas reales y la plantilla: es el único aviso. Con `stop_hook_active` en `true`, o si se rompió una etapa entera, deja cerrar; al dejar cerrar borra las fotos del agente.
+- **Sidecar**, siempre que los ids sean válidos: `.claude/estado/writers/<sesión>/<agente>.json` (`capas.ESTADO_WRITERS`, P5) con los archivos, el numstat, los bloqueos, los avisos, el formato, lo que declaró el writer, `errores_internos` y `escritos_por_bash` (los destinos de los `Bash` y `PowerShell` según `writer_guard.destinos`; es solo información y no cambia la decisión). Se escribe primero con lo que ya se sabe, por si algo revienta después.
+- **Plazo (R-4):** `--plazo 50`, timeout 60. El límite llega a `verificar_archivo` (y por él al `ctx["limite"]` del módulo y a sus git) y a cada git de las líneas reales; al vencer, lo que falta se saltea y la decisión sale igual. Un módulo que ignora `ctx["limite"]` no se puede cortar desde adentro del proceso.
+
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
 Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.

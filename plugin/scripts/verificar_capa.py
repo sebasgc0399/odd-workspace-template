@@ -191,7 +191,17 @@ def es_hallazgo(h):
     return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
 
 
-def verificar_archivo(ruta, config):
+def verificar_archivo(ruta, config, limite=None):
+    global _LIMITE
+    previo = _LIMITE
+    _LIMITE = limite
+    try:
+        return _verificar_archivo(ruta, config)
+    finally:
+        _LIMITE = previo
+
+
+def _verificar_archivo(ruta, config):
     info = config_loader.clasificar(ruta, config)
     if info is None:
         return None
@@ -216,7 +226,7 @@ def _post_tool_use(evento, config):
     ruta = (evento.get("tool_input") or {}).get("file_path")
     if not isinstance(ruta, str) or not ruta:
         return SILENCIO
-    resultado = verificar_archivo(ruta, config)
+    resultado = verificar_archivo(ruta, config, _LIMITE)
     if resultado is None or not resultado[1]:
         return SILENCIO
     return _salida(*resultado)

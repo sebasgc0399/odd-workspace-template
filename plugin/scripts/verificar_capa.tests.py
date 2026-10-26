@@ -712,6 +712,36 @@ def test_el_dispatcher_le_pasa_al_modulo_el_deadline_y_a_git_lo_que_queda():
         assert M._LIMITE is None
 
 
+def test_verificar_archivo_recibe_el_limite_explicito_y_no_lo_deja_colgado():
+    stub = 'def verificar(ctx):\n    return [{"id": "T-09", "modo": "aviso", "severidad": "", "linea": None, "fragmento": None, "mensaje": "L=%r" % ctx.get("limite")}]\n'
+    with Mundo() as w:
+        w.modulo("web", stub)
+        escribir(w.web, "Core/A.cs", "uno\n")
+        commitear(w.web)
+        ruta = escribir(w.web, "Core/A.cs", "uno\ndos\n")
+        config = w.config()
+        timeouts = []
+        original = M.subprocess.run
+
+        def espia(*a, **k):
+            timeouts.append(k.get("timeout"))
+            return original(*a, **k)
+
+        limite = time.monotonic() + 3
+        with subprocess_falso(espia):
+            r = M.verificar_archivo(ruta, config, limite)
+        assert r[1][0]["mensaje"] == "L=%r" % limite, r
+        assert timeouts and all(0 < t <= 3 for t in timeouts), timeouts
+        assert M._LIMITE is None
+        assert M.verificar_archivo(ruta, config)[1][0]["mensaje"] == "L=None"
+        try:
+            M.verificar_archivo(ruta, config, time.monotonic() - 1)
+            assert False, "sin tiempo no llega al modulo"
+        except subprocess.TimeoutExpired:
+            pass
+        assert M._LIMITE is None
+
+
 def test_sin_tiempo_para_git_falla_abierto_sin_colgarse():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
