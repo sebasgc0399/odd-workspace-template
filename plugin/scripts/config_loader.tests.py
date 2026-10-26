@@ -238,6 +238,20 @@ def test_agent_readonly_que_no_es_booleano_es_rota():
                 raise AssertionError(f"capas() debia dar rota con {malo!r}")
 
 
+def test_repos_que_no_es_un_objeto_es_rota_tambien_en_capas():
+    config = config_valida()
+    config["repos"] = ["db"]
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "repos" in e.razon, e
+        try:
+            m().capas(i.raiz)
+        except m().ConfigRota as error:
+            assert "repos" in str(error), error
+        else:
+            raise AssertionError("capas() debia dar rota con repos como lista")
+
+
 def test_capas_no_necesita_las_rutas_de_la_maquina():
     config = config_valida()
     config["layers"]["sql"]["rule_prefix"] = "SQL"

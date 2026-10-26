@@ -705,6 +705,76 @@ def test_las_menciones_salen_del_token_del_igual_de_la_opcion_y_de_las_comas():
         assert capa_2(m, "echo x/%s; git commit -m x" % db, "C:\\proyecto") == (None, None), "una ruta pegada en medio no se ve"
 
 
+def test_una_ruta_con_espacios_escapados_con_barra_tambien_toca():
+    with carpeta() as base:
+        repo = base / "con espacio" / "repo x"
+        repo.mkdir(parents=True)
+        prot = G.Protegidos({"repos": {"esp": {"path": str(repo), "worktrees": [], "agent_readonly": True}}})
+        gb = "/" + fw(repo)[0].lower() + fw(repo)[2:]
+        escapada = gb.replace(" ", "\\ ")
+        for comando in ("cd %s && git commit -m x" % escapada, "git -C %s commit -m x" % escapada,
+                        "pushd %s; git commit -m x" % escapada, "cd %s/ && git add ." % escapada,
+                        "git -C %s push" % fw(repo).replace(" ", "\\ ")):
+            resultado, motivo = G.analizar(comando, "C:\\proyecto", ENTORNO, prot)
+            assert resultado == "ask" and "«esp»" in motivo, (comando, motivo)
+        assert G.analizar("git -C %s status" % escapada, "C:\\proyecto", ENTORNO, prot) == (None, None)
+        for comando in ("git -C C:\\proyecto\\ commit -m x", "cd C:\\otra\\ carpeta && git commit -m x"):
+            assert G.analizar(comando, "C:\\proyecto", ENTORNO, prot) == (None, None), comando
+        en_ps = "cd %s && git commit -m x" % escapada
+        assert G.analizar(en_ps, "C:\\proyecto", ENTORNO, prot, "PowerShell") == (None, None), "en PowerShell la barra no escapa"
+        assert G.analizar('bash -c "%s"' % en_ps, "C:\\proyecto", ENTORNO, prot, "PowerShell")[0] == "ask"
+        assert G.analizar(en_ps, "C:\\proyecto", ENTORNO, prot, "Bash")[0] == "ask"
+        dentro = str(repo / "sub")
+        for comando, herramienta in (("git --git-dir C:\\ blame f.sql", "PowerShell"),
+                                     ("powershell -NoProfile -Command 'git -C C:\\ -C D:/x for-each-ref'", "Bash")):
+            assert G.analizar(comando, dentro, ENTORNO, prot, herramienta) == (None, None), (comando, herramienta)
+        assert G.analizar("git --git-dir C:\\ blame f.sql", dentro, ENTORNO, prot, "Bash")[0] == "ask", "bash lee C:\\ blame como una ruta"
+        codigo, salida, _ = G.correr(evento(en_ps, cwd="C:\\proyecto", herramienta="PowerShell"), entorno=ENTORNO)
+        assert (codigo, salida) == (0, ""), "sin instancia calla"
+        igual = base / "a=b" / "repo"
+        igual.mkdir(parents=True)
+        prot = G.Protegidos({"repos": {"igual": {"path": str(igual), "worktrees": [], "agent_readonly": True}}})
+        assert G.analizar("export R=%s; git commit -m x" % fw(igual), "C:\\proyecto", ENTORNO, prot)[0] == "ask"
+
+
+def test_la_forma_canonica_rapida_es_la_misma_que_la_de_config_loader():
+    with mundo() as m:
+        prot = m.protegidos()
+        rutas_ = [m.repos["db"], m.repos["db"] / "no" / "existe.sql", m.worktree / "x", m.equipo, m.equipo / "nada" / "db",
+                  m.base / "db.", m.repos["db"].parent / "db." / "x", m.base]
+        if NT:
+            enlace = m.base / "enlace"
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(m.repos["db"])], capture_output=True, check=True)
+            rutas_ += [enlace, enlace / "sub" / "x.sql"]
+        try:
+            for ruta in rutas_:
+                r = G.rutas.ubicar(str(ruta), None)
+                assert prot._canonica(r) == G.config_loader.canonica(r), (r, prot._canonica(r), G.config_loader.canonica(r))
+                for arbol, _ in prot.arboles + [(G.config_loader.canonica("C:/"), "raiz"), (G.config_loader.canonica("D:/x"), "otra")]:
+                    c = prot._canonica(r)
+                    assert G._bajo(c, arbol) == G.config_loader._dentro(c, arbol), (c, arbol)
+                    assert G._bajo(arbol, c) == G.config_loader._dentro(arbol, c), (arbol, c)
+            hondo = G.rutas.ubicar(fw(m.base) + "/" + "/".join("s%d" % i for i in range(1500)), None)
+            assert prot._canonica(hondo) == G.config_loader.canonica(hondo)
+        finally:
+            if NT:
+                os.rmdir(enlace)
+
+
+def test_los_candidatos_de_un_token_largo_respetan_el_plazo():
+    token = ",".join("k%d=C:/x%d" % (i, i) for i in range(600))
+    assert len(G._candidatos(token[:4000])) < 2000
+    G._LIMITE = 0.0
+    try:
+        G._candidatos(token)
+    except G._SinTiempo:
+        pass
+    else:
+        raise AssertionError("_candidatos no corta con el plazo vencido")
+    finally:
+        G._LIMITE = None
+
+
 def test_un_separador_escapado_no_se_lee_como_la_raiz_de_la_unidad():
     with mundo() as m:
         for comando in ("find . -exec git stash pop \\;", 'echo \\"; git commit -m x', "git ls-files | xargs -I{} echo {}\\; git push"):
@@ -756,14 +826,15 @@ def test_un_token_que_no_es_una_ruta_no_llega_a_realpath():
     with mundo() as m:
         prot = m.protegidos()
         vistas = []
-        original = G.config_loader.canonica
+        original, existe = G.config_loader.canonica, G._existe
         G.config_loader.canonica = lambda ruta: vistas.append(ruta) or original(ruta)
+        G._existe = lambda ruta: vistas.append(ruta) or existe(ruta)
         try:
             for comando in ('echo "a\x00b"; git commit -m x', 'echo "a\nb c"; git commit -m x',
                             "echo " + "x/" * 2100 + "; git commit -m x"):
                 assert G.analizar(comando, "C:\\proyecto", ENTORNO, prot) == (None, None), comando[:40]
         finally:
-            G.config_loader.canonica = original
+            G.config_loader.canonica, G._existe = original, existe
         assert vistas and not [r for r in vistas if "\x00" in r or "\n" in r or len(r) > G.MAX_RUTA], [r[:60] for r in vistas]
 
 
@@ -835,10 +906,24 @@ def test_con_la_config_rota_todo_git_que_no_es_de_lectura_pregunta_en_cualquier_
 
 def test_una_config_que_revienta_al_leerse_cuenta_como_rota():
     with carpeta() as base:
-        inst = instancia(base, {"schema_version": 1, "repos": ["db"], "layers": {"doc": {"extensions": [".x"]}}})
+        inst = instancia(base, {"schema_version": 1, "repos": {"db": "texto"}, "layers": {"doc": {"extensions": [".x"]}}})
+        (inst / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(base)}}}), encoding="utf-8")
+        try:
+            config_loader.cargar(inst)
+        except config_loader.ConfigRota:
+            raise AssertionError("control: esta config tiene que reventar con algo que no es ConfigRota")
+        except Exception:
+            pass
         prot = G.Protegidos.de_instancia(inst)
         assert prot.activa and prot.rota, prot.rota
         assert "configuración de la instancia rota" in _razon(G.correr(evento("git commit -m x"), entorno=entorno_de(inst)))
+
+
+def test_el_hook_lee_el_escape_segun_la_herramienta_del_evento():
+    with mundo() as m:
+        comando = "git --git-dir C:\\ blame f.sql"
+        assert G.correr(evento(comando, cwd=str(m.repos["db"]), herramienta="PowerShell"), entorno=entorno_de(m.inst)) == (0, "", b"")
+        assert G.correr(evento(comando, cwd=str(m.repos["db"]), herramienta="Bash"), entorno=entorno_de(m.inst))[1], "Bash lee C:\\ blame"
 
 
 def test_con_el_plazo_vencido_pregunta_si_hay_repos_marcados():
@@ -850,7 +935,8 @@ def test_con_el_plazo_vencido_pregunta_si_hay_repos_marcados():
         assert G.correr(evento("git commit -m x", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=1e-9) == (0, "", b"")
     with carpeta() as base:
         inst = instancia(base, "{ rota")
-        assert "no terminó dentro del plazo" in _razon(G.correr(evento("ls"), entorno=entorno_de(inst), plazo=1e-9))
+        razon = _razon(G.correr(evento("ls"), entorno=entorno_de(inst), plazo=1e-9))
+        assert "no terminó dentro del plazo" in razon and "no se puede leer como JSON" in razon, razon
 
 
 def test_una_falla_interna_pregunta_si_la_capa_2_esta_activa():
@@ -878,6 +964,10 @@ def test_una_falla_interna_pregunta_si_la_capa_2_esta_activa():
                 assert razon and "falla sembrada" in razon, (nombre, razon)
             with mundo(None) as m:
                 assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst)) == (0, "", b""), nombre
+            with carpeta() as base:
+                inst = instancia(base, "{ rota")
+                razon = _razon(G.correr(evento("git status"), entorno=entorno_de(inst)))
+                assert "falla sembrada" in razon and "no se puede leer como JSON" in razon, (nombre, razon)
         finally:
             setattr(G, nombre, original)
 
