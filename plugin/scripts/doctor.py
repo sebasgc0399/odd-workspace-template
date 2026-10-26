@@ -10,6 +10,8 @@ from collections import namedtuple
 from pathlib import Path
 
 import config_loader
+import plantilla_writer
+from odd_ws import capas as convencion
 
 MARKETPLACE = "odd-workspace-template"
 URL_MARKETPLACE = "https://github.com/sebasgc0399/odd-workspace-template.git"
@@ -30,6 +32,13 @@ AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/tel
 AYUDA_ENGRAM = "Actualizá engram a 3.5 o superior desde su release oficial (en Windows, renombrá el .exe en uso antes de reemplazarlo)."
 AYUDA_JQ = "scoop install jq (lo exige engram setup)."
 AYUDA_LOCAL = "Se arregla a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
+AYUDA_CONFIG = f"Arreglá {config_loader.NOMBRE} (el detalle dice qué está roto) y volvé a correr el doctor."
+AYUDA_WRITER_EDITADO = ("Pasá tu cambio a la description (en una sola línea) o a un bloque <!-- instancia:... -->. Para volver a la plantilla, "
+                        "sacá el archivo de .claude/agents, corré --arreglar con su id y copiá tu texto a los bloques del nuevo.")
+AYUDA_WRITER_AJENO = ("Sacalo de .claude/agents, corré --arreglar con su id y pasá tu texto a la description y a los bloques "
+                      "<!-- instancia:... --> del nuevo: así la plantilla lo mantiene.")
+AYUDA_WRITER_NOMBRE = f"Renombrá la capa en {config_loader.NOMBRE} con minúsculas, dígitos y guiones, empezando por letra o dígito."
+AYUDA_WRITER_ILEGIBLE = "Guardalo en UTF-8 y volvé a correr el doctor."
 COPIA_DE_EMERGENCIA = ".claude/plugin"
 
 Resultado = namedtuple("Resultado", "id estado detalle comando ayuda arreglo")
@@ -123,8 +132,12 @@ def anotar_plugin_root(local, datos, plugin):
     return f"plugin_root = {plugin} en {local}"
 
 
+def raiz_de_instancia(ctx):
+    return config_loader.encontrar_raiz(config_loader.inicio_de_sesion(ctx.entorno, str(ctx.cwd)))
+
+
 def chequear_plugin_root(ctx):
-    raiz = config_loader.encontrar_raiz(config_loader.inicio_de_sesion(ctx.entorno, str(ctx.cwd)))
+    raiz = raiz_de_instancia(ctx)
     if raiz is None:
         return resultado("plugin-root", NO_APLICA, f"no estás dentro de una instancia (no hay {config_loader.NOMBRE})")
     if (raiz / COPIA_DE_EMERGENCIA / "scripts" / "reglas.py").is_file():
@@ -150,6 +163,47 @@ def chequear_plugin_root(ctx):
         return resultado("plugin-root", FALTA, f"plugin_root = {anotado} es otra copia del plugin; el doctor corre desde {ctx.plugin}",
                          arreglo=arreglo)
     return resultado("plugin-root", OK, f"plugin_root = {anotado}")
+
+
+def chequear_writers(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    try:
+        declaradas = config_loader.capas(raiz)
+    except config_loader.ConfigRota as error:
+        return [resultado("writers", FALTA, f"no se pueden revisar los writers: {error}", None, AYUDA_CONFIG)]
+    return [chequear_writer(raiz, capa) for capa in declaradas]
+
+
+def chequear_writer(raiz, capa):
+    id, ruta = f"writer-{capa}", convencion.writer(capa)
+    revision = plantilla_writer.revisar(raiz, capa)
+    actual = plantilla_writer.version()
+
+    def arreglo():
+        return f"{plantilla_writer.escribir(raiz, capa)} (plantilla v{actual})"
+
+    if revision.codigo == "nombre":
+        return resultado(id, AVISO, f"la capa «{capa}» no puede tener writer: {id} no cumple {convencion.WRITER_RE.pattern}, "
+                                    "y ni el guard ni la compuerta lo reconocerían", None, AYUDA_WRITER_NOMBRE)
+    if revision.codigo == "falta":
+        return resultado(id, AVISO, f"falta {ruta}: sin writer, la capa {capa} no se puede delegar", arreglo=arreglo)
+    if revision.codigo == "ilegible":
+        return resultado(id, FALTA, f"{ruta} no se puede leer como UTF-8", None, AYUDA_WRITER_ILEGIBLE)
+    if revision.codigo == "ajeno":
+        return resultado(id, FALTA, f"{ruta} no lo generó la plantilla (le faltan odd-ws-plantilla u odd-ws-hash)", None, AYUDA_WRITER_AJENO)
+    if revision.codigo == "malformado":
+        return resultado(id, FALTA, f"{ruta}: los bloques de la instancia están mal formados (sin cerrar, cruzados o repetidos)", None,
+                         AYUDA_WRITER_EDITADO)
+    if revision.codigo == "editado":
+        return resultado(id, FALTA, f"{ruta} se editó fuera de los bloques de la instancia: regenerarlo pisaría ese cambio", None,
+                         AYUDA_WRITER_EDITADO)
+    if revision.codigo == "atrasado":
+        detalle = (f"{ruta} está en la plantilla v{revision.version} y el plugin trae la v{actual}" if revision.version != actual
+                   else f"{ruta}: regenerarlo lo cambiaría (plantilla v{actual})")
+        return resultado(id, AVISO, detalle, arreglo=arreglo)
+    return resultado(id, OK, f"{ruta} al día (plantilla v{actual})")
 
 
 def chequear_python(ctx):
@@ -231,6 +285,7 @@ def diagnosticar(ctx):
         chequear_repo_hooks(ctx, raiz),
         chequear_lista_negra(ctx, raiz),
         chequear_plugin_root(ctx),
+        *chequear_writers(ctx),
         chequear_python(ctx),
         chequear_credenciales(ctx),
         claude,

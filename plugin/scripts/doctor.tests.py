@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -102,10 +103,11 @@ class Escenario:
             subprocess.run(["git", "config", "core.hooksPath", hooks], cwd=raiz, env=entorno_sin_git(), check=True)
         return raiz
 
-    def instancia(self, local=None):
+    def instancia(self, local=None, capas=("sql",)):
         raiz = self.base / "instancia"
         (raiz / "tickets" / "T-1").mkdir(parents=True)
-        (raiz / "workspace.config.json").write_text(json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}}}), encoding="utf-8")
+        layers = {capa: {"extensions": [".%s" % capa]} for capa in capas}
+        (raiz / "workspace.config.json").write_text(json.dumps({"schema_version": 1, "layers": layers}), encoding="utf-8")
         if local is not None:
             (raiz / "workspace.local.json").write_bytes(local.encode("utf-8") if isinstance(local, str) else local)
         return raiz
@@ -257,6 +259,139 @@ def test_la_instancia_sale_de_la_carpeta_de_la_sesion():
         ctx = Falso(e.base)
         ctx.entorno = {"CLAUDE_PROJECT_DIR": str(raiz / "tickets" / "T-1")}
         assert por_id(ctx)["plugin-root"].estado == "FALTA"
+
+
+def pw():
+    return importlib.import_module("plantilla_writer")
+
+
+def writer_de(raiz, capa):
+    return raiz / ".claude" / "agents" / ("writer-%s.md" % capa)
+
+
+def poner_writer(raiz, capa, texto, crlf=False):
+    ruta = writer_de(raiz, capa)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes((texto.replace("\n", "\r\n") if crlf else texto).encode("utf-8"))
+    return ruta
+
+
+def plantilla_sin_limites():
+    texto = re.sub(r"<!-- instancia:limites -->\n.*?<!-- /instancia:limites -->\n", "", pw().leer_plantilla(), count=1, flags=re.S)
+    return re.sub(r"(?m)^odd-ws-plantilla: \d+$", "odd-ws-plantilla: 0", texto, count=1)
+
+
+def test_fuera_de_una_instancia_no_hay_items_de_writers():
+    with Escenario() as e:
+        ids = list(por_id(Falso(e.base)))
+        assert not [i for i in ids if i.startswith("writer")], ids
+
+
+def test_writer_que_falta_es_aviso_con_arreglo_y_no_hace_fallar_la_salida():
+    with Escenario() as e:
+        raiz = e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")}))
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["writer-sql"]
+        assert r.estado == "AVISO" and ".claude/agents/writer-sql.md" in r.detalle and r.arreglo is not None, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0 and "arreglo: --arreglar writer-sql" in salida, salida
+
+
+def test_arreglar_crea_el_writer_que_falta():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz / "tickets" / "T-1")
+        codigo, salida = correr(["--arreglar", "writer-sql"], ctx)
+        assert codigo == 0 and "writer-sql: OK" in salida, salida
+        crudo = writer_de(raiz, "sql").read_bytes()
+        assert crudo.decode("utf-8") == pw().generar("sql") and b"\r\n" not in crudo and not crudo.startswith(b"\xef\xbb\xbf")
+        assert por_id(ctx)["writer-sql"].estado == "OK"
+
+
+def test_arreglar_va_de_a_un_writer():
+    with Escenario() as e:
+        raiz = e.instancia(capas=("sql", "web"))
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)
+        assert r["writer-sql"].estado == "AVISO" and r["writer-web"].estado == "AVISO", r
+        codigo, salida = correr(["--arreglar", "writer-web"], ctx)
+        assert codigo == 0, salida
+        assert writer_de(raiz, "web").is_file() and not writer_de(raiz, "sql").exists()
+        r = por_id(ctx)
+        assert r["writer-web"].estado == "OK" and r["writer-sql"].estado == "AVISO", r
+
+
+def test_writer_al_dia_es_ok_aunque_el_checkout_lo_deje_en_crlf():
+    with Escenario() as e:
+        raiz = e.instancia()
+        poner_writer(raiz, "sql", pw().generar("sql"), crlf=True)
+        r = por_id(Falso(e.base, cwd=raiz))["writer-sql"]
+        assert r.estado == "OK" and "v%d" % pw().version() in r.detalle, r
+
+
+def test_writer_atrasado_es_aviso_y_arreglar_lo_regenera_conservando_lo_de_la_instancia():
+    with Escenario() as e:
+        raiz = e.instancia()
+        viejo = pw().generar("sql", plantilla=plantilla_sin_limites())
+        viejo = re.sub(r"(<!-- instancia:identidad -->\n).*?(<!-- /instancia:identidad -->)",
+                       lambda m: m.group(1) + "Identidad propia.\n" + m.group(2), viejo, count=1, flags=re.S)
+        viejo = re.sub(r"(?m)^description:.*$", 'description: "Description propia"', viejo, count=1)
+        poner_writer(raiz, "sql", viejo)
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["writer-sql"]
+        assert r.estado == "AVISO" and "v0" in r.detalle and "v%d" % pw().version() in r.detalle and r.arreglo, r
+        codigo, salida = correr(["--arreglar", "writer-sql"], ctx)
+        assert codigo == 0 and "writer-sql: OK" in salida, salida
+        nuevo = writer_de(raiz, "sql").read_text(encoding="utf-8")
+        assert "Identidad propia.\n" in nuevo and 'description: "Description propia"' in nuevo and "instancia:limites" in nuevo, nuevo
+
+
+def test_writer_editado_fuera_de_los_bloques_es_falta_sin_arreglo_y_no_se_pisa():
+    with Escenario() as e:
+        raiz = e.instancia()
+        texto = pw().generar("sql").replace("Nunca reviertas", "Revierte si hace falta", 1)
+        ruta = poner_writer(raiz, "sql", texto)
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["writer-sql"]
+        assert r.estado == "FALTA" and "fuera de los bloques" in r.detalle and r.arreglo is None and r.comando is None and r.ayuda, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 1, salida
+        codigo, salida = correr(["--arreglar", "writer-sql"], ctx)
+        assert codigo == 2 and r.ayuda in salida, salida
+        assert ruta.read_bytes() == texto.encode("utf-8")
+
+
+def test_writer_escrito_a_mano_ilegible_o_con_bloques_rotos_es_falta_sin_arreglo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        casos = (("---\nname: writer-sql\ndescription: \"a mano\"\n---\nEscrito a mano.\n", "plantilla"),
+                 (pw().generar("sql").replace("<!-- /instancia:limites -->\n", "", 1), "bloques"))
+        for texto, rastro in casos:
+            poner_writer(raiz, "sql", texto)
+            r = por_id(ctx)["writer-sql"]
+            assert r.estado == "FALTA" and rastro in r.detalle and r.arreglo is None and r.ayuda, (rastro, r)
+        writer_de(raiz, "sql").write_bytes(b"\xff\xfe")
+        r = por_id(ctx)["writer-sql"]
+        assert r.estado == "FALTA" and "UTF-8" in r.detalle and r.arreglo is None, r
+
+
+def test_capa_cuyo_nombre_no_sirve_para_un_writer_es_aviso_sin_arreglo():
+    with Escenario() as e:
+        raiz = e.instancia(capas=("sql", "C_Sharp"))
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert r["writer-sql"].estado == "AVISO", r
+        malo = r["writer-C_Sharp"]
+        assert malo.estado == "AVISO" and malo.arreglo is None and malo.comando is None and "writer-[a-z0-9]" in malo.detalle and malo.ayuda, malo
+
+
+def test_config_rota_da_un_solo_item_de_writers_en_falta():
+    with Escenario() as e:
+        raiz = e.instancia()
+        (raiz / "workspace.config.json").write_text('{"schema_version": 1, "layers": {}}', encoding="utf-8")
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert [i for i in r if i.startswith("writer")] == ["writers"], list(r)
+        assert r["writers"].estado == "FALTA" and "layers" in r["writers"].detalle and r["writers"].arreglo is None and r["writers"].ayuda, r
 
 
 def test_el_plugin_del_contexto_real_es_la_carpeta_del_plugin():
