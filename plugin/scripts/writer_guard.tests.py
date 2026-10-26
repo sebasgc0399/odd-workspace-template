@@ -441,13 +441,14 @@ def test_s19_un_ajeno_no_toma_foto():
     comprobar(fallos)
 
 
-def _mediana(args, entrada, n=15):
-    tiempos = []
+def _minimos(casos, n=15):
+    tiempos = [[] for _ in casos]
     for _ in range(n):
-        t0 = time.perf_counter()
-        subprocess.run(args, input=entrada, capture_output=True)
-        tiempos.append(time.perf_counter() - t0)
-    return sorted(tiempos)[n // 2]
+        for (args, entrada), lista in zip(casos, tiempos):
+            t0 = time.perf_counter()
+            subprocess.run(args, input=entrada, capture_output=True)
+            lista.append(time.perf_counter() - t0)
+    return [min(lista) for lista in tiempos]
 
 
 def test_s19_main_como_hook_real_sin_writer_es_noop_y_barato():
@@ -458,9 +459,8 @@ def test_s19_main_como_hook_real_sin_writer_es_noop_y_barato():
         r = _hook(e)
         esperar(fallos, (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "no-op con %r: %r" % (e.get("agent_type"), r))
     esperar(fallos, _hook(dict(sin, agent_type="writer-web")).returncode == 2, "con un writer bloquea")
-    pelado = _mediana([sys.executable, "-c", "pass"], b"")
-    noop = _mediana([sys.executable, str(_RUTA)], json.dumps(sin).encode("utf-8"))
-    print("      latencia no-op: %.1f ms; python pelado: %.1f ms" % (noop * 1000, pelado * 1000))
+    pelado, noop = _minimos([([sys.executable, "-c", "pass"], b""), ([sys.executable, str(_RUTA)], json.dumps(sin).encode("utf-8"))])
+    print("      latencia mínima no-op: %.1f ms; python pelado: %.1f ms" % (noop * 1000, pelado * 1000))
     esperar(fallos, noop < pelado * 1.5 + 0.015, "el no-op queda cerca del arranque pelado: %.1f ms contra %.1f ms" % (noop * 1000, pelado * 1000))
     comprobar(fallos)
 
