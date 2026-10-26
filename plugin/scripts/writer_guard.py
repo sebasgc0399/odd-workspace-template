@@ -82,7 +82,7 @@ DRIVE = re.compile(r"^[a-z]:")
 UNIDAD_ABSOLUTA = re.compile(r"^[a-z]:/")
 UNIDAD_SOLA = re.compile(r"[A-Za-z]:")
 GIT_BASH_DRIVE = re.compile(r"^/([a-z])/")
-COMODIN = re.compile(r"[*?\[]")
+COMODIN = re.compile(r"[*?\[{]|[@+!]$")
 VARIABLE_RE = re.compile(r"\$\{(\w+)\}|\$env:(\w+)|\$(\w+)|%(\w+)%", re.IGNORECASE)
 
 _COLECTOR = None
