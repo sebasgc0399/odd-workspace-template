@@ -1,3 +1,5 @@
+import re
+
 MARCA_ABRE = "<!-- no-negociables -->"
 MARCA_CIERRA = "<!-- /no-negociables -->"
 
@@ -7,6 +9,12 @@ EVIDENCIA = REGLAS + "/evidencia.md"
 CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
+ESTADO_WRITERS = ".claude/estado/writers"
+WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
+
+
+def es_writer(nombre):
+    return isinstance(nombre, str) and WRITER_RE.fullmatch(nombre) is not None
 
 
 def chequeo(capa):

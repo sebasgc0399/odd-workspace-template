@@ -252,6 +252,19 @@ def test_raiz_de_instancia_prefiere_claude_project_dir():
         assert m().raiz_de_instancia({}, str(otra)) is None
 
 
+def test_plazo_de_lee_el_argumento_sin_poder_fallar():
+    assert m().PLAZO_POR_DEFECTO == 8
+    assert m().plazo_de([]) == 8
+    assert m().plazo_de(["--plazo", "25"]) == 25
+    assert m().plazo_de(["x", "--plazo", "2.5"]) == 2.5
+    for malo in (["--plazo"], ["--plazo", "x"], ["--plazo", "0"], ["--plazo", "-3"], ["--plazo", "nan"], ["--plazo", "inf"]):
+        assert m().plazo_de(malo) == 8, malo
+
+
+def test_el_dispatcher_usa_el_mismo_plazo_de():
+    assert importlib.import_module("verificar_capa").plazo_de is m().plazo_de
+
+
 def _version_plugin():
     return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
 
