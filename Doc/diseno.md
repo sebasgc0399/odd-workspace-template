@@ -79,6 +79,15 @@ Cada writer de la instancia, `.claude/agents/writer-<capa>.md`, sale de una plan
 - **Huella:** `odd-ws-hash` es el sha256 de lo que es del plugin: sin BOM, con CRLF → LF (un checkout con `autocrlf` no es una edición), con los valores de `description` y del propio hash vacíos y con los bloques vacíos por dentro (las marcas cuentan).
 - **Ítems del doctor**, uno por capa declarada (`writer-<capa>`): falta → AVISO, `--arreglar` lo crea; atrasado (la huella está intacta, pero regenerarlo lo cambiaría) → AVISO, `--arreglar` lo regenera; editado fuera de los bloques, escrito a mano (sin `odd-ws-plantilla` u `odd-ws-hash`), con bloques mal formados o ilegible → FALTA sin arreglo, y el generador nunca lo pisa; una capa cuyo nombre no cumple `capas.WRITER_RE` → AVISO sin arreglo (ni el guard ni la compuerta reconocerían ese writer). Sin instancia no hay ítems; con la config rota, un solo ítem `writers` en FALTA. El writer es opcional: el motor funciona sin él, y el primer toque solo sugiere delegar cuando existe.
 
+### Guard de comandos (`guard_comandos.py`, L48, L49)
+
+Corre en `PreToolUse` de `Bash` y `PowerShell` (`--plazo 8`, timeout 10) para la sesión principal y para todo subagente. Está reescrito en Python a partir del guard del proyecto de origen, que era de PowerShell (L48: medio segundo por comando, y su suite sumaba más de 3 minutos al pre-commit). Sin instancia, calla (P3).
+
+- **Capa 1** (en cualquier repo; bloquea con exit 2 y el mensaje en bytes UTF-8): `git push --force` o `-f` (también dentro de un bloque como `-uf`, y aunque el mismo push lleve `--force-with-lease`), un refspec `+` sin un `--force-with-lease` sobre esa misma ref, `git reset --hard` y `git clean -f` (también abreviados: `--ha`, `--fo`), y los borrados recursivos fuera del scratch (`rm -r`, `Remove-Item -Recurse`, `rd /s`, también detrás de `xargs`, `eval`, `cmd /c`, `find -exec`, `ForEach-Object`, sustituciones y bloques). No lee la config: con la config rota sigue bloqueando (L49).
+- **Texto, no ejecución:** se analiza el comando sin lo que va entre comillas, y el cuerpo de un heredoc es texto salvo que lo reciba un shell o un intérprete (`bash`, `sh`, `zsh`, `pwsh`, `powershell`, `python` o `node`). Un mensaje de commit que menciona `push --force` pasa.
+- **Scratch:** `<temporales>/claude/`, con la carpeta de `os.tmpdir()` de Node (`comun.temporal`, la misma de `writer_guard`). Un borrado pasa solo si **todos** sus destinos son rutas absolutas literales estrictamente dentro del scratch, con los `..` resueltos y la ruta canónica (una junction hacia afuera bloquea). Una variable, una sustitución, una ruta relativa, una entrada por pipe o una comilla ambigua no se pueden probar, y bloquean. A diferencia del origen, solo vale el temporal del usuario actual, en su unidad.
+- Falla abierta y, al vencer el plazo, calla. La Capa 2 (U8b) falla cerrada.
+
 ### Triaje (`triaje.py`, L43)
 
 Antes de elegir la revisión, el triaje calcula sobre el diff las señales de riesgo y propone el modo. Las señales **solo escalan**: cada una sale positiva, negativa o inválida (el instrumento no pudo medir), y «rápido» sale únicamente con todas en negativo.

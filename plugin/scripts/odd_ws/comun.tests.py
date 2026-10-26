@@ -265,6 +265,23 @@ def test_el_dispatcher_usa_el_mismo_plazo_de():
     assert importlib.import_module("verificar_capa").plazo_de is m().plazo_de
 
 
+def test_temporal_sigue_el_orden_de_os_tmpdir_de_node():
+    if os.name == "nt":
+        assert m().temporal({"TEMP": "C:\\a", "TMP": "C:\\b", "SYSTEMROOT": "C:\\w"}) == "C:\\a"
+        assert m().temporal({"TMP": "C:\\b", "SYSTEMROOT": "C:\\w"}) == "C:\\b"
+        assert m().temporal({"SYSTEMROOT": "C:\\w"}) == os.path.join("C:\\w", "temp")
+        assert m().temporal({"WINDIR": "C:\\v"}) == os.path.join("C:\\v", "temp")
+        assert m().temporal({"TMPDIR": "C:\\c"}) is None
+    else:
+        assert m().temporal({"TMPDIR": "/a", "TEMP": "/b"}) == "/a"
+        assert m().temporal({"TEMP": "/b"}) == "/tmp"
+
+
+def test_los_dos_guards_usan_el_mismo_temporal():
+    for nombre in ("writer_guard", "guard_comandos"):
+        assert importlib.import_module(nombre).temporal is m().temporal, nombre
+
+
 def _version_plugin():
     return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
 
