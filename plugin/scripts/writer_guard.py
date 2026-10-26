@@ -82,6 +82,7 @@ DRIVE = re.compile(r"^[a-z]:")
 UNIDAD_ABSOLUTA = re.compile(r"^[a-z]:/")
 UNIDAD_SOLA = re.compile(r"[A-Za-z]:")
 GIT_BASH_DRIVE = re.compile(r"^/([a-z])/")
+COMODIN = re.compile(r"[*?\[]")
 VARIABLE_RE = re.compile(r"\$\{(\w+)\}|\$env:(\w+)|\$(\w+)|%(\w+)%", re.IGNORECASE)
 
 _COLECTOR = None
@@ -141,8 +142,8 @@ class Zonas:
     def es_scratch(self, ruta):
         return isinstance(ruta, str) and bool(ruta) and self._scratch_canonica(config_loader.canonica(ruta))
 
-    def _en_repo(self, canonica):
-        return any(config_loader._dentro(canonica, arbol) for arbol in self.arboles)
+    def _alcanza_un_repo(self, canonica):
+        return any(config_loader._dentro(canonica, arbol) or config_loader._dentro(arbol, canonica) for arbol in self.arboles)
 
     def archivo(self, ruta):
         if ruta not in self._archivos:
@@ -150,7 +151,7 @@ class Zonas:
             c = config_loader.canonica(ruta)
             if self._scratch_canonica(c):
                 self._archivos[ruta] = False
-            elif self._en_repo(c):
+            elif self._alcanza_un_repo(c):
                 self._archivos[ruta] = True
             else:
                 self._archivos[ruta] = (config_loader._dentro(c, self.raiz)
@@ -163,7 +164,7 @@ class Zonas:
             c = config_loader.canonica(ruta)
             if self._scratch_canonica(c):
                 self._carpetas[ruta] = False
-            elif self._en_repo(c):
+            elif self._alcanza_un_repo(c):
                 self._carpetas[ruta] = True
             elif not config_loader._dentro(c, self.raiz):
                 self._carpetas[ruta] = False
@@ -423,7 +424,20 @@ def _decidir(ruta, cwd):
     r = _ubicar(expandida, cwd)
     if r is None or r.lower() in NULOS:
         return False
-    return _ZONAS.archivo(r)
+    if _ZONAS.archivo(r):
+        return True
+    prefijo = _antes_del_comodin(expandida)
+    carpeta = _ubicar(prefijo, cwd) if prefijo is not None else None
+    return carpeta is not None and _ZONAS.carpeta(carpeta)
+
+
+def _antes_del_comodin(ruta):
+    m = COMODIN.search(ruta)
+    if m is None:
+        return None
+    previo = ruta[:m.start()]
+    corte = max(previo.rfind("/"), previo.rfind("\\"))
+    return previo[:corte + 1]
 
 
 def _zona(ruta, cwd):
