@@ -360,12 +360,22 @@ def _expandir(ruta, cwd):
     return "".join(salida), None
 
 
+def _unidad(cwd):
+    c = _normalizar(cwd) if cwd else ""
+    return c[:2] if UNIDAD_ABSOLUTA.match(c.lower()) else None
+
+
 def _ubicar(ruta, cwd):
     r = _normalizar(ruta)
     if _es_relativa(r):
         if not cwd:
             return None
         r = _normalizar(cwd) + "/" + r
+    elif os.name == "nt" and r.startswith("/") and not r.startswith("//"):
+        unidad = _unidad(cwd)
+        if unidad is None:
+            return None
+        r = unidad + r
     if not _absoluta(r):
         return None
     r = posixpath.normpath(r)
