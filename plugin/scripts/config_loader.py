@@ -57,7 +57,14 @@ def _molde(valor, donde):
     return valor
 
 
+def _banderas(config):
+    for clave, valores in (config.get("repos") or {}).items():
+        if isinstance(valores, dict) and "agent_readonly" in valores and not isinstance(valores["agent_readonly"], bool):
+            raise ConfigRota(f"repos.{clave}.agent_readonly debe ser true o false, no {valores['agent_readonly']!r}")
+
+
 def _repos(config, local):
+    _banderas(config)
     rutas = local.get("repos") or {}
     repos = {}
     for clave, valores in (config.get("repos") or {}).items():
@@ -202,6 +209,7 @@ def capas(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     molde = _molde((config.get("defaults") or {}).get("mold_source", "repo"), "defaults.mold_source")
+    _banderas(config)
     return _capas(config, config.get("repos") or {}, molde)
 
 

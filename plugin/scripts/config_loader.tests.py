@@ -212,6 +212,32 @@ def test_rule_prefix_repetido_es_rota():
         assert e.tipo == "rota" and "rule_prefix" in e.razon and "otra" in e.razon, e
 
 
+def test_agent_readonly_booleano_se_conserva():
+    for valor in (True, False):
+        config = config_valida()
+        config["repos"]["db"] = {"agent_readonly": valor}
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "ok" and e.config["repos"]["db"]["agent_readonly"] is valor, (valor, e)
+    with Instancia() as i:
+        assert "agent_readonly" not in m().estado(i.raiz).config["repos"]["db"]
+
+
+def test_agent_readonly_que_no_es_booleano_es_rota():
+    for malo in ("true", 1, 0, None, [], {}):
+        config = config_valida()
+        config["repos"]["db"] = {"agent_readonly": malo}
+        with Instancia(config=config) as i:
+            e = m().estado(i.raiz)
+            assert e.tipo == "rota" and "repos.db.agent_readonly" in e.razon, (malo, e)
+            try:
+                m().capas(i.raiz)
+            except m().ConfigRota as error:
+                assert "agent_readonly" in str(error), error
+            else:
+                raise AssertionError(f"capas() debia dar rota con {malo!r}")
+
+
 def test_capas_no_necesita_las_rutas_de_la_maquina():
     config = config_valida()
     config["layers"]["sql"]["rule_prefix"] = "SQL"

@@ -490,15 +490,72 @@ def decision(comando, entorno=ENTORNO, cwd=None):
     return G.analizar(comando, cwd, entorno)[0]
 
 
-def test_casos_del_origen_en_la_capa_1():
-    tabla = valores(EQUIPO_SINTETICO)
-    fallos = []
-    for nombre, comando, cwd, esperado in CASOS:
-        resultado, motivo = G.analizar(_r(comando, tabla), _r(cwd, tabla), ENTORNO)
-        if (resultado == "block") != (esperado == "block"):
-            fallos.append("  %s: esperado %s, salio %s (%s)" % (nombre, esperado, resultado, motivo))
-    assert len(CASOS) == 370 and sum(1 for c in CASOS if c[3] == "block") == 88, len(CASOS)
-    assert not fallos, "\n" + "\n".join(fallos)
+class Mundo:
+    def __init__(self, base, bandera, fuera):
+        self.base = base
+        self.equipo = base / "equipo"
+        self.git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(base / "gitconfig"))
+        for clave in [k for k in self.git_env if k.upper().startswith("GIT_") and k.upper() not in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")]:
+            del self.git_env[clave]
+        (base / "gitconfig").write_text("[user]\n\tname = prueba\n\temail = prueba@example.com\n", encoding="utf-8")
+        self.repos = {"db": self.equipo / "db", "api": self.equipo / "web" / "api", "movil": self.equipo / "web" / "movil"}
+        for ruta in self.repos.values():
+            ruta.mkdir(parents=True)
+            self.git(ruta, "init", "-q")
+        self.git(self.repos["db"], "commit", "-q", "--allow-empty", "-m", "base")
+        self.worktree = self.equipo / "worktrees" / "db--x"
+        self.git(self.repos["db"], "worktree", "add", "-q", "-b", "x", str(self.worktree))
+        self.fuera = None
+        if fuera:
+            self.fuera = base / "afuera" / "wt"
+            self.git(self.repos["db"], "worktree", "add", "-q", "-b", "y", str(self.fuera))
+        valor = {} if bandera is None else {"agent_readonly": bandera}
+        config = {"schema_version": 1, "repos": {clave: dict(valor) for clave in self.repos},
+                  "layers": {"doc": {"extensions": [".x"]}}}
+        self.inst = instancia(base, config)
+        local = {"repos": {clave: {"path": str(ruta)} for clave, ruta in self.repos.items()}}
+        (self.inst / "workspace.local.json").write_text(json.dumps(local), encoding="utf-8")
+
+    def git(self, carpeta, *args):
+        subprocess.run(["git", "-C", str(carpeta), *args], check=True, capture_output=True, env=self.git_env, timeout=60)
+
+    def protegidos(self):
+        return G.Protegidos.de_instancia(self.inst)
+
+
+@contextlib.contextmanager
+def mundo(bandera=True, fuera=False):
+    with carpeta() as base:
+        yield Mundo(base, bandera, fuera)
+
+
+ESPERADO = {"allow": None, "ask": "ask", "block": "block"}
+
+
+def test_casos_del_origen_con_la_decision_exacta():
+    with mundo() as m:
+        tabla = valores(m.equipo)
+        prot = m.protegidos()
+        assert prot.activa and prot.rota is None, prot.rota
+        fallos = []
+        for nombre, comando, cwd, esperado in CASOS:
+            resultado, motivo = G.analizar(_r(comando, tabla), _r(cwd, tabla), ENTORNO, prot)
+            if resultado != ESPERADO[esperado]:
+                fallos.append("  %s: esperado %s, salio %s (%s)" % (nombre, esperado, resultado, motivo))
+    conteo = {d: sum(1 for c in CASOS if c[3] == d) for d in ESPERADO}
+    assert len(CASOS) == 370 and conteo == {"allow": 92, "ask": 190, "block": 88}, conteo
+    assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
+
+
+def test_sin_la_bandera_lo_que_preguntaba_pasa_y_la_capa_1_sigue():
+    for bandera in (None, False):
+        with mundo(bandera) as m:
+            tabla = valores(m.equipo)
+            prot = m.protegidos()
+            assert not prot.activa and prot.rota is None, (bandera, prot.rota)
+            for nombre, comando, cwd, esperado in CASOS:
+                resultado = G.analizar(_r(comando, tabla), _r(cwd, tabla), ENTORNO, prot)[0]
+                assert resultado == ("block" if esperado == "block" else None), (bandera, nombre, resultado)
 
 
 BORDES_CAPA_1 = [
@@ -562,6 +619,278 @@ def test_cada_regla_da_su_propio_motivo():
     for comando, inicio in casos:
         resultado, motivo = G.analizar(comando, None, ENTORNO)
         assert resultado == "block" and motivo.startswith(inicio), (comando, motivo)
+
+
+def capa_2(m, comando, cwd=None, entorno=ENTORNO):
+    return G.analizar(comando, None if cwd is None else str(cwd), entorno, m.protegidos())
+
+
+def test_el_motivo_nombra_el_repo_y_la_bandera_sin_dominio():
+    with mundo() as m:
+        resultado, motivo = capa_2(m, "git commit -m x", m.repos["api"])
+        assert resultado == "ask", (resultado, motivo)
+        assert motivo.startswith("git commit en el repo «api», que el agente solo lee (repos.api.agent_readonly"), motivo
+        assert motivo.endswith("requiere autorización puntual. Confirmar solo si es deliberado y autorizado."), motivo
+        casos = [("git switch otra", "worktree add"), ("git checkout -- x.sql", "descarta trabajo sin commitear"),
+                 ("git gc", "fuera de la lista de git de solo lectura"), ("git log --output=x", "esa opción escribe o ejecuta"),
+                 ("git -c alias.x=!sh x", "opción global fuera de la lista"), ('echo \\"; git status', "comillas escapadas"),
+                 ("$g push", "un comando en una variable"), ("Set-Alias g git; g push", "un alias hacia git"),
+                 ("GIT_SSH_COMMAND=x git fetch", "una variable GIT_*")]
+        for comando, parte in casos:
+            resultado, motivo = capa_2(m, comando, m.repos["db"])
+            assert resultado == "ask" and parte in motivo and "«db»" in motivo, (comando, motivo)
+            assert capa_2(m, comando, "C:\\proyecto") == (None, None), "fuera de un repo protegido, %s pasa" % comando
+
+
+def test_un_worktree_registrado_cuenta_como_su_repo_y_una_copia_no():
+    with mundo(fuera=True) as m:
+        assert capa_2(m, "git commit -m x", m.fuera)[0] == "ask"
+        assert "«db»" in capa_2(m, "git -C %s commit -m x" % fw(m.fuera), "C:\\proyecto")[1]
+        copia = m.base / "afuera" / "copia"
+        copia.mkdir()
+        m.git(copia, "init", "-q")
+        assert capa_2(m, "git commit -m x", copia) == (None, None)
+        assert capa_2(m, "git -C %s commit -m x" % fw(copia), m.repos["db"]) == (None, None)
+        shutil.rmtree(m.repos["db"] / ".git" / "worktrees", onexc=_quitar)
+        assert capa_2(m, "git commit -m x", m.fuera) == (None, None), "control: sin el registro de git, el worktree no se reconoce"
+
+
+def test_protege_por_contencion_y_no_por_el_nombre():
+    with mundo() as m:
+        homonimo = m.base / "otro" / "equipo" / "db"
+        homonimo.mkdir(parents=True)
+        assert capa_2(m, "git commit -m x", homonimo) == (None, None)
+        assert capa_2(m, "git -C %s push" % fw(homonimo), "C:\\proyecto") == (None, None)
+        assert capa_2(m, "git -C %s push" % str(m.repos["db"]).upper(), "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, "git -C /%s%s push" % (fw(m.repos["db"])[0].lower(), fw(m.repos["db"])[2:]), "C:\\proyecto")[0] == "ask"
+        if NT:
+            enlace = m.base / "enlace"
+            r = subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(m.repos["db"])], capture_output=True)
+            assert r.returncode == 0, r
+            try:
+                assert capa_2(m, "git commit -m x", enlace)[0] == "ask"
+                assert capa_2(m, "git -C %s commit -m x" % fw(enlace), "C:\\proyecto")[0] == "ask"
+            finally:
+                os.rmdir(enlace)
+
+
+def test_el_cwd_cuenta_solo_si_esta_dentro_de_un_repo_protegido():
+    with mundo() as m:
+        assert capa_2(m, "git commit -m x", m.repos["db"] / "sub")[0] == "ask"
+        assert capa_2(m, "git commit -m x", m.equipo) == (None, None)
+        assert capa_2(m, "git commit -m x", m.equipo / "web") == (None, None)
+
+
+def test_una_mencion_que_contiene_un_repo_protegido_tambien_toca():
+    with mundo() as m:
+        eq = fw(m.equipo)
+        for comando in ("cd %s; cd db; git commit -m x" % eq, "cd %s && git -C db commit -m x" % eq,
+                        "cd %s/web && git -C api push" % eq, "Push-Location %s; git commit -m x" % bw(m.equipo)):
+            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
+        assert capa_2(m, "git add .", m.equipo)[0] == "ask", "costo aceptado en L53"
+        assert capa_2(m, "cd %s/../otro && git commit -m x" % eq, "C:\\proyecto") == (None, None)
+        assert capa_2(m, "cd %s/web/apis && git commit -m x" % eq, "C:\\proyecto") == (None, None)
+
+
+def test_las_menciones_salen_del_token_del_igual_de_la_opcion_y_de_las_comas():
+    with mundo() as m:
+        db = fw(m.repos["db"])
+        for comando in ("GIT_DIR=%s/.git git commit -m x" % db, "export R=%s; git commit -m x" % db, "x=y=%s; git commit -m x" % db,
+                        "Set-Location -Path:%s; git commit -m x" % bw(m.repos["db"]), "ls a,%s; git commit -m x" % db,
+                        "(cd %s) ; git commit -m x" % db, "$(cd %s); git commit -m x" % db, "echo x >%s/y; git commit -m x" % db,
+                        "eval \"cd %s\"; git commit -m x" % db, "bash -c \"ls '%s'\"; git commit -m x" % db):
+            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
+        assert capa_2(m, 'git commit -m "docs: %s es de solo lectura"' % db, "C:\\proyecto") == (None, None)
+        assert capa_2(m, "git commit -m %s" % db, "C:\\proyecto")[0] == "ask", "sin espacio, la mención cuenta (como el origen)"
+        assert capa_2(m, "echo x/%s; git commit -m x" % db, "C:\\proyecto") == (None, None), "una ruta pegada en medio no se ve"
+
+
+def test_un_separador_escapado_no_se_lee_como_la_raiz_de_la_unidad():
+    with mundo() as m:
+        for comando in ("find . -exec git stash pop \\;", 'echo \\"; git commit -m x', "git ls-files | xargs -I{} echo {}\\; git push"):
+            assert capa_2(m, comando, "C:\\proyecto") == (None, None), comando
+        assert capa_2(m, "cd / && git -C %s commit -m x" % fw(m.repos["db"])[3:], "C:\\proyecto")[0] == "ask", "la raíz literal sí cuenta"
+
+
+def test_variables_y_comodines_en_una_mencion_cortan_en_la_carpeta_conocida():
+    with mundo() as m:
+        entorno = dict(ENTORNO, REPOS=str(m.equipo))
+        eq = fw(m.equipo)
+        for comando in ("cd $REPOS/db && git commit -m x", "cd ${REPOS}/web/api && git push", "cd %REPOS%\\db && git commit -m x",
+                        "cd $env:REPOS\\db; git commit -m x", "cd $env:repos\\db; git commit -m x", "cd %s/$NADA && git commit -m x" % eq,
+                        "cd %s/d* && git commit -m x" % eq, "cd %s/{db,web} && git commit -m x" % eq):
+            assert capa_2(m, comando, "C:\\proyecto", entorno)[0] == "ask", comando
+        assert capa_2(m, "cd $NADA/db && git commit -m x", "C:\\proyecto", entorno) == (None, None)
+        assert capa_2(m, "cd $PWD/db && git commit -m x", m.equipo, entorno)[0] == "ask"
+        assert capa_2(m, "cd $PWD/db && git commit -m x", "C:\\proyecto", entorno) == (None, None)
+
+
+def test_la_ruta_propia_absoluta_decide_sola_y_las_relativas_se_encadenan():
+    with mundo() as m:
+        db = m.repos["db"]
+        assert capa_2(m, "git -C C:/proyecto commit -m x", db) == (None, None)
+        assert capa_2(m, "git --git-dir=C:/proyecto/.git commit -m x", db) == (None, None)
+        assert capa_2(m, "git -C %s -C db commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, "git -C %s/web -C api --work-tree . commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, "git -C C:/proyecto -C sub commit -m x", db) == (None, None)
+        assert capa_2(m, "git -C sub commit -m x", db)[0] == "ask", "relativa sin base: decide el ambiente"
+        assert capa_2(m, "git -C C:x commit -m x", db)[0] == "ask", "relativa a la unidad: no es absoluta"
+        assert capa_2(m, "git -C %s/$NADA commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
+        otra = fw(m.base / "otra")
+        assert capa_2(m, "git -C %s -C ../equipo/db commit -m x" % otra, "C:\\proyecto")[0] == "ask", "la cadena llega al repo"
+        assert capa_2(m, "git -C %s -C ../afuera commit -m x" % otra, "C:\\proyecto") == (None, None)
+        for prefijo in ("\\\\?\\", "\\\\.\\"):
+            assert capa_2(m, "git -C %s%s commit -m x" % (prefijo, bw(db)), "C:\\proyecto")[0] == "ask", prefijo
+
+
+def test_redirecciones_y_cierres_no_se_leen_como_el_subcomando():
+    with mundo() as m:
+        db = m.repos["db"]
+        for comando in ("git 2> err.txt status", "git status 2>&1 > log.txt", "(git status)", "$(git log --oneline)",
+                        "{ git diff; }", "echo `git status`"):
+            assert capa_2(m, comando, db) == (None, None), comando
+        assert capa_2(m, "(git commit -m x)", db)[0] == "ask"
+
+
+def test_un_token_que_no_es_una_ruta_no_llega_a_realpath():
+    with mundo() as m:
+        prot = m.protegidos()
+        vistas = []
+        original = G.config_loader.canonica
+        G.config_loader.canonica = lambda ruta: vistas.append(ruta) or original(ruta)
+        try:
+            for comando in ('echo "a\x00b"; git commit -m x', 'echo "a\nb c"; git commit -m x',
+                            "echo " + "x/" * 2100 + "; git commit -m x"):
+                assert G.analizar(comando, "C:\\proyecto", ENTORNO, prot) == (None, None), comando[:40]
+        finally:
+            G.config_loader.canonica = original
+        assert vistas and not [r for r in vistas if "\x00" in r or "\n" in r or len(r) > G.MAX_RUTA], [r[:60] for r in vistas]
+
+
+def test_la_compuerta_tambien_se_abre_por_una_mencion():
+    with mundo() as m:
+        db = fw(m.repos["db"])
+        for comando in ("cd %s && GIT_SSH_COMMAND=x git fetch" % db, 'cd %s; echo \\"; git status' % db):
+            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
+            assert capa_2(m, comando.replace(db, "C:/proyecto/sub"), "C:\\proyecto") == (None, None), comando
+
+
+def test_un_heredoc_a_un_shell_hace_codigo_tambien_al_otro_heredoc_como_el_origen():
+    with mundo() as m:
+        db = fw(m.repos["db"])
+        commit = "git commit -F - <<'EOF'\nnota %s git push\nEOF\n" % db
+        assert capa_2(m, commit + "ls", "C:\\proyecto") == (None, None)
+        assert capa_2(m, commit + "cat <<'X' | bash\necho hola\nX", "C:\\proyecto")[0] == "ask"
+
+
+def test_cada_subcomando_de_git_escribe_de_writer_guard_pregunta():
+    spec = importlib.util.spec_from_file_location("writer_guard_escribe", AQUI / "writer_guard.py")
+    w = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(w)
+    assert len(w.GIT_ESCRIBE) == 20
+    with mundo() as m:
+        db = m.repos["db"]
+        for sub in sorted(w.GIT_ESCRIBE):
+            assert capa_2(m, "git %s" % sub, db)[0] == "ask", sub
+            assert capa_2(m, "git -C %s %s x" % (fw(db), sub), "C:\\proyecto")[0] == "ask", sub
+        assert capa_2(m, "git branch -d x", db)[0] == "ask"
+
+
+def test_pregunta_con_json_limpio_en_stdout_y_exit_0():
+    with mundo() as m:
+        for herramienta in ("Bash", "PowerShell"):
+            codigo, salida, error = G.correr(evento("git commit -m x", cwd=str(m.repos["db"]), herramienta=herramienta),
+                                             entorno=entorno_de(m.inst))
+            assert (codigo, error) == (0, b"") and salida.endswith("\n") and salida.isascii(), (codigo, salida, error)
+            datos = json.loads(salida)
+            hso = datos["hookSpecificOutput"]
+            assert set(datos) == {"hookSpecificOutput"} and set(hso) == {"hookEventName", "permissionDecision", "permissionDecisionReason"}, datos
+            assert (hso["hookEventName"], hso["permissionDecision"]) == ("PreToolUse", "ask"), hso
+            assert hso["permissionDecisionReason"].startswith("guard-comandos pregunta antes de correr el comando: git commit en el repo «db»"), hso
+        assert G.correr(evento("git push --force origin x", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst))[0] == 2
+        assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst)) == (0, "", b"")
+
+
+def _razon(resultado):
+    return json.loads(resultado[1])["hookSpecificOutput"]["permissionDecisionReason"] if resultado[1] else None
+
+
+def test_con_la_config_rota_todo_git_que_no_es_de_lectura_pregunta_en_cualquier_repo():
+    with carpeta() as base:
+        inst = instancia(base, {"schema_version": 1, "repos": {"db": {"agent_readonly": True}}, "layers": {"doc": {"extensions": [".x"]}}})
+        prot = G.Protegidos.de_instancia(inst)
+        assert prot.activa and "db" in prot.rota, prot.rota
+        for comando in ("git commit -m x", "git -C C:/proyecto push", "git add ."):
+            resultado = G.correr(evento(comando, cwd="C:\\proyecto"), entorno=entorno_de(inst))
+            razon = _razon(resultado)
+            assert resultado[0] == 0 and razon and "configuración de la instancia rota" in razon and "falta la ruta del repo 'db'" in razon, (comando, resultado)
+        for comando in ("git status", "git log --oneline", "ls"):
+            assert G.correr(evento(comando, cwd="C:\\proyecto"), entorno=entorno_de(inst)) == (0, "", b""), comando
+        assert G.correr(evento("git reset --hard", cwd="C:\\proyecto"), entorno=entorno_de(inst))[0] == 2
+    with mundo("true") as m:
+        prot = m.protegidos()
+        assert "agent_readonly" in prot.rota, prot.rota
+        assert "agent_readonly" in _razon(G.correr(evento("git commit -m x", cwd="C:\\proyecto"), entorno=entorno_de(m.inst)))
+
+
+def test_una_config_que_revienta_al_leerse_cuenta_como_rota():
+    with carpeta() as base:
+        inst = instancia(base, {"schema_version": 1, "repos": ["db"], "layers": {"doc": {"extensions": [".x"]}}})
+        prot = G.Protegidos.de_instancia(inst)
+        assert prot.activa and prot.rota, prot.rota
+        assert "configuración de la instancia rota" in _razon(G.correr(evento("git commit -m x"), entorno=entorno_de(inst)))
+
+
+def test_con_el_plazo_vencido_pregunta_si_hay_repos_marcados():
+    with mundo() as m:
+        resultado = G.correr(evento("git status", cwd=str(m.base)), entorno=entorno_de(m.inst), plazo=1e-9)
+        assert resultado[0] == 0 and "no terminó dentro del plazo" in _razon(resultado), resultado
+        assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=8) == (0, "", b"")
+    with mundo(False) as m:
+        assert G.correr(evento("git commit -m x", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=1e-9) == (0, "", b"")
+    with carpeta() as base:
+        inst = instancia(base, "{ rota")
+        assert "no terminó dentro del plazo" in _razon(G.correr(evento("ls"), entorno=entorno_de(inst), plazo=1e-9))
+
+
+def test_una_falla_interna_pregunta_si_la_capa_2_esta_activa():
+    original = G._invocacion
+
+    def revienta(*_a, **_k):
+        raise RuntimeError("falla sembrada")
+
+    G._invocacion = revienta
+    try:
+        with mundo() as m:
+            resultado = G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst))
+            razon = _razon(resultado)
+            assert resultado[0] == 0 and "error interno" in razon and "falla sembrada" in razon, resultado
+        with mundo(None) as m:
+            assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst)) == (0, "", b"")
+    finally:
+        G._invocacion = original
+    for nombre in ("Segmentos", "_capa_1"):
+        original = getattr(G, nombre)
+        setattr(G, nombre, revienta)
+        try:
+            with mundo() as m:
+                razon = _razon(G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst)))
+                assert razon and "falla sembrada" in razon, (nombre, razon)
+            with mundo(None) as m:
+                assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst)) == (0, "", b""), nombre
+        finally:
+            setattr(G, nombre, original)
+
+
+def test_el_hook_real_pregunta_como_proceso():
+    with mundo() as m:
+        entorno = dict(os.environ, **entorno_de(m.inst))
+        entorno.pop("PYTHONDONTWRITEBYTECODE", None)
+        datos = json.dumps(evento("git commit -m x", cwd=str(m.repos["db"]))).encode("utf-8")
+        r = subprocess.run([sys.executable, str(_RUTA), "--plazo", "8"], input=datos, capture_output=True, env=entorno,
+                           cwd=str(m.base), timeout=60)
+        assert r.returncode == 0 and r.stderr == b"", r
+        assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask", r.stdout
 
 
 def test_sin_instancia_calla_aunque_sea_un_push_forzado():
@@ -701,6 +1030,17 @@ def test_el_hook_real_como_proceso():
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
         r = correr_hook(b"\x00 basura")
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
+
+
+def test_los_dos_guards_resuelven_las_rutas_con_odd_ws_rutas():
+    from odd_ws import rutas
+    spec = importlib.util.spec_from_file_location("writer_guard_atado", AQUI / "writer_guard.py")
+    w = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(w)
+    assert G.rutas is rutas
+    for nombre in ("normalizar", "es_relativa", "caso", "unidad", "ubicar", "absoluta", "antes_del_comodin"):
+        assert getattr(w, "_" + nombre) is getattr(rutas, nombre), nombre
+    assert not any(hasattr(w, n) for n in ("DRIVE", "UNIDAD_ABSOLUTA", "UNIDAD_SOLA", "GIT_BASH_DRIVE", "COMODIN", "VARIABLE_RE"))
 
 
 def _hooks_del_plugin():
