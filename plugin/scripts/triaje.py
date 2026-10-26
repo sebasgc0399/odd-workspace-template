@@ -18,6 +18,8 @@ from odd_ws import tsql
 from odd_ws.comun import cargar_por_ruta, lineas, raiz_de_instancia
 
 TOPE_BYTES = 2000000
+UMBRAL_CONSUMIDORES = 2
+TOPE_OBJETOS = 20
 DOC_EXT = (".md", ".txt", ".rst")
 SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 LENGUAJES = {".sql": tsql}
@@ -33,7 +35,7 @@ NO_DETECTABLE = (
     "consumidores por reflexión, textos armados o configuración en datos: solo se cuenta el nombre literal.",
     "forma del result set de un SP, códigos de error y estados numéricos que consume otra capa.",
     "enums y constantes compartidas entre capas; la semántica de un valor que cambia sin cambiar su tipo.",
-    "contrato, objetos y tipos de dinero de los lenguajes sin biblioteca de señales (hoy solo hay T-SQL).",
+    "contrato y tipos de dinero de los lenguajes sin biblioteca de señales (hoy solo hay T-SQL); sus consumidores dejan la señal inválida.",
     "efecto hacia un sistema que no esté en los marcadores de la instancia ({marcadores} en {senales}).",
     "dinero con un nombre fuera de la lista de la instancia ({nombres} nombres; el tipo se detecta donde hay biblioteca).",
 )
@@ -280,6 +282,92 @@ def recolectar_taller(ruta, config):
     return c
 
 
+# ---------------------------------------------------------------- consumidores
+
+def _rama_y_hash(clon):
+    try:
+        rama = recibo.rama_por_defecto(clon)
+    except recibo.ErrorEntorno:
+        return None, None
+    r = _git(clon, "rev-parse", "--verify", "--quiet", rama + "^{commit}")
+    return (rama, r.stdout.decode("utf-8", errors="replace").strip()) if r.returncode == 0 else (None, None)
+
+
+def grep_archivos(clon, rama, patron, fijo=False, ci=False):
+    args = ["grep", "-l", "-I"] + (["-i"] if ci else []) + (["-w", "-F"] if fijo else ["-E"])
+    r = _git(clon, *args, "-e", patron, rama, "--")
+    if r.returncode == 1:
+        return set()
+    if r.returncode != 0:
+        raise ErrorEntorno("git grep falló en %s: %s" % (clon, r.stderr.decode("utf-8", errors="replace").strip()))
+    prefijo = rama + ":"
+    return {l[len(prefijo):] if l.startswith(prefijo) else l
+            for l in r.stdout.decode("utf-8", errors="replace").splitlines() if l}
+
+
+class Clones:
+    def __init__(self, rutas):
+        self.rutas = list(rutas)
+        self.ramas = {c: _rama_y_hash(c) for c in self.rutas}
+        self.ok = [c for c in self.rutas if self.ramas[c][0]]
+
+    def hashes(self):
+        return {c: self.ramas[c][1] for c in self.rutas}
+
+    def faltantes(self):
+        return [c for c in self.rutas if not self.ramas[c][0]]
+
+
+def evaluar_consumidores(cambios, clones, cota):
+    detalle, nivel, objetos, vistos = [], "negativa", [], set()
+    for c in cambios:
+        lenguaje = _lenguaje(c)
+        if c["ilegible"]:
+            nivel = "invalida"
+            detalle.append("%s: archivo demasiado grande para leer, el conteo no vale" % c["ruta"])
+        elif lenguaje is None:
+            nivel = "invalida"
+            detalle.append("%s: sin biblioteca de señales para %s, el conteo no vale"
+                           % (c["ruta"], os.path.splitext(c["ruta"])[1].lower() or "un archivo sin extensión"))
+        else:
+            for o in lenguaje.objetos(c["actual"], c["base_texto"]):
+                if (o["nombre"], c["ruta"]) not in vistos:
+                    vistos.add((o["nombre"], c["ruta"]))
+                    objetos.append((c, o))
+    if not objetos:
+        return (nivel, detalle) if detalle else ("negativa", ["sin objetos con consumidores que contar en el diff"])
+    if len(objetos) > TOPE_OBJETOS:
+        return "invalida", detalle + ["%d objetos (más de %d): el conteo sería parcial, revisar a mano" % (len(objetos), TOPE_OBJETOS)]
+    if clones.faltantes():
+        return "invalida", detalle + ["repo(s) sin origin/HEAD o inexistentes (haz el fetch y `git remote set-head origin -a`, "
+                                      "o pasa --clon): %s" % ", ".join(clones.faltantes())]
+    for c, o in objetos:
+        if o["nuevo"] and not (c["taller"] and c["base_texto"] is None):
+            detalle.append("%s: objeto nuevo, sin consumidores previos" % o["nombre"])
+            continue
+        defs, refs = set(), set()
+        try:
+            for clon in clones.ok:
+                rama = clones.ramas[clon][0]
+                defs |= {(clon, p) for p in grep_archivos(clon, rama, o["ere_def"], False, o["ci"])}
+                refs |= {(clon, p) for p in grep_archivos(clon, rama, o["ref"], o["fijo"], o["ci"])}
+        except ErrorEntorno as exc:
+            nivel = "invalida"
+            detalle.append("%s: %s" % (o["nombre"], exc))
+            continue
+        if not defs:
+            nivel = "invalida"
+            detalle.append("%s: no encontré la definición del objeto en la rama de origin/HEAD de los repos "
+                           "(control positivo): el conteo no vale" % o["nombre"])
+            continue
+        consumidores = sorted(p for clon, p in refs - defs if not (p == c["ruta"] and not c["taller"]))
+        nombres = ", ".join(p.rsplit("/", 1)[-1] for p in consumidores[:6])
+        detalle.append("%s: ≥ %d, %s%s" % (o["nombre"], len(consumidores), cota, " (%s)" % nombres if consumidores else ""))
+        if len(consumidores) >= UMBRAL_CONSUMIDORES and nivel != "invalida":
+            nivel = "positiva"
+    return nivel, detalle
+
+
 # ---------------------------------------------------------------- análisis
 
 def _cargar_config(raiz):
@@ -295,16 +383,17 @@ def _cargar_config(raiz):
         raise ErrorEntorno("la configuración de %s está rota: %s" % (raiz, exc))
 
 
-def analizar(repos, taller=(), raiz=None):
+def analizar(repos, taller=(), raiz=None, clones=None):
     raiz, config = _cargar_config(raiz)
     instancia = cargar_senales(raiz)
+    clones_ = Clones(clones if clones is not None else [repo["path"] for repo in config["repos"].values()])
     recolectados = [recolectar_repo(ruta, base, config) for ruta, base in repos]
     del_taller = [recolectar_taller(t, config) for t in taller]
     todos = [c for r in recolectados for c in r["cambios"]] + del_taller
     activos = [c for c in todos if not es_doc(c["ruta"])]
     senales = {id_: {"nivel": "negativa", "detalle": []} for id_ in SENALES}
     if activos:
-        _evaluar_senales(senales, activos, instancia)
+        _evaluar_senales(senales, activos, instancia, clones_)
     else:
         for id_ in SENALES:
             senales[id_]["detalle"].append("no aplica: no hay cambios fuera de docs")
@@ -322,6 +411,7 @@ def analizar(repos, taller=(), raiz=None):
                               nombres=instancia["nombres"]) for n in NO_DETECTABLE] + instancia["no_detectable"]
     return {
         "raiz": raiz,
+        "origin_head": clones_.hashes(),
         "repos": [{"ruta": r["ruta"], "base": r["base"],
                    "archivos": [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
                                 for c in r["cambios"]]} for r in recolectados],
@@ -331,7 +421,7 @@ def analizar(repos, taller=(), raiz=None):
     }
 
 
-def _evaluar_senales(senales, activos, instancia):
+def _evaluar_senales(senales, activos, instancia, clones):
     for c in activos:
         lenguaje = _lenguaje(c)
         agregadas = c["agregadas"]
@@ -386,8 +476,8 @@ def _evaluar_senales(senales, activos, instancia):
     senales["capas"]["nivel"] = "positiva" if senales["capas"]["detalle"] else "negativa"
     if not senales["capas"]["detalle"]:
         senales["capas"]["detalle"].append("una sola capa: %s" % (capas[0] if capas else "ninguna"))
-    senales["consumidores"] = {"nivel": "invalida",
-                               "detalle": ["el conteo de consumidores todavía no está implementado: la señal no vale"]}
+    nivel, detalle = evaluar_consumidores(activos, clones, instancia["cota"])
+    senales["consumidores"] = {"nivel": nivel, "detalle": detalle}
 
 
 # ---------------------------------------------------------------- salida
@@ -396,6 +486,9 @@ def formatear(r):
     salida = ["triaje — modo: %s" % r["modo"].upper()]
     salida += ["  " + m for m in r["motivos"]]
     salida.append("instancia: %s" % r["raiz"])
+    salida.append("origin/HEAD usado (sin fetch; si está viejo, hazlo antes):")
+    for clon, h in r["origin_head"].items():
+        salida.append("  %s: %s" % (clon, h or "SIN origin/HEAD"))
     for repo in r["repos"]:
         salida.append("repo %s (base %s): %d archivo(s)" % (repo["ruta"], repo["base"][:10], len(repo["archivos"])))
         for a in repo["archivos"]:
@@ -418,6 +511,8 @@ def _parser():
     p.add_argument("--repo", action="append", default=[], metavar="RUTA[#BASE]",
                    help="repo o worktree; base por defecto: merge-base con la rama de origin/HEAD")
     p.add_argument("--taller", action="append", default=[], metavar="ARCHIVO", help="archivo del taller del ticket")
+    p.add_argument("--clon", action="append", default=None, metavar="RUTA",
+                   help="repo donde contar consumidores en la rama de origin/HEAD (por defecto, los repos del config)")
     p.add_argument("--raiz", help="raíz de la instancia (por defecto, la de la sesión)")
     p.add_argument("--json", action="store_true")
     return p
@@ -429,7 +524,7 @@ def main(argv=None):
         print("triaje: falta --repo o --taller", file=sys.stderr)
         return 2
     try:
-        r = analizar([recibo._partir_repo(t) for t in args.repo], taller=args.taller, raiz=args.raiz)
+        r = analizar([recibo._partir_repo(t) for t in args.repo], taller=args.taller, raiz=args.raiz, clones=args.clon)
     except (ErrorUso, ErrorEntorno, recibo.ErrorUso, recibo.ErrorEntorno) as exc:
         print("triaje: %s" % exc, file=sys.stderr)
         return 2
