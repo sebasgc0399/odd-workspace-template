@@ -686,6 +686,150 @@ def test_la_superficie_de_tsql_es_la_declarada():
         assert callable(getattr(m(), nombre)), nombre
 
 
+ALFA = ("CREATE PROCEDURE esq.Proc_Alfa\n    @Id INT,\n    @Nombre VARCHAR(50) = NULL\nAS\nBEGIN\n"
+        "    SELECT 1\nEND\n")
+
+
+def test_tipos_de_dinero_detecta_los_tipos_de_tsql_sin_distinguir_mayusculas():
+    for linea in ("@Importe DECIMAL(18,2)", "campo money NOT NULL", "CAST(x AS numeric(10,2))", "@Cuota smallmoney"):
+        assert m().TIPOS_DINERO.search(linea), linea
+
+
+def test_tipos_de_dinero_no_detecta_otros_tipos_ni_palabras_que_los_contienen():
+    for linea in ("@Id INT", "SELECT Nombre FROM esq.Tabla", "varchar(50)", "@Decimales INT", "moneda BIT"):
+        assert not m().TIPOS_DINERO.search(linea), linea
+
+
+def test_es_migracion_por_ddl_de_tabla_columna_indice_o_renombre():
+    for agregadas in ("ALTER TABLE esq.Turno ADD Nuevo INT", "CREATE TABLE esq.Nueva (Id INT)", "DROP TABLE esq.Vieja",
+                      "    ADD COLUMN y INT", "    DROP COLUMN y", "EXEC sp_rename 'a', 'b'",
+                      "CREATE INDEX ix ON esq.T (Id)", "create unique nonclustered index ix on esq.T (Id)"):
+        assert m().es_migracion(agregadas, "CREATE PROCEDURE p AS SELECT 1"), agregadas
+
+
+def test_es_migracion_no_cuenta_tablas_temporales_ni_variables_de_tabla():
+    cuerpo = "CREATE PROCEDURE p AS SELECT 1"
+    for agregadas in ("CREATE TABLE #tmp (Id INT)", "DECLARE @t TABLE (Id INT)", "SELECT 1"):
+        assert not m().es_migracion(agregadas, cuerpo), agregadas
+
+
+def test_es_migracion_un_script_de_datos_sin_objeto_si_y_dentro_de_un_objeto_no():
+    for agregadas in ("INSERT INTO esq.Tipo VALUES (1)", "UPDATE esq.Tipo SET A = 1", "DELETE FROM esq.Tipo",
+                      "MERGE esq.Tipo AS t USING x ON 1 = 1"):
+        assert m().es_migracion(agregadas, agregadas), agregadas
+        assert not m().es_migracion(agregadas, "CREATE PROCEDURE esq.P AS\n" + agregadas), agregadas
+    assert m().es_migracion("INSERT INTO esq.Tipo VALUES (1)", ""), "sin texto actual, decide por lo agregado"
+    assert not m().es_migracion("CREATE PROCEDURE esq.P AS\nINSERT INTO esq.Tipo VALUES (1)", "")
+
+
+def test_parametros_de_sp_nombres_tal_cual_y_tipos_normalizados():
+    assert m().parametros_de_sp(ALFA) == {
+        "proc_alfa": ("Proc_Alfa", {"@id": ("@Id", "int"), "@nombre": ("@Nombre", "varchar(50)=null")})}
+    con_parentesis = "CREATE OR ALTER PROC [esq].[Proc_B] (@A INT OUTPUT, @B DECIMAL(18, 2) = 0) WITH RECOMPILE AS SELECT 1"
+    assert m().parametros_de_sp(con_parentesis) == {
+        "proc_b": ("Proc_B", {"@a": ("@A", "int out"), "@b": ("@B", "decimal(18,2)=0")})}
+    ejecutar = "ALTER PROCEDURE esq.Proc_C @X INT WITH EXECUTE AS OWNER AS SELECT 1"
+    assert m().parametros_de_sp(ejecutar) == {"proc_c": ("Proc_C", {"@x": ("@X", "int")})}
+    coma = "CREATE PROCEDURE esq.Proc_D @L VARCHAR(9) = 'a,b', @M INT AS SELECT 1"
+    assert m().parametros_de_sp(coma) == {"proc_d": ("Proc_D", {"@l": ("@L", "varchar(9)='a,b'"), "@m": ("@M", "int")})}
+    con_as = "CREATE PROCEDURE esq.Proc_E\n    @Id AS INT\nAS\nSELECT 1\n"
+    assert m().parametros_de_sp(con_as) == {"proc_e": ("Proc_E", {"@id": ("@Id", "as int")})}, "la línea AS cierra la firma"
+
+
+def test_cambios_de_contrato_de_un_sp_parametro_agregado_quitado_tipo_default_y_salida():
+    cambios = {
+        "agregado": (ALFA.replace("@Id INT,", "@Id INT,\n    @Extra INT,"), "firma Proc_Alfa: +@Extra int"),
+        "quitado": (ALFA.replace("    @Id INT,\n", ""), "firma Proc_Alfa: -@Id int"),
+        "tipo": (ALFA.replace("@Id INT", "@Id BIGINT"), "firma Proc_Alfa: ~@Id: int -> bigint"),
+        "default": (ALFA.replace("= NULL", "= 'x'"), "firma Proc_Alfa: ~@Nombre: varchar(50)=null -> varchar(50)='x'"),
+        "salida": (ALFA.replace("@Id INT", "@Id INT OUTPUT"), "firma Proc_Alfa: ~@Id: int -> int out"),
+    }
+    for nombre, (nuevo, esperado) in cambios.items():
+        assert m().cambios_de_contrato(ALFA, nuevo) == [esperado], (nombre, m().cambios_de_contrato(ALFA, nuevo))
+
+
+def test_cambios_de_contrato_ignora_el_cuerpo_los_espacios_y_las_mayusculas():
+    assert m().cambios_de_contrato(ALFA, ALFA.replace("SELECT 1", "SELECT 2")) == []
+    assert m().cambios_de_contrato(ALFA, ALFA.replace("    @Id INT,", "@Id   int ,")) == []
+    assert m().cambios_de_contrato(ALFA, crlf(ALFA)) == []
+
+
+def test_cambios_de_contrato_un_sp_quitado_del_archivo_o_el_archivo_borrado():
+    otro = "CREATE PROCEDURE esq.Proc_Otro\nAS\nSELECT 2\n"
+    assert m().cambios_de_contrato(ALFA + otro, ALFA) == ["eliminado el SP Proc_Otro: su contrato desaparece"]
+    assert m().cambios_de_contrato(ALFA + otro, None) == [
+        "eliminado el SP Proc_Alfa: su contrato desaparece", "eliminado el SP Proc_Otro: su contrato desaparece"]
+
+
+def test_cambios_de_contrato_de_un_archivo_nuevo_no_hay():
+    assert m().cambios_de_contrato(None, ALFA) == []
+
+
+def test_cambios_de_contrato_paths_y_alias_del_json_de_un_sp():
+    entrada = "CREATE PROCEDURE esq.Proc_J\n    @Json NVARCHAR(MAX)\nAS\nBEGIN\n    SELECT * FROM OPENJSON(@Json) WITH (Id INT '$.id')\nEND\n"
+    assert m().cambios_de_contrato(entrada, entrada.replace("'$.id'", "'$.venta.id'")) == [
+        "JSON del SP: +path:$.venta.id; -path:$.id"]
+    salida = "CREATE PROCEDURE esq.Proc_K\nAS\nBEGIN\n    SELECT Id AS idVenta FROM x FOR JSON PATH\nEND\n"
+    assert m().cambios_de_contrato(salida, salida.replace("idVenta", "idNuevo")) == [
+        "JSON del SP: +alias:idNuevo; -alias:idVenta"]
+    assert m().cambios_de_contrato(salida, salida.replace("FROM x", "FROM y")) == []
+    assert m().json_de_sp(ALFA) == set(), "sin FOR JSON ni OPENJSON no hay contrato de JSON"
+    assert m().json_de_sp("SELECT '$.x' AS a") == set(), "un path suelto sin FOR JSON ni OPENJSON no cuenta"
+
+
+def test_cambios_de_contrato_del_json_ignoran_alias_sin_for_json_reservadas_corchetes_y_comentarios():
+    entrada = "CREATE PROCEDURE esq.Proc_J\nAS\nBEGIN\n    SELECT * FROM OPENJSON(@J) WITH (Id INT '$.id') AS j\nEND\n"
+    assert m().cambios_de_contrato(entrada, entrada.replace("AS j", "AS k")) == [], "sin FOR JSON un alias no es contrato"
+    salida = "CREATE PROCEDURE esq.Proc_K\nAS\nBEGIN\n    SELECT Id AS idVenta FROM x FOR JSON PATH\nEND\n"
+    assert m().cambios_de_contrato(salida, salida.replace("AS\nBEGIN", "AS\nSET NOCOUNT ON;\nBEGIN")) == []
+    assert m().cambios_de_contrato(salida, salida.replace("AS idVenta", "AS [idVenta]")) == []
+    assert m().cambios_de_contrato(salida, salida.replace("FOR JSON PATH", "FOR JSON PATH -- AS aliasViejo")) == []
+
+
+def test_un_guion_doble_dentro_de_un_literal_no_corta_la_firma():
+    base = "CREATE PROCEDURE esq.Proc_S\n    @Sep VARCHAR(5) = '--', @A INT\nAS\nSELECT 1\n"
+    nuevo = base.replace("@A INT", "@A INT, @B INT")
+    assert m().cambios_de_contrato(base, nuevo) == ["firma Proc_S: +@B int"]
+
+
+def test_un_encabezado_comentado_no_crea_un_sp_ni_un_objeto_fantasma():
+    texto = "-- CREATE PROCEDURE esq.Proc_Viejo @Z INT AS\n/* ALTER VIEW esq.Vista_Vieja AS */\n" + ALFA
+    assert list(m().parametros_de_sp(texto)) == ["proc_alfa"]
+    assert [o["nombre"] for o in m().objetos(texto, None)] == ["Proc_Alfa"]
+
+
+def test_objetos_juntan_lo_actual_y_la_base_y_marcan_lo_nuevo():
+    base = ALFA + "CREATE VIEW esq.Vista_A AS SELECT 1\n"
+    actual = ALFA + "CREATE FUNCTION [esq].[Fn_B] () RETURNS INT AS BEGIN RETURN 1 END\n"
+    objetos = m().objetos(actual, base)
+    assert [(o["nombre"], o["nuevo"]) for o in objetos] == [("Fn_B", True), ("Proc_Alfa", False), ("Vista_A", False)]
+    assert all(o["ref"] == o["nombre"] for o in objetos)
+    assert [(o["nombre"], o["nuevo"]) for o in m().objetos(None, base)] == [("Proc_Alfa", False), ("Vista_A", False)]
+    assert m().objetos("SELECT 1", None) == []
+    minusculas = ALFA.replace("Proc_Alfa", "proc_alfa")
+    assert [(o["nombre"], o["nuevo"]) for o in m().objetos(ALFA, minusculas)] == [("Proc_Alfa", False), ("proc_alfa", False)]
+
+
+def test_objetos_la_ere_de_definicion_la_entiende_git_grep_y_no_confunde_llamadas_ni_prefijos():
+    with temporal() as raiz:
+        archivos = {
+            "def.sql": "create  or alter procedure [esq] . [Proc_Alfa]\n@Id INT AS SELECT 1\n",
+            "def2.sql": "CREATE PROC Proc_Alfa AS SELECT 1\n",
+            "llama.sql": "EXEC esq.Proc_Alfa @Id = 1\n",
+            "prefijo.sql": "CREATE PROCEDURE esq.Proc_AlfaB AS SELECT 1\n",
+            "trigger.sql": "CREATE TRIGGER esq.Proc_Alfa_T ON t AFTER INSERT AS SELECT 1\n",
+        }
+        for nombre, texto in archivos.items():
+            (raiz / nombre).write_bytes(texto.encode("utf-8"))
+        objeto = m().objetos(ALFA, None)[0]
+        assert objeto["fijo"] is True and objeto["ci"] is True
+        r = subprocess.run(["git", "grep", "--no-index", "-l", "-I", "-i", "-E", "-e", objeto["ere_def"], "--", "."],
+                           cwd=str(raiz), capture_output=True,
+                           env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        assert r.returncode == 0, r.stderr
+        assert sorted(r.stdout.decode("utf-8").split()) == ["def.sql", "def2.sql"], r.stdout
+
+
 SQL_REAL = (
     "DECLARE @t VARCHAR(20) = '-- no soy comentario'\r\n"
     "SELECT 1 -- si soy\r\n"
