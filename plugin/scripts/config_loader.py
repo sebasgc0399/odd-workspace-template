@@ -58,7 +58,10 @@ def _molde(valor, donde):
 
 
 def _banderas(config):
-    for clave, valores in (config.get("repos") or {}).items():
+    repos = config.get("repos") or {}
+    if not isinstance(repos, dict):
+        raise ConfigRota("repos debe ser un objeto con un repo por clave")
+    for clave, valores in repos.items():
         if isinstance(valores, dict) and "agent_readonly" in valores and not isinstance(valores["agent_readonly"], bool):
             raise ConfigRota(f"repos.{clave}.agent_readonly debe ser true o false, no {valores['agent_readonly']!r}")
 

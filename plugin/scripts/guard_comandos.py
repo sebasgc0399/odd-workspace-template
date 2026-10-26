@@ -4,6 +4,7 @@ sys.dont_write_bytecode = True
 
 import json
 import os
+import posixpath
 import re
 import time
 
@@ -130,6 +131,9 @@ MENCION_ABRE = re.compile(r"^(?:\$\(|[({`!@&]|\d*[<>]+&?)+")
 MENCION_CIERRA = re.compile(r"[)}`;]+$")
 OPCION_PEGADA = re.compile(r"^-[A-Za-z][\w-]*:(.+)$", re.DOTALL)
 SOLO_BARRAS = re.compile(r"^[\\/]+$")
+DELIMITA = re.compile(r"[=,]")
+ESCAPE_FINAL = re.compile(r"(?<!\\)\\$")
+SHELL_UNE = re.compile(r"(?i)^(?:[^\\/]*[\\/])*(bash|sh|zsh|dash|wsl|eval)(\.exe)?$")
 PREFIJO_LARGO = re.compile(r"^//(?:[?.]/)?(?=[a-z]:/)", re.IGNORECASE)
 NO_ES_RUTA = re.compile(r"[\x00\r\n]")
 MAX_RUTA = 4096
@@ -484,7 +488,7 @@ class Protegidos:
                 for ruta in [repo["path"], *repo.get("worktrees", [])]:
                     self.arboles.append((config_loader.canonica(ruta), clave))
         self.activa = rota is not None or bool(self.arboles)
-        self._carpetas = {}
+        self._carpetas, self._menciones, self._reales = {}, {}, {}
 
     @classmethod
     def de_instancia(cls, raiz):
@@ -499,7 +503,22 @@ class Protegidos:
         ruta = PREFIJO_LARGO.sub("", ruta)
         if ruta.startswith("//"):
             return os.path.normcase(ruta)
-        return config_loader.canonica(ruta)
+        pendientes, actual = [], ruta
+        while actual not in self._reales:
+            _vigente()
+            padre, nombre = posixpath.split(actual)
+            if rutas.UNIDAD_SOLA.fullmatch(padre):
+                padre += "/"
+            if not nombre or padre == actual or _existe(actual):
+                self._reales[actual] = config_loader.canonica(actual)
+                break
+            pendientes.append((actual, nombre))
+            actual = padre
+        canonica = self._reales[actual]
+        for camino, nombre in reversed(pendientes):
+            canonica = os.path.join(canonica, os.path.normcase(nombre))
+            self._reales[camino] = canonica
+        return self._reales[ruta]
 
     def _carpeta(self, ruta):
         if ruta is None:
@@ -507,8 +526,7 @@ class Protegidos:
         if ruta not in self._carpetas:
             _vigente()
             c = self._canonica(ruta)
-            self._carpetas[ruta] = next((clave for arbol, clave in self.arboles
-                                         if config_loader._dentro(c, arbol) or config_loader._dentro(arbol, c)), None)
+            self._carpetas[ruta] = next((clave for arbol, clave in self.arboles if _bajo(c, arbol) or _bajo(arbol, c)), None)
         return self._carpetas[ruta]
 
     def _toca(self, texto, cwd, base, variable):
@@ -534,21 +552,29 @@ class Protegidos:
         if r is None:
             return None
         c = self._canonica(r)
-        return next((clave for arbol, clave in self.arboles if config_loader._dentro(c, arbol)), None)
+        return next((clave for arbol, clave in self.arboles if _bajo(c, arbol)), None)
 
     def menciona(self, texto, cwd, variable, profundidad=0):
         if self.rota is not None:
             return ROTA
+        llave = (texto, cwd, profundidad, variable)
+        if llave not in self._menciones:
+            self._menciones[llave] = self._mencion(texto, cwd, variable, profundidad)
+        return self._menciones[llave]
+
+    def _mencion(self, texto, cwd, variable, profundidad):
         for candidato in _candidatos(texto):
             clave = self._toca(candidato, cwd, cwd, variable)
             if clave is not None:
                 return clave
         if profundidad < MAX_PROFUNDIDAD_MENCION and SEPARA.search(texto):
-            for tokens, _ in Segmentos(texto).segmentos:
-                for t, _ in tokens:
-                    clave = self.menciona(t, cwd, variable, profundidad + 1)
-                    if clave is not None:
-                        return clave
+            for vista in _vistas(texto):
+                for tokens, _ in vista.segmentos:
+                    for t, _ in tokens:
+                        _vigente()
+                        clave = self.menciona(t, cwd, variable, profundidad + 1)
+                        if clave is not None:
+                            return clave
         return None
 
     def compuerta(self, base, segmentos, cwd, variable):
@@ -586,19 +612,53 @@ class Protegidos:
         return "una instancia con repos que el agente solo lee (agent_readonly en workspace.config.json)"
 
 
+def _bajo(ruta, carpeta):
+    return ruta == carpeta or ruta.startswith(carpeta if carpeta.endswith(os.sep) else carpeta + os.sep)
+
+
+def _existe(ruta):
+    try:
+        os.lstat(ruta)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _candidatos(texto):
-    vistos = []
+    vistos, salida = set(), []
     for base in (texto, MENCION_CIERRA.sub("", MENCION_ABRE.sub("", texto))):
-        partes = base.split("=")
-        piezas = [base] + ["=".join(partes[i:]) for i in range(1, len(partes))]
+        piezas = [base] + base.split("=", 1)[1:]
         m = OPCION_PEGADA.match(base)
         if m:
             piezas.append(m.group(1))
-        for pieza in piezas:
-            for candidato in pieza.split(","):
-                if candidato and candidato not in vistos and (candidato == texto or not SOLO_BARRAS.search(candidato)):
-                    vistos.append(candidato)
-    return vistos
+        for candidato in [c for pieza in piezas for c in pieza.split(",")] + DELIMITA.split(base):
+            _vigente()
+            if candidato and candidato not in vistos and (candidato == texto or not SOLO_BARRAS.search(candidato)):
+                vistos.add(candidato)
+                salida.append(candidato)
+    return salida
+
+
+class _Vista:
+    def __init__(self, segmentos, ambiguo):
+        self.segmentos, self.ambiguo = segmentos, ambiguo
+
+
+def _vistas(texto, unir=True):
+    segmentos = Segmentos(texto)
+    if not unir:
+        return [segmentos]
+    unidos, cambio = [], False
+    for tokens, tubo in segmentos.segmentos:
+        nuevos = []
+        for t, citado in tokens:
+            if nuevos and not nuevos[-1][1] and ESCAPE_FINAL.search(nuevos[-1][0]):
+                nuevos[-1] = (nuevos[-1][0][:-1] + " " + t, False)
+                cambio = True
+            else:
+                nuevos.append((t, citado))
+        unidos.append((nuevos, tubo))
+    return [segmentos, _Vista(unidos, segmentos.ambiguo)] if cambio else [segmentos]
 
 
 def _pregunta(prot, que, porque, clave):
@@ -747,14 +807,14 @@ def _invocacion(tokens, desde, hasta, ambiente, prot, cwd, variable):
     return _pregunta(prot, sub, porque, clave)
 
 
-def _equipo(segmentos, ambiente, profundidad, texto, clave, prot, cwd, variable):
+def _equipo(segmentos, ambiente, profundidad, texto, clave, prot, cwd, variable, unir):
     if clave is not None and segmentos.ambiguo and MENCIONA_GIT.search(texto):
         return _pregunta(prot, "(comillas escapadas o ambiguas)", "no se puede leer qué git corre",
                          clave if ambiente is None else ambiente)
     datos = []
     for tokens, _ in segmentos.segmentos:
         _vigente()
-        inicios, shell, abierto, envuelto, riesgo = [], False, False, False, ""
+        inicios, shell, abierto, envuelto, riesgo, une = [], False, False, False, "", unir
         for k, (t, citado) in enumerate(tokens):
             if GIT_TOKEN.search(t) and (not inicios or abierto or (not citado and ABRE_GIT.search(t))):
                 inicios.append(k)
@@ -771,18 +831,20 @@ def _equipo(segmentos, ambiente, profundidad, texto, clave, prot, cwd, variable)
                 riesgo = "(un alias hacia git)"
             if not citado and SHELL.search(t):
                 shell = True
+                une = SHELL_UNE.search(t) is not None
             abierto = not citado and ABRE_AL_FINAL.search(t) is not None
             envuelto = not citado and ENVOLTORIO.search(t) is not None
-        datos.append((tokens, inicios, shell, riesgo))
-    for tokens, inicios, shell, riesgo in datos:
+        datos.append((tokens, inicios, shell, riesgo, une))
+    for tokens, inicios, shell, riesgo, une in datos:
         if ambiente is not None and riesgo:
             return _pregunta(prot, riesgo, "no se puede leer si es git ni qué hace", ambiente)
         if profundidad < 2:
             for t, citado in tokens:
                 if citado and (shell or CODIGO.search(t)):
-                    motivo = _equipo(Segmentos(t), ambiente, profundidad + 1, t, clave, prot, cwd, variable)
-                    if motivo:
-                        return motivo
+                    for vista in _vistas(t, une):
+                        motivo = _equipo(vista, ambiente, profundidad + 1, t, clave, prot, cwd, variable, une)
+                        if motivo:
+                            return motivo
         for i, inicio in enumerate(inicios):
             fin = inicios[i + 1] if i + 1 < len(inicios) else len(tokens)
             motivo = _invocacion(tokens, inicio + 1, fin, ambiente, prot, cwd, variable)
@@ -791,24 +853,28 @@ def _equipo(segmentos, ambiente, profundidad, texto, clave, prot, cwd, variable)
     return None
 
 
-def _capa_2(comando, base, cwd, variable, prot):
+def _capa_2(comando, base, cwd, variable, prot, unir):
     texto = comando if HEREDOC_A_SHELL.search(comando) else base
     if HERE_STRING_ABRE.search(texto):
         texto = HERE_STRING.sub(lambda m: '"' + HERE_STRING_COMILLAS.sub(" ", m.group(2)).replace("\\", "/") + '"', texto)
-    segmentos = Segmentos(texto)
-    clave = prot.compuerta(base, segmentos, cwd, variable)
+    vistas = _vistas(texto, unir)
+    clave = next((c for c in (prot.compuerta(base, vista, cwd, variable) for vista in vistas) if c is not None), None)
     if clave is not None and GIT_VARIABLE.search(base):
         return _pregunta(prot, "(con una variable GIT_* que equivale a -c o nombra un programa)", "puede ejecutar cualquier comando",
                          clave)
     try:
-        return _equipo(segmentos, prot.del_cwd(cwd), 0, texto, clave, prot, cwd, variable)
+        for vista in vistas:
+            motivo = _equipo(vista, prot.del_cwd(cwd), 0, texto, clave, prot, cwd, variable, unir)
+            if motivo:
+                return motivo
+        return None
     except _SinTiempo:
         raise
     except Exception as error:
         return _pregunta(prot, "(el guard falló al leerlo)", "error interno: %s" % error, clave)
 
 
-def analizar(comando, cwd=None, entorno=None, protegidos=None):
+def analizar(comando, cwd=None, entorno=None, protegidos=None, herramienta=None):
     entorno = os.environ if entorno is None else entorno
     if os.name == "nt":
         entorno = {k.upper(): v for k, v in entorno.items()}
@@ -818,7 +884,7 @@ def analizar(comando, cwd=None, entorno=None, protegidos=None):
         return "block", motivo
     if protegidos is not None and protegidos.activa:
         variable = (lambda nombre: entorno.get(nombre.upper())) if os.name == "nt" else entorno.get
-        motivo = _capa_2(comando, base, cwd, variable, protegidos)
+        motivo = _capa_2(comando, base, cwd, variable, protegidos, herramienta != "PowerShell")
         if motivo:
             return "ask", motivo
     return None, None
@@ -853,7 +919,8 @@ def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
         if raiz is None:
             return SILENCIO
         protegidos = Protegidos.de_instancia(raiz)
-        resultado, motivo = analizar(comando, cwd, entorno, protegidos)
+        herramienta = evento.get("tool_name") if isinstance(evento.get("tool_name"), str) else None
+        resultado, motivo = analizar(comando, cwd, entorno, protegidos, herramienta)
         if resultado == "block":
             return 2, "", (_mensaje(motivo) + "\n").encode("utf-8")
         if resultado == "ask":
@@ -862,11 +929,12 @@ def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
     except _SinTiempo:
         if protegidos is not None and protegidos.activa:
             return _preguntar(_pregunta(protegidos, "(el análisis no terminó dentro del plazo)", "no se puede leer qué git corre",
-                                        None))
+                                        ROTA if protegidos.rota is not None else None))
         return SILENCIO
     except (Exception, SystemExit) as error:
         if protegidos is not None and protegidos.activa:
-            return _preguntar(_pregunta(protegidos, "(el guard falló al leerlo)", "error interno: %s" % error, None))
+            return _preguntar(_pregunta(protegidos, "(el guard falló al leerlo)", "error interno: %s" % error,
+                                        ROTA if protegidos.rota is not None else None))
         return SILENCIO
     finally:
         _LIMITE = None
