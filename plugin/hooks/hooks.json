@@ -35,6 +35,14 @@
           { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], "timeout": 10 }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^writer-[a-z0-9][a-z0-9-]*$",
+        "hooks": [
+          { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/writer_stop.py", "--plazo", "50"], "timeout": 60 }
+        ]
+      }
     ]
   }
 }
