@@ -25,6 +25,20 @@ RE_FIN_SENTENCIA = re.compile(
 BOM = b"\xef\xbb\xbf"
 FINES = ("crlf", "lf")
 
+TIPOS_DINERO = re.compile(r"\b(?:DECIMAL|NUMERIC|MONEY|SMALLMONEY)\b", re.I)
+_DDL = re.compile(
+    r"\b(?:ALTER|CREATE|DROP)\s+TABLE\s+(?![#@])|\b(?:ADD|DROP)\s+COLUMN\b|\bsp_rename\b|"
+    r"\bCREATE\s+(?:UNIQUE\s+)?(?:NONCLUSTERED\s+|CLUSTERED\s+)?INDEX\b", re.I)
+_DML = re.compile(r"\b(?:INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|MERGE\s+)", re.I)
+_OBJETO = re.compile(
+    r"\b(?:CREATE|ALTER)\s+(?:OR\s+ALTER\s+)?(?:PROC(?:EDURE)?|FUNCTION|VIEW|TRIGGER)\s+"
+    r"(?:\[?\w+\]?\s*\.\s*)?\[?(\w+)\]?", re.I)
+_PROC = re.compile(r"\b(?:CREATE|ALTER)\s+(?:OR\s+ALTER\s+)?PROC(?:EDURE)?\s+(?:\[?\w+\]?\s*\.\s*)?\[?(\w+)\]?", re.I)
+_RESERVADAS_JSON = frozenset(("begin", "set", "declare", "select", "with", "return", "if", "exec", "execute", "insert",
+                              "update", "delete"))
+_ERE_DEF = ("(CREATE|ALTER)[[:space:]]+(OR[[:space:]]+ALTER[[:space:]]+)?(PROC|PROCEDURE|FUNCTION|VIEW|TRIGGER)"
+            "[[:space:]]+(\\[?[A-Za-z0-9_]+\\]?[[:space:]]*\\.[[:space:]]*)?\\[?%s\\]?([^A-Za-z0-9_]|$)")
+
 _CACHE = {}
 _ESTADO = {"roto": False}
 
@@ -276,3 +290,105 @@ def problemas_de_bytes(datos, bom=False, fin="crlf"):
     except UnicodeDecodeError:
         problemas.append("no es UTF-8 válido")
     return problemas
+
+
+def es_migracion(agregadas, actual):
+    if _DDL.search(agregadas or ""):
+        return True
+    return bool(_DML.search(agregadas or "")) and not _OBJETO.search(actual or agregadas or "")
+
+
+def _partir_comas(texto):
+    piezas, actual, nivel, comilla = [], [], 0, False
+    for c in texto:
+        if c == "'":
+            comilla = not comilla
+        elif not comilla and c == "(":
+            nivel += 1
+        elif not comilla and c == ")":
+            nivel -= 1
+        if c == "," and nivel == 0 and not comilla:
+            piezas.append("".join(actual))
+            actual = []
+        else:
+            actual.append(c)
+    piezas.append("".join(actual))
+    return piezas
+
+
+def _normalizar_tipo(resto):
+    resto = re.sub(r"\s+", " ", resto.strip().lower())
+    resto = re.sub(r"\s*([=(),])\s*", r"\1", resto)
+    return re.sub(r"\boutput\b", "out", resto)
+
+
+def parametros_de_sp(texto):
+    limpio = depurar(texto)
+    resultado = {}
+    for encontrado in _PROC.finditer(limpio):
+        resto = limpio[encontrado.end():]
+        fin = re.search(r"(?im)^[ \t]*AS\b", resto)
+        if fin is None:
+            fin = next((x for x in re.finditer(r"(?i)\bAS\b", resto)
+                        if not resto[:x.start()].rstrip().lower().endswith("execute")), None)
+        cabecera = resto[:fin.start()] if fin else resto[:400]
+        cabecera = re.sub(r"(?is)\bWITH\b.*$", "", cabecera).strip()
+        if cabecera.startswith("(") and cabecera.endswith(")"):
+            cabecera = cabecera[1:-1]
+        parametros = {}
+        for pieza in _partir_comas(cabecera):
+            p = re.match(r"\s*@(\w+)\s+(.*?)\s*$", pieza, re.S)
+            if p:
+                parametros["@" + p.group(1).lower()] = ("@" + p.group(1), _normalizar_tipo(p.group(2)))
+        resultado[encontrado.group(1).lower()] = (encontrado.group(1), parametros)
+    return resultado
+
+
+def json_de_sp(texto):
+    limpio = depurar(texto)
+    if not re.search(r"FOR\s+JSON|OPENJSON", limpio, re.I):
+        return set()
+    salida = {"path:" + p for p in re.findall(r"'(\$[^']*)'", limpio)}
+    if re.search(r"FOR\s+JSON", limpio, re.I):
+        for alias in re.findall(r"\bAS\s+(\[[^\]]+\]|[A-Za-z_]\w*)", limpio, re.I):
+            alias = alias.strip("[]")
+            if alias.lower() not in _RESERVADAS_JSON:
+                salida.add("alias:" + alias)
+    return salida
+
+
+def _diferencia(nombre, antes, despues):
+    partes = ["+%s" % x for x in sorted(despues - antes)] + ["-%s" % x for x in sorted(antes - despues)]
+    return "%s: %s" % (nombre, "; ".join(partes)) if partes else None
+
+
+def cambios_de_contrato(base, actual):
+    if base is None:
+        return []
+    antes = parametros_de_sp(base)
+    if actual is None:
+        return ["eliminado el SP %s: su contrato desaparece" % antes[clave][0] for clave in sorted(antes)]
+    despues = parametros_de_sp(actual)
+    hallazgos = []
+    for clave in sorted(set(antes) & set(despues)):
+        (nombre, a), (_, d) = antes[clave], despues[clave]
+        partes = ["+%s %s" % (d[p][0], d[p][1]) for p in sorted(set(d) - set(a))]
+        partes += ["-%s %s" % (a[p][0], a[p][1]) for p in sorted(set(a) - set(d))]
+        partes += ["~%s: %s -> %s" % (d[p][0], a[p][1], d[p][1]) for p in sorted(set(a) & set(d)) if a[p][1] != d[p][1]]
+        if partes:
+            hallazgos.append("firma %s: %s" % (nombre, "; ".join(partes)))
+    for clave in sorted(set(antes) - set(despues)):
+        hallazgos.append("eliminado el SP %s: su contrato desaparece" % antes[clave][0])
+    dif = _diferencia("JSON del SP", json_de_sp(base), json_de_sp(actual))
+    if dif:
+        hallazgos.append(dif)
+    return hallazgos
+
+
+def objetos(actual, base):
+    previos = [e.group(1) for e in _OBJETO.finditer(depurar(base or ""))]
+    texto = actual if actual is not None else (base or "")
+    nombres = {e.group(1) for e in _OBJETO.finditer(depurar(texto))} | set(previos)
+    minusculas = {n.lower() for n in previos}
+    return [{"nombre": n, "ere_def": _ERE_DEF % n, "ref": n, "fijo": True, "ci": True, "nuevo": n.lower() not in minusculas}
+            for n in sorted(nombres)]
