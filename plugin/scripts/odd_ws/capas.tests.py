@@ -70,11 +70,12 @@ def test_rutas_de_la_convencion():
     assert m().CRITERIOS_REFS == ".claude/skills/criterios/references/"
     assert m().EVIDENCIA == ".claude/reglas/evidencia.md"
     assert m().MATRIZ == ".claude/reglas/matriz.csv"
+    assert m().SENALES == ".claude/reglas/senales.py"
 
 
 def test_las_rutas_son_relativas_y_con_barra():
     for ruta in (m().chequeo("x"), m().prueba("x"), m().skill("x"), m().revisor("x"), m().writer("x"), m().agente("x"), m().CRITERIOS_SKILL,
-                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE, m().ESTADO_WRITERS):
+                 m().CRITERIOS_REFS, m().EVIDENCIA, m().MATRIZ, m().PRIMER_TOQUE, m().ESTADO_WRITERS, m().SENALES):
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
