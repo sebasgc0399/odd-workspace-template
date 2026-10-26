@@ -814,6 +814,18 @@ def test_un_comodin_corta_la_ruta_y_la_carpeta_conocida_decide():
     ], False))
 
 
+def test_las_llaves_y_el_extglob_cortan_como_un_comodin():
+    comprobar(tabla([
+        "rm -rf " + fw(EQUIPO) + "/{db,web}", "sed -i s/a/b/ " + fw(EQUIPO) + "/{db,web}/x.sql", "rm -rf " + fw(BASE) + "/{equipo,otro}",
+        "cd " + fw(EQUIPO) + " && rm -rf {db,web}", "shopt -s extglob; rm -rf " + fw(EQUIPO) + "/@(db|web)",
+        "shopt -s extglob; rm -rf " + fw(EQUIPO) + "/!(x)", "shopt -s extglob; rm -rf " + fw(EQUIPO) + "/+(db)",
+    ], True), tabla([
+        "rm -rf " + fw(BASE / "copia") + "/{a,b}", "echo x > " + fw(INST) + "/{a,b}.txt", "rm -rf " + fw(SCRATCH_BASE) + "/{a,b}",
+        "shopt -s extglob; rm -rf " + fw(BASE / "copia") + "/@(a|b)", "cat " + fw(EQUIPO) + "/{db,web}/x.sql",
+        "echo x > " + fw(BASE / "c++/notas.txt"), "cp a.txt " + fw(BASE / "yo@host/b.txt"), "rm " + fw(BASE / "!viejo/x.txt"),
+    ], False))
+
+
 def test_la_carpeta_de_un_cd_con_variable_decide_sola():
     comprobar(tabla(["cd $REPOS/db && echo x > notas.txt", "cd ${REPOS}/web; Set-Content B.cs x", "cd ~/equipo/db && rm x.sql"], True),
               tabla(["cd $NOEXISTE && echo x > notas.txt"], False))
