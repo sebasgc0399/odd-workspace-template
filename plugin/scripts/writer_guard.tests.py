@@ -766,7 +766,7 @@ def test_una_ruta_que_no_se_resuelve_no_usa_el_cwd_del_proceso():
         comprobar(tabla(["echo x > %x", "echo x > %x/y.sql", "echo x > $", "Set-Content %x x", "echo x > %x/../" + fw(DB) + "/x.sql"], False),
                   tabla(["echo x > " + r for r in relativas_a_la_unidad], False),
                   tabla(["echo x > x.sql"], False), con_cwd(["echo x > x.sql"], REPO_CWD, True))
-        comprobar(tabla(["echo x > " + unidad + "/$f", "cd " + unidad + " && echo x > x.sql", "cd " + unidad + "/.. && echo x > x.sql"] if NT else [], False),
+        comprobar(tabla(["cd " + unidad + " && echo x > x.sql", "cd " + unidad + "/.. && echo x > x.sql"] if NT else [], False),
                   tabla(["cd " + unidad + "/ && echo x > " + fw(DB)[3:] + "/x.sql"] if NT else [], True))
     finally:
         os.chdir(previo)
@@ -788,6 +788,30 @@ def test_una_ruta_sin_unidad_toma_la_unidad_del_cwd_del_shell():
                   con_cwd(["echo x > /dev/null", "echo x > //srv/sh/x.sql"], REPO_CWD, False))
     finally:
         os.chdir(previo)
+
+
+def test_un_ancestro_de_un_repo_es_zona():
+    comprobar(tabla([
+        "rm -rf " + fw(EQUIPO), "Remove-Item -Recurse -Force " + bw(EQUIPO), "cd " + fw(DB) + " && rm -rf ..",
+        "mv " + fw(EQUIPO) + " " + fw(BASE / "otro"), "rm -rf " + fw(BASE), "rm -rf " + fw(EQUIPO / "worktrees"),
+        "find " + fw(EQUIPO) + " -name x -delete", "cd " + fw(EQUIPO) + " && ls | xargs rm", "cp a.txt " + fw(BASE) + "/",
+        "rd /s /q " + bw(EQUIPO), "echo x > " + fw(DB)[:3] + "$f" if NT else "echo x > /$f",
+    ] + (["rm -rf " + fw(DB)[:3], "Remove-Item -Recurse " + bw(DB)[:3]] if NT else ["rm -rf /"]), True), tabla([
+        "rm -rf " + fw(BASE / "copia"), "rm -rf " + fw(INST / "tickets"), "ls " + fw(EQUIPO), "echo x > " + fw(EQUIPO) + "/notas.txt",
+        "find " + fw(EQUIPO) + " -name '*.sql' | xargs grep x", "rm -rf " + fw(EQUIPO / "worktrees/web--y"),
+    ], False))
+
+
+def test_un_comodin_corta_la_ruta_y_la_carpeta_conocida_decide():
+    comprobar(tabla([
+        "rm -rf " + fw(EQUIPO) + "/*", "rm -rf " + fw(BASE) + "/eq*", "Remove-Item " + bw(EQUIPO) + "\\*\\*.sql",
+        "cd " + fw(EQUIPO) + " && rm -rf *", "rm -rf " + fw(DB) + "/*.sql", "rm " + fw(TALLER_DIR) + "/esq.*.sql",
+        "rm " + fw(INST / "tickets") + "/T-1*/SQL/esq.a.sql", "rm -rf " + fw(EQUIPO) + "/[dw]*", "rm -rf " + fw(EQUIPO) + "/d?",
+        "rm -rf " + fw(EQUIPO) + "/[dw]b",
+    ], True), tabla([
+        "rm -rf " + fw(BASE / "copia") + "/*", "rm " + fw(INST / "tickets") + "/*.tmp", "rm -rf *", "cd " + fw(INST) + " && rm -rf *.log",
+        "ls " + fw(EQUIPO) + "/*", "rm " + fw(SCRATCH_BASE) + "/*",
+    ], False))
 
 
 def test_la_carpeta_de_un_cd_con_variable_decide_sola():
