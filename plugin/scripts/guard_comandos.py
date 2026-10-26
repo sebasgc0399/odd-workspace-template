@@ -8,6 +8,7 @@ import re
 import time
 
 import config_loader
+from odd_ws import rutas
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, plazo_de, raiz_de_instancia, temporal
 
 HEREDOC_ABRE = re.compile(r"(?s)^(.*?)<<-?\s*['\"]?\w+['\"]?\r?\n")
@@ -72,6 +73,68 @@ ENVOLTORIO = re.compile(r"(?i)^[$({!@&`%]*(?:[^\\/]*[\\/])*(sudo|doas|xargs|comm
                         r"stdbuf|ionice|watch|winpty|busybox|powershell|pwsh|if|then|else|elif|do|while|until|cmd|foreach-object|"
                         r"foreach|invoke-command|start-job|-exec|-execdir|-ok|-okdir)(\.exe)?$")
 BORRAN = ("rm", "remove-item", "ri", "del", "erase", "rd", "rmdir")
+
+GIT_LECTURA = ("status", "log", "diff", "show", "grep", "ls-tree", "ls-files", "ls-remote", "rev-parse", "rev-list",
+               "cat-file", "blame", "annotate", "describe", "shortlog", "merge-base", "name-rev", "for-each-ref", "show-ref",
+               "show-branch", "check-ignore", "check-attr", "count-objects", "diff-tree", "diff-files", "diff-index",
+               "whatchanged", "range-diff", "cherry", "var", "help", "version", "fetch")
+GIT_AUTORIZA = ("push", "commit", "merge", "rebase", "cherry-pick", "revert", "tag", "pull", "am", "add")
+LARGAS_MALAS = ("--output", "--output-directory", "--open-files-in-pager", "--ext-diff", "--upload-pack", "--exec", "--receive-pack")
+LARGAS_FETCH = ("--update-head-ok", "--set-upstream", "--stdin")
+LARGAS_LISTA = ("--all", "--remotes", "--verbose", "--list", "--contains", "--no-contains", "--merged", "--no-merged",
+                "--show-current", "--points-at", "--sort", "--format", "--color", "--no-color", "--column", "--no-column",
+                "--ignore-case", "--abbrev", "--no-abbrev", "--omit-empty", "--quiet")
+CONFIG_ESCRIBE = ("--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section", "--edit")
+GIT_TOKEN = re.compile(r"(?i)^(?:.*[({`])?[$!@&<>]*(?:[^\\/]*[\\/])*git(?:\.exe)?[)}`;]*$")
+SHELL = re.compile(r"(?i)^(?:[^\\/]*[\\/])*(bash|sh|zsh|dash|pwsh|powershell|cmd|eval|iex|invoke-expression|wsl|start-process)(\.exe)?$")
+GIT_VARIABLE = re.compile(r"(?i)(^|[\s;&|(:])GIT_(CONFIG\w*|EXTERNAL_DIFF|EXEC_PATH|SSH|SSH_COMMAND|ASKPASS|PROXY_COMMAND)\s*=")
+HEREDOC_A_SHELL = re.compile(r"(?i)<<-?\s*['\"]?\w+['\"]?[^\r\n]*\|\s*(bash|sh|zsh|pwsh|powershell)\b")
+HERE_STRING_ABRE = re.compile(r"@['\"]\r?\n")
+HERE_STRING = re.compile(r"(?s)@(['\"])\r?\n(.*?)\r?\n\1@")
+HERE_STRING_COMILLAS = re.compile(r"['\"`]")
+REDIRIGE_GIT = re.compile(r"^[\d&]?[<>]")
+REDIRIGE_GIT_SOLA = re.compile(r"^[\d&]?[<>]+$")
+TRAS_REDIRECCION = re.compile(r"[<>].*$")
+CIERRES_GIT = re.compile(r"[)}`;]+$")
+RUTA_PROPIA = re.compile(r"(?i)^--(git-dir|work-tree)$")
+RUTA_PROPIA_PEGADA = re.compile(r"(?i)^--(git-dir|work-tree)=(.*)$")
+VERSION = re.compile(r"(?i)^(--version|-v|--help|-h)$")
+GLOBAL_INOCUA = re.compile(r"(?i)^(-p|--no-pager|--paginate|--no-optional-locks|--(literal|glob|noglob|icase)-pathspecs|"
+                           r"--no-replace-objects)$")
+LISTA_ACTIVA = re.compile(r"(?i)^--(list|verbose|contains|no-contains|merged|no-merged|points-at)$")
+LISTA_CON_VALOR = re.compile(r"(?i)^--(sort|format|points-at)$")
+CORTA_GIT = re.compile(r"^-.")
+CONFIG_LEE = re.compile(r"(?i)^--(get|get-all|get-regexp|list)$")
+FETCH_CORTA = re.compile(r"^-[^-]*[uP]")
+FETCH_PODA = re.compile(r"(?i)^--prune-t")
+LARGA = re.compile(r"(?i)^--[^=]+")
+GREP_O = re.compile(r"^-[^-]*O")
+WORKTREE_B = re.compile(r"^-[^-]*B")
+REMOTE_V = re.compile(r"(?i)^(-v|--verbose)$")
+OPCION = re.compile(r"^-")
+DESCARTA = re.compile(r"(?i)^(restore|clean|reset)$")
+CHECKOUT_DESCARTA = re.compile(r"(?i)(^|\s)(--\s+\S|\.(\s|$))")
+STASH_DESCARTA = re.compile(r"(?i)^(drop|clear|pop)$")
+ABRE_GIT = re.compile(r"[({`]")
+ABRE_AL_FINAL = re.compile(r"[({`]$")
+ABRIDORES_INICIO = re.compile(r"^[({`]+")
+VARIABLE_SOLA = re.compile(r"^\$\{?[\w:]+\}?$")
+SUSTITUCION = re.compile(r"^\$(\{?[\w:]+\}?|\(.*\))$")
+OPERADOR = re.compile(r"^([-=.\[<>]|[+*/%?]+=)")
+ALIAS = re.compile(r"(?i)^(set-alias|new-alias|sal|nal|alias|doskey)$")
+MENCIONA_GIT = re.compile(r"(?i)git")
+CODIGO = re.compile(r"\$\(|`")
+ESPACIO = re.compile(r"\s")
+SEPARA = re.compile(r"[\s;|&]")
+MENCION_ABRE = re.compile(r"^(?:\$\(|[({`!@&]|\d*[<>]+&?)+")
+MENCION_CIERRA = re.compile(r"[)}`;]+$")
+OPCION_PEGADA = re.compile(r"^-[A-Za-z][\w-]*:(.+)$", re.DOTALL)
+SOLO_BARRAS = re.compile(r"^[\\/]+$")
+PREFIJO_LARGO = re.compile(r"^//(?:[?.]/)?(?=[a-z]:/)", re.IGNORECASE)
+NO_ES_RUTA = re.compile(r"[\x00\r\n]")
+MAX_RUTA = 4096
+MAX_PROFUNDIDAD_MENCION = 3
+ROTA = object()
 
 _LIMITE = None
 
@@ -358,11 +421,14 @@ def _borrado_recursivo(segmentos):
     return False
 
 
-def _capa_1(comando, entorno):
-    _vigente()
+def _base(comando):
     m = HEREDOC_ABRE.match(comando)
     alimenta = m is not None and ALIMENTA_SHELL.search(m.group(1)) is not None
-    base = comando if alimenta else HEREDOC.sub(" ", comando)
+    return comando if alimenta else HEREDOC.sub(" ", comando)
+
+
+def _capa_1(base, entorno):
+    _vigente()
     scan = SIMPLES.sub(" ", DOBLES.sub(" ", base))
     if GIT.search(scan) and PUSH.search(scan) and (FORCE.search(scan) or FORCE_CORTO.search(scan)) and not LEASE.search(scan):
         return "git push --force (si de verdad hace falta forzar, usa --force-with-lease)"
@@ -409,20 +475,368 @@ def _capa_1(comando, entorno):
     return None
 
 
-def analizar(comando, cwd=None, entorno=None):
+class Protegidos:
+    def __init__(self, config=None, rota=None):
+        self.rota = rota
+        self.arboles = []
+        for clave, repo in ((config or {}).get("repos") or {}).items():
+            if repo.get("agent_readonly") is True:
+                for ruta in [repo["path"], *repo.get("worktrees", [])]:
+                    self.arboles.append((config_loader.canonica(ruta), clave))
+        self.activa = rota is not None or bool(self.arboles)
+        self._carpetas = {}
+
+    @classmethod
+    def de_instancia(cls, raiz):
+        try:
+            return cls(config_loader.cargar(raiz))
+        except config_loader.ConfigRota as error:
+            return cls(None, str(error))
+        except Exception as error:
+            return cls(None, "%s: %s" % (type(error).__name__, error))
+
+    def _canonica(self, ruta):
+        ruta = PREFIJO_LARGO.sub("", ruta)
+        if ruta.startswith("//"):
+            return os.path.normcase(ruta)
+        return config_loader.canonica(ruta)
+
+    def _carpeta(self, ruta):
+        if ruta is None:
+            return None
+        if ruta not in self._carpetas:
+            _vigente()
+            c = self._canonica(ruta)
+            self._carpetas[ruta] = next((clave for arbol, clave in self.arboles
+                                         if config_loader._dentro(c, arbol) or config_loader._dentro(arbol, c)), None)
+        return self._carpetas[ruta]
+
+    def _toca(self, texto, cwd, base, variable):
+        if not texto or len(texto) > MAX_RUTA or NO_ES_RUTA.search(texto):
+            return None
+        expandida, prefijo = rutas.expandir(texto.strip(), cwd, variable)
+        if expandida is None:
+            return self._carpeta(rutas.ubicar(prefijo, base)) if prefijo else None
+        r = rutas.ubicar(expandida, base)
+        if r is None:
+            return None
+        clave = self._carpeta(r)
+        if clave is None:
+            prefijo = rutas.antes_del_comodin(expandida)
+            if prefijo is not None:
+                clave = self._carpeta(rutas.ubicar(prefijo, base))
+        return clave
+
+    def del_cwd(self, cwd):
+        if self.rota is not None:
+            return ROTA
+        r = rutas.ubicar(cwd, None) if isinstance(cwd, str) and cwd else None
+        if r is None:
+            return None
+        c = self._canonica(r)
+        return next((clave for arbol, clave in self.arboles if config_loader._dentro(c, arbol)), None)
+
+    def menciona(self, texto, cwd, variable, profundidad=0):
+        if self.rota is not None:
+            return ROTA
+        for candidato in _candidatos(texto):
+            clave = self._toca(candidato, cwd, cwd, variable)
+            if clave is not None:
+                return clave
+        if profundidad < MAX_PROFUNDIDAD_MENCION and SEPARA.search(texto):
+            for tokens, _ in Segmentos(texto).segmentos:
+                for t, _ in tokens:
+                    clave = self.menciona(t, cwd, variable, profundidad + 1)
+                    if clave is not None:
+                        return clave
+        return None
+
+    def compuerta(self, base, segmentos, cwd, variable):
+        clave = self.del_cwd(cwd)
+        if clave is not None:
+            return clave
+        for tokens, _ in segmentos.segmentos:
+            for t, _ in tokens:
+                clave = self.menciona(t, cwd, variable)
+                if clave is not None:
+                    return clave
+        return None
+
+    def propias(self, propias, cwd, variable):
+        if self.rota is not None:
+            return ROTA, False
+        base, clave, absoluta = None, None, False
+        for opcion, texto in propias:
+            expandida, _ = rutas.expandir(texto.strip(), cwd, variable)
+            r = rutas.ubicar(expandida, base) if expandida is not None else None
+            if r is not None:
+                absoluta = True
+            if clave is None:
+                clave = self._toca(texto, cwd, base, variable)
+            if opcion == "-C":
+                base = r
+        return clave, absoluta
+
+    def donde(self, clave):
+        if clave is ROTA:
+            return ("un repo cualquiera, con la configuración de la instancia rota (%s; mientras no se arregle, todo git que no "
+                    "sea de lectura pregunta)" % self.rota)
+        if clave is not None:
+            return "el repo «%s», que el agente solo lee (repos.%s.agent_readonly en workspace.config.json)" % (clave, clave)
+        return "una instancia con repos que el agente solo lee (agent_readonly en workspace.config.json)"
+
+
+def _candidatos(texto):
+    vistos = []
+    for base in (texto, MENCION_CIERRA.sub("", MENCION_ABRE.sub("", texto))):
+        partes = base.split("=")
+        piezas = [base] + ["=".join(partes[i:]) for i in range(1, len(partes))]
+        m = OPCION_PEGADA.match(base)
+        if m:
+            piezas.append(m.group(1))
+        for pieza in piezas:
+            for candidato in pieza.split(","):
+                if candidato and candidato not in vistos and (candidato == texto or not SOLO_BARRAS.search(candidato)):
+                    vistos.append(candidato)
+    return vistos
+
+
+def _pregunta(prot, que, porque, clave):
+    return "git %s en %s: %s. Confirmar solo si es deliberado y autorizado." % (que, prot.donde(clave), porque)
+
+
+def _forma_de_lista(resto, cortas, disparan):
+    lista, posicionales, k = False, 0, 0
+    while k < len(resto):
+        t = resto[k]
+        if t == "--":
+            posicionales += len(resto) - k - 1
+            break
+        if t.startswith("--"):
+            n = t.split("=", 1)[0]
+            if n.lower() not in LARGAS_LISTA:
+                return False
+            if LISTA_ACTIVA.search(n):
+                lista = True
+            if LISTA_CON_VALOR.search(n) and "=" not in t:
+                k += 1
+        elif CORTA_GIT.search(t):
+            if not re.search("^-[%s]+$" % cortas, t):
+                return False
+            if re.search("[%s]" % disparan, t):
+                lista = True
+        else:
+            posicionales += 1
+        k += 1
+    return posicionales == 0 or lista
+
+
+def _config_de_lectura(resto):
+    lectura = bool(resto) and resto[0] in ("get", "list")
+    for t in resto:
+        n = t.split("=", 1)[0]
+        if CONFIG_LEE.search(n) or n == "-l":
+            lectura = True
+            continue
+        if n == "-e":
+            return False
+        if n.startswith("--") and len(n) >= 3 and any(w.startswith(n) for w in CONFIG_ESCRIBE):
+            return False
+    return lectura
+
+
+def _opcion_mala(sub, resto):
+    malas = LARGAS_MALAS + LARGAS_FETCH if sub == "fetch" else LARGAS_MALAS
+    for t in resto:
+        if t == "--":
+            break
+        if sub == "fetch" and (":" in t or FETCH_CORTA.search(t) or FETCH_PODA.search(t)):
+            return t
+        m = LARGA.search(t)
+        if m:
+            if any(f.lower().startswith(m.group(0).lower()) for f in malas):
+                return t
+        elif sub == "grep" and GREP_O.search(t):
+            return t
+    return ""
+
+
+def _invocacion(tokens, desde, hasta, ambiente, prot, cwd, variable):
+    av, k = [], desde
+    while k < hasta:
+        t, citado = tokens[k]
+        k += 1
+        if not citado:
+            if REDIRIGE_GIT.search(t):
+                if REDIRIGE_GIT_SOLA.search(t):
+                    k += 1
+                continue
+            t = CIERRES_GIT.sub("", TRAS_REDIRECCION.sub("", t))
+            if t == "":
+                continue
+        av.append(t)
+    propias, mala, sub, i = [], "", "", 0
+    while i < len(av):
+        t = av[i]
+        i += 1
+        pegada = RUTA_PROPIA_PEGADA.search(t)
+        if t == "-C" or RUTA_PROPIA.search(t):
+            if i < len(av):
+                propias.append((t, av[i]))
+            i += 1
+        elif pegada:
+            propias.append(("--" + pegada.group(1), pegada.group(2)))
+        elif t == "-c" or t.lower() == "--config-env":
+            mala = t
+            i += 1
+        elif VERSION.search(t):
+            sub = "version"
+            break
+        elif GLOBAL_INOCUA.search(t):
+            pass
+        elif t.startswith("-"):
+            mala = t
+        else:
+            sub = t
+            break
+    clave, absoluta = prot.propias(propias, cwd, variable)
+    if clave is None and (absoluta or ambiente is None):
+        return None
+    clave = ambiente if clave is None else clave
+    if mala:
+        return _pregunta(prot, mala, "opción global fuera de la lista (-c, --config-env y --exec-path pueden ejecutar cualquier "
+                                     "comando)", clave)
+    if not sub:
+        return None
+    resto = av[i:]
+    s = sub.lower()
+    a0 = resto[0] if resto else ""
+    if s == "branch":
+        ok = _forma_de_lista(resto, "arvliq", "vl")
+    elif s == "tag":
+        ok = _forma_de_lista(resto, "lni0-9", "l")
+    elif s == "stash":
+        ok = a0 in ("list", "show")
+    elif s == "worktree":
+        ok = a0 == "list" or (a0 == "add" and not any(WORKTREE_B.search(t) for t in resto))
+    elif s == "config":
+        ok = _config_de_lectura(resto)
+    elif s == "remote":
+        r = [t for t in resto if not REMOTE_V.search(t)]
+        ok = not r or r[0] in ("show", "get-url")
+    elif s == "reflog":
+        ok = a0 == "show" or not [t for t in resto if not OPCION.search(t)]
+    elif s == "notes":
+        ok = a0 in ("", "list", "show")
+    else:
+        ok = s in GIT_LECTURA
+    if ok:
+        f = _opcion_mala(s, resto)
+        if not f:
+            return None
+        return _pregunta(prot, "%s %s" % (sub, f), "esa opción escribe o ejecuta", clave)
+    porque = "fuera de la lista de git de solo lectura"
+    if s in GIT_AUTORIZA:
+        porque = "requiere autorización puntual"
+    elif (DESCARTA.search(s) or (s == "checkout" and CHECKOUT_DESCARTA.search(" ".join(resto)))
+          or (s == "stash" and STASH_DESCARTA.search(a0)) or (s == "worktree" and a0.lower() == "remove")):
+        porque = "descarta trabajo sin commitear, sin reflog para recuperarlo"
+    elif s in ("checkout", "switch"):
+        porque = ("el working tree puede tener trabajo sin commitear; para otra rama, usar un worktree "
+                  "(git -C <repo> worktree add <ruta> <rama>)")
+    return _pregunta(prot, sub, porque, clave)
+
+
+def _equipo(segmentos, ambiente, profundidad, texto, clave, prot, cwd, variable):
+    if clave is not None and segmentos.ambiguo and MENCIONA_GIT.search(texto):
+        return _pregunta(prot, "(comillas escapadas o ambiguas)", "no se puede leer qué git corre",
+                         clave if ambiente is None else ambiente)
+    datos = []
+    for tokens, _ in segmentos.segmentos:
+        _vigente()
+        inicios, shell, abierto, envuelto, riesgo = [], False, False, False, ""
+        for k, (t, citado) in enumerate(tokens):
+            if GIT_TOKEN.search(t) and (not inicios or abierto or (not citado and ABRE_GIT.search(t))):
+                inicios.append(k)
+            else:
+                if ambiente is None and not (citado and inicios and ESPACIO.search(t)):
+                    ambiente = prot.menciona(t, cwd, variable)
+                if k == 0 or envuelto:
+                    tv = ABRIDORES_INICIO.sub("", t) if k == 0 else t
+                    siguiente = tokens[k + 1][0] if k + 1 < len(tokens) else ""
+                    if ((VARIABLE_SOLA.search(tv) and (envuelto or profundidad > 0))
+                            or (SUSTITUCION.search(tv) and siguiente != "" and not OPERADOR.search(siguiente))):
+                        riesgo = "(un comando en una variable o una sustitución)"
+            if k == 0 and ALIAS.search(t) and any(MENCIONA_GIT.search(x) for x, _ in tokens):
+                riesgo = "(un alias hacia git)"
+            if not citado and SHELL.search(t):
+                shell = True
+            abierto = not citado and ABRE_AL_FINAL.search(t) is not None
+            envuelto = not citado and ENVOLTORIO.search(t) is not None
+        datos.append((tokens, inicios, shell, riesgo))
+    for tokens, inicios, shell, riesgo in datos:
+        if ambiente is not None and riesgo:
+            return _pregunta(prot, riesgo, "no se puede leer si es git ni qué hace", ambiente)
+        if profundidad < 2:
+            for t, citado in tokens:
+                if citado and (shell or CODIGO.search(t)):
+                    motivo = _equipo(Segmentos(t), ambiente, profundidad + 1, t, clave, prot, cwd, variable)
+                    if motivo:
+                        return motivo
+        for i, inicio in enumerate(inicios):
+            fin = inicios[i + 1] if i + 1 < len(inicios) else len(tokens)
+            motivo = _invocacion(tokens, inicio + 1, fin, ambiente, prot, cwd, variable)
+            if motivo:
+                return motivo
+    return None
+
+
+def _capa_2(comando, base, cwd, variable, prot):
+    texto = comando if HEREDOC_A_SHELL.search(comando) else base
+    if HERE_STRING_ABRE.search(texto):
+        texto = HERE_STRING.sub(lambda m: '"' + HERE_STRING_COMILLAS.sub(" ", m.group(2)).replace("\\", "/") + '"', texto)
+    segmentos = Segmentos(texto)
+    clave = prot.compuerta(base, segmentos, cwd, variable)
+    if clave is not None and GIT_VARIABLE.search(base):
+        return _pregunta(prot, "(con una variable GIT_* que equivale a -c o nombra un programa)", "puede ejecutar cualquier comando",
+                         clave)
+    try:
+        return _equipo(segmentos, prot.del_cwd(cwd), 0, texto, clave, prot, cwd, variable)
+    except _SinTiempo:
+        raise
+    except Exception as error:
+        return _pregunta(prot, "(el guard falló al leerlo)", "error interno: %s" % error, clave)
+
+
+def analizar(comando, cwd=None, entorno=None, protegidos=None):
     entorno = os.environ if entorno is None else entorno
     if os.name == "nt":
         entorno = {k.upper(): v for k, v in entorno.items()}
-    motivo = _capa_1(comando, entorno)
-    return ("block", motivo) if motivo else (None, None)
+    base = _base(comando)
+    motivo = _capa_1(base, entorno)
+    if motivo:
+        return "block", motivo
+    if protegidos is not None and protegidos.activa:
+        variable = (lambda nombre: entorno.get(nombre.upper())) if os.name == "nt" else entorno.get
+        motivo = _capa_2(comando, base, cwd, variable, protegidos)
+        if motivo:
+            return "ask", motivo
+    return None, None
 
 
 def _mensaje(motivo):
     return "guard-comandos bloqueó el comando: %s. Si la operación es deliberada, que la corra el usuario a mano." % motivo
 
 
+def _preguntar(motivo):
+    salida = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
+                                     "permissionDecisionReason": "guard-comandos pregunta antes de correr el comando: " + motivo}}
+    return 0, json.dumps(salida) + "\n", b""
+
+
 def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
+    protegidos = None
     try:
         if isinstance(evento, (str, bytes, bytearray)):
             evento = json.loads(evento)
@@ -435,13 +849,24 @@ def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
         _LIMITE = time.monotonic() + plazo
         entorno = os.environ if entorno is None else entorno
         cwd = evento.get("cwd") if isinstance(evento.get("cwd"), str) else None
-        if raiz_de_instancia(entorno, cwd or os.getcwd()) is None:
+        raiz = raiz_de_instancia(entorno, cwd or os.getcwd())
+        if raiz is None:
             return SILENCIO
-        resultado, motivo = analizar(comando, cwd, entorno)
+        protegidos = Protegidos.de_instancia(raiz)
+        resultado, motivo = analizar(comando, cwd, entorno, protegidos)
         if resultado == "block":
             return 2, "", (_mensaje(motivo) + "\n").encode("utf-8")
+        if resultado == "ask":
+            return _preguntar(motivo)
         return SILENCIO
-    except (Exception, SystemExit):
+    except _SinTiempo:
+        if protegidos is not None and protegidos.activa:
+            return _preguntar(_pregunta(protegidos, "(el análisis no terminó dentro del plazo)", "no se puede leer qué git corre",
+                                        None))
+        return SILENCIO
+    except (Exception, SystemExit) as error:
+        if protegidos is not None and protegidos.activa:
+            return _preguntar(_pregunta(protegidos, "(el guard falló al leerlo)", "error interno: %s" % error, None))
         return SILENCIO
     finally:
         _LIMITE = None

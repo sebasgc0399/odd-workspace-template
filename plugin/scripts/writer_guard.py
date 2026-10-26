@@ -21,6 +21,7 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import rutas
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia, temporal
 
 HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
@@ -78,12 +79,6 @@ PY_OPCIONES_CON_VALOR = {"-X", "-W"}
 OPCIONES_DESTINO = {"-destination", "-t", "--target-directory", "-dest"}
 SED_EN_SITIO = re.compile(r"^-[A-Za-z]*i")
 ASIGNACION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-DRIVE = re.compile(r"^[a-z]:")
-UNIDAD_ABSOLUTA = re.compile(r"^[a-z]:/")
-UNIDAD_SOLA = re.compile(r"[A-Za-z]:")
-GIT_BASH_DRIVE = re.compile(r"^/([a-z])/")
-COMODIN = re.compile(r"[*?\[{]|[@+!]$")
-VARIABLE_RE = re.compile(r"\$\{(\w+)\}|\$env:(\w+)|\$(\w+)|%(\w+)%", re.IGNORECASE)
 
 _COLECTOR = None
 _ZONAS = None
@@ -307,84 +302,27 @@ def _nombre_comando(token):
     return base
 
 
-def _normalizar(ruta):
-    r = ruta.strip().replace("\\", "/")
-    m = GIT_BASH_DRIVE.match(r.lower())
-    if m and len(r) > 2:
-        r = m.group(1) + ":" + r[2:]
-    return r
+_normalizar = rutas.normalizar
+_es_relativa = rutas.es_relativa
+_caso = rutas.caso
+_unidad = rutas.unidad
+_ubicar = rutas.ubicar
+_absoluta = rutas.absoluta
+_antes_del_comodin = rutas.antes_del_comodin
 
 
-def _es_relativa(r):
-    low = r.lower()
-    return not (low.startswith(("/", "~", "$", "%")) or DRIVE.match(low))
-
-
-def _caso(r):
-    return r.lower() if os.name == "nt" else r
-
-
-def _valor(nombre, cwd, de_entorno):
-    if not de_entorno and nombre.upper() == "PWD":
-        return cwd or None
+def _variable(nombre):
     if _ZONAS is not None:
         return _ZONAS.variable(nombre)
     return os.environ.get(nombre)
 
 
 def _expandir(ruta, cwd):
-    if ruta.startswith("~"):
-        if ruta[1:2] not in ("", "/", "\\"):
-            return None, None
-        casa = _valor("HOME", cwd, True) or _valor("USERPROFILE", cwd, True)
-        if not casa:
-            return None, None
-        ruta = casa + ruta[1:]
-    salida, i = [], 0
-    for m in VARIABLE_RE.finditer(ruta):
-        nombre = next(g for g in m.groups() if g)
-        valor = _valor(nombre, cwd, m.group(0).lower().startswith("$env:"))
-        if valor is None:
-            previo = "".join(salida) + ruta[i:m.start()]
-            corte = max(previo.rfind("/"), previo.rfind("\\"))
-            return None, (previo[:corte + 1] if corte >= 0 else None)
-        salida.append(ruta[i:m.start()] + valor)
-        i = m.end()
-    salida.append(ruta[i:])
-    return "".join(salida), None
-
-
-def _unidad(cwd):
-    c = _normalizar(cwd) if cwd else ""
-    return c[:2] if UNIDAD_ABSOLUTA.match(c.lower()) else None
-
-
-def _ubicar(ruta, cwd):
-    r = _normalizar(ruta)
-    if _es_relativa(r):
-        if not cwd:
-            return None
-        r = _normalizar(cwd) + "/" + r
-    elif os.name == "nt" and r.startswith("/") and not r.startswith("//"):
-        unidad = _unidad(cwd)
-        if unidad is None:
-            return None
-        r = unidad + r
-    if not _absoluta(r):
-        return None
-    r = posixpath.normpath(r)
-    if UNIDAD_SOLA.fullmatch(r):
-        r += "/"
-    return _caso(r) if _absoluta(r) else None
-
-
-def _absoluta(r):
-    return r.startswith("/") or UNIDAD_ABSOLUTA.match(r.lower()) is not None
+    return rutas.expandir(ruta, cwd, _variable)
 
 
 def _resolver(ruta, cwd):
-    expandida, _ = _expandir(ruta.strip(), cwd)
-    return None if expandida is None else _ubicar(expandida, cwd)
+    return rutas.resolver(ruta, cwd, _variable)
 
 
 def _recoger(ruta, cwd):
@@ -422,15 +360,6 @@ def _decidir(ruta, cwd):
     prefijo = _antes_del_comodin(expandida)
     carpeta = _ubicar(prefijo, cwd) if prefijo is not None else None
     return carpeta is not None and _ZONAS.carpeta(carpeta)
-
-
-def _antes_del_comodin(ruta):
-    m = COMODIN.search(ruta)
-    if m is None:
-        return None
-    previo = ruta[:m.start()]
-    corte = max(previo.rfind("/"), previo.rfind("\\"))
-    return previo[:corte + 1]
 
 
 def _zona(ruta, cwd):
