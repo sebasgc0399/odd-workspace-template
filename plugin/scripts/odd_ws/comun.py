@@ -34,6 +34,13 @@ def plazo_de(argv):
     return valor if math.isfinite(valor) and valor > 0 else PLAZO_POR_DEFECTO
 
 
+def temporal(entorno):
+    if os.name == "nt":
+        sistema = entorno.get("SYSTEMROOT") or entorno.get("WINDIR")
+        return entorno.get("TEMP") or entorno.get("TMP") or (os.path.join(sistema, "temp") if sistema else None)
+    return entorno.get("TMPDIR") or "/tmp"
+
+
 def id_valido(valor):
     return isinstance(valor, str) and ID_RE.fullmatch(valor) is not None
 

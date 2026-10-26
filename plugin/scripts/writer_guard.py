@@ -21,7 +21,7 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
-from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia
+from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia, temporal
 
 HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
 MAX_FOTO = 8 * 1024 * 1024
@@ -107,13 +107,6 @@ def _verificar_capa():
     return _VERIFICAR[0]
 
 
-def _temporal(entorno):
-    if os.name == "nt":
-        sistema = entorno.get("SYSTEMROOT") or entorno.get("WINDIR")
-        return entorno.get("TEMP") or entorno.get("TMP") or (os.path.join(sistema, "temp") if sistema else None)
-    return entorno.get("TMPDIR") or "/tmp"
-
-
 class Zonas:
     def __init__(self, config, entorno=None):
         origen = os.environ if entorno is None else entorno
@@ -129,8 +122,8 @@ class Zonas:
                 self.padres.append("/".join(partes[:-1]))
                 if partes[-1] == "**":
                     self.padres.append(patron)
-        temporal = _temporal(self.entorno)
-        self.scratch = config_loader.canonica(os.path.join(temporal, "claude")) if temporal else None
+        carpeta = temporal(self.entorno)
+        self.scratch = config_loader.canonica(os.path.join(carpeta, "claude")) if carpeta else None
         self._archivos, self._carpetas = {}, {}
 
     def variable(self, nombre):
