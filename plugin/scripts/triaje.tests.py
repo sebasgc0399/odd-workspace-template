@@ -39,6 +39,8 @@ SQL_ALFA = "src/ventas/Proc_Alfa.sql"
 SQL_BETA = "src/ventas/Proc_Beta.sql"
 SQL_GAMMA = "src/ventas/Proc_Gamma.sql"
 CS_SVC = "Data/Servicio.cs"
+CS_CALLER = "Data/AlfaCaller.cs"
+CALLER = "class AlfaCaller { string sp = \"esq.Proc_Alfa\"; }\n"
 
 DOC_SISTEMAS = "# Sistemas\n\nLa cola sale por proc_encolar hacia terceros.\n\nEl correo usa SmtpClient.\n"
 MARCADOR_COLA = {"id": "cola", "patron": r"\bproc_encolar\b", "ejemplo": EFECTO, "fuente": "docs/sistemas.md:3",
@@ -129,9 +131,10 @@ def copiar_repo(nombre, destino):
 
 
 class Mundo:
-    def __init__(self, modulo=None, linea_base=True):
+    def __init__(self, modulo=None, linea_base=True, consumidor_extra=False):
         self.modulo = senales() if modulo is None else modulo
         self.linea_base = linea_base
+        self.consumidor_extra = consumidor_extra
 
     def __enter__(self):
         self.base = Path(tempfile.mkdtemp(prefix="triaje-test-"))
@@ -141,6 +144,9 @@ class Mundo:
             escribir(self.raiz, {".claude/reglas/senales.py": self.modulo})
         self.db = copiar_repo("db", self.base / "repos" / "db")
         self.web = copiar_repo("web", self.base / "repos" / "web")
+        if self.consumidor_extra:
+            commitear(self.web, {CS_CALLER: CALLER})
+            publicar(self.web)
         sql = {"extensions": [".sql"], "repos": ["db"], "workshop": ["tickets/**/T-[0-9]*/SQL/esq.*.sql"]}
         if self.linea_base:
             sql["workshop_baseline"] = {"repo": "db", "under": "src", "strip_prefix": "esq."}
@@ -150,9 +156,10 @@ class Mundo:
                              "workspace.local.json": json.dumps({"repos": {"db": {"path": str(self.db)}, "web": {"path": str(self.web)}}})})
         return self
 
-    def analizar(self, repos=None, taller=()):
+    def analizar(self, repos=None, taller=(), clones=None):
         repos = [(str(r), None) for r in (repos if repos is not None else [self.db])]
-        return M.analizar(repos, taller=[str(t) for t in taller], raiz=str(self.raiz))
+        return M.analizar(repos, taller=[str(t) for t in taller], raiz=str(self.raiz),
+                          clones=None if clones is None else [str(c) for c in clones])
 
     def taller(self, nombre, texto):
         rel = "tickets/T-1-x/SQL/" + nombre
@@ -171,10 +178,6 @@ def nivel(r, id_):
 
 def detalle(r, id_):
     return " | ".join(r["senales"][id_]["detalle"])
-
-
-def solo_escala_consumidores(r):
-    assert r["modo"] == "completo" and r["motivos"] == ["señal consumidores: invalida"], (r["motivos"], r["senales"])
 
 
 def indice(repo):
@@ -208,14 +211,151 @@ def test_sin_cambios():
         assert r["modo"] == "sin-cambios" and r["repos"][0]["archivos"] == []
 
 
-def test_todas_las_senales_en_negativo_salvo_consumidores_que_llega_en_u7c():
+def test_rapido_solo_con_todas_las_senales_en_negativo():
     with Mundo() as w:
         escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
         r = w.analizar()
-        for id_ in ("efecto", "dinero", "migracion", "contrato", "capas"):
+        assert r["modo"] == "rapido", (r["motivos"], r["senales"])
+        for id_ in M.SENALES:
             assert nivel(r, id_) == "negativa", (id_, r["senales"][id_])
-        solo_escala_consumidores(r)
+        assert r["motivos"] == ["todas las señales en negativo y el instrumento verificado"]
         assert r["no_detectable"], "tiene que declarar lo que no detecta"
+        assert re.fullmatch(r"[0-9a-f]{40}", r["origin_head"][str(w.db)] or ""), r["origin_head"]
+        assert "Proc_Alfa: ≥ 1, %s (Proc_Beta.sql)" % M.COTA in detalle(r, "consumidores"), detalle(r, "consumidores")
+
+
+def test_rapido_exige_el_instrumento_verificado_las_senales_solo_escalan():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar(clones=[w.web])
+        assert r["modo"] == "completo", "sin la definición no hay conteo válido: tiene que escalar"
+        assert nivel(r, "consumidores") == "invalida" and r["motivos"] == ["señal consumidores: invalida"]
+        assert "no encontré la definición" in detalle(r, "consumidores"), detalle(r, "consumidores")
+
+
+# ---------------------------------------------------------------- recurso compartido
+
+def test_consumidores_dos_o_mas_escala_con_cota_inferior():
+    with Mundo(consumidor_extra=True) as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "positiva" and r["modo"] == "completo"
+        assert "Proc_Alfa: ≥ 2, %s (AlfaCaller.cs, Proc_Beta.sql)" % M.COTA in detalle(r, "consumidores"), detalle(r, "consumidores")
+
+
+def test_consumidores_cuentan_entre_los_repos_y_excluyen_la_definicion():
+    with Mundo(consumidor_extra=True) as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        d = detalle(w.analizar(), "consumidores")
+        assert "Proc_Beta.sql" in d and "AlfaCaller.cs" in d and "Proc_Alfa.sql" not in d, d
+
+
+def test_consumidores_un_solo_consumidor_es_negativa():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "negativa" and "≥ 1, " in detalle(r, "consumidores")
+
+
+def test_consumidores_se_cuentan_en_la_rama_de_origin_head_y_no_en_el_working_tree():
+    with Mundo() as w:
+        commitear(w.web, {CS_CALLER: CALLER})
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        d = detalle(w.analizar(), "consumidores")
+        assert "≥ 1, " in d and "AlfaCaller.cs" not in d, "un commit local sin publicar no cuenta: %s" % d
+
+
+def test_consumidores_un_objeto_invalido_no_lo_pisa_otro_positivo():
+    with Mundo(consumidor_extra=True) as w:
+        aaa = "src/ventas/Proc_Aaa.sql"
+        base = commitear(w.db, {aaa: "CREATE PROCEDURE esq.Proc_Aaa AS SELECT 1\n"})
+        escribir(w.db, {aaa: "CREATE PROCEDURE esq.Proc_Aaa AS SELECT 2\n", SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = M.analizar([(str(w.db), base)], taller=[], raiz=str(w.raiz))
+        d = detalle(r, "consumidores")
+        assert "Proc_Aaa: no encontré la definición" in d and "Proc_Alfa: ≥ 2, " in d, d
+        assert nivel(r, "consumidores") == "invalida", "el positivo que viene después no borra el inválido"
+
+
+def test_consumidores_sin_distinguir_mayusculas_y_por_palabra_entera():
+    with Mundo() as w:
+        commitear(w.web, {CS_CALLER: CALLER.replace("Proc_Alfa", "PROC_ALFA"), "Data/Otro.cs": "class Otro { string s = \"esq.Proc_AlfaB\"; }\n"})
+        publicar(w.web)
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        d = detalle(w.analizar(), "consumidores")
+        assert "≥ 2, " in d and "AlfaCaller.cs" in d and "Otro.cs" not in d, d
+
+
+def test_consumidores_no_cuentan_archivos_binarios():
+    with Mundo() as w:
+        commitear(w.web, {"Data/blob.bin": b"\x00\x01esq.Proc_Alfa\x00\x02"})
+        publicar(w.web)
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        d = detalle(w.analizar(), "consumidores")
+        assert "≥ 1, " in d and "blob.bin" not in d, d
+
+
+def test_consumidores_control_positivo_definicion_no_encontrada_invalida_el_conteo():
+    with Mundo(consumidor_extra=True) as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar(clones=[w.web])
+        assert nivel(r, "consumidores") == "invalida" and r["modo"] == "completo"
+
+
+def test_consumidores_objeto_nuevo_no_tiene_consumidores_previos():
+    with Mundo() as w:
+        escribir(w.db, {"src/ventas/Proc_Nuevo.sql": "CREATE PROCEDURE esq.Proc_Nuevo\nAS\nBEGIN\n    SELECT 1\nEND\n"})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "negativa" and r["modo"] == "rapido", r["senales"]["consumidores"]
+        assert "Proc_Nuevo: objeto nuevo, sin consumidores previos" in detalle(r, "consumidores")
+
+
+def test_consumidores_repo_sin_origin_head_invalida_y_lo_informa():
+    with Mundo() as w:
+        git(w.web, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "invalida", r["senales"]["consumidores"]
+        assert "repo(s) sin origin/HEAD o inexistentes" in detalle(r, "consumidores") and str(w.web) in detalle(r, "consumidores")
+        assert r["origin_head"][str(w.web)] is None and r["origin_head"][str(w.db)]
+
+
+def test_consumidores_origin_head_hacia_una_rama_que_no_existe_invalida():
+    with Mundo() as w:
+        git(w.web, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/no-existe")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "invalida" and r["origin_head"][str(w.web)] is None
+
+
+def test_consumidores_un_lenguaje_sin_biblioteca_invalida_el_conteo():
+    with Mundo() as w:
+        escribir(w.web, {CS_SVC: "class Servicio { int y; }\n"})
+        r = w.analizar(repos=[w.web])
+        assert nivel(r, "consumidores") == "invalida" and r["modo"] == "completo"
+        assert "Data/Servicio.cs: sin biblioteca de señales para .cs, el conteo no vale" in detalle(r, "consumidores"), detalle(r, "consumidores")
+
+
+def test_consumidores_sin_objetos_que_contar_es_negativa():
+    with Mundo() as w:
+        escribir(w.db, {"src/datos/uno.sql": "SELECT 1\n"})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "negativa"
+        assert "sin objetos con consumidores que contar" in detalle(r, "consumidores")
+
+
+def test_consumidores_con_mas_de_veinte_objetos_el_conteo_seria_parcial():
+    with Mundo() as w:
+        muchos = "".join("CREATE PROCEDURE esq.Proc_N%d AS SELECT 1\nGO\n" % i for i in range(21))
+        escribir(w.db, {"src/ventas/Muchos.sql": muchos})
+        r = w.analizar()
+        assert nivel(r, "consumidores") == "invalida", r["senales"]["consumidores"]
+        assert "21 objetos (más de 20)" in detalle(r, "consumidores")
+
+
+def test_consumidores_usan_la_cota_de_la_instancia():
+    with Mundo(modulo=senales(extra="COTA = 'sin mirar el sistema viejo'\n")) as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        assert "Proc_Alfa: ≥ 1, sin mirar el sistema viejo (Proc_Beta.sql)" in detalle(w.analizar(), "consumidores")
 
 
 # ---------------------------------------------------------------- efecto hacia otro sistema
@@ -274,6 +414,7 @@ def test_efecto_ni_en_la_base_ni_en_lo_actual_es_negativa():
         r = w.analizar()
         assert nivel(r, "efecto") == "negativa", r["senales"]["efecto"]
         assert "sin marcadores de efecto" in detalle(r, "efecto")
+        assert r["modo"] == "rapido", r["motivos"]
 
 
 def test_efecto_sin_modulo_de_la_instancia_es_negativa_y_lo_declara():
@@ -372,6 +513,7 @@ def test_un_archivo_solo_con_stat_sucio_no_cuenta_y_el_indice_queda_intacto():
         r = w.analizar()
         assert idx.read_bytes() == antes
         assert [a["ruta"] for a in r["repos"][0]["archivos"]] == [SQL_ALFA], r["repos"][0]["archivos"]
+        assert r["modo"] == "rapido", r["motivos"]
 
 
 # ---------------------------------------------------------------- dinero
@@ -595,9 +737,9 @@ def test_un_archivo_demasiado_grande_invalida_las_senales_del_texto():
             r = w.analizar()
         finally:
             M.TOPE_BYTES = previo
-        for id_ in ("efecto", "dinero", "migracion", "contrato"):
+        for id_ in ("efecto", "dinero", "migracion", "contrato", "consumidores"):
             assert nivel(r, id_) == "invalida", (id_, r["senales"][id_])
-            assert "demasiado grande" in detalle(r, id_)
+            assert "demasiado grande" in detalle(r, id_), (id_, detalle(r, id_))
 
 
 # ---------------------------------------------------------------- taller
@@ -632,7 +774,21 @@ def test_taller_igual_a_su_contraparte_no_tiene_contrato_ni_dinero():
         ruta = w.taller("esq.Proc_Alfa.sql", ALFA)
         r = w.analizar(repos=[], taller=[ruta])
         assert nivel(r, "contrato") == "negativa" and nivel(r, "dinero") == "negativa", r["senales"]
-        solo_escala_consumidores(r)
+        assert nivel(r, "consumidores") == "negativa" and r["modo"] == "rapido", r["senales"]["consumidores"]
+
+
+def test_taller_sin_contraparte_no_puede_validar_la_definicion():
+    with Mundo() as w:
+        ruta = w.taller("esq.Proc_Inventada.sql", "CREATE PROCEDURE esq.Proc_Inventada\nAS\nBEGIN\n    SELECT 1\nEND\n")
+        r = w.analizar(repos=[], taller=[ruta])
+        assert nivel(r, "consumidores") == "invalida" and r["modo"] == "completo", r["senales"]["consumidores"]
+
+
+def test_taller_con_contraparte_cuenta_en_los_repos_sin_la_definicion():
+    with Mundo() as w:
+        ruta = w.taller("esq.Proc_Alfa.sql", ALFA)
+        d = detalle(w.analizar(repos=[], taller=[ruta]), "consumidores")
+        assert "Proc_Alfa: ≥ 1, " in d and "Proc_Beta.sql" in d and "Proc_Alfa.sql" not in d, d
 
 
 def test_taller_sin_linea_base_configurada_es_nuevo_sin_contraparte():
@@ -664,10 +820,13 @@ def test_cli_json_y_texto():
         codigo, salida, error = correr(args + ["--json"])
         assert codigo == 0, error
         datos = json.loads(salida)
-        assert datos["modo"] == "completo" and datos["repos"][0]["archivos"][0]["ruta"] == SQL_ALFA
+        hash_db = git(w.db, "rev-parse", "origin/main")
+        assert datos["modo"] == "rapido" and datos["repos"][0]["archivos"][0]["ruta"] == SQL_ALFA
+        assert datos["origin_head"][str(w.db)] == hash_db, datos["origin_head"]
         codigo, salida, error = correr(args)
         assert codigo == 0, error
-        assert "modo: COMPLETO" in salida and "[invalida] consumidores" in salida and SQL_ALFA in salida, salida
+        assert "modo: RAPIDO" in salida and "[negativa] consumidores" in salida and SQL_ALFA in salida, salida
+        assert hash_db in salida and M.COTA in salida, salida
         assert "no detecta" in salida.lower()
         assert "  - consumidores fuera de los repos declarados" in salida, salida
 
@@ -703,7 +862,17 @@ def test_cli_como_proceso_utf8_y_raiz_de_la_sesion():
                            cwd=str(w.base))
         assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
         datos = json.loads(r.stdout.decode("utf-8"))
-        assert datos["motivos"] == ["señal consumidores: invalida"] and datos["raiz"] == str(w.raiz)
+        assert datos["modo"] == "rapido" and datos["raiz"] == str(w.raiz), datos["motivos"]
+        assert "≥ 1, " in " ".join(datos["senales"]["consumidores"]["detalle"])
+
+
+def test_cli_clon_cambia_los_repos_donde_se_cuenta():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        codigo, salida, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz), "--clon", str(w.web), "--json"])
+        assert codigo == 0, error
+        datos = json.loads(salida)
+        assert datos["senales"]["consumidores"]["nivel"] == "invalida" and list(datos["origin_head"]) == [str(w.web)]
 
 
 PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]

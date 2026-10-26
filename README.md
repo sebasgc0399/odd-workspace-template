@@ -2,7 +2,7 @@
 
 Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una metodología de trabajo con agentes donde lo aprendido se vuelve mecanismo verificable (*Mecanismo > Memoria*).
 
-**Estado:** extrayendo el motor (T7). Hay esqueleto, barrido de confidencialidad y `/odd-ws:doctor`; del motor ya están el recibo atado al diff, el validador de la matriz de reglas, el dispatcher de capas (chequeos en cada `Edit` y `Write`), la biblioteca T-SQL, las corridas sueltas de los módulos de capa (`reglas.py`), el guard de los writers (`writer_guard.py`: sin git de escritura ni escritura por shell sobre los repos y el taller) y su compuerta de cierre (`writer_stop.py`: líneas reales contra la foto del primer toque, chequeos de capa y el bloque `## Resultado`), la plantilla de los writers y el triaje (`triaje.py`: las señales de riesgo sobre el diff antes de elegir la revisión; el conteo de consumidores todavía no está).
+**Estado:** extrayendo el motor (T7). Hay esqueleto, barrido de confidencialidad y `/odd-ws:doctor`; del motor ya están el recibo atado al diff, el validador de la matriz de reglas, el dispatcher de capas (chequeos en cada `Edit` y `Write`), la biblioteca T-SQL, las corridas sueltas de los módulos de capa (`reglas.py`), el guard de los writers (`writer_guard.py`: sin git de escritura ni escritura por shell sobre los repos y el taller) y su compuerta de cierre (`writer_stop.py`: líneas reales contra la foto del primer toque, chequeos de capa y el bloque `## Resultado`), la plantilla de los writers y el triaje (`triaje.py`: las señales de riesgo sobre el diff antes de elegir la revisión, con el conteo de consumidores y su control positivo).
 
 ## Estructura
 
