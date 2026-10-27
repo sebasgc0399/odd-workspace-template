@@ -1288,6 +1288,111 @@ def test_u6d_el_hook_lee_el_escape_segun_tool_name():
     comprobar(fallos)
 
 
+GIT_COMILLA_BARRA = [
+    "echo \"x\\\\\" ; git commit -m y", "echo \"x\\\\\" && git push", "echo \"x\\\\\\\\\" ; git commit -m y",
+    "echo \\\" ; git commit -m y", "echo it\\'s ; git commit -m y", "echo \\' ; git push",
+    "bash -c 'echo \"x\\\\\" ; git commit -m y'", "eval 'echo \\\" ; git commit -m y'",
+    "echo $(echo it\\'s ; git commit -m y)", "sh -c \"echo \\\\\\\" ; git commit -m y\"",
+    "powershell -Command 'Write-Output \"C:\\dir\\\" ; git commit -m y'",
+]
+GIT_COMILLA_GRAVE = [
+    "Write-Output \"C:\\dir\\\" ; git commit -m y", "Write-Output \"C:\\dir\\\" ; git push",
+    "Write-Output \"x`\"\" ; git commit -m y", "Write-Output it`'s ; git commit -m y", "Write-Output `\" ; git commit -m y",
+    "Write-Output \"a`\"b\" \"C:\\x\\\" ; git commit -m y", "iex 'Write-Output \"C:\\dir\\\" ; git commit -m y'",
+    "bash -c 'echo \\\" ; git commit -m y'",
+]
+
+
+def test_u6e_la_barra_antes_de_una_comilla_no_esquiva_el_git_ni_las_zonas():
+    comprobar(tabla(GIT_COMILLA_BARRA, True), tabla(GIT_COMILLA_BARRA, True, herramienta="Bash"), tabla([
+        "echo \"x\\\\\" > " + SQL, "echo \\\" > " + SQL, "echo it\\'s ; cp a.txt " + SQL, "echo \"x\\\\\" ; rm " + SQL,
+        "echo \\\" ; cd " + fw(DB) + " && echo x > f.sql",
+    ], True), tabla([
+        "echo \"x\\\\\" ; git status", "echo \\\" ; git log", "echo \"it's \\\"git commit\\\"\"", "echo \\\"git commit\\\"",
+        "echo \"x\\\\\\\"\" ; git status", "echo \"x\\\\\" > " + SCRATCH_FW, "echo 'a\\' ; git status",
+    ], False))
+
+
+def test_u6e_la_comilla_escapada_de_powershell_no_esquiva_el_git_ni_las_zonas():
+    comprobar(tabla(GIT_COMILLA_GRAVE, True, herramienta="PowerShell"), tabla([
+        "Copy-Item a.txt \"" + REPO_CWD + "\\\"", "Write-Output \"C:\\dir\\\" ; Set-Content " + bw(SQL) + " x",
+        "Write-Output \"x`\"\" ; Set-Content \"" + bw(SQL) + "\" x", "Write-Output it`'s ; Remove-Item " + bw(SQL),
+    ], True, herramienta="PowerShell"), tabla([
+        "Write-Output \"C:\\dir\\\" ; git status", "Write-Output \"x`\"\" ; git log", "Write-Output \"a `\"git commit`\" b\"",
+        "Get-Content \"" + REPO_CWD + "\\\"", "Copy-Item " + bw(SQL) + " \"" + bw(TMPD) + "\\\"",
+    ], False, herramienta="PowerShell"))
+
+
+def test_u6e_el_escape_antes_de_una_comilla_no_vale_en_el_otro_shell():
+    comprobar(tabla(["Write-Output \"C:\\dir\\\" ; git commit -m y", "Write-Output \"x`\"\" ; git commit -m y"], False),
+              tabla(["echo \\\" ; git commit -m y", "echo it\\'s ; git commit -m y"], False, herramienta="PowerShell"))
+
+
+def test_u6e_el_acento_grave_entre_comillas_simples_queda_literal():
+    r_psw = con_grave(bw(REPO_ESP))
+    comprobar(tabla([
+        "[IO.File]::WriteAllText('" + r_psw + "\\f.sql', 'x')", "[IO.File]::AppendAllText('" + r_psw + "\\f.sql', 'x')",
+        "$p = '" + r_psw + "\\f.sql'; [IO.File]::WriteAllText($p, 'x')",
+        "Write-Output \"it`\"s'\"; [IO.File]::WriteAllText('" + r_psw + "\\f.sql', 'x')",
+    ], False, zonas=ZONAS_ESP, herramienta="PowerShell"), tabla([
+        "[IO.File]::WriteAllText('" + bw(REPO_ESP) + "\\f.sql', 'x')",
+        "Write-Output 'a` b'; [IO.File]::WriteAllText(\"" + r_psw + "\\f.sql\", 'x')",
+        "Write-Output it`'s; [IO.File]::WriteAllText(\"" + r_psw + "\\f.sql\", 'x')",
+        "Write-Output 'say \"hi'; [IO.File]::WriteAllText(\"" + r_psw + "\\f.sql\", 'x')",
+        "Write-Output \"a`\"b\"; [IO.File]::WriteAllText(\"" + r_psw + "\\f.sql\", 'x')",
+        "$p = \"" + r_psw + "\\f.sql\"; [IO.File]::WriteAllText($p, 'x')",
+        "$p = `\n'" + bw(REPO_ESP) + "\\f.sql'; [IO.File]::WriteAllText($p, 'x')",
+    ], True, zonas=ZONAS_ESP, herramienta="PowerShell"))
+
+
+def test_u6e_la_segunda_pasada_por_comillas_no_crece_con_el_anidamiento():
+    original, llamadas = G._segmentar, []
+
+    def contar(*args, **kwargs):
+        llamadas.append(1)
+        return original(*args, **kwargs)
+
+    escapes = " ".join("\\\"%d" % k for k in range(50))
+    anidado = "echo " + "$(echo " * 7 + escapes + ")" * 7 + " \"$(echo \\\" ; git commit -m x)\""
+    G._segmentar = contar
+    try:
+        motivo = G.analizar(anidado, None, ZONAS)
+        con_escapes = len(llamadas)
+        del llamadas[:]
+        G.analizar(anidado.replace("\\\"", "_"), None, ZONAS)
+        sin_escapes = len(llamadas)
+    finally:
+        G._segmentar = original
+    assert motivo, "el git de escritura del final bloquea"
+    assert con_escapes <= 2 * sin_escapes + 2, "dos pasadas, no dos lecturas por nivel: %d contra %d" % (con_escapes, sin_escapes)
+
+
+def test_u6e_destinos_lee_la_comilla_segun_la_herramienta():
+    fallos = []
+    sql = SQL.lower()
+    barra = "cp a.txt " + SCRATCH_FW + " ; echo \\\" > " + SQL
+    en_bash, en_ps = G.destinos(barra), G.destinos(barra, herramienta="PowerShell")
+    esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_bash), "Bash lee la comilla escapada: %r" % en_bash)
+    esperar(fallos, en_bash[:1] == [SCRATCH_FW], "la primera pasada va primero: %r" % en_bash)
+    esperar(fallos, not any(x.replace("\\", "/").lower() == sql for x in en_ps), "PowerShell abre la comilla: %r" % en_ps)
+    grave = "Write-Output \"C:\\dir\\\" ; Set-Content " + bw(SQL) + " x"
+    en_ps = G.destinos(grave, herramienta="PowerShell")
+    esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_ps), "PowerShell cierra la comilla: %r" % en_ps)
+    esperar(fallos, not any(x.replace("\\", "/").lower() == sql for x in G.destinos(grave)), "Bash no la cierra")
+    comprobar(fallos)
+
+
+def test_u6e_el_hook_lee_la_comilla_segun_tool_name():
+    fallos = []
+    barra, ps = "echo \\\" ; git commit -m y", "Write-Output \"C:\\dir\\\" ; git commit -m y"
+    for comando, herramienta, bloquea in ((barra, "Bash", True), (barra, "PowerShell", False), (ps, "PowerShell", True),
+                                          (ps, "Bash", False)):
+        c, o, e = correr(evento_bash(comando, tool_name=herramienta))
+        esperado = "bloquea" if bloquea else "calla"
+        esperar(fallos, (c == 2) if bloquea else (c, o, e) == (0, "", b""), "%s en %s %s: %r" % (comando, herramienta, esperado, (c, e)))
+    comprobar(fallos)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
