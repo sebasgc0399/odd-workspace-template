@@ -128,11 +128,15 @@ def esperar(fallos, cond, msg):
         fallos.append("  " + msg)
 
 
-def tabla(casos, debe_bloquear, cwd=None, zonas=None):
+def tabla(casos, debe_bloquear, cwd=None, zonas=None, herramienta=None):
     fallos = []
+    zonas = ZONAS if zonas is None else zonas
     for comando in casos:
-        motivo = G.analizar(comando, cwd, ZONAS if zonas is None else zonas)
-        donde = " (cwd %s)" % cwd if cwd else ""
+        if herramienta is None:
+            motivo = G.analizar(comando, cwd, zonas)
+        else:
+            motivo = G.analizar(comando, cwd, zonas, herramienta=herramienta)
+        donde = (" (cwd %s)" % cwd if cwd else "") + (" (%s)" % herramienta if herramienta else "")
         if debe_bloquear:
             esperar(fallos, bool(motivo), "deberia bloquear y paso%s: %s" % (donde, comando))
         else:
@@ -1125,6 +1129,136 @@ def test_b_la_poda_falla_abierto():
         assert r == (0, "", b""), r
         assert vieja.exists(), "sin poda no se borra nada"
         assert fotos_de(raiz, sesion="sesion-nueva") == [G.clave_foto(archivo) + ".foto"]
+
+
+ESP = BASE / "esp"
+REPO_ESP = ESP / "dos palabras" / "repo x"
+
+
+def _armar_espacios():
+    REPO_ESP.mkdir(parents=True)
+    git(REPO_ESP, "init", "-q")
+    inst = ESP / "inst"
+    inst.mkdir()
+    config = {"schema_version": 1, "repos": {"r": {}}, "layers": {"sql": {"extensions": [".sql"], "repos": ["r"]}}}
+    (inst / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+    (inst / "workspace.local.json").write_text(json.dumps({"repos": {"r": {"path": str(REPO_ESP)}}}), encoding="utf-8")
+    return G.Zonas(config_loader.cargar(inst), ENTORNO) if G else None
+
+
+ZONAS_ESP = _armar_espacios()
+
+
+def con_barra(ruta):
+    return ruta.replace(" ", "\\ ")
+
+
+def con_grave(ruta):
+    return ruta.replace(" ", "` ")
+
+
+GIT_CON_BARRA = [
+    "git -C a\\ b commit -m x", "git -C a\\ b push", "git -C a\\ b\\ c reset --hard", "git -C a\\\tb commit -m x",
+    "git -C a\\\\\\ b commit -m x", "git \\\ncommit -m x", "git -C repo \\\ncommit -m x", "git -C repo \\\r\ncommit -m x",
+    "gi\\\nt commit -m x", "cd x && git -C a\\ b stash", "echo $(git -C a\\ b commit -m x)",
+    "bash -c 'git -C a\\ b commit -m x'", "sh -c \"git -C a\\\\ b commit -m x\"", "eval git -C a\\\\ b commit -m x",
+    "git -c alias.x='!git -C a\\ b commit' x", "find . -exec sh -c 'git -C a\\ b commit' \\;",
+    "find . -exec git -c alias.x='!git -C a\\ b commit' x \\;", "git \"com\\\nmit\" -m x", "git -C a\\\rb commit -m x",
+    "zsh -c 'git -C a\\ b commit'", "dash -c 'git -C a\\ b commit'", "ksh -c 'git -C a\\ b commit'",
+    "echo \"$(git -C a\\ b commit -m x)\"", "echo \"`git -C a\\ b commit -m x`\"",
+    "powershell -Command 'git -C a` b commit -m x'",
+]
+GIT_CON_GRAVE = [
+    "git -C a` b commit -m x", "git -C a` b push", "git -C a` b` c reset --hard", "git -C a`\tb commit -m x",
+    "git -C repo `\ncommit -m x", "git -C repo `\r\ncommit -m x", "git -C a``` b commit -m x",
+    "iex 'git -C a` b commit -m x'", "powershell -Command 'git -C a` b commit -m x'", "pwsh -c 'git -C a` b commit -m x'",
+    "echo \"$(git -C a` b commit -m x)\"",
+    "bash -c 'git -C a\\ b commit -m x'",
+]
+
+
+def test_u6d_la_barra_antes_de_un_blanco_no_esquiva_el_git_de_escritura():
+    comprobar(tabla(GIT_CON_BARRA, True),
+              tabla(["git -C 'a b' commit -m x", "cd a\\ b && git commit -m x", "git -C C:\\x\\ commit -m x"], True),
+              tabla(["git -C a\\ b status", "git -C a\\ b log", "git \\\nstatus", "git -C a\\\\ b commit -m x"], False))
+    comprobar(tabla(GIT_CON_BARRA, True, herramienta="Bash"))
+
+
+def test_u6d_el_acento_grave_de_powershell_no_esquiva_el_git_de_escritura():
+    comprobar(tabla(GIT_CON_GRAVE, True, herramienta="PowerShell"),
+              tabla(["git -C a` b status", "git -C repo `\nlog", "git -C a`` b commit -m x"], False, herramienta="PowerShell"))
+
+
+def test_u6d_el_escape_de_un_shell_no_vale_en_el_otro():
+    comprobar(tabla(["git -C a\\ b commit -m x", "git -C a\\ b\\ c reset --hard", "git \\\ncommit -m x",
+                     "Start-Process git -ArgumentList '-C a\\ b commit'", "cmd /c git -C a\\ b commit -m x"], False,
+                    herramienta="PowerShell"),
+              tabla(["cmd /c \"git -C a\\ b commit -m x\""], False),
+              tabla(["git -C C:\\ status", "git --git-dir C:\\ blame f.sql", "git -C " + REPO_CWD + "\\ log",
+                     "Copy-Item a.txt C:\\x\\ ; git diff", "Remove-Item C:\\x\\ -WhatIf; git status"], False, REPO_CWD,
+                    herramienta="PowerShell"),
+              tabla(["git -C a` b commit -m x", "git -C repo `\ncommit -m x"], False),
+              tabla(["cp a.txt " + con_barra(fw(REPO_ESP)) + "/f.sql", "echo x > " + con_barra(fw(REPO_ESP)) + "/f.sql",
+                     "Remove-Item " + con_barra(fw(REPO_ESP)) + "/f"], False, zonas=ZONAS_ESP, herramienta="PowerShell"),
+              tabla(["Copy-Item a.txt " + con_grave(fw(REPO_ESP)) + "/f.sql"], False, zonas=ZONAS_ESP))
+    assert set(G.ESCAPE_DE_SHELL) == G.SHELLS, "cada shell que se lee por dentro decide su escape"
+
+
+def test_u6d_la_barra_antes_de_un_blanco_no_esquiva_las_zonas():
+    r_gb, r_fw, padre = con_barra(gb(REPO_ESP)), con_barra(fw(REPO_ESP)), con_barra(gb(REPO_ESP.parent))
+    comprobar(tabla([
+        "echo x > " + r_gb + "/f.sql", "echo x > " + r_fw + "/f.sql", "cp a.txt " + r_gb + "/", "cp a.txt " + r_gb + "/f.sql",
+        "mv a.txt " + r_gb + "/", "rm " + r_gb + "/f", "rm -rf " + padre, "sed -i s/a/b/ " + r_gb + "/f.sql",
+        "tee " + r_gb + "/f.sql < a", "cd " + r_gb + " && echo x > f.sql", "find " + r_gb + " -name x -delete",
+    ], True, zonas=ZONAS_ESP), tabla([
+        "echo x > '" + fw(REPO_ESP) + "/f.sql'", "echo x > \"" + fw(REPO_ESP) + "/f.sql\"",
+    ], True, zonas=ZONAS_ESP), tabla([
+        "cd dos\\ palabras/repo\\ x && echo x > f.sql",
+    ], True, fw(ESP), ZONAS_ESP), tabla([
+        "cat " + r_gb + "/f.sql", "ls " + r_gb, "git -C " + r_gb + " status", "cd " + r_gb + " && git log",
+        "grep -r x " + r_gb, "cp " + r_gb + "/f.sql " + SCRATCH_FW,
+    ], False, zonas=ZONAS_ESP), tabla([
+        "echo x > \\\n" + SQL, "cp a.txt \\\n" + SQL, "rm \\\n" + fw(DB) + "/x",
+    ], True))
+
+
+def test_u6d_el_acento_grave_de_powershell_no_esquiva_las_zonas():
+    r_ps, r_psw = con_grave(fw(REPO_ESP)), con_grave(bw(REPO_ESP))
+    comprobar(tabla([
+        "Set-Content " + r_psw + "\\f.sql x", "Remove-Item " + r_ps + "/f", "Copy-Item a.txt " + r_ps + "/f.sql",
+        "echo x > " + r_ps + "/f.sql", "Remove-Item -Recurse " + con_grave(bw(REPO_ESP.parent)), "cd " + r_psw + "; Set-Content f.sql x",
+    ], True, zonas=ZONAS_ESP, herramienta="PowerShell"), tabla([
+        "Get-Content " + r_psw + "\\f.sql", "cd " + r_psw + "; git status",
+    ], False, zonas=ZONAS_ESP, herramienta="PowerShell"), tabla([
+        "Set-Content `\n" + bw(SQL) + " x", "Remove-Item `\n" + bw(DB) + "\\x",
+    ], True, herramienta="PowerShell"))
+
+
+def test_u6d_destinos_lee_segun_la_herramienta():
+    fallos = []
+    unida = (fw(REPO_ESP) + "/f.sql").lower()
+    barra = "cp a.txt " + con_barra(fw(REPO_ESP)) + "/f.sql"
+    grave = "Copy-Item a.txt " + con_grave(fw(REPO_ESP)) + "/f.sql"
+    en_bash, en_ps = G.destinos(barra), G.destinos(barra, herramienta="PowerShell")
+    esperar(fallos, any(x.lower() == unida for x in en_bash), "Bash une la barra: %r" % en_bash)
+    esperar(fallos, en_ps and not any("repo x" in x for x in en_ps), "PowerShell no une la barra: %r" % en_ps)
+    esperar(fallos, en_bash[:len(en_ps)] == en_ps, "la union va con la lectura separada primero: %r %r" % (en_bash, en_ps))
+    esperar(fallos, G.destinos(barra, herramienta="Bash") == en_bash, "sin herramienta es Bash")
+    en_ps = G.destinos(grave, herramienta="PowerShell")
+    esperar(fallos, any(x.lower() == unida for x in en_ps), "PowerShell une el acento grave: %r" % en_ps)
+    esperar(fallos, not any("repo x" in x for x in G.destinos(grave)), "Bash no une el acento grave")
+    comprobar(fallos)
+
+
+def test_u6d_el_hook_lee_el_escape_segun_tool_name():
+    fallos = []
+    barra, grave = "git -C a\\ b commit -m x", "git -C a` b commit -m x"
+    for comando, herramienta, bloquea in ((barra, "Bash", True), (barra, "PowerShell", False), (grave, "PowerShell", True),
+                                          (grave, "Bash", False)):
+        c, o, e = correr(evento_bash(comando, tool_name=herramienta))
+        esperado = "bloquea" if bloquea else "calla"
+        esperar(fallos, (c == 2) if bloquea else (c, o, e) == (0, "", b""), "%s en %s %s: %r" % (comando, herramienta, esperado, (c, e)))
+    comprobar(fallos)
 
 
 def main():

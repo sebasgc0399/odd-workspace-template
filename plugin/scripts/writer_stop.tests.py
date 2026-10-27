@@ -746,6 +746,20 @@ def test_s14_transcript_ilegible_o_sin_bash_da_vacio():
         assert W.escritos_por_bash(t) == []
 
 
+def test_u6d_lo_escrito_por_bash_se_lee_con_el_escape_de_su_herramienta():
+    with temporal() as base:
+        unida = (base / "dos palabras" / "x.txt").as_posix()
+        barra = "cp a.txt " + unida.replace(" ", "\\ ")
+        grave = "Copy-Item a.txt " + unida.replace(" ", "` ")
+        fallos = []
+        for k, (uso, une) in enumerate(((_bash(barra), True), (_bash(barra, "PowerShell"), False),
+                                         (_bash(grave, "PowerShell"), True), (_bash(grave), False))):
+            escritos = W.escritos_por_bash(transcript(base, [uso], nombre="u%d.jsonl" % k))
+            if (unida in escritos) != une:
+                fallos.append("%s en %s: %r" % (uso[1]["command"], uso[0], escritos))
+        assert not fallos, "\n".join(fallos)
+
+
 def test_p3_sin_instancia_o_con_la_config_rota_calla():
     with temporal() as base:
         repo, archivo, _ = escenario(base)
