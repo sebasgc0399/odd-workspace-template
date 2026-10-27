@@ -43,6 +43,8 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "eval
 ESCAPE_DE_SHELL = {"bash": "\\", "sh": "\\", "zsh": "\\", "dash": "\\", "ksh": "\\", "eval": "\\", "powershell": "`", "pwsh": "`",
                    "cmd": None}
 ESCAPE_ANTE_BLANCO = {"\\": re.compile(r"\\[ \t\r\n]"), "`": re.compile(r"`[ \t\r\n]")}
+ESCAPE_ALGUNO = re.compile(r"[\\`][ \t\r\n]")
+GRAVE_ESCAPADO = re.compile(r"`([` \t\r\n])")
 CAMBIAR_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 ESCRIBEN_TODO = {
     "tee", "set-content", "add-content", "out-file", "clear-content", "new-item", "remove-item", "rename-item", "set-item",
@@ -84,6 +86,7 @@ SED_EN_SITIO = re.compile(r"^-[A-Za-z]*i")
 ASIGNACION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 _COLECTOR = None
+_UNIR = False
 _ZONAS = None
 _LIMITE = None
 _VERIFICAR = []
@@ -229,6 +232,10 @@ def _segmentar(texto, escape=None):
                 if texto.startswith("\\", i + 1):
                     palabra.append(c)
                 i += 1 + (_salto(texto, i + 1) or 1)
+                continue
+            if escape == "`" and c == "`" and texto[i + 1:i + 2] in ("`", " ", "\t", "\r", "\n"):
+                palabra.append(texto[i + 1])
+                i += 2
                 continue
             if c == '"':
                 comilla = None
@@ -776,24 +783,11 @@ def _analizar(texto, estado, profundidad, escape):
         return None
     _vigente()
     parar = _COLECTOR is None
-    motivo = _clr(texto, estado["cwd"])
+    leer = escape if _UNIR and escape and ESCAPE_ANTE_BLANCO[escape].search(texto) else None
+    motivo = _clr(GRAVE_ESCAPADO.sub(r"\1", texto) if leer == "`" else texto, estado["cwd"])
     if motivo and parar:
         return motivo
-    separada = _segmentar(texto)
-    lecturas = [(separada, estado)]
-    if escape and ESCAPE_ANTE_BLANCO[escape].search(texto):
-        unida = _segmentar(texto, escape)
-        if unida != separada:
-            lecturas.append((unida, {"cwd": estado["cwd"]}))
-    for (segmentos, subs), estado_lectura in lecturas:
-        motivo = _leer(texto, segmentos, subs, estado_lectura, profundidad, escape)
-        if motivo and parar:
-            return motivo
-    return None
-
-
-def _leer(texto, segmentos, subs, estado, profundidad, escape):
-    parar = _COLECTOR is None
+    segmentos, subs = _segmentar(texto, leer)
     cache = []
 
     def zona():
@@ -848,12 +842,26 @@ def _escape(herramienta):
     return ESCAPE_DE_SHELL["powershell"] if herramienta == "PowerShell" else ESCAPE_DE_SHELL["bash"]
 
 
+def _pasadas(comando, cwd, herramienta):
+    global _UNIR
+    previo = _UNIR
+    try:
+        _UNIR = False
+        motivo = _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
+        if (motivo and _COLECTOR is None) or not ESCAPE_ALGUNO.search(comando):
+            return motivo
+        _UNIR = True
+        return _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
+    finally:
+        _UNIR = previo
+
+
 def analizar(comando, cwd=None, zonas=None, herramienta=None):
     global _ZONAS
     previo = _ZONAS
     _ZONAS = zonas
     try:
-        return _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
+        return _pasadas(comando, cwd, herramienta)
     finally:
         _ZONAS = previo
 
@@ -865,7 +873,7 @@ def destinos(comando, cwd=None, herramienta=None):
     previo = _COLECTOR
     _COLECTOR = []
     try:
-        _analizar(comando, {"cwd": cwd if isinstance(cwd, str) else None}, 0, _escape(herramienta))
+        _pasadas(comando, cwd if isinstance(cwd, str) else None, herramienta)
         return list(_COLECTOR)
     finally:
         _COLECTOR = previo
