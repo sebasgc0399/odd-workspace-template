@@ -1172,7 +1172,7 @@ GIT_CON_GRAVE = [
     "git -C a` b commit -m x", "git -C a` b push", "git -C a` b` c reset --hard", "git -C a`\tb commit -m x",
     "git -C repo `\ncommit -m x", "git -C repo `\r\ncommit -m x", "git -C a``` b commit -m x",
     "iex 'git -C a` b commit -m x'", "powershell -Command 'git -C a` b commit -m x'", "pwsh -c 'git -C a` b commit -m x'",
-    "echo \"$(git -C a` b commit -m x)\"",
+    "echo \"$(git -C a` b commit -m x)\"", "iex \"git -C a`` b commit -m x\"", "iex \"git -C a``` b commit -m x\"",
     "bash -c 'git -C a\\ b commit -m x'",
 ]
 
@@ -1200,7 +1200,8 @@ def test_u6d_el_escape_de_un_shell_no_vale_en_el_otro():
               tabla(["git -C a` b commit -m x", "git -C repo `\ncommit -m x"], False),
               tabla(["cp a.txt " + con_barra(fw(REPO_ESP)) + "/f.sql", "echo x > " + con_barra(fw(REPO_ESP)) + "/f.sql",
                      "Remove-Item " + con_barra(fw(REPO_ESP)) + "/f"], False, zonas=ZONAS_ESP, herramienta="PowerShell"),
-              tabla(["Copy-Item a.txt " + con_grave(fw(REPO_ESP)) + "/f.sql"], False, zonas=ZONAS_ESP))
+              tabla(["Copy-Item a.txt " + con_grave(fw(REPO_ESP)) + "/f.sql",
+                     "cp a.txt \"" + con_grave(fw(REPO_ESP)) + "/f.sql\""], False, zonas=ZONAS_ESP))
     assert set(G.ESCAPE_DE_SHELL) == G.SHELLS, "cada shell que se lee por dentro decide su escape"
 
 
@@ -1215,6 +1216,8 @@ def test_u6d_la_barra_antes_de_un_blanco_no_esquiva_las_zonas():
     ], True, zonas=ZONAS_ESP), tabla([
         "cd dos\\ palabras/repo\\ x && echo x > f.sql",
     ], True, fw(ESP), ZONAS_ESP), tabla([
+        "eval 'cd " + r_gb + "'; echo x > f.sql", "eval cd " + gb(REPO_ESP).replace(" ", "\\\\\\ ") + "; echo x > f.sql",
+    ], True, zonas=ZONAS_ESP), tabla([
         "cat " + r_gb + "/f.sql", "ls " + r_gb, "git -C " + r_gb + " status", "cd " + r_gb + " && git log",
         "grep -r x " + r_gb, "cp " + r_gb + "/f.sql " + SCRATCH_FW,
     ], False, zonas=ZONAS_ESP), tabla([
@@ -1227,11 +1230,35 @@ def test_u6d_el_acento_grave_de_powershell_no_esquiva_las_zonas():
     comprobar(tabla([
         "Set-Content " + r_psw + "\\f.sql x", "Remove-Item " + r_ps + "/f", "Copy-Item a.txt " + r_ps + "/f.sql",
         "echo x > " + r_ps + "/f.sql", "Remove-Item -Recurse " + con_grave(bw(REPO_ESP.parent)), "cd " + r_psw + "; Set-Content f.sql x",
+        "iex 'cd " + r_psw + "'; Set-Content f.sql x", "[IO.File]::WriteAllText(\"" + r_psw + "\\f.sql\", 'x')",
+        "Set-Content \"" + r_psw + "\\f.sql\" x", "Remove-Item -Recurse \"" + con_grave(bw(REPO_ESP.parent)) + "\"",
     ], True, zonas=ZONAS_ESP, herramienta="PowerShell"), tabla([
-        "Get-Content " + r_psw + "\\f.sql", "cd " + r_psw + "; git status",
+        "Get-Content " + r_psw + "\\f.sql", "cd " + r_psw + "; git status", "Get-Content \"" + r_psw + "\\f.sql\"",
     ], False, zonas=ZONAS_ESP, herramienta="PowerShell"), tabla([
         "Set-Content `\n" + bw(SQL) + " x", "Remove-Item `\n" + bw(DB) + "\\x",
     ], True, herramienta="PowerShell"))
+
+
+def test_u6d_las_dos_pasadas_no_crecen_con_el_anidamiento():
+    original, llamadas = G._segmentar, []
+
+    def contar(*args, **kwargs):
+        llamadas.append(1)
+        return original(*args, **kwargs)
+
+    escapes = " ".join("a\\ %d" % k for k in range(50))
+    anidado = "echo " + "$(echo " * 7 + escapes + ")" * 7 + " \"$(git -C a\\ b commit -m x)\""
+    G._segmentar = contar
+    try:
+        motivo = G.analizar(anidado, None, ZONAS)
+        con_escapes = len(llamadas)
+        del llamadas[:]
+        G.analizar(anidado.replace("\\ ", "_"), None, ZONAS)
+        sin_escapes = len(llamadas)
+    finally:
+        G._segmentar = original
+    assert motivo, "el git de escritura del final bloquea"
+    assert con_escapes <= 2 * sin_escapes + 2, "dos pasadas, no dos lecturas por nivel: %d contra %d" % (con_escapes, sin_escapes)
 
 
 def test_u6d_destinos_lee_segun_la_herramienta():
