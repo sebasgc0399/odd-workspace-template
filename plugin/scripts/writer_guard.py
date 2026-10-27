@@ -42,9 +42,10 @@ ENVOLTORIOS = {"time", "nohup", "command", "exec", "sudo", "env", "xargs", "star
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "eval"}
 ESCAPE_DE_SHELL = {"bash": "\\", "sh": "\\", "zsh": "\\", "dash": "\\", "ksh": "\\", "eval": "\\", "powershell": "`", "pwsh": "`",
                    "cmd": None}
-ESCAPE_ANTE_BLANCO = {"\\": re.compile(r"\\[ \t\r\n]"), "`": re.compile(r"`[ \t\r\n]")}
-ESCAPE_ALGUNO = re.compile(r"[\\`][ \t\r\n]")
+ESCAPE_QUE_CAMBIA = {"\\": re.compile(r"\\[ \t\r\n\"']"), "`": re.compile(r"`[ \t\r\n\"']|\\\"")}
+ESCAPE_ALGUNO = re.compile(r"[\\`][ \t\r\n\"']")
 GRAVE_ESCAPADO = re.compile(r"`([` \t\r\n])")
+COMILLAS_PS = re.compile(r"`.|'[^']*'?|\"(?:`.|[^\"`])*\"?", re.DOTALL)
 CAMBIAR_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 ESCRIBEN_TODO = {
     "tee", "set-content", "add-content", "out-file", "clear-content", "new-item", "remove-item", "rename-item", "set-item",
@@ -224,7 +225,7 @@ def _segmentar(texto, escape=None):
             i += 1
             continue
         if comilla == '"':
-            if c == "\\" and i + 1 < n and texto[i + 1] == '"':
+            if c == "\\" and escape != "`" and i + 1 < n and texto[i + 1] == '"':
                 palabra.append('"')
                 i += 2
                 continue
@@ -233,7 +234,7 @@ def _segmentar(texto, escape=None):
                     palabra.append(c)
                 i += 1 + (_salto(texto, i + 1) or 1)
                 continue
-            if escape == "`" and c == "`" and texto[i + 1:i + 2] in ("`", " ", "\t", "\r", "\n"):
+            if escape == "`" and c == "`" and texto[i + 1:i + 2] in ("`", '"', " ", "\t", "\r", "\n"):
                 palabra.append(texto[i + 1])
                 i += 2
                 continue
@@ -258,7 +259,7 @@ def _segmentar(texto, escape=None):
             if salto:
                 i += 1 + salto
                 continue
-            if texto[i + 1] == escape or texto[i + 1] in " \t\r":
+            if texto[i + 1] == escape or texto[i + 1] in " \t\r\"'":
                 palabra.append(texto[i + 1])
                 hay_palabra = True
                 i += 2
@@ -778,13 +779,17 @@ def _zona_del_comando(segmentos, cwd):
     return False
 
 
+def _graves_fuera_de_simples(texto):
+    return COMILLAS_PS.sub(lambda m: m.group(0) if m.group(0)[0] == "'" else GRAVE_ESCAPADO.sub(r"\1", m.group(0)), texto)
+
+
 def _analizar(texto, estado, profundidad, escape):
     if profundidad > PROFUNDIDAD_MAX:
         return None
     _vigente()
     parar = _COLECTOR is None
-    leer = escape if _UNIR and escape and ESCAPE_ANTE_BLANCO[escape].search(texto) else None
-    motivo = _clr(GRAVE_ESCAPADO.sub(r"\1", texto) if leer == "`" else texto, estado["cwd"])
+    leer = escape if _UNIR and escape and ESCAPE_QUE_CAMBIA[escape].search(texto) else None
+    motivo = _clr(_graves_fuera_de_simples(texto) if leer == "`" else texto, estado["cwd"])
     if motivo and parar:
         return motivo
     segmentos, subs = _segmentar(texto, leer)
