@@ -40,12 +40,18 @@ GIT_OPCIONES_CON_VALOR = {"-c", "--git-dir", "--work-tree", "--namespace", "--su
 ENVOLTORIOS = {"time", "nohup", "command", "exec", "sudo", "env", "xargs", "start", "call", "builtin", "nice", "{", "}", "!",
                "if", "then", "do", "else", "elif", "while", "until", "&"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "eval"}
+SHELLS_DE_CUERPO = SHELLS - {"eval"}
 ESCAPE_DE_SHELL = {"bash": "\\", "sh": "\\", "zsh": "\\", "dash": "\\", "ksh": "\\", "eval": "\\", "powershell": "`", "pwsh": "`",
                    "cmd": None}
 ESCAPE_QUE_CAMBIA = {"\\": re.compile(r"\\[ \t\r\n\"']"), "`": re.compile(r"`[ \t\r\n\"']|\\\"")}
 ESCAPE_ALGUNO = re.compile(r"[\\`][ \t\r\n\"']")
 GRAVE_ESCAPADO = re.compile(r"`([` \t\r\n])")
 COMILLAS_PS = re.compile(r"`.|'[^']*'?|\"(?:`.|[^\"`])*\"?", re.DOTALL)
+CUERPO_ALGUNO = re.compile(r"(?<!<)<<(?!<)|@['\"][ \t]*\r?\n")
+HEREDOC_APERTURA = re.compile(r"<<(-?)[ \t]*((?:[^\s;&|()<>'\"\\]|\\.|'[^']*'|\"[^\"]*\")+)")
+HEREDOC_COMILLAS = re.compile(r"'([^']*)'|\"([^\"]*)\"|\\(.)")
+HEREDOC_A_SHELL = re.compile(r"(?i)\|\s*(?:[^\s|;&]*[\\/])?(?:bash|sh|zsh|dash|ksh|pwsh|powershell|cmd)(?:\.exe)?(?![\w.-])")
+HERE_STRING_APERTURA = re.compile(r"@(['\"])[ \t]*\r?\n")
 CAMBIAR_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 ESCRIBEN_TODO = {
     "tee", "set-content", "add-content", "out-file", "clear-content", "new-item", "remove-item", "rename-item", "set-item",
@@ -88,6 +94,7 @@ ASIGNACION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 _COLECTOR = None
 _UNIR = False
+_CUERPOS = False
 _ZONAS = None
 _LIMITE = None
 _VERIFICAR = []
@@ -176,11 +183,12 @@ def _salto(texto, i):
     return 1 if texto.startswith("\n", i) else 0
 
 
-def _segmentar(texto, escape=None):
+def _segmentar(texto, escape=None, cuerpos=None):
     segmentos, subs = [], []
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
     comilla = None
+    heredocs = []
     n, i = len(texto), 0
 
     def cerrar_palabra():
@@ -214,6 +222,44 @@ def _segmentar(texto, escape=None):
                 profundidad -= 1
             j += 1
         return texto[desde:j - 1 if profundidad == 0 else j], j
+
+    def sustituciones(desde, hasta, graves):
+        j = desde
+        while j < hasta and len(subs) < MAX_SUBS:
+            if texto.startswith("$(", j):
+                interior, j = capturar_sustitucion(j + 2)
+                subs.append(interior)
+            elif graves and texto[j] == "`":
+                k = texto.find("`", j + 1, hasta)
+                if k < 0:
+                    return
+                subs.append(texto[j + 1:k])
+                j = k + 1
+            else:
+                j += 1
+
+    def saltar_heredocs(desde):
+        nonlocal heredocs
+        pendientes, heredocs = heredocs, []
+        if any(tuberia or _comando(seg["tokens"])[1] in SHELLS_DE_CUERPO for _, _, _, seg, tuberia in pendientes):
+            return desde
+        j = desde
+        for delimitador, literal, tabs, _, _ in pendientes:
+            inicio = j
+            while j < n:
+                fin = texto.find("\n", j)
+                linea = texto[j:n if fin < 0 else fin].rstrip("\r")
+                siguiente = n if fin < 0 else fin + 1
+                if (linea.lstrip("\t") if tabs else linea) == delimitador:
+                    if not literal:
+                        sustituciones(inicio, j, True)
+                    j = siguiente
+                    break
+                j = siguiente
+            else:
+                if not literal:
+                    sustituciones(inicio, n, True)
+        return j
 
     while i < n:
         c = texto[i]
@@ -264,6 +310,31 @@ def _segmentar(texto, escape=None):
                 hay_palabra = True
                 i += 2
                 continue
+        apertura = HERE_STRING_APERTURA.match(texto, i) if cuerpos == "`" and c == "@" else None
+        if apertura:
+            cierre = texto.find("\n" + apertura.group(1) + "@", apertura.end() - 1)
+            fin = n if cierre < 0 else cierre
+            if apertura.group(1) == '"':
+                sustituciones(apertura.end(), fin, False)
+            palabra.append(texto[apertura.end():fin])
+            hay_palabra = True
+            i = n if cierre < 0 else cierre + 3
+            continue
+        if cuerpos == "\\" and texto.startswith("<<", i):
+            k = i + 3 if texto.startswith("<<<", i) else i + 2
+            linea = texto.rfind("\n", 0, i) + 1
+            aritmetica = texto.rfind("((", linea, i) > texto.rfind("))", linea, i)
+            apertura = HEREDOC_APERTURA.match(texto, i) if k == i + 2 and not aritmetica else None
+            if apertura:
+                fin_linea = texto.find("\n", i)
+                crudo = apertura.group(2)
+                heredocs.append((HEREDOC_COMILLAS.sub(lambda m: next(g for g in m.groups() if g is not None), crudo),
+                                 any(x in crudo for x in "'\"\\"), apertura.group(1) == "-", actual,
+                                 bool(HEREDOC_A_SHELL.search(texto, i, n if fin_linea < 0 else fin_linea))))
+            palabra.append(texto[i:k])
+            hay_palabra = True
+            i = k
+            continue
         if c in "'\"":
             comilla = c
             hay_palabra = True
@@ -296,6 +367,8 @@ def _segmentar(texto, escape=None):
         if c in "\n;|()":
             cerrar_segmento()
             i += 1
+            if c == "\n" and heredocs:
+                i = saltar_heredocs(i)
             continue
         if c == "&" and not texto.startswith("&>", i):
             cerrar_segmento()
@@ -792,7 +865,7 @@ def _analizar(texto, estado, profundidad, escape):
     motivo = _clr(_graves_fuera_de_simples(texto) if leer == "`" else texto, estado["cwd"])
     if motivo and parar:
         return motivo
-    segmentos, subs = _segmentar(texto, leer)
+    segmentos, subs = _segmentar(texto, leer, escape if _CUERPOS else None)
     cache = []
 
     def zona():
@@ -848,17 +921,18 @@ def _escape(herramienta):
 
 
 def _pasadas(comando, cwd, herramienta):
-    global _UNIR
-    previo = _UNIR
+    global _UNIR, _CUERPOS
+    previo = _UNIR, _CUERPOS
     try:
-        _UNIR = False
-        motivo = _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
-        if (motivo and _COLECTOR is None) or not ESCAPE_ALGUNO.search(comando):
-            return motivo
-        _UNIR = True
-        return _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
+        motivo = None
+        for _UNIR, _CUERPOS, dispara in ((False, False, None), (True, False, ESCAPE_ALGUNO), (True, True, CUERPO_ALGUNO)):
+            if dispara is None or dispara.search(comando):
+                motivo = _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
+                if motivo and _COLECTOR is None:
+                    return motivo
+        return motivo
     finally:
-        _UNIR = previo
+        _UNIR, _CUERPOS = previo
 
 
 def analizar(comando, cwd=None, zonas=None, herramienta=None):

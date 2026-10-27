@@ -1397,6 +1397,109 @@ def test_u6e_el_hook_lee_la_comilla_segun_tool_name():
     comprobar(fallos)
 
 
+GIT_TRAS_HEREDOC = [
+    "cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "cat > n.txt <<EOF\ndon't\nEOF\ngit push",
+    "cat > n.txt <<\"EOF\"\ndon't\nEOF\ngit commit -m y", "cat > n.txt <<\\EOF\ndon't\nEOF\ngit commit -m y",
+    "cat > n.txt <<-EOF\n\tdon't\n\tEOF\ngit commit -m y", "cat>n.txt<<EOF\ndon't\nEOF\ngit commit -m y",
+    "cat <<A <<'B'\na'\nA\nb\nB\ngit commit -m y", "cat <<'EOF'\r\ndon't\r\nEOF\r\ngit commit -m y",
+    "x=$(cat <<'EOF'\ndon't\nEOF\n)\ngit commit -m y", "cat <<'EOF' > f.txt\ndon't\nEOF\ngit -C . commit -m y",
+    "cat > n.txt <<EOF\ndon't $(git commit -m y)\nEOF", "cat > n.txt <<EOF\ndon't `git push`\nEOF",
+    "bash -c \"cat <<'EOF'\ndon't\nEOF\ngit commit -m y\"", "echo $((1<<2))\ncat<<EOF\ndon't\nEOF\ngit commit -m y",
+    "cat > n.txt <<'EOF'\ndon't\nEOF\necho $((1<<2))\ngit push", "cat > n.txt <<'EOF'\ndon't\nEOF\n((x <<= 1))\ngit push",
+]
+GIT_TRAS_HERE_STRING = [
+    "$m = @'\nit's\n'@\ngit commit -m y", "$m = @'\nit's\n'@; git push", "$m = @'  \nit's\n'@\ngit commit -m y",
+    "$m = @'\r\nit's\r\n'@\r\ngit commit -m y", "$m = @'\nit's\n'@\niex 'git commit -m y'",
+    "$m = @\"\nit's\n\"@\n$n = @'\nit's\n'@\ngit commit -m y", "$m = @'\nit's\n'@\n$n = @\"\n$(git commit -m y)\n\"@",
+]
+
+
+def test_u6g_el_heredoc_no_esquiva_el_git_ni_las_zonas():
+    escapada = fw(REPO_ESP).replace(" ", "\\ ") + "/f.sql"
+    comprobar(tabla(GIT_TRAS_HEREDOC, True), tabla(GIT_TRAS_HEREDOC, True, herramienta="Bash"), tabla([
+        "cat > n.txt <<'EOF'\ndon't\nEOF\necho x > " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncp a.txt " + SQL,
+        "cat > n.txt <<'EOF'\ndon't\nEOF\nrm " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncd " + fw(DB) + " && echo x > f.sql",
+    ], True), tabla([
+        "echo it\\'s ; cat > n.txt <<'EOF'\ndon't\nEOF\necho z > " + escapada,
+    ], True, zonas=ZONAS_ESP), tabla([
+        "cat > n.txt <<'EOF'\ndon't\nEOF\ngit status", "cat > n.txt <<'EOF'\ndon't\nEOF\necho x > " + SCRATCH_FW,
+        "echo $((1<<2))\ngit status", "cat <<< \"it's\"\ngit log", "cat > n.txt <<'EOF'\ndon't $(echo hi)\nEOF\ngit status",
+    ], False))
+
+
+def test_u6g_el_here_string_no_esquiva_el_git_ni_las_zonas():
+    comprobar(tabla(GIT_TRAS_HERE_STRING, True, herramienta="PowerShell"), tabla([
+        "$m = @'\nit's\n'@\nSet-Content " + bw(SQL) + " x", "$m = @'\nit's\n'@\nRemove-Item " + bw(SQL),
+    ], True, herramienta="PowerShell"), tabla([
+        "$m = @'\nit's\n'@\nWrite-Output $m", "$m = @'\nit's\n'@\ngit status",
+        "$m = @'\nit's\n'@\nCopy-Item a.txt " + bw(TMPD),
+    ], False, herramienta="PowerShell"))
+
+
+def test_u6g_lo_que_un_shell_recibe_por_heredoc_sigue_siendo_codigo():
+    comprobar(tabla([
+        "bash <<'EOF'\ngit commit -m y\nEOF", "cat <<'EOF' | bash\ngit commit -m y\nEOF",
+        "sh <<'EOF'\necho \"don't\"\ngit commit -m y\nEOF", "cat <<EOF\n$(git commit -m y)\nEOF", "cat <<EOF\n`git commit -m y`\nEOF",
+        "python - <<'EOF'\nimport subprocess\nsubprocess.run(['git', 'commit', '-m', 'y'])\nEOF",
+        "cat > a <<'EOF'\ndon't\nEOF\nbash <<'EOF'\ngit commit -m y\nEOF",
+        "cat > a <<'EOF'\ndon't\nEOF\ncat <<'EOF' | bash\ngit commit -m y\nEOF",
+    ], True), tabla([
+        "iex @'\ngit commit -m y\n'@", "Write-Output @\"\n$(git commit -m y)\n\"@",
+        "$m = @\"\nit's\n\"@\ngit commit -m y", "$m = @'\nit's\n'@\niex @'\ngit push\n'@",
+    ], True, herramienta="PowerShell"))
+
+
+def test_u6g_el_heredoc_y_el_here_string_no_valen_en_el_otro_shell():
+    comprobar(tabla(["$m = @'\nit's\n'@\ngit commit -m y"], False),
+              tabla(["cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y"], False, herramienta="PowerShell"))
+
+
+def test_u6g_la_pasada_de_cuerpos_no_crece_con_el_anidamiento():
+    original, llamadas = G._segmentar, []
+
+    def contar(*args, **kwargs):
+        llamadas.append(1)
+        return original(*args, **kwargs)
+
+    escapes = " ".join("\\\"%d" % k for k in range(50))
+    anidado = "echo " + "$(echo " * 7 + escapes + ")" * 7 + " \"$(cat <<'EOF'\ndon't\nEOF\ngit commit -m x)\""
+    G._segmentar = contar
+    try:
+        motivo = G.analizar(anidado, None, ZONAS)
+        con_cuerpos = len(llamadas)
+        del llamadas[:]
+        G.analizar(anidado.replace("\\\"", "_").replace("<<", "<"), None, ZONAS)
+        una_pasada = len(llamadas)
+    finally:
+        G._segmentar = original
+    assert motivo, "el git de escritura que sigue al heredoc bloquea"
+    assert con_cuerpos <= 3 * una_pasada + 3, "tres pasadas, no tres lecturas por nivel: %d contra %d" % (con_cuerpos, una_pasada)
+
+
+def test_u6g_destinos_ve_lo_que_sigue_al_cuerpo():
+    fallos = []
+    sql = SQL.lower()
+    heredoc = "cp a.txt " + SCRATCH_FW + " ; cat > n.txt <<'EOF'\ndon't\nEOF\necho x > " + SQL
+    en_bash = G.destinos(heredoc)
+    esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_bash), "Bash ve lo que sigue al heredoc: %r" % en_bash)
+    esperar(fallos, en_bash[:1] == [SCRATCH_FW], "la primera pasada va primero: %r" % en_bash)
+    here_string = "$m = @'\nit's\n'@\nSet-Content " + bw(SQL) + " x"
+    en_ps = G.destinos(here_string, herramienta="PowerShell")
+    esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_ps), "PowerShell ve lo que sigue al here-string: %r" % en_ps)
+    comprobar(fallos)
+
+
+def test_u6g_el_hook_lee_el_cuerpo_segun_tool_name():
+    fallos = []
+    heredoc, here_string = "cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "$m = @'\nit's\n'@\ngit commit -m y"
+    for comando, herramienta, bloquea in ((heredoc, "Bash", True), (heredoc, "PowerShell", False), (here_string, "PowerShell", True),
+                                          (here_string, "Bash", False)):
+        c, o, e = correr(evento_bash(comando, tool_name=herramienta))
+        esperado = "bloquea" if bloquea else "calla"
+        esperar(fallos, (c == 2) if bloquea else (c, o, e) == (0, "", b""), "%s en %s %s: %r" % (comando, herramienta, esperado, (c, e)))
+    comprobar(fallos)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
