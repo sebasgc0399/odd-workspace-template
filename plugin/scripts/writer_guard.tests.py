@@ -1294,12 +1294,16 @@ GIT_COMILLA_BARRA = [
     "bash -c 'echo \"x\\\\\" ; git commit -m y'", "eval 'echo \\\" ; git commit -m y'",
     "echo $(echo it\\'s ; git commit -m y)", "sh -c \"echo \\\\\\\" ; git commit -m y\"",
     "powershell -Command 'Write-Output \"C:\\dir\\\" ; git commit -m y'",
+    "zsh -c 'echo \\\" ; git commit -m y'", "dash -c 'echo \\\" ; git commit -m y'",
+    "find . -exec sh -c 'echo \\\" ; git commit -m y' \\;", "echo a | xargs sh -c 'echo \\\" ; git commit -m y'",
+    "echo \"a\\\"b\\\\\" ; git commit -m y",
 ]
 GIT_COMILLA_GRAVE = [
     "Write-Output \"C:\\dir\\\" ; git commit -m y", "Write-Output \"C:\\dir\\\" ; git push",
     "Write-Output \"x`\"\" ; git commit -m y", "Write-Output it`'s ; git commit -m y", "Write-Output `\" ; git commit -m y",
     "Write-Output \"a`\"b\" \"C:\\x\\\" ; git commit -m y", "iex 'Write-Output \"C:\\dir\\\" ; git commit -m y'",
-    "bash -c 'echo \\\" ; git commit -m y'",
+    "bash -c 'echo \\\" ; git commit -m y'", "pwsh -c 'Write-Output \"C:\\dir\\\" ; git commit -m y'",
+    "Invoke-Expression 'Write-Output \"C:\\dir\\\" ; git commit -m y'", "cmd /c \"echo C:\\dir\\\" & git commit -m y\"",
 ]
 
 
