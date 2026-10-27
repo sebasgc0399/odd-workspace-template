@@ -77,13 +77,13 @@ def _usos(transcript, herramientas):
             if isinstance(bloque, dict) and bloque.get("type") == "tool_use" and bloque.get("name") in herramientas:
                 entrada = bloque.get("input")
                 if isinstance(entrada, dict):
-                    entradas.append(entrada)
+                    entradas.append((bloque.get("name"), entrada))
     return entradas
 
 
 def archivos_tocados(transcript):
     archivos = []
-    for entrada in _usos(transcript, HERRAMIENTAS_DE_ESCRITURA) or []:
+    for _, entrada in _usos(transcript, HERRAMIENTAS_DE_ESCRITURA) or []:
         ruta = entrada.get("file_path")
         if isinstance(ruta, str) and ruta and ruta not in archivos:
             archivos.append(ruta)
@@ -95,10 +95,10 @@ def escritos_por_bash(transcript):
     if usos is None:
         return []
     destinos, escritos = _guardia().destinos, []
-    for entrada in usos:
+    for herramienta, entrada in usos:
         comando = entrada.get("command")
         if isinstance(comando, str) and comando:
-            escritos.extend(d for d in destinos(comando) if d not in escritos)
+            escritos.extend(d for d in destinos(comando, herramienta=herramienta) if d not in escritos)
     return escritos
 
 

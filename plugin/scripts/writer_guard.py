@@ -40,6 +40,9 @@ GIT_OPCIONES_CON_VALOR = {"-c", "--git-dir", "--work-tree", "--namespace", "--su
 ENVOLTORIOS = {"time", "nohup", "command", "exec", "sudo", "env", "xargs", "start", "call", "builtin", "nice", "{", "}", "!",
                "if", "then", "do", "else", "elif", "while", "until", "&"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "eval"}
+ESCAPE_DE_SHELL = {"bash": "\\", "sh": "\\", "zsh": "\\", "dash": "\\", "ksh": "\\", "eval": "\\", "powershell": "`", "pwsh": "`",
+                   "cmd": None}
+ESCAPE_ANTE_BLANCO = {"\\": re.compile(r"\\[ \t\r\n]"), "`": re.compile(r"`[ \t\r\n]")}
 CAMBIAR_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 ESCRIBEN_TODO = {
     "tee", "set-content", "add-content", "out-file", "clear-content", "new-item", "remove-item", "rename-item", "set-item",
@@ -163,7 +166,13 @@ class Zonas:
         return self._carpetas[ruta]
 
 
-def _segmentar(texto):
+def _salto(texto, i):
+    if texto.startswith("\r\n", i):
+        return 2
+    return 1 if texto.startswith("\n", i) else 0
+
+
+def _segmentar(texto, escape=None):
     segmentos, subs = [], []
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
@@ -216,6 +225,11 @@ def _segmentar(texto):
                 palabra.append('"')
                 i += 2
                 continue
+            if escape == "\\" and c == "\\" and (texto.startswith("\\", i + 1) or _salto(texto, i + 1)):
+                if texto.startswith("\\", i + 1):
+                    palabra.append(c)
+                i += 1 + (_salto(texto, i + 1) or 1)
+                continue
             if c == '"':
                 comilla = None
             elif c == "$" and texto.startswith("$(", i):
@@ -232,6 +246,16 @@ def _segmentar(texto):
                 palabra.append(c)
             i += 1
             continue
+        if escape and c == escape and i + 1 < n:
+            salto = _salto(texto, i + 1)
+            if salto:
+                i += 1 + salto
+                continue
+            if texto[i + 1] == escape or texto[i + 1] in " \t\r":
+                palabra.append(texto[i + 1])
+                hay_palabra = True
+                i += 2
+                continue
         if c in "'\"":
             comilla = c
             hay_palabra = True
@@ -695,11 +719,11 @@ def _comando_suelto(tokens, estado, profundidad, zona, rotulo):
         sub, texto_shell = _git(rest)
         if sub:
             return "git %s" % sub
-        return _analizar(texto_shell, estado, profundidad + 1) if texto_shell else None
+        return _analizar(texto_shell, estado, profundidad + 1, ESCAPE_DE_SHELL["sh"]) if texto_shell else None
     if cmd in SHELLS:
         while rest and rest[0].startswith("-"):
             rest = rest[1:]
-        return _analizar(" ".join(rest), estado, profundidad + 1)
+        return _analizar(" ".join(rest), estado, profundidad + 1, ESCAPE_DE_SHELL.get(cmd))
     return _en_lote(cmd, rest, estado["cwd"], zona, rotulo)
 
 
@@ -747,7 +771,7 @@ def _zona_del_comando(segmentos, cwd):
     return False
 
 
-def _analizar(texto, estado, profundidad):
+def _analizar(texto, estado, profundidad, escape):
     if profundidad > PROFUNDIDAD_MAX:
         return None
     _vigente()
@@ -755,7 +779,21 @@ def _analizar(texto, estado, profundidad):
     motivo = _clr(texto, estado["cwd"])
     if motivo and parar:
         return motivo
-    segmentos, subs = _segmentar(texto)
+    separada = _segmentar(texto)
+    lecturas = [(separada, estado)]
+    if escape and ESCAPE_ANTE_BLANCO[escape].search(texto):
+        unida = _segmentar(texto, escape)
+        if unida != separada:
+            lecturas.append((unida, {"cwd": estado["cwd"]}))
+    for (segmentos, subs), estado_lectura in lecturas:
+        motivo = _leer(texto, segmentos, subs, estado_lectura, profundidad, escape)
+        if motivo and parar:
+            return motivo
+    return None
+
+
+def _leer(texto, segmentos, subs, estado, profundidad, escape):
+    parar = _COLECTOR is None
     cache = []
 
     def zona():
@@ -776,19 +814,20 @@ def _analizar(texto, estado, profundidad):
             if sub:
                 motivo = "git %s" % sub
             elif texto_shell:
-                motivo = _analizar(texto_shell, estado, profundidad + 1)
+                motivo = _analizar(texto_shell, estado, profundidad + 1, ESCAPE_DE_SHELL["sh"])
         elif cmd in SHELLS:
             while rest and (rest[0].startswith("-") or (cmd == "cmd" and rest[0].startswith("/"))):
                 rest = rest[1:]
-            motivo = _analizar(" ".join(rest), estado, profundidad + 1)
+            motivo = _analizar(" ".join(rest), estado, profundidad + 1, ESCAPE_DE_SHELL.get(cmd))
         elif cmd in CAMBIAR_DIR:
             destino = next((t for t in rest if not t.startswith("-")), None)
             estado["cwd"] = _resolver(destino, estado["cwd"]) if destino else None
         elif cmd in ("iex", "invoke-expression"):
-            motivo = _analizar(" ".join(t for t in rest if not t.startswith("-")), estado, profundidad + 1)
+            motivo = _analizar(" ".join(t for t in rest if not t.startswith("-")), estado, profundidad + 1,
+                               ESCAPE_DE_SHELL["powershell"])
         elif cmd in ("start-process", "saps"):
             texto_sp = _texto_start_process(rest)
-            motivo = _analizar(texto_sp, estado, profundidad + 1) if texto_sp else None
+            motivo = _analizar(texto_sp, estado, profundidad + 1, None) if texto_sp else None
         elif cmd == "find":
             motivo = _find(rest, estado, profundidad)
         elif lote:
@@ -799,30 +838,34 @@ def _analizar(texto, estado, profundidad):
         if motivo and parar:
             return motivo
     for sub in subs:
-        motivo = _analizar(sub, estado, profundidad + 1)
+        motivo = _analizar(sub, estado, profundidad + 1, escape)
         if motivo and parar:
             return motivo
     return None
 
 
-def analizar(comando, cwd=None, zonas=None):
+def _escape(herramienta):
+    return ESCAPE_DE_SHELL["powershell"] if herramienta == "PowerShell" else ESCAPE_DE_SHELL["bash"]
+
+
+def analizar(comando, cwd=None, zonas=None, herramienta=None):
     global _ZONAS
     previo = _ZONAS
     _ZONAS = zonas
     try:
-        return _analizar(comando, {"cwd": cwd}, 0)
+        return _analizar(comando, {"cwd": cwd}, 0, _escape(herramienta))
     finally:
         _ZONAS = previo
 
 
-def destinos(comando, cwd=None):
+def destinos(comando, cwd=None, herramienta=None):
     global _COLECTOR
     if not isinstance(comando, str) or not comando.strip():
         return []
     previo = _COLECTOR
     _COLECTOR = []
     try:
-        _analizar(comando, {"cwd": cwd if isinstance(cwd, str) else None}, 0)
+        _analizar(comando, {"cwd": cwd if isinstance(cwd, str) else None}, 0, _escape(herramienta))
         return list(_COLECTOR)
     finally:
         _COLECTOR = previo
@@ -924,7 +967,7 @@ def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         if not isinstance(comando, str) or not comando.strip():
             return SILENCIO
         cwd = evento.get("cwd")
-        motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config))
+        motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), herramienta)
         if not motivo:
             return SILENCIO
         return 2, "", (_mensaje(motivo) + "\n").encode("utf-8")
