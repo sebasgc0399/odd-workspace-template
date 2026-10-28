@@ -1605,12 +1605,17 @@ def test_u6f_el_bloque_de_powershell_no_esquiva_el_git_ni_las_zonas():
         "1 | % { Set-Content " + bw(SQL) + " x }", "Get-ChildItem *.sql | ForEach-Object { Set-Content '" + bw(SQL) + "' x }",
         "Invoke-Command { Remove-Item " + bw(SQL) + " }", "Start-Job -ScriptBlock { Copy-Item a.txt " + bw(SQL) + " }",
         "& { Copy-Item a.txt " + bw(SQL) + " }", "Start-Job { Copy-Item a.txt " + bw(SQL) + " } -Name x",
-        "if ($x) { Copy-Item a.txt " + bw(SQL) + " }",
-    ], True, herramienta="PowerShell"), tabla(["rm } " + SQL], True, herramienta="Bash"), tabla([
+        "if ($x) { Copy-Item a.txt " + bw(SQL) + " }", "Set-Content -Value @{ a = 1 } -Path " + bw(SQL),
+        "Out-File -InputObject @{ Name = 'x' } -FilePath " + bw(SQL), "Set-Content -Value { x } -Path " + bw(SQL),
+        "if ($ok) { Set-Content -Value @{ a = 1 } -Path " + bw(SQL) + " }",
+        "Start-Job { Set-Content -Value @{ a = 1 } -Path " + bw(SQL) + " } -Name x", "& { Copy-Item 'a}' " + bw(SQL) + " }",
+    ], True, herramienta="PowerShell"), tabla([
+        "rm } " + SQL, "powershell -Command \"Set-Content -Value @{ a = 1 } -Path " + SQL + "\"",
+    ], True, herramienta="Bash"), tabla([
         "Start-Job { cd " + bw(TMPD) + " }; Set-Content f.sql x", "sajb { cd " + bw(TMPD) + " }; Set-Content f.sql x",
-    ], True, cwd=fw(DB), herramienta="PowerShell"), tabla([
         "1 | % { cd " + bw(TMPD) + " }; Set-Content f.sql x", "Invoke-Command { cd " + bw(TMPD) + " }; Set-Content f.sql x",
-    ], False, cwd=fw(DB), herramienta="PowerShell"), tabla([
+        "Get-ChildItem -Directory | ForEach-Object { Push-Location $_.FullName; git status; Pop-Location }; Set-Content f.sql x",
+    ], True, cwd=fw(DB), herramienta="PowerShell"), tabla([
         "1 | % { git status }", "Get-ChildItem | Where-Object { $_.Name -eq 'git' }", "Get-ChildItem | ForEach-Object Name",
         "1 | % { Write-Output 'git commit -m y' }", "1 | % { Set-Content " + bw(SCRATCH) + " x }", "Measure-Command { git log }",
         "1 | % Remove-Item " + bw(SQL),
@@ -1632,9 +1637,13 @@ def test_u6f_el_shell_detras_de_un_envoltorio_recibe_el_cuerpo():
         "env -u X sh <<'EOF'\ngit push\nEOF", "cat <<'EOF' | \"bash\"\ngit commit -m y\nEOF",
         "cat <<'EOF' | tee log | bash\ngit push\nEOF", "cat <<'EOF' |\\\nbash\ngit commit -m y\nEOF",
         "cat <<'EOF' | (bash)\ngit push\nEOF", "cat <<'EOF' |& bash\ngit push\nEOF",
+        "{ cat <<'EOF'; } | bash\ngit commit -m y\nEOF", "(cat <<'EOF'; echo x) | bash\ngit commit -m y\nEOF",
+        "for i in 1; do cat <<'EOF'; done | bash\ngit commit -m y\nEOF", "if true; then cat <<'EOF'; fi | bash\ngit push\nEOF",
+        "git commit -m y\n>&<<'X'\nx\nX", "cat <<'EOF' | tee log | sudo bash\ngit push\nEOF",
+        "cat <<'A' | sudo bash; cat <<'B'\ngit commit -m y\nA\nx\nB",
     )], True), tabla([CUERPO_A_ENVOLTORIO + c for c in (
-        "cat <<'EOF' || bash\ngit commit -m y\nEOF", "cat <<'EOF'; echo hi | bash\ngit push\nEOF",
-        "cat <<'EOF' # | bash\ngit push\nEOF", "cat <<'EOF' && echo \"| bash\"\ngit push\nEOF",
+        "cat <<'EOF' || sudo bash\ngit commit -m y\nEOF", "cat <<'EOF'; echo hi | sudo bash\ngit push\nEOF",
+        "cat <<'EOF' # | sudo bash\ngit push\nEOF", "cat <<'EOF' && echo \"| sudo bash\"\ngit push\nEOF",
         "cat <<'EOF' | sudo tee f\ngit push\nEOF",
     )], False))
 
