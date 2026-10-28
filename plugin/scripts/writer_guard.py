@@ -188,8 +188,14 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
     comilla = None
-    heredocs, aritmetica, corchetes, fin_linea, ultimo_shell, cuerpos_shell = [], 0, 0, -1, -1, 0
+    heredocs, aritmetica, corchetes, conteo_desde, fin_linea, ultimo_shell, cuerpos_shell = [], 0, 0, 0, -1, -1, 0
     n, i = len(texto), 0
+
+    def al_dia(hasta):
+        nonlocal aritmetica, corchetes, conteo_desde
+        if texto.find("\n", conteo_desde, hasta) >= 0:
+            aritmetica = corchetes = 0
+        conteo_desde = hasta
 
     def cerrar_palabra():
         nonlocal palabra, hay_palabra, pendiente
@@ -326,6 +332,7 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
             continue
         if cuerpos == "\\" and texto.startswith("<<", i):
             _vigente()
+            al_dia(i)
             k = i + 3 if texto.startswith("<<<", i) else i + 2
             apertura = HEREDOC_APERTURA.match(texto, i) if k == i + 2 and not aritmetica and not corchetes else None
             if apertura:
@@ -372,12 +379,12 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
             continue
         if c in "\n;|()":
             cerrar_segmento()
-            if cuerpos == "\\" and c == "\n":
-                aritmetica = corchetes = 0
-            elif cuerpos == "\\" and c == "(" and (aritmetica or texto.startswith("((", i)):
-                aritmetica += 1
-            elif cuerpos == "\\" and c == ")" and aritmetica:
-                aritmetica -= 1
+            if cuerpos == "\\" and c in "()":
+                al_dia(i)
+                if c == "(" and (aritmetica or texto.startswith("((", i)):
+                    aritmetica += 1
+                elif c == ")" and aritmetica:
+                    aritmetica = 0 if texto.startswith("))", i) else aritmetica - 1
             i += 1
             if c == "\n" and heredocs:
                 i = saltar_heredocs(i)
@@ -404,8 +411,10 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
                     i += 1
                 pendiente = "redir"
             continue
-        if cuerpos == "\\" and c in "[]" and (corchetes or (c == "[" and texto[i - 1:i] == "$" and texto[i - 2:i - 1] not in ("\\", "$"))):
-            corchetes += 1 if c == "[" else -1
+        if cuerpos == "\\" and c in "[]":
+            al_dia(i)
+            if corchetes or (c == "[" and texto[i - 1:i] == "$" and texto[i - 2:i - 1] not in ("\\", "$")):
+                corchetes += 1 if c == "[" else -1
         palabra.append(c)
         hay_palabra = True
         i += 1

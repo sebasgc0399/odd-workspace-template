@@ -62,7 +62,7 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
     - Termina en la línea igual al delimitador, sin los tabs de `<<-` y con un `\r` final, que Git Bash acepta. Sin terminador, llega hasta el final.
     - Un `<<` dentro de un `(( ))` o un `$[ ]` sin cerrar es aritmética, no un heredoc.
       - Se cuentan fuera de comillas, con sus paréntesis y corchetes anidados (L77). `\$[` y `$$[` no abren aritmética.
-      - Se cuentan por línea, para que un error del contador no pase de su línea: `${x:-((}` o un `((` entre comillas anidadas (L72) cuentan (L78).
+      - Se cuentan por línea física, para que un error del contador no pase de su línea: `${x:-((}` o un `((` entre comillas anidadas (L72) cuentan (L78). Reinicia cualquier salto, también una continuación `\⏎`, un salto entre comillas o un cuerpo salteado, y un `))` cierra toda la aritmética, como el `rfind` por línea de U6g (L79).
       - Por eso un `<<` en la continuación de un `(( ))` de varias líneas se lee como heredoc, como antes de U6g.
     - El `<<` corta la palabra que lo precede: `bash<<'EOF'` es `bash` con un heredoc, y `cat >x.sql<<'EOF'` escribe en `x.sql` (L77).
   - **Here-string, en los niveles de PowerShell:**
@@ -80,7 +80,7 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
   - **No ve, previas:**
     - el shell detrás de un envoltorio que el guard no salta: `| sudo bash`, `| env sh`, `timeout 5 bash <<`, `sudo -u u bash <<`. Es candidato de U6f (L76, A4).
     - Además, `HEREDOC_A_SHELL` toma `|| bash` como un pipe, lo que da falsos positivos en la dirección segura. Lo mismo pasa con un `\$(` en un cuerpo sin comillas y con la sintaxis de un shell leída en el otro (L76, A6).
-    - En un heredoc sin comillas que va a un shell, el padre expande `$( )` aunque esté entre comillas simples: `bash <<EOF⏎echo '$(git push)'⏎EOF` (L78).
+    - En un heredoc sin comillas que va a un shell, el padre expande `$( )` aunque esté entre comillas simples: `bash <<EOF⏎echo '$(git push)'⏎EOF` (L78). También cuando el `| bash` es de otro heredoc de la misma línea, que se le atribuye a este (L79).
     - Un `$( )` se analiza con el cwd final de su nivel: `cd zona; y="$(echo x > f.sql)"; cd ..` (L78).
     - `git <<EOF commit -m y` y `bash<<<'git commit -m y'` (L78).
 - **Zona:** un archivo dentro de un repo declarado o de uno de sus worktrees, con cualquier extensión, o un archivo que `clasificar` asigna a una capa (el taller). Es contención canónica, no nombre: cuentan las junctions y las mayúsculas. También es zona una ruta **ancestra** de un repo o de un worktree (L31): `rm -rf <padre de los repos>` bloquea, y escribir directo sobre una carpeta ancestra (`cp a.txt C:/`) también. Una carpeta es zona si está dentro de un repo o es ancestra de uno, o si coincide con la carpeta padre de un glob de `workshop` (con `**` al final, también lo que está debajo). Un comodín (`*`, `?`, `[`, las llaves `{a,b}` de bash, y el extglob `@(…)`, `+(…)` y `!(…)`, que el segmentador deja como un token terminado en `@`, `+` o `!`) corta la ruta en su primer segmento con comodín, y la carpeta conocida (o el cwd, si el comodín está en el primer segmento) decide como zona, además de la ruta literal.

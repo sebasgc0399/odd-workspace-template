@@ -1413,6 +1413,10 @@ GIT_TRAS_HEREDOC = [
     "echo ${x:-((}\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push", "n=\"$(grep -c \"((\" f.c)\"\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
     "echo \\$[ ; cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo $$[ ; cat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
     "echo $((1<<2)); cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo $[1<<2]; cat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
+    "n=\"$(grep -c \"((\" f.c)\"; [ \"$n\" -gt 0 ] && echo $((n+1)); cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
+    "echo ${x:-((} ; echo $((1)) ; cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
+    "n=\"$(grep -c \"((\" f.c)\" \\\n  && cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
+    "echo ${x:-((} \\\n  && cat > n.txt <<'EOF'\ndon't\nEOF\ngit push", "n=\"$(grep \"((\" f)\" \"a\nb\" && cat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
 ]
 GIT_TRAS_HERE_STRING = [
     "$m = @'\nit's\n'@\ngit commit -m y", "$m = @'\nit's\n'@; git push", "$m = @'  \nit's\n'@\ngit commit -m y",
