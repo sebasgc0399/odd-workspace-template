@@ -1409,6 +1409,10 @@ GIT_TRAS_HEREDOC = [
     "grep -E '((a)|b)' <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo \"((\" ; cat <<'EOF'\ndon't\nEOF\ngit push",
     "echo $[1<<2]\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
     "cat > n.txt <<'EOF'\ndon't\nEOF\n(( (x) << 2 ))\ngit push", "cat > n.txt <<'EOF'\ndon't\nEOF\necho $[ a[1] << 2 ]\ngit push",
+    "echo \\$[\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo $$[\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
+    "echo ${x:-((}\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push", "n=\"$(grep -c \"((\" f.c)\"\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
+    "echo \\$[ ; cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo $$[ ; cat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
+    "echo $((1<<2)); cat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo $[1<<2]; cat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
 ]
 GIT_TRAS_HERE_STRING = [
     "$m = @'\nit's\n'@\ngit commit -m y", "$m = @'\nit's\n'@; git push", "$m = @'  \nit's\n'@\ngit commit -m y",
@@ -1423,6 +1427,9 @@ def test_u6g_el_heredoc_no_esquiva_el_git_ni_las_zonas():
         "cat > n.txt <<'EOF'\ndon't\nEOF\necho x > " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncp a.txt " + SQL,
         "cat > n.txt <<'EOF'\ndon't\nEOF\nrm " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncd " + fw(DB) + " && echo x > f.sql",
         "cat >" + TALLER + "<<'EOF'\nx\nEOF",
+        "cd " + fw(DB) + "\ncat <<'X'\ndon't\nX\nbash <<'EOF'\necho x > f.sql\nEOF\ncd " + fw(TMPD),
+        "cd " + fw(DB) + "\ncat <<'X'\ndon't\nX\ncat <<'EOF' | bash\necho x > f.sql\nEOF\ncd " + fw(TMPD),
+        "cd " + fw(DB) + "\ncat <<'X'\ndon't\nX\nbash <<'EOF'\ncd " + fw(TMPD) + "\nEOF\necho x > f.sql",
     ], True), tabla([
         "echo it\\'s ; cat > n.txt <<'EOF'\ndon't\nEOF\necho z > " + escapada,
     ], True, zonas=ZONAS_ESP), tabla([
@@ -1457,8 +1464,12 @@ def test_u6g_lo_que_un_shell_recibe_por_heredoc_sigue_siendo_codigo():
 def test_u6g_cada_cuerpo_que_recibe_un_shell_es_un_nivel_aparte():
     comprobar(tabla([
         "bash <<'EOF'\nsay \"hi\nEOF\ngit commit -m y", "cat <<'EOF' | bash\necho 'hi\nEOF\ngit push",
-        "cat <<A; bash <<'B'\ndon't\nA\ngit commit -m y\nB", "(( x +\n1 << 2 ))\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
+        "cat <<A; bash <<'B'\ndon't\nA\ngit commit -m y\nB",
         "bash <<a\ndon't\na\n" + "bash <<a\nx\na\n" * 49 + "bash <<'EOF'\ngit commit -m y\nEOF",
+        "echo $(true)\n" * 49 + "bash <<'a'\nx\na\ncat > n.txt <<'EOF'\ndon't\nEOF\necho \"$(git commit -m y)\"",
+        "bash <<a\nx\na\n" * 50 + "cat > n.txt <<'EOF'\ndon't\nEOF\necho \"$(git commit -m y)\"",
+        "".join("bash <<'L%d'\n" % k for k in range(1, 8)) + "cat <<'Z'\ndon't\nZ\ngit commit -m y\n"
+        + "".join("L%d\n" % k for k in range(7, 0, -1)),
         "cat <<A | cat; cat <<'B' | bash\ndon't\nA\ngit commit -m y\nB", "cat <<'A' | bash; cat <<'B' | bash\necho it's\nA\ngit commit -m y\nB",
     ], True), tabla(["cat <<'A' | bash; cat <<'B'\necho it's\nA\ngit commit -m y\nB"], False))
 
@@ -1476,7 +1487,8 @@ def test_u6g_la_pasada_de_cuerpos_no_cambia_el_motivo_de_la_base():
 
 def test_u6g_muchos_heredocs_en_una_linea_cuestan_lineal():
     fallos = []
-    for comando in ("cat <<a | " * 4000 + "cat\ngit status", "cat " + "<<a " * 40000 + "\ngit status"):
+    for comando in ("cat <<a | " * 4000 + "cat\ngit status", "cat " + "<<a " * 40000 + "\ngit status",
+                    "x=1 " * 8000 + "<<a " * 8000 + "\ngit status", "sudo " * 4000 + "<<a " * 4000 + "\ngit status"):
         inicio = time.monotonic()
         G.analizar(comando, None, ZONAS)
         segundos = time.monotonic() - inicio
