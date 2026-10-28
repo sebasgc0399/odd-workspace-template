@@ -183,12 +183,12 @@ def _salto(texto, i):
     return 1 if texto.startswith("\n", i) else 0
 
 
-def _segmentar(texto, escape=None, cuerpos=None):
+def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
     segmentos, subs = [], []
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
     comilla = None
-    heredocs, aritmetica, corchetes, fin_linea, ultimo_shell = [], 0, 0, -1, -1
+    heredocs, aritmetica, corchetes, fin_linea, ultimo_shell, cuerpos_shell = [], 0, 0, -1, -1, 0
     n, i = len(texto), 0
 
     def cerrar_palabra():
@@ -239,12 +239,15 @@ def _segmentar(texto, escape=None, cuerpos=None):
                 j += 1
 
     def saltar_heredocs(desde):
-        nonlocal heredocs
+        nonlocal heredocs, cuerpos_shell
         pendientes, heredocs = heredocs, []
+        shells = {}
         j = desde
         for delimitador, literal, tabs, seg, tuberia in pendientes:
-            a_shell = tuberia or _comando(seg["tokens"])[1] in SHELLS_DE_CUERPO
-            if a_shell and len(subs) >= MAX_SUBS:
+            if id(seg) not in shells:
+                shells[id(seg)] = _comando(seg["tokens"])[1] in SHELLS_DE_CUERPO
+            a_shell = tuberia or shells[id(seg)]
+            if a_shell and (en_linea or cuerpos_shell >= MAX_SUBS):
                 return j
             inicio = j
             while j < n:
@@ -256,7 +259,8 @@ def _segmentar(texto, escape=None, cuerpos=None):
             else:
                 fin_cuerpo = n
             if a_shell:
-                subs.append(texto[inicio:fin_cuerpo])
+                seg.setdefault("cuerpos", []).append(texto[inicio:fin_cuerpo])
+                cuerpos_shell += 1
             elif not literal:
                 sustituciones(inicio, fin_cuerpo, True)
         return j
@@ -368,7 +372,9 @@ def _segmentar(texto, escape=None, cuerpos=None):
             continue
         if c in "\n;|()":
             cerrar_segmento()
-            if cuerpos == "\\" and c == "(" and (aritmetica or texto.startswith("((", i)):
+            if cuerpos == "\\" and c == "\n":
+                aritmetica = corchetes = 0
+            elif cuerpos == "\\" and c == "(" and (aritmetica or texto.startswith("((", i)):
                 aritmetica += 1
             elif cuerpos == "\\" and c == ")" and aritmetica:
                 aritmetica -= 1
@@ -398,7 +404,7 @@ def _segmentar(texto, escape=None, cuerpos=None):
                     i += 1
                 pendiente = "redir"
             continue
-        if cuerpos == "\\" and c in "[]" and (corchetes or (c == "[" and i and texto[i - 1] == "$")):
+        if cuerpos == "\\" and c in "[]" and (corchetes or (c == "[" and texto[i - 1:i] == "$" and texto[i - 2:i - 1] not in ("\\", "$"))):
             corchetes += 1 if c == "[" else -1
         palabra.append(c)
         hay_palabra = True
@@ -873,7 +879,7 @@ def _analizar(texto, estado, profundidad, escape):
     motivo = _clr(_graves_fuera_de_simples(texto) if leer == "`" else texto, estado["cwd"])
     if motivo and parar:
         return motivo
-    segmentos, subs = _segmentar(texto, leer, escape if _CUERPOS else None)
+    segmentos, subs = _segmentar(texto, leer, escape if _CUERPOS else None, profundidad >= PROFUNDIDAD_MAX)
     cache = []
 
     def zona():
@@ -917,6 +923,10 @@ def _analizar(texto, estado, profundidad, escape):
             motivo = "%s sobre %s" % (cmd, ruta) if ruta else None
         if motivo and parar:
             return motivo
+        for cuerpo in seg.get("cuerpos", ()):
+            motivo = _analizar(cuerpo, {"cwd": estado["cwd"]}, profundidad + 1, escape)
+            if motivo and parar:
+                return motivo
     for sub in subs:
         motivo = _analizar(sub, estado, profundidad + 1, escape)
         if motivo and parar:

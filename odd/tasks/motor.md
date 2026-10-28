@@ -40,7 +40,7 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U6c | Plantilla `plugin/plantillas/writer.md`, generador con bloques de la instancia (L27), ítem del doctor y verificación de la clave del frontmatter | motor | inline | ninguno | hecho (L37–L39) |
 | U6d | `writer_guard`: el escape del shell antes de un blanco o de un salto de línea (`git -C a\ b commit`, `git \⏎commit`, ``git -C a` b commit``) esquiva el bloqueo del git de escritura y de las zonas de un writer; leer el escape según `tool_name`, como la Capa 2 del guard de comandos (L55–L58) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L59–L63): `ecf184f`, B1 y B2 `e6b18db` |
 | U6e | `writer_guard`: un escape antes de una comilla (`"x\\"` en Bash, `"C:\dir\"` en PowerShell) deja la comilla sin cerrar y se traga el resto del comando; previo, también en el origen (L59–L61). Alcance (L64–L66): también sin comillas alrededor (`echo \"`, `echo it\'s`, ``it`'s``) y la comilla escapada de PowerShell (``"x`""``), y el acento grave solo entre comillas dobles (falso positivo de `e6b18db`); fuera, el escape antes de un carácter común (L65) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L64–L69): `6947f4f`, y el cierre de L69 |
-| U6g | `writer_guard`: el cuerpo de un heredoc se lee como shell, así que un apóstrofo impar abre una comilla que se traga lo que sigue (`cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` pasa); previo (L69). Alcance (L71): también los here-strings de PowerShell (`$m = @'⏎it's⏎'@⏎git commit -m y` pasa). Cierra también A1, la cobertura accidental que perdió U6e. Medido en el uso real: 277 de 2822 heredocs dejan ciego al guard, y 18 comandos cuelan un git de escritura (L70) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho (L75): `b6b2905`; verificador sin bloqueantes (L76); lote de corrección de A1, A2, A3, A5, A7 y A8 (L77), con su verificador pendiente |
+| U6g | `writer_guard`: el cuerpo de un heredoc se lee como shell, así que un apóstrofo impar abre una comilla que se traga lo que sigue (`cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` pasa); previo (L69). Alcance (L71): también los here-strings de PowerShell (`$m = @'⏎it's⏎'@⏎git commit -m y` pasa). Cierra también A1, la cobertura accidental que perdió U6e. Medido en el uso real: 277 de 2822 heredocs dejan ciego al guard, y 18 comandos cuelan un git de escritura (L70) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho (L75): `b6b2905`; verificador sin bloqueantes (L76); lote de corrección de A1, A2, A3, A5, A7 y A8 (L77): `3cb420f`; su verificador encontró B1–B4 (L78), corregidos, con la revisión limitada pendiente |
 | U6f | `writer_guard`: los envoltorios con una opción que lleva valor (`env -C`, `env -u`, `sudo -u`) y `timeout`, y los bloques de PowerShell (`% { }`, `ForEach-Object { }`, `. { }`, `Invoke-Command { }`), esquivan el git de escritura y las zonas; previo, también en el origen (L67) | motor | — | **2** (guard) → commit propio y verificador independiente | pendiente (L67), después de U6g (L70); candidatas para su alcance: el pipe a un shell sin heredoc (L74), también `@'…'@ | iex` (L75), y A4 de L76 (`| sudo bash`, `timeout 5 bash <<`, `|| bash`) (L77) |
 | U7 | `triaje.py`: los marcadores, los clones y la rama base pasan a la instancia o a la config. Decisiones (L43) | — | — | — | hecho en U7a–U7c (L44–L46) |
 | U7a | Señales T-SQL en `odd_ws/tsql.py`, fuera de `PUBLICO`: firma de SP y JSON, DDL/DML, objetos para consumidores, tipos de dinero | biblioteca | inline | ninguno | hecho (L44) |
@@ -276,3 +276,51 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
   - **Costo:** la forma `cat <<a | ` repetida 10 000 veces baja de 40,9 s a 0,31 s, y `<<a` repetido 10 000 veces, de 0,82 a 0,12 s. La latencia por comando no cambia: con cuerpo, 0,21 contra 0,22 ms.
   - **Suites y diseño:** las 19 suites del repo pasan en verde con `-W error`, con los archivos en LF y sin BOM. En el diseño, «Cuerpos» suma la aritmética, el `<<` pegado, el nivel aparte, el costo y su «No ve» (A4 y A6).
   - **Siguiente:** commit propio y el verificador independiente (Opus) limitado al lote, contra `b6b2905`.
+- **L78 (2026-10-28): verificador independiente del lote (Opus) sobre `3cb420f`: cuatro bloqueantes, y la corrección.** Pasan A2, A7, A8 y el invariante contra `ef8a792`. Los bloqueantes son filas que `b6b2905` bloqueaba, `3cb420f` dejaba pasar y en las que el shell real corre el git o escribe en una zona. El padre los repitió los cuatro.
+  - **B1 (A1):** el contador de aritmética duraba todo el comando, y lo alimentaba texto que Bash no lee como aritmética. Ejemplos: `echo \$[`, `echo $$[`, `echo ${x:-((}` y `n="$(grep -c "((" f.c)"` (L72), en una línea anterior al heredoc.
+  - **B2 (A3 y A5):** el cuerpo que recibe un shell se analizaba con el cwd final del nivel, porque los `subs` van después de todos los segmentos. Ejemplo: `cd zona⏎…⏎bash <<'EOF'⏎echo x > f.sql⏎EOF⏎cd -`.
+  - **B3:** los cuerpos gastaban el cupo de `MAX_SUBS` y desplazaban un `"$( )"` posterior.
+  - **B4:** cada cuerpo sumaba un nivel, y con 7 `bash <<` anidados chocaba con `PROFUNDIDAD_MAX`.
+  - **Advertencias:**
+    - Del mismo A7, el costo cuadrático en otras formas (`x=1 ` o `sudo ` repetidos antes de miles de `<<`, por `_comando` en cada heredoc pendiente). Entra en el lote.
+    - Previas, que pasan en las tres versiones y van al «No ve»:
+      - en un heredoc sin comillas que va a un shell, el padre expande `$( )` entre comillas simples;
+      - un `$( )` se analiza con el cwd final;
+      - `git <<EOF commit -m y` y `bash<<<'git commit -m y'`.
+    - Lo que ahora sale mejor: el `cd` de un cuerpo ya no cambia el cwd del padre.
+  - **Corrección, un solo lote, decidida por el padre:**
+    1. **B1:** el contador vuelve a reiniciarse en cada línea, como en `b6b2905`, así que un error suyo no pasa de su línea. `\$[` y `$$[` no abren aritmética. El costo: un `<<` en la continuación de un `(( ))` de varias líneas se lee como heredoc, como antes de U6g, y va al «No ve».
+    2. **B2:** el cuerpo se cuelga de su segmento y se analiza al pasar por él, con una copia del cwd de ese momento, así que su `cd` no se filtra al padre.
+    3. **B3:** los cuerpos tienen su propio cupo (`MAX_SUBS`). Al pasarlo, desde ese cuerpo el resto se lee en línea.
+    4. **B4:** en el último nivel (`PROFUNDIDAD_MAX`) los cuerpos se leen en línea.
+    5. **A7:** el comando de cada segmento se calcula una vez por línea.
+  - **Pruebas primero:** `writer_guard` sigue en 96 pruebas, con más casos.
+    - En el git tras un heredoc: los disparadores de B1 en la línea anterior y en la misma, y la aritmética que cierra en la misma línea.
+    - En las zonas: B2 con `bash <<` y con `| bash`, y el `cd` del cuerpo que no se filtra.
+    - En el nivel aparte: B3, con 49 `$( )` y con 50 cuerpos, y B4, con 7 niveles.
+    - En el costo: las formas `x=1 ` y `sudo `.
+    - Sale el caso de la aritmética de varias líneas.
+    - RED 93/96, por la razón correcta: el caso del `cd` que no se filtra ya pasaba en `3cb420f`, y fija la decisión. GREEN 96/96.
+  - **Semántica en Git Bash real:** 31 casos, con 0 fuera de lo esperado. Incluye que el cuerpo corre en el cwd del heredoc y que su `cd` no cambia el del padre.
+  - **Mutaciones:** 45. Las 38 de L77 se adaptaron, y se sumaron las del reinicio, `\$[`, el `cd` filtrado, los cuerpos al final con el cwd final, el cupo compartido, el respaldo de la profundidad y el `_comando` sin caché.
+    - Sobrevivieron tres. «`))` no cierra» y «`]` no cierra» los mataron dos casos con la aritmética y el heredoc en la misma línea. El del cupo estaba mal escrito y se reescribió fiel al código viejo, con el cuerpo que vuelve a gastar un lugar de `subs`.
+    - Quedan 45 de 45 en rojo y los controles en verde.
+  - **Diferencial:** 20 000 comandos, semilla 20261031, con los disparadores del verificador sumados al generador.
+    - **Contra `ef8a792`:** el invariante sigue intacto. Pasan a bloquear 2113 y 368.
+      - Las sin explicar, 652 y 15, se clasificaron: 345 no parsean y 213 escriben o no son git. En 73, el git corre.
+      - Las 21 en las que no corre son `iex 'git commit'` leído en Bash (A6).
+    - **Contra `b6b2905`:** 0 menos estrictas en Bash y en PowerShell, porque las 5 de `echo ((` de L77 también se fueron.
+      - 6 cambios de motivo, de las dos clases esperadas, y en todos bloquean las dos versiones.
+    - **Semántica:**
+      - De las filas con cuerpo que la corregida deja pasar, el git corre en 2 de 1336. Las dos ya pasaban en `b6b2905`: una es la aritmética de varias líneas del «No ve» y la otra es L75.
+      - De las que pasan a bloquear, corre en 70 de 200.
+  - **Uso real** (23 745 comandos de Bash y 2411 de PowerShell): contra `b6b2905` no cambia ninguna fila, con 0 ciegos. Contra `ef8a792`, de 277 a 0 y de 2 a 0, con las mismas 21 más estrictas.
+  - **Costo contra `b6b2905`:**
+    - `x=1 ` ×8000 con `<<` ×8000: de 40,2 s a 0,15 s.
+    - `sudo ` ×4000: de 59,5 s a 0,10 s.
+    - Pipes ×10 000: de 42 s a 0,34 s.
+    - `<<` ×40 000: de 17,2 s a 0,33 s.
+    - 10 000 cuerpos a `bash`: de 1,34 s a 0,98 s.
+  - **Diseño:** «Cuerpos» suma la aritmética por línea (con su límite de varias líneas), el cuerpo en su lugar con su cupo y su profundidad, y el costo. Su «No ve» suma las tres previas.
+  - **Scratch del verificador:** borrado (19,7 MB, sin junctions).
+  - **Siguiente:** commit propio, y una sola revisión del verificador limitada a B1–B4.
