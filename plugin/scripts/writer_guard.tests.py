@@ -1565,6 +1565,90 @@ def test_u6g_el_hook_lee_el_cuerpo_segun_tool_name():
     comprobar(fallos)
 
 
+GIT_TRAS_ENVOLTORIO = [
+    "timeout 60 git commit -m y", "timeout 5s git push", "timeout -s KILL 60 git commit -m y", "timeout -k 5 1m git push",
+    "timeout --signal=KILL 5 git push", "timeout --signal KILL 5 git push", "timeout --kill-after 5 1m git push", "timeout -v 5 git push", "timeout -- 5 git push",
+    "timeout 60 bash -c 'git commit -m y'", "env -C . git commit -m y", "env -u X git push", "env --unset X git push",
+    "env --chdir=. git push", "env -iu X git push", "env -uX git push", "env -i -u X A=1 git push", "env -S git commit -m y",
+    "sudo -u root git commit -m y", "sudo -g g git push", "sudo -D . git push", "sudo --user root git push",
+    "sudo -nu root git push", "sudo -u root -- git push", "sudo -E -u root A=1 git push", "sudo timeout 5 env -u X git push",
+    "nice -n 5 git commit -m y", "echo $(timeout 5 git push)", "find . -exec timeout 5 git commit -m y \\;",
+    "env --chdir . git push",
+] + ["sudo -%s v git push" % letra for letra in "aCcDgpRrTtUu"] + ["sudo %s v git push" % opcion for opcion in (
+    "--auth-type", "--close-from", "--login-class", "--chdir", "--group", "--prompt", "--chroot", "--role", "--type",
+    "--command-timeout", "--other-user", "--user")]
+GIT_EN_BLOQUE = [
+    "1 | % { git commit -m y }", "1 | ForEach-Object { git commit -m y }", "1 | ForEach-Object -Process { git push }",
+    "1 | foreach { git push }", "1 | Where-Object { git commit -m y }", "1 | ? { git push }", "1 | where { git push }",
+    ". { git commit -m y }", "Invoke-Command { git commit -m y }", "Invoke-Command -ScriptBlock { git push }",
+    "icm { git push }", "Start-Job { git commit -m y }", "Start-Job -ScriptBlock { git push }", "sajb { git push }",
+    "Measure-Command { git commit -m y }", "1 | % { $x = 1; git push }", "1 | % { timeout 5 git push }",
+]
+CUERPO_A_ENVOLTORIO = "cat > a <<'EOF'\ndon't\nEOF\n"
+
+
+def test_u6f_el_envoltorio_con_opciones_no_esquiva_el_git_ni_las_zonas():
+    comprobar(tabla(GIT_TRAS_ENVOLTORIO, True), tabla(GIT_TRAS_ENVOLTORIO, True, herramienta="Bash"), tabla([
+        "timeout 5 cp a.txt " + SQL, "sudo -u u cp a.txt " + SQL, "env -C . rm " + SQL, "timeout -s KILL 5 sed -i s/a/b/ " + SQL,
+        "sudo -u u bash -c 'echo x > " + SQL + "'",
+    ], True), tabla([
+        "timeout 5 cd " + fw(TMPD) + "; echo x > f.sql", "sudo -u u cd " + fw(TMPD) + " ; echo x > f.sql",
+        "env -C . cd " + fw(TMPD) + "\necho x > f.sql", "sudo cd " + fw(TMPD) + "; echo x > f.sql",
+    ], True, cwd=fw(DB)), tabla([
+        "timeout 60 git status", "sudo -u root git log", "env -u X git diff", "timeout -k 5 1m git status",
+        "timeout 5 cp a.txt " + SCRATCH_FW, "env -C . cat " + SQL, "timeout 5", "sudo -u root", ". ./venv/bin/activate",
+    ], False))
+
+
+def test_u6f_el_bloque_de_powershell_no_esquiva_el_git_ni_las_zonas():
+    comprobar(tabla(GIT_EN_BLOQUE, True, herramienta="PowerShell"), tabla([
+        "1 | % { Set-Content " + bw(SQL) + " x }", "Get-ChildItem *.sql | ForEach-Object { Set-Content '" + bw(SQL) + "' x }",
+        "Invoke-Command { Remove-Item " + bw(SQL) + " }", "Start-Job -ScriptBlock { Copy-Item a.txt " + bw(SQL) + " }",
+        "& { Copy-Item a.txt " + bw(SQL) + " }", "Start-Job { Copy-Item a.txt " + bw(SQL) + " } -Name x",
+        "if ($x) { Copy-Item a.txt " + bw(SQL) + " }",
+    ], True, herramienta="PowerShell"), tabla(["rm } " + SQL], True, herramienta="Bash"), tabla([
+        "Start-Job { cd " + bw(TMPD) + " }; Set-Content f.sql x", "sajb { cd " + bw(TMPD) + " }; Set-Content f.sql x",
+    ], True, cwd=fw(DB), herramienta="PowerShell"), tabla([
+        "1 | % { cd " + bw(TMPD) + " }; Set-Content f.sql x", "Invoke-Command { cd " + bw(TMPD) + " }; Set-Content f.sql x",
+    ], False, cwd=fw(DB), herramienta="PowerShell"), tabla([
+        "1 | % { git status }", "Get-ChildItem | Where-Object { $_.Name -eq 'git' }", "Get-ChildItem | ForEach-Object Name",
+        "1 | % { Write-Output 'git commit -m y' }", "1 | % { Set-Content " + bw(SCRATCH) + " x }", "Measure-Command { git log }",
+        "1 | % Remove-Item " + bw(SQL),
+    ], False, herramienta="PowerShell"))
+
+
+def test_u6f_muchos_heredocs_en_lineas_distintas_cuestan_lineal():
+    inicio = time.monotonic()
+    G.analizar("cat <<a | cat\na\n" * 5000 + "git status", None, ZONAS)
+    segundos = time.monotonic() - inicio
+    assert segundos < 2, "5000 heredocs en lineas distintas tardan %.1f s" % segundos
+
+
+def test_u6f_el_shell_detras_de_un_envoltorio_recibe_el_cuerpo():
+    comprobar(tabla([CUERPO_A_ENVOLTORIO + c for c in (
+        "cat <<'EOF' | sudo bash\ngit commit -m y\nEOF", "cat <<'EOF' | env sh\ngit push\nEOF",
+        "cat <<'EOF' | timeout 5 bash\ngit commit -m y\nEOF", "cat <<'EOF' | sudo -u u bash\ngit push\nEOF",
+        "timeout 5 bash <<'EOF'\ngit commit -m y\nEOF", "sudo -u u bash <<'EOF'\ngit push\nEOF",
+        "env -u X sh <<'EOF'\ngit push\nEOF", "cat <<'EOF' | \"bash\"\ngit commit -m y\nEOF",
+        "cat <<'EOF' | tee log | bash\ngit push\nEOF", "cat <<'EOF' |\\\nbash\ngit commit -m y\nEOF",
+        "cat <<'EOF' | (bash)\ngit push\nEOF", "cat <<'EOF' |& bash\ngit push\nEOF",
+    )], True), tabla([CUERPO_A_ENVOLTORIO + c for c in (
+        "cat <<'EOF' || bash\ngit commit -m y\nEOF", "cat <<'EOF'; echo hi | bash\ngit push\nEOF",
+        "cat <<'EOF' # | bash\ngit push\nEOF", "cat <<'EOF' && echo \"| bash\"\ngit push\nEOF",
+        "cat <<'EOF' | sudo tee f\ngit push\nEOF",
+    )], False))
+
+
+def test_u6f_destinos_ve_detras_del_envoltorio_y_dentro_del_bloque():
+    fallos = []
+    sql = SQL.lower()
+    for comando, herramienta in (("sudo -u u cp a.txt " + SQL, None), ("timeout 5 cp a.txt " + SQL, None),
+                                 ("1 | % { Set-Content " + bw(SQL) + " x }", "PowerShell")):
+        vistos = G.destinos(comando, herramienta=herramienta)
+        esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in vistos), "%s: %r" % (comando, vistos))
+    comprobar(fallos)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
