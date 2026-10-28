@@ -63,7 +63,7 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
     - Un `<<` dentro de un `(( ))` o un `$[ ]` sin cerrar es aritmética, no un heredoc.
       - Se cuentan fuera de comillas, con sus paréntesis y corchetes anidados (L77). `\$[` y `$$[` no abren aritmética.
       - Se cuentan por línea física, para que un error del contador no pase de su línea: `${x:-((}` o un `((` entre comillas anidadas (L72) cuentan (L78). Reinicia cualquier salto, también una continuación `\⏎`, un salto entre comillas o un cuerpo salteado, y un `))` cierra toda la aritmética, como el `rfind` por línea de U6g (L79).
-      - Por eso un `<<` en la continuación de un `(( ))` de varias líneas se lee como heredoc, como antes de U6g.
+      - Por eso un `<<` en la continuación de un `(( ))` de varias líneas se lee como heredoc, como antes de U6g. Lo mismo pasa con un `<<` que sigue a un `$(( ))` anidado dentro de un `(( ))` (`(( x = $((1)) << 2 ))`), porque ese `))` interno cierra todo (L80).
     - El `<<` corta la palabra que lo precede: `bash<<'EOF'` es `bash` con un heredoc, y `cat >x.sql<<'EOF'` escribe en `x.sql` (L77).
   - **Here-string, en los niveles de PowerShell:**
     - Abre con `@'` o `@"` seguido solo de blancos hasta el salto, y cierra con `'@` o `"@` en la columna 0.
