@@ -1406,6 +1406,9 @@ GIT_TRAS_HEREDOC = [
     "cat > n.txt <<EOF\ndon't $(git commit -m y)\nEOF", "cat > n.txt <<EOF\ndon't `git push`\nEOF",
     "bash -c \"cat <<'EOF'\ndon't\nEOF\ngit commit -m y\"", "echo $((1<<2))\ncat<<EOF\ndon't\nEOF\ngit commit -m y",
     "cat > n.txt <<'EOF'\ndon't\nEOF\necho $((1<<2))\ngit push", "cat > n.txt <<'EOF'\ndon't\nEOF\n((x <<= 1))\ngit push",
+    "grep -E '((a)|b)' <<'EOF'\ndon't\nEOF\ngit commit -m y", "echo \"((\" ; cat <<'EOF'\ndon't\nEOF\ngit push",
+    "echo $[1<<2]\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit commit -m y",
+    "cat > n.txt <<'EOF'\ndon't\nEOF\n(( (x) << 2 ))\ngit push", "cat > n.txt <<'EOF'\ndon't\nEOF\necho $[ a[1] << 2 ]\ngit push",
 ]
 GIT_TRAS_HERE_STRING = [
     "$m = @'\nit's\n'@\ngit commit -m y", "$m = @'\nit's\n'@; git push", "$m = @'  \nit's\n'@\ngit commit -m y",
@@ -1419,6 +1422,7 @@ def test_u6g_el_heredoc_no_esquiva_el_git_ni_las_zonas():
     comprobar(tabla(GIT_TRAS_HEREDOC, True), tabla(GIT_TRAS_HEREDOC, True, herramienta="Bash"), tabla([
         "cat > n.txt <<'EOF'\ndon't\nEOF\necho x > " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncp a.txt " + SQL,
         "cat > n.txt <<'EOF'\ndon't\nEOF\nrm " + SQL, "cat > n.txt <<'EOF'\ndon't\nEOF\ncd " + fw(DB) + " && echo x > f.sql",
+        "cat >" + TALLER + "<<'EOF'\nx\nEOF",
     ], True), tabla([
         "echo it\\'s ; cat > n.txt <<'EOF'\ndon't\nEOF\necho z > " + escapada,
     ], True, zonas=ZONAS_ESP), tabla([
@@ -1443,10 +1447,53 @@ def test_u6g_lo_que_un_shell_recibe_por_heredoc_sigue_siendo_codigo():
         "python - <<'EOF'\nimport subprocess\nsubprocess.run(['git', 'commit', '-m', 'y'])\nEOF",
         "cat > a <<'EOF'\ndon't\nEOF\nbash <<'EOF'\ngit commit -m y\nEOF",
         "cat > a <<'EOF'\ndon't\nEOF\ncat <<'EOF' | bash\ngit commit -m y\nEOF",
+        "cat > a <<'EOF'\ndon't\nEOF\nbash<<'EOF'\ngit commit -m y\nEOF",
     ], True), tabla([
         "iex @'\ngit commit -m y\n'@", "Write-Output @\"\n$(git commit -m y)\n\"@",
         "$m = @\"\nit's\n\"@\ngit commit -m y", "$m = @'\nit's\n'@\niex @'\ngit push\n'@",
     ], True, herramienta="PowerShell"))
+
+
+def test_u6g_cada_cuerpo_que_recibe_un_shell_es_un_nivel_aparte():
+    comprobar(tabla([
+        "bash <<'EOF'\nsay \"hi\nEOF\ngit commit -m y", "cat <<'EOF' | bash\necho 'hi\nEOF\ngit push",
+        "cat <<A; bash <<'B'\ndon't\nA\ngit commit -m y\nB", "(( x +\n1 << 2 ))\ncat > n.txt <<'EOF'\ndon't\nEOF\ngit push",
+        "bash <<a\ndon't\na\n" + "bash <<a\nx\na\n" * 49 + "bash <<'EOF'\ngit commit -m y\nEOF",
+        "cat <<A | cat; cat <<'B' | bash\ndon't\nA\ngit commit -m y\nB", "cat <<'A' | bash; cat <<'B' | bash\necho it's\nA\ngit commit -m y\nB",
+    ], True), tabla(["cat <<'A' | bash; cat <<'B'\necho it's\nA\ngit commit -m y\nB"], False))
+
+
+def test_u6g_el_cuerpo_literal_no_se_expande():
+    comprobar(tabla([
+        "cat > n.txt <<'EOF'\ndon't $(git commit -m y)\nEOF\ngit status", "cat > n.txt <<\\EOF\ndon't `git push`\nEOF",
+    ], False), tabla(["$m = @'\n$(git commit -m y) it's\n'@\ngit status"], False, herramienta="PowerShell"))
+
+
+def test_u6g_la_pasada_de_cuerpos_no_cambia_el_motivo_de_la_base():
+    motivo = G.analizar("cat <<'EOF'\ngit push\nEOF\ngit commit -m y", None, ZONAS)
+    assert motivo == "git push", "la primera pasada que bloquea da el motivo: %r" % motivo
+
+
+def test_u6g_muchos_heredocs_en_una_linea_cuestan_lineal():
+    fallos = []
+    for comando in ("cat <<a | " * 4000 + "cat\ngit status", "cat " + "<<a " * 40000 + "\ngit status"):
+        inicio = time.monotonic()
+        G.analizar(comando, None, ZONAS)
+        segundos = time.monotonic() - inicio
+        esperar(fallos, segundos < 2, "%d << en una linea tardan %.1f s" % (comando.count("<<"), segundos))
+    comprobar(fallos)
+
+
+def test_u6g_la_pasada_de_cuerpos_consulta_el_plazo():
+    previo, G._LIMITE = G._LIMITE, time.monotonic() - 1
+    vencio = False
+    try:
+        G._segmentar("cat <<'EOF'\nx\nEOF\n", "\\", "\\")
+    except G._SinTiempo:
+        vencio = True
+    finally:
+        G._LIMITE = previo
+    assert vencio, "el segmentador de cuerpos tiene que cortar cuando vence el plazo"
 
 
 def test_u6g_el_heredoc_y_el_here_string_no_valen_en_el_otro_shell():
@@ -1483,6 +1530,8 @@ def test_u6g_destinos_ve_lo_que_sigue_al_cuerpo():
     en_bash = G.destinos(heredoc)
     esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_bash), "Bash ve lo que sigue al heredoc: %r" % en_bash)
     esperar(fallos, en_bash[:1] == [SCRATCH_FW], "la primera pasada va primero: %r" % en_bash)
+    pegado = G.destinos("cat >" + SQL + "<<'EOF'\nx\nEOF")
+    esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in pegado), "el << pegado no entra en la ruta: %r" % pegado)
     here_string = "$m = @'\nit's\n'@\nSet-Content " + bw(SQL) + " x"
     en_ps = G.destinos(here_string, herramienta="PowerShell")
     esperar(fallos, any(x.replace("\\", "/").lower() == sql for x in en_ps), "PowerShell ve lo que sigue al here-string: %r" % en_ps)
