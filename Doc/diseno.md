@@ -60,12 +60,20 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
   - **Heredoc, en los niveles de Bash:**
     - Si el delimitador va con `'`, `"` o `\`, el cuerpo es literal; si no, se analizan sus `$( )` y sus backticks.
     - Termina en la línea igual al delimitador, sin los tabs de `<<-` y con un `\r` final, que Git Bash acepta. Sin terminador, llega hasta el final.
-    - Un `<<` dentro de un `((` sin cerrar en su línea es aritmética, no un heredoc.
+    - Un `<<` dentro de un `(( ))` o un `$[ ]` sin cerrar es aritmética, no un heredoc. Se cuentan fuera de comillas, con sus paréntesis y corchetes anidados, y a lo largo de varias líneas, como hace Bash (L77).
+    - El `<<` corta la palabra que lo precede: `bash<<'EOF'` es `bash` con un heredoc, y `cat >x.sql<<'EOF'` escribe en `x.sql` (L77).
   - **Here-string, en los niveles de PowerShell:**
     - Abre con `@'` o `@"` seguido solo de blancos hasta el salto, y cierra con `'@` o `"@` en la columna 0.
     - Es una palabra, así que `iex @'…'@` lo analiza como código. En `@"…"@`, también sus `$( )`.
   - **El cuerpo que recibe un shell** (`bash <<'EOF'`, `cat <<'EOF' | bash`) sigue siendo código, como en el guard de comandos (`_base`, `HEREDOC_A_SHELL`).
+    - Se analiza en un nivel aparte, como un `$( )`: si no es shell válido (`say "hi`), no ciega lo que sigue, y los otros cuerpos de la línea siguen siendo texto (L77).
+    - Pasado el tope de sustituciones (`MAX_SUBS`), desde ese cuerpo el resto se lee en línea, como antes de U6g.
+    - El pipe a un shell cuenta para los heredocs que están antes que él en la línea.
+  - **Costo:** el pipe a un shell se busca una vez por línea, así que el costo es lineal en la cantidad de `<<` (con 10 000 `<<` y pipes en una línea, de 41 s a 0,3 s), y el segmentador consulta el plazo en cada `<<` (L77).
   - **Solo suma bloqueos:** gana la pasada más estricta, y las dos primeras quedan como estaban, con sus falsos positivos (el cuerpo de un heredoc leído como comandos). `destinos` agrega al final lo que encuentra la tercera.
+  - **No ve, previas:**
+    - el shell detrás de un envoltorio que el guard no salta: `| sudo bash`, `| env sh`, `timeout 5 bash <<`, `sudo -u u bash <<`. Es candidato de U6f (L76, A4).
+    - Además, `HEREDOC_A_SHELL` toma `|| bash` como un pipe, lo que da falsos positivos en la dirección segura. Lo mismo pasa con un `\$(` en un cuerpo sin comillas y con la sintaxis de un shell leída en el otro (L76, A6).
 - **Zona:** un archivo dentro de un repo declarado o de uno de sus worktrees, con cualquier extensión, o un archivo que `clasificar` asigna a una capa (el taller). Es contención canónica, no nombre: cuentan las junctions y las mayúsculas. También es zona una ruta **ancestra** de un repo o de un worktree (L31): `rm -rf <padre de los repos>` bloquea, y escribir directo sobre una carpeta ancestra (`cp a.txt C:/`) también. Una carpeta es zona si está dentro de un repo o es ancestra de uno, o si coincide con la carpeta padre de un glob de `workshop` (con `**` al final, también lo que está debajo). Un comodín (`*`, `?`, `[`, las llaves `{a,b}` de bash, y el extglob `@(…)`, `+(…)` y `!(…)`, que el segmentador deja como un token terminado en `@`, `+` o `!`) corta la ruta en su primer segmento con comodín, y la carpeta conocida (o el cwd, si el comodín está en el primer segmento) decide como zona, además de la ruta literal.
 - **Variables** (la resolución vive en `odd_ws.rutas`, interno, y la comparte el guard de comandos): `~`, `$VAR`, `${VAR}`, `$env:VAR` y `%VAR%` se expanden con el entorno del hook; `$PWD` es la carpeta del shell que sigue el parser (`cd`), no la del hook. Una variable desconocida corta la ruta en la última carpeta conocida, y esa carpeta decide como zona; si no queda ninguna, la ruta no cuenta. Una ruta que no queda absoluta después de normalizarla (relativa sin `cd` conocido, relativa a la unidad como `C:x`, o con `..` que se come la unidad) no se resuelve: nunca cae en el cwd del proceso del hook. En Windows, una ruta con una sola barra inicial (`\repo\x`) toma la unidad del cwd que sigue el parser; sin cwd conocido, no se resuelve.
 - **Scratch:** `<temporales>/claude/`, con la carpeta de `os.tmpdir()` de Node (`TEMP`, `TMP` o `%SystemRoot%\temp` en Windows; `TMPDIR` o `/tmp` en el resto). Le gana a una zona.

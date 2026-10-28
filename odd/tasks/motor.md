@@ -40,8 +40,8 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U6c | Plantilla `plugin/plantillas/writer.md`, generador con bloques de la instancia (L27), ítem del doctor y verificación de la clave del frontmatter | motor | inline | ninguno | hecho (L37–L39) |
 | U6d | `writer_guard`: el escape del shell antes de un blanco o de un salto de línea (`git -C a\ b commit`, `git \⏎commit`, ``git -C a` b commit``) esquiva el bloqueo del git de escritura y de las zonas de un writer; leer el escape según `tool_name`, como la Capa 2 del guard de comandos (L55–L58) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L59–L63): `ecf184f`, B1 y B2 `e6b18db` |
 | U6e | `writer_guard`: un escape antes de una comilla (`"x\\"` en Bash, `"C:\dir\"` en PowerShell) deja la comilla sin cerrar y se traga el resto del comando; previo, también en el origen (L59–L61). Alcance (L64–L66): también sin comillas alrededor (`echo \"`, `echo it\'s`, ``it`'s``) y la comilla escapada de PowerShell (``"x`""``), y el acento grave solo entre comillas dobles (falso positivo de `e6b18db`); fuera, el escape antes de un carácter común (L65) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L64–L69): `6947f4f`, y el cierre de L69 |
-| U6g | `writer_guard`: el cuerpo de un heredoc se lee como shell, así que un apóstrofo impar abre una comilla que se traga lo que sigue (`cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` pasa); previo (L69). Alcance (L71): también los here-strings de PowerShell (`$m = @'⏎it's⏎'@⏎git commit -m y` pasa). Cierra también A1, la cobertura accidental que perdió U6e. Medido en el uso real: 277 de 2822 heredocs dejan ciego al guard, y 18 comandos cuelan un git de escritura (L70) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho (L75); falta el verificador |
-| U6f | `writer_guard`: los envoltorios con una opción que lleva valor (`env -C`, `env -u`, `sudo -u`) y `timeout`, y los bloques de PowerShell (`% { }`, `ForEach-Object { }`, `. { }`, `Invoke-Command { }`), esquivan el git de escritura y las zonas; previo, también en el origen (L67) | motor | — | **2** (guard) → commit propio y verificador independiente | pendiente (L67), después de U6g (L70); candidata para su alcance: el pipe a un shell sin heredoc (L74), también `@'…'@ | iex` (L75) |
+| U6g | `writer_guard`: el cuerpo de un heredoc se lee como shell, así que un apóstrofo impar abre una comilla que se traga lo que sigue (`cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` pasa); previo (L69). Alcance (L71): también los here-strings de PowerShell (`$m = @'⏎it's⏎'@⏎git commit -m y` pasa). Cierra también A1, la cobertura accidental que perdió U6e. Medido en el uso real: 277 de 2822 heredocs dejan ciego al guard, y 18 comandos cuelan un git de escritura (L70) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho (L75): `b6b2905`; verificador sin bloqueantes (L76); lote de corrección de A1, A2, A3, A5, A7 y A8 (L77), con su verificador pendiente |
+| U6f | `writer_guard`: los envoltorios con una opción que lleva valor (`env -C`, `env -u`, `sudo -u`) y `timeout`, y los bloques de PowerShell (`% { }`, `ForEach-Object { }`, `. { }`, `Invoke-Command { }`), esquivan el git de escritura y las zonas; previo, también en el origen (L67) | motor | — | **2** (guard) → commit propio y verificador independiente | pendiente (L67), después de U6g (L70); candidatas para su alcance: el pipe a un shell sin heredoc (L74), también `@'…'@ | iex` (L75), y A4 de L76 (`| sudo bash`, `timeout 5 bash <<`, `|| bash`) (L77) |
 | U7 | `triaje.py`: los marcadores, los clones y la rama base pasan a la instancia o a la config. Decisiones (L43) | — | — | — | hecho en U7a–U7c (L44–L46) |
 | U7a | Señales T-SQL en `odd_ws/tsql.py`, fuera de `PUBLICO`: firma de SP y JSON, DDL/DML, objetos para consumidores, tipos de dinero | biblioteca | inline | ninguno | hecho (L44) |
 | U7b | `triaje.py`: recolección del diff, módulo `.claude/reglas/senales.py` con su validación, señales, escalado, `NO_DETECTABLE` y CLI; `consumidores` en inválida hasta U7c | motor | inline | ninguno | hecho (L45) |
@@ -211,3 +211,68 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
   - **Latencia:** mínimos de 7 vueltas intercaladas, sobre el corpus sintético. Con cuerpo, de 0,12 a 0,22 ms en Bash y de 0,12 a 0,20 en PowerShell; sin cuerpo, de 0,09 a 0,10.
   - **Suites y diseño:** las cinco suites (91, 43, 43, 28 y 19), en verde con `-W error`, en LF sin BOM. En el diseño, el ítem «Cuerpos» y el «No ve».
   - **Siguiente:** commit propio y verificador independiente (Opus) limitado a U6g.
+- **L76 (2026-10-27): verificador independiente de U6g (Opus) sobre `b6b2905`: sin bloqueantes.** V2, V4 y V5 pasan; V1, V3, V6 y V7 pasan con salvedad.
+  - **Su diferencial:** semillas 4242 y 777, 30 000 comandos en total, con las dos lecturas, 9 envoltorios y un oráculo por nivel efectivo.
+    - Con la tercera pasada apagada, el resultado es idéntico a la base: 0 filas menos estrictas y 0 cambios de motivo, y la base es prefijo de `destinos` en todas las filas.
+    - Ninguna fila queda sin explicar por un cuerpo leído en el nivel equivocado.
+    - Los controles detectan: 1043 y 913 filas con el oráculo sin neutralizar, 1022 y 859 neutralizando en el nivel equivocado, y los mutantes sí aparecen.
+    - El fuzz de 30 000 cadenas da 0.
+  - **Semántica con shells reales:**
+    - De las filas que pasan a bloquear, el git de escritura corre en 158 de 200 en Bash y en 77 de 200 en PowerShell.
+    - De las filas con cuerpo que la versión nueva deja pasar, el git corre en 5 de 200 en Bash (todas de la clase A3) y en 0 de 200 en PowerShell.
+  - **Transcripts locales:** 0 filas menos estrictas. Los comandos ciegos bajan de 279 a 2, y esos 2 no tienen heredoc: son de la clase de L72.
+  - **Suites:** 91, 43, 43, 28 y 19; la RED de 85/91 se reproduce.
+  - **Advertencias.** Todas pasan también en `ef8a792`:
+    - **A1:** un `((` sin cerrar en la línea del heredoc lo anula, aunque esté entre comillas (`grep -E '((a)|b)' <<'EOF'⏎don't⏎EOF⏎git commit -m y`). Lo mismo con `$[1<<2]`.
+    - **A2:** el heredoc pegado a un shell (`bash<<'EOF'`) no se reconoce como shell. Previo y relacionado: con `cat >…/esq.a.sql<<'EOF'`, el destino queda `esq.a.sql<<EOF` y la zona del taller no se ve.
+    - **A3:** un cuerpo que recibe un shell, si no es shell válido, ciega lo que sigue (`bash <<'EOF'⏎say "hi⏎EOF⏎git commit -m y`).
+    - **A4, familia de U6f:** `| sudo bash`, `| env sh`, `timeout 5 bash <<` y `sudo -u u bash <<`. Además, `HEREDOC_A_SHELL` también matchea `|| bash`.
+    - **A5:** si un heredoc de la línea va a un shell, todos los cuerpos se leen como código (`cat <<A; bash <<'B'⏎don't⏎A⏎git commit -m y⏎B`).
+    - **A6:** falsos positivos en la dirección segura: `\$(` en un cuerpo sin comillas, `'@x` y la sintaxis de un shell leída en el otro.
+    - **A7:** el costo es cuadrático en la cantidad de `<<` por línea. Con 40 000 `<<` tarda de 17 a 22 s, y `_segmentar` no consulta el plazo. Queda fuera del uso real.
+    - **A8:** dos mutantes sobreviven a la suite: «el cuerpo literal también expande», que va en la dirección segura, y «tercera pasada primero», que solo atrapa el diferencial.
+    - **A9:** lo de fuera de alcance, confirmado con el shell real: `$'…'`, `@'…'@ | iex` y `$(echo "git commit")`.
+  - **Repetición del padre:** las reproducciones de A1, A2, A3, A4 y A5 pasan en las dos versiones.
+  - **Scratch del verificador:** borrado (21,8 MB, sin junctions).
+- **L77 (2026-10-28): lote de corrección de U6g sobre `b6b2905`.** El usuario, ante la recomendación de corregir A1, A2, A3, A5, A7 y A8 antes de cerrar U6g: «Si procede». A4 queda como candidata de U6f; A6 y A9 van al «No ve».
+  - **Decisiones técnicas, contadas por el padre:**
+    1. **A1, la aritmética:** `(( ))` y `$[ ]` se cuentan en el bucle del segmentador, fuera de comillas, con sus paréntesis y corchetes anidados.
+       - No se reinicia por línea: así lo hace Bash. `(( x +⏎1 << 2 ))` es aritmética y `echo ((` es un error de sintaxis que no corre nada.
+       - Reemplaza el `rfind` por línea, que veía un `((` entre comillas y además era cuadrático.
+    2. **A2:** el `<<` cierra la palabra que lo precede, sin excepción para los dígitos, porque la mutación que la quitaba era equivalente.
+    3. **A3 y A5:** cada cuerpo que recibe un shell va a `subs`, como un `$( )`. Si no es shell válido, solo se ciega a sí mismo, y los otros cuerpos de la línea siguen siendo texto. Pasado `MAX_SUBS`, el resto se lee en línea, como antes.
+    4. **A7:** el pipe a un shell se busca una vez por línea (el último match con `finditer`), y `_segmentar` llama a `_vigente()` en cada `<<`. Todo esto queda dentro de la tercera pasada, así que las dos primeras no cambian.
+  - **Pruebas primero:** `writer_guard` pasa de 91 a 96 pruebas, más casos en tres de las de U6g.
+    - Pruebas nuevas: cada cuerpo que recibe un shell es un nivel aparte; el cuerpo literal no se expande; la tercera pasada no cambia el motivo de la base; muchos heredocs en una línea cuestan lineal; la tercera pasada consulta el plazo.
+    - RED 90/96, por la razón correcta. Las dos de A8 nacen en verde, porque su trabajo es matar mutantes.
+    - Un caso que agregué fallaba por diseño: la primera pasada ve el `git` de un cuerpo de `cat`. Lo reemplacé por uno con un apóstrofo que la ciega.
+  - **Semántica en Git Bash real**, con un git falso: los 19 casos del lote dan 0 fuera de lo esperado, incluida la aritmética de varias líneas y el pipe a un shell que se atribuye al heredoc correcto.
+  - **Mutaciones:** 38, que son las 21 de U6g adaptadas y 17 del lote. Tres necesitaron trabajo:
+    - Un mutante colgó el banco: el pipe buscado en cada `<<` vuelve cuadrático el caso de 40 000. El arnés pasó a contar el timeout como rojo.
+    - El de A5 estaba mal escrito: calculaba el `any` en cada heredoc. Se reescribió fiel al código viejo.
+    - Sobrevivían «sobre el tope se toma como texto» y «el primer pipe y no el último», y los mataron dos casos nuevos verificados en Bash.
+    - Quedan 38 de 38 en rojo y los controles en verde.
+  - **Diferencial:** 20 000 comandos, semilla 20261030, con los constructos del lote sumados al generador.
+    - **Contra `ef8a792`:**
+      - Sin la tercera pasada: idéntico en `analizar` y en `destinos`. 0 menos estrictas, 0 cambios de motivo, y la base es prefijo de `destinos`.
+      - Pasan a bloquear 2223 en Bash y 407 en PowerShell.
+      - Quedan sin explicar 795 y 17, porque el oráculo de líneas no modela A2 ni A5. Se clasificaron por constructo:
+        - Por constructo: 499 de A5, 267 de A3, 20 de A2 y 1 de A1, más 8 sin constructo del lote.
+        - 403 no parsean (`bash -n`). 296 escriben o no son git, y no se corren.
+        - En 85, el shell real corre el git de escritura. En 2 de ellas, el detector las perdía porque el git estaba dentro de `echo $( )`.
+        - 15 son falsos positivos previos: 14 por `iex 'git commit'` leído en Bash y 1 por texto que el `sh` interno no parsea.
+        - Las 17 de PowerShell son los mismos constructos dentro de un `sh -c` o un `bash -c`.
+    - **Contra `b6b2905`:**
+      - Bash: 5 menos estrictas, todas con `echo ((` sin cerrar al principio. Ninguna parsea, y en las que se pueden correr el git no corre.
+      - 5 cambian de motivo: el destino sin `<<EOF`, o el cuerpo del shell analizado después de los segmentos. 1089 más estrictas.
+      - PowerShell: 0 menos estrictas, 0 cambios de motivo y 26 más estrictas.
+    - **Semántica:**
+      - De las filas que pasan a bloquear, el git de escritura corre en 90 de 200 en Bash.
+      - De las filas con cuerpo que la nueva deja pasar, en 0 de 1533. El control positivo da sí en los dos casos de L75.
+      - El detector ahora busca `GIT-RAN` en cualquier parte de la línea.
+  - **Uso real**, sobre los transcripts locales (23 592 comandos de Bash y 2409 de PowerShell):
+    - Contra `b6b2905` no cambia ninguna fila, y quedan 0 ciegos.
+    - Contra `ef8a792`, lo mismo que en L75: los ciegos bajan de 277 a 0 y de 2 a 0, con las mismas 21 más estrictas.
+  - **Costo:** la forma `cat <<a | ` repetida 10 000 veces baja de 40,9 s a 0,31 s, y `<<a` repetido 10 000 veces, de 0,82 a 0,12 s. La latencia por comando no cambia: con cuerpo, 0,21 contra 0,22 ms.
+  - **Suites y diseño:** las 19 suites del repo pasan en verde con `-W error`, con los archivos en LF y sin BOM. En el diseño, «Cuerpos» suma la aritmética, el `<<` pegado, el nivel aparte, el costo y su «No ve» (A4 y A6).
+  - **Siguiente:** commit propio y el verificador independiente (Opus) limitado al lote, contra `b6b2905`.

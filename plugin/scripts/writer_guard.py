@@ -188,7 +188,7 @@ def _segmentar(texto, escape=None, cuerpos=None):
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
     comilla = None
-    heredocs = []
+    heredocs, aritmetica, corchetes, fin_linea, ultimo_shell = [], 0, 0, -1, -1
     n, i = len(texto), 0
 
     def cerrar_palabra():
@@ -241,24 +241,24 @@ def _segmentar(texto, escape=None, cuerpos=None):
     def saltar_heredocs(desde):
         nonlocal heredocs
         pendientes, heredocs = heredocs, []
-        if any(tuberia or _comando(seg["tokens"])[1] in SHELLS_DE_CUERPO for _, _, _, seg, tuberia in pendientes):
-            return desde
         j = desde
-        for delimitador, literal, tabs, _, _ in pendientes:
+        for delimitador, literal, tabs, seg, tuberia in pendientes:
+            a_shell = tuberia or _comando(seg["tokens"])[1] in SHELLS_DE_CUERPO
+            if a_shell and len(subs) >= MAX_SUBS:
+                return j
             inicio = j
             while j < n:
                 fin = texto.find("\n", j)
                 linea = texto[j:n if fin < 0 else fin].rstrip("\r")
-                siguiente = n if fin < 0 else fin + 1
+                fin_cuerpo, j = j, n if fin < 0 else fin + 1
                 if (linea.lstrip("\t") if tabs else linea) == delimitador:
-                    if not literal:
-                        sustituciones(inicio, j, True)
-                    j = siguiente
                     break
-                j = siguiente
             else:
-                if not literal:
-                    sustituciones(inicio, n, True)
+                fin_cuerpo = n
+            if a_shell:
+                subs.append(texto[inicio:fin_cuerpo])
+            elif not literal:
+                sustituciones(inicio, fin_cuerpo, True)
         return j
 
     while i < n:
@@ -321,16 +321,18 @@ def _segmentar(texto, escape=None, cuerpos=None):
             i = n if cierre < 0 else cierre + 3
             continue
         if cuerpos == "\\" and texto.startswith("<<", i):
+            _vigente()
             k = i + 3 if texto.startswith("<<<", i) else i + 2
-            linea = texto.rfind("\n", 0, i) + 1
-            aritmetica = texto.rfind("((", linea, i) > texto.rfind("))", linea, i)
-            apertura = HEREDOC_APERTURA.match(texto, i) if k == i + 2 and not aritmetica else None
+            apertura = HEREDOC_APERTURA.match(texto, i) if k == i + 2 and not aritmetica and not corchetes else None
             if apertura:
-                fin_linea = texto.find("\n", i)
+                if i >= fin_linea:
+                    fin_linea = texto.find("\n", i)
+                    fin_linea = n if fin_linea < 0 else fin_linea
+                    ultimo_shell = max((m.start() for m in HEREDOC_A_SHELL.finditer(texto, i, fin_linea)), default=-1)
                 crudo = apertura.group(2)
                 heredocs.append((HEREDOC_COMILLAS.sub(lambda m: next(g for g in m.groups() if g is not None), crudo),
-                                 any(x in crudo for x in "'\"\\"), apertura.group(1) == "-", actual,
-                                 bool(HEREDOC_A_SHELL.search(texto, i, n if fin_linea < 0 else fin_linea))))
+                                 any(x in crudo for x in "'\"\\"), apertura.group(1) == "-", actual, ultimo_shell >= i))
+            cerrar_palabra()
             palabra.append(texto[i:k])
             hay_palabra = True
             i = k
@@ -366,6 +368,10 @@ def _segmentar(texto, escape=None, cuerpos=None):
             continue
         if c in "\n;|()":
             cerrar_segmento()
+            if cuerpos == "\\" and c == "(" and (aritmetica or texto.startswith("((", i)):
+                aritmetica += 1
+            elif cuerpos == "\\" and c == ")" and aritmetica:
+                aritmetica -= 1
             i += 1
             if c == "\n" and heredocs:
                 i = saltar_heredocs(i)
@@ -392,6 +398,8 @@ def _segmentar(texto, escape=None, cuerpos=None):
                     i += 1
                 pendiente = "redir"
             continue
+        if cuerpos == "\\" and c in "[]" and (corchetes or (c == "[" and i and texto[i - 1] == "$")):
+            corchetes += 1 if c == "[" else -1
         palabra.append(c)
         hay_palabra = True
         i += 1
