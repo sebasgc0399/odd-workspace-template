@@ -55,7 +55,7 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
   - las comillas internas que PowerShell 5.1 rompe al pasarle un argumento a un ejecutable nativo;
   - el comando que sale de la salida de una sustitución: `$(echo "git commit")` en posición de comando corre `git commit` (L75);
   - el pipe a un shell sin heredoc (`echo 'git commit' | bash`, `@'…'@ | iex`), que quedó fuera de U6f (L74, L81).
-- **Envoltorios y bloques** (L67, L81, L82): el comando que decide es el que queda después de saltar lo que lo envuelve.
+- **Envoltorios y bloques** (L67, L81–L83): el comando que decide es el que queda después de saltar lo que lo envuelve.
   - `timeout` salta sus opciones y la duración; `-s` y `-k` llevan valor, también `--signal` y `--kill-after` sin `=`.
   - `env` y `sudo` saltan las opciones que llevan valor:
     - en `env`, `-u` y `-C` (`--unset` y `--chdir`);
@@ -63,16 +63,24 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
     - En un grupo de letras (`-nu root`), la primera que lleva valor se queda con el resto del grupo o, si es la última, con la palabra siguiente, como en `getopt`.
     - `env -S` no lleva valor acá, porque su valor es el comando: `env -S git commit -m y` bloquea.
   - **Bloques de PowerShell:** `%`, `?`, `.`, `ForEach-Object` (`foreach`), `Where-Object` (`where`), `Invoke-Command` (`icm`), `Start-Job` (`sajb`) y `Measure-Command` abren un bloque si, después de sus opciones, sigue un `{` suelto. Decide el primer comando de adentro. Sin `{`, el comando es el cmdlet: `% Remove-Item x` no escribe.
-  - **Cierre del bloque:** en los niveles de PowerShell, el primer `}` suelto cierra los argumentos, así que `{ Copy-Item a.txt <zona> }` copia en la zona y no en `}`. En Bash, `}` es un argumento. Un `}` suelto fuera de un bloque es un error de sintaxis en PowerShell, y no corre nada del script.
-  - **El `cd` en otro proceso:** detrás de `sudo`, `env` o `timeout`, o dentro de `Start-Job` y `sajb`, no mueve el cwd de lo que sigue. Los tres primeros ejecutan un programa y `cd` es un builtin, y el job corre en otro proceso. En los demás bloques sí lo mueve, como `Set-Location` en PowerShell real (verificado con `%`, `Invoke-Command` y `Measure-Command`).
-  - **El pipe a un shell** se lee por segmento, con el mismo `_comando`. El cuerpo de un heredoc va al shell si el shell es el comando de su segmento, o de uno que le sigue en la misma tubería: `| sudo bash`, `| timeout 5 bash`, `|& bash`, `| (bash)`, `|\⏎bash`. Un `||`, un `;`, un comentario o una comilla cortan la tubería.
+  - **Cierre del bloque:** en los niveles de PowerShell, el primer `}` suelto de profundidad 0 cierra los argumentos, así que `{ Copy-Item a.txt <zona> }` copia en la zona y no en `}`.
+    - Las llaves de un `@{ … }`, o de un bloque pasado como argumento, se cuentan: `Set-Content -Value @{ a = 1 } -Path <zona>` sigue viendo la ruta (L83).
+    - En Bash, `}` es un argumento.
+  - **El `cd` que no mueve el cwd:**
+    - Detrás de `sudo`, `env` o `timeout`, porque ejecutan un programa y `cd` es un builtin.
+    - Dentro de un bloque de PowerShell, como antes de U6f. En PowerShell real, `%`, `Invoke-Command` y `Measure-Command` sí lo mueven (`Start-Job` no), pero `ForEach-Object { Push-Location …; …; Pop-Location }` lo devuelve, y el guard no sigue `Pop-Location`: seguir el `cd` dejaba pasar la escritura que venía después (L83).
+  - **El pipe a un shell** se lee de dos formas, y gana la más estricta (L83):
+    - **La regex de antes** (`HEREDOC_A_SHELL`): un `| shell` literal después del `<<`, en la misma línea física. Ve los compuestos (`{ cat <<'EOF'; } | bash`) y conserva sus falsos positivos: `||`, `;`, un comentario o una comilla.
+    - **La tubería por segmento,** con el mismo `_comando`: el shell es el comando de su segmento, o de uno que le sigue en la misma tubería. Así cuentan `| sudo bash`, `| timeout 5 bash`, `|& bash`, `| (bash)` y `|\⏎bash`.
   - **No ve:**
     - la llave pegada (`%{git push}`, `{git`, `push}`), que aparece en 25 de 1 939 comandos reales, ninguno con una escritura;
     - el segundo bloque de `ForEach-Object -Begin { } -Process { }`;
     - `env -S 'git commit'`, con el comando entre comillas;
     - el cwd de `env -C` y de `sudo -D`, ni el cwd inicial de un job;
-    - un `cd` que no es lo primero del bloque de un job (`Start-Job { $a; cd x }`), que sigue moviendo el cwd;
-    - `nice cd` y `nohup cd`, que mueven el cwd como antes de U6f.
+    - un `cd` que no es lo primero del bloque (`% { $a; cd x }`), ni `nice cd` ni `nohup cd`: mueven el cwd, como antes de U6f;
+    - un compuesto entre el heredoc y un shell envuelto (`{ cat <<'EOF'; } | sudo bash`), ni el shell detrás de un compuesto o de una sustitución en el pipe (`| (cd . && bash)`, `| { cd .; bash; }`, `| $(which bash)`), que ya pasaban (L83);
+    - una opción con valor antes del `{` (`% -ThrottleLimit 5 -Parallel { }`, `Invoke-Command -ComputerName . { }`, `Start-Job -Name x { }`);
+    - las abreviaturas de las opciones largas (`timeout --sig KILL`, `sudo --us root`), ni `sudo -h host`.
 - **Cuerpos** (L70–L74): el cuerpo de un heredoc de Bash y el de un here-string de PowerShell son texto, no comandos. Por eso un apóstrofo adentro no abre una comilla que se trague lo que sigue: `cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` y `$m = @'⏎it's⏎'@⏎git commit -m y` bloquean.
   - **Cuándo corre:** los cuerpos los lee una tercera pasada, que corre si el texto tiene `<<` (no `<<<`) o un `@'` o `@"` al final de una línea. Lee los escapes como la segunda y, en cada nivel, entiende el cuerpo del shell de ese nivel.
   - **Heredoc, en los niveles de Bash:**
@@ -90,14 +98,18 @@ Los writers son agentes de la instancia (`.claude/agents/writer-<capa>.md`, D1).
     - Se analiza en un nivel aparte: si no es shell válido (`say "hi`), no ciega lo que sigue, y los otros cuerpos de la línea siguen siendo texto (L77).
     - Se analiza en su lugar, al pasar por su segmento: con el cwd que había en el heredoc, y sin que su `cd` cambie el del padre, que es otro proceso (L78).
     - Tiene su propio cupo (`MAX_SUBS`), así que no desplaza las sustituciones que vienen después (L78). Pasado ese cupo, y en el último nivel de anidamiento (`PROFUNDIDAD_MAX`), desde ese cuerpo el resto se lee en línea, como antes de U6g.
-    - El pipe a un shell cuenta para los heredocs de su misma tubería que están antes que él (L82).
+    - El pipe a un shell cuenta para los heredocs que están antes que él en la línea, o en su misma tubería (L82, L83).
   - **Costo:** lineal en la cantidad de `<<`, y el segmentador consulta el plazo en cada uno (L77).
-    - El pipe a un shell se resuelve una vez por línea, recorriendo sus segmentos de atrás hacia adelante (L82). En U6g, buscarlo una vez por línea bajó 10 000 `<<` con pipes de 41 s a 0,3 s.
+    - El pipe a un shell se busca con la regex una vez por línea física (en U6g, eso bajó 10 000 `<<` con pipes de 41 s a 0,3 s), y la tubería se resuelve una vez por línea, recorriendo los segmentos de atrás hacia adelante (L82).
+    - Previa: un `cd` relativo repetido dentro del shell del pipe (`(cat <<a | (cd x; bash)⏎git status⏎a⏎)` × 5000) tarda unos 7 s en `fa5562a` y después, cerca del plazo de 8 s (L83).
     - El comando de cada segmento se calcula una vez por línea: `x=1 ` o `sudo ` repetidos antes de miles de `<<` (L78).
   - **Solo suma bloqueos:** gana la pasada más estricta, y las dos primeras quedan como estaban, con sus falsos positivos (el cuerpo de un heredoc leído como comandos). `destinos` agrega al final lo que encuentra la tercera.
   - **No ve, previas:**
-    - Un `\$(` en un cuerpo sin comillas y la sintaxis de un shell leída en el otro dan falsos positivos en la dirección segura (L76, A6).
-    - En un heredoc sin comillas que va a un shell, el padre expande `$( )` aunque esté entre comillas simples: `bash <<EOF⏎echo '$(git push)'⏎EOF` (L78). También cuando el `| bash` es de otro heredoc de la misma tubería, que se le atribuye a este (L79, L82).
+    - Dan falsos positivos, en la dirección segura (L76, A6, L83):
+      - `HEREDOC_A_SHELL`, que toma como pipe un `|| bash` y también un `| bash` después de un `;`, de un comentario o dentro de una comilla;
+      - un `\$(` en un cuerpo sin comillas;
+      - la sintaxis de un shell leída en el otro.
+    - En un heredoc sin comillas que va a un shell, el padre expande `$( )` aunque esté entre comillas simples: `bash <<EOF⏎echo '$(git push)'⏎EOF` (L78). También cuando el `| bash` es de otro heredoc de la misma línea, que se le atribuye a este (L79).
     - Un `$( )` se analiza con el cwd final de su nivel: `cd zona; y="$(echo x > f.sql)"; cd ..` (L78).
     - `git <<EOF commit -m y` y `bash<<<'git commit -m y'` (L78).
     - Los tres casos anteriores quedaron fuera de U6f (L81).

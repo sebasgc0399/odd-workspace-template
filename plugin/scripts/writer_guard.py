@@ -47,7 +47,7 @@ ENVOLTORIOS_CON_VALOR = {
 }
 BLOQUES_PS = {"%", "?", ".", "foreach-object", "foreach", "where-object", "where", "invoke-command", "icm", "start-job", "sajb",
               "measure-command"}
-OTRO_PROCESO = {"sudo", "env", "timeout", "start-job", "sajb"}
+NO_MUEVEN_CWD = {"sudo", "env", "timeout"} | BLOQUES_PS
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "eval"}
 SHELLS_DE_CUERPO = SHELLS - {"eval"}
 ESCAPE_DE_SHELL = {"bash": "\\", "sh": "\\", "zsh": "\\", "dash": "\\", "ksh": "\\", "eval": "\\", "powershell": "`", "pwsh": "`",
@@ -59,6 +59,7 @@ COMILLAS_PS = re.compile(r"`.|'[^']*'?|\"(?:`.|[^\"`])*\"?", re.DOTALL)
 CUERPO_ALGUNO = re.compile(r"(?<!<)<<(?!<)|@['\"][ \t]*\r?\n")
 HEREDOC_APERTURA = re.compile(r"<<(-?)[ \t]*((?:[^\s;&|()<>'\"\\]|\\.|'[^']*'|\"[^\"]*\")+)")
 HEREDOC_COMILLAS = re.compile(r"'([^']*)'|\"([^\"]*)\"|\\(.)")
+HEREDOC_A_SHELL = re.compile(r"(?i)\|\s*(?:[^\s|;&]*[\\/])?(?:bash|sh|zsh|dash|ksh|pwsh|powershell|cmd)(?:\.exe)?(?![\w.-])")
 HERE_STRING_APERTURA = re.compile(r"@(['\"])[ \t]*\r?\n")
 CAMBIAR_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 ESCRIBEN_TODO = {
@@ -196,7 +197,7 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
     actual = {"tokens": [], "redirs": []}
     palabra, hay_palabra, pendiente = [], False, None
     comilla = None
-    heredocs, aritmetica, corchetes, conteo_desde, primer_heredoc, cuerpos_shell = [], 0, 0, 0, 0, 0
+    heredocs, aritmetica, corchetes, conteo_desde, primer_heredoc, fin_linea, ultimo_shell, cuerpos_shell = [], 0, 0, 0, 0, -1, -1, 0
     n, i = len(texto), 0
 
     def al_dia(hasta):
@@ -261,8 +262,8 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
             shells[id(seg)] = es_shell or despues
             despues = seg.get("tuberia", False) and (es_shell or despues)
         j = desde
-        for delimitador, literal, tabs, seg in pendientes:
-            a_shell = shells[id(seg)]
+        for delimitador, literal, tabs, seg, tuberia in pendientes:
+            a_shell = tuberia or shells.get(id(seg), False)
             if a_shell and (en_linea or cuerpos_shell >= MAX_SUBS):
                 return j
             inicio = j
@@ -348,9 +349,13 @@ def _segmentar(texto, escape=None, cuerpos=None, en_linea=False):
             if apertura:
                 if not heredocs:
                     primer_heredoc = len(segmentos)
+                if i >= fin_linea:
+                    fin_linea = texto.find("\n", i)
+                    fin_linea = n if fin_linea < 0 else fin_linea
+                    ultimo_shell = max((m.start() for m in HEREDOC_A_SHELL.finditer(texto, i, fin_linea)), default=-1)
                 crudo = apertura.group(2)
                 heredocs.append((HEREDOC_COMILLAS.sub(lambda m: next(g for g in m.groups() if g is not None), crudo),
-                                 any(x in crudo for x in "'\"\\"), apertura.group(1) == "-", actual))
+                                 any(x in crudo for x in "'\"\\"), apertura.group(1) == "-", actual, ultimo_shell >= i))
             cerrar_palabra()
             palabra.append(texto[i:k])
             hay_palabra = True
@@ -913,6 +918,15 @@ def _zona_del_comando(segmentos, cwd):
     return False
 
 
+def _hasta_el_cierre(tokens):
+    profundidad = 0
+    for k, t in enumerate(tokens):
+        if t == "}" and not profundidad:
+            return tokens[:k]
+        profundidad = max(0, profundidad + t.count("{") - t.count("}"))
+    return tokens
+
+
 def _graves_fuera_de_simples(texto):
     return COMILLAS_PS.sub(lambda m: m.group(0) if m.group(0)[0] == "'" else GRAVE_ESCAPADO.sub(r"\1", m.group(0)), texto)
 
@@ -941,7 +955,7 @@ def _analizar(texto, estado, profundidad, escape):
         i, cmd = _comando(seg["tokens"])
         rest = seg["tokens"][i + 1:]
         if escape == "`" and "}" in rest:
-            rest = rest[:rest.index("}")]
+            rest = _hasta_el_cierre(rest)
         lote = any(_nombre_comando(t) == "xargs" for t in seg["tokens"][:i])
         motivo = None
         if cmd == "git":
@@ -955,7 +969,7 @@ def _analizar(texto, estado, profundidad, escape):
                 rest = rest[1:]
             motivo = _analizar(" ".join(rest), estado, profundidad + 1, ESCAPE_DE_SHELL.get(cmd))
         elif cmd in CAMBIAR_DIR:
-            if not any(_nombre_comando(t) in OTRO_PROCESO for t in seg["tokens"][:i]):
+            if not any(_nombre_comando(t) in NO_MUEVEN_CWD for t in seg["tokens"][:i]):
                 destino = next((t for t in rest if not t.startswith("-")), None)
                 estado["cwd"] = _resolver(destino, estado["cwd"]) if destino else None
         elif cmd in ("iex", "invoke-expression"):

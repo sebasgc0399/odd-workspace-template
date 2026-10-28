@@ -41,7 +41,7 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U6d | `writer_guard`: el escape del shell antes de un blanco o de un salto de línea (`git -C a\ b commit`, `git \⏎commit`, ``git -C a` b commit``) esquiva el bloqueo del git de escritura y de las zonas de un writer; leer el escape según `tool_name`, como la Capa 2 del guard de comandos (L55–L58) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L59–L63): `ecf184f`, B1 y B2 `e6b18db` |
 | U6e | `writer_guard`: un escape antes de una comilla (`"x\\"` en Bash, `"C:\dir\"` en PowerShell) deja la comilla sin cerrar y se traga el resto del comando; previo, también en el origen (L59–L61). Alcance (L64–L66): también sin comillas alrededor (`echo \"`, `echo it\'s`, ``it`'s``) y la comilla escapada de PowerShell (``"x`""``), y el acento grave solo entre comillas dobles (falso positivo de `e6b18db`); fuera, el escape antes de un carácter común (L65) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho y verificado (L64–L69): `6947f4f`, y el cierre de L69 |
 | U6g | `writer_guard`: el cuerpo de un heredoc se lee como shell, así que un apóstrofo impar abre una comilla que se traga lo que sigue (`cat > f <<'EOF'⏎don't⏎EOF⏎git commit -m y` pasa); previo (L69). Alcance (L71): también los here-strings de PowerShell (`$m = @'⏎it's⏎'@⏎git commit -m y` pasa). Cierra también A1, la cobertura accidental que perdió U6e. Medido en el uso real: 277 de 2822 heredocs dejan ciego al guard, y 18 comandos cuelan un git de escritura (L70) | motor | inline | **2** (guard) → commit propio y verificador independiente | hecho (L75): `b6b2905`; verificador sin bloqueantes (L76); lote de corrección de A1, A2, A3, A5, A7 y A8 (L77): `3cb420f`; su verificador encontró B1–B4 (L78), corregidos en `22b551d`; la revisión limitada cerró B2–B4, y B1 tuvo una segunda corrección, `ae18725` (L79); la revisión final cerró B1: **hecho y verificado** (L80) |
-| U6f | `writer_guard`: los envoltorios con una opción que lleva valor (`env -C`, `env -u`, `sudo -u`) y `timeout`, y los bloques de PowerShell (`% { }`, `ForEach-Object { }`, `. { }`, `Invoke-Command { }`), esquivan el git de escritura y las zonas; previo, también en el origen (L67) | motor | — | **2** (guard) → commit propio y verificador independiente | hecho (L81, L82): el núcleo de L67 más A4; el pipe a un shell sin heredoc y las previas de L78 quedan en el «No ve». Falta el verificador |
+| U6f | `writer_guard`: los envoltorios con una opción que lleva valor (`env -C`, `env -u`, `sudo -u`) y `timeout`, y los bloques de PowerShell (`% { }`, `ForEach-Object { }`, `. { }`, `Invoke-Command { }`), esquivan el git de escritura y las zonas; previo, también en el origen (L67) | motor | — | **2** (guard) → commit propio y verificador independiente | hecho (L81, L82): el núcleo de L67 más A4; el pipe a un shell sin heredoc y las previas de L78 quedan en el «No ve». El verificador encontró B1 y B2, corregidos en el lote de L83; falta su revisión limitada |
 | U7 | `triaje.py`: los marcadores, los clones y la rama base pasan a la instancia o a la config. Decisiones (L43) | — | — | — | hecho en U7a–U7c (L44–L46) |
 | U7a | Señales T-SQL en `odd_ws/tsql.py`, fuera de `PUBLICO`: firma de SP y JSON, DDL/DML, objetos para consumidores, tipos de dinero | biblioteca | inline | ninguno | hecho (L44) |
 | U7b | `triaje.py`: recolección del diff, módulo `.claude/reglas/senales.py` con su validación, señales, escalado, `NO_DETECTABLE` y CLI; `consumidores` en inválida hasta U7c | motor | inline | ninguno | hecho (L45) |
@@ -410,3 +410,36 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
   - **Uso real:** 18 873 comandos de Bash y 1 940 de PowerShell, con 0 cambios. El tiempo total pasa de 18,8 s en la base a 18,2 s.
   - Las cinco suites (101, 43, 43, 28 y 19) en verde con `-W error`; LF sin BOM.
   - **Siguiente:** commit propio y verificador independiente (Opus).
+- **L83 (2026-10-28): verificador independiente de U6f (Opus) sobre `9c2e40c`: 2 bloqueantes y 7 advertencias. Lote de corrección.**
+  - **B1:** el corte en el primer `}` también cortaba el `}` que cierra un `@{ … }` o un bloque pasado como argumento. Esos cierres parsean sin errores, así que se perdía en silencio el `-Path` que viene después: `Set-Content -Value @{ a = 1 } -Path <zona>` bloqueaba en la base y pasaba en la nueva, y PowerShell real escribe. La premisa de L82 («un `}` suelto fuera de un bloque es un error de sintaxis») vale para `rm } x`, no para estos casos.
+    - **Corrección:** se corta en el primer `}` de profundidad 0, contando las llaves de cada palabra (`_hasta_el_cierre`).
+  - **B2:** la tubería por segmento perdía el heredoc que va al shell dentro de un compuesto: `{ cat <<'EOF'; } | bash`, `(cat <<'EOF'; echo x) | bash`, `done | bash` y `fi | bash`. Los veía la regex vieja, y Bash real corre el git. Además, las filas menos estrictas de `||`, `;`, el comentario y la comilla eran una salida cambiada que nadie pidió.
+    - **Corrección:** el pipe se lee con la regex de antes **o** con la tubería por segmento, y gana la más estricta. La base vuelve a ser un subconjunto, y los falsos positivos de la regex vuelven al «No ve».
+  - **Advertencias corregidas en el mismo lote**, porque las causó el cambio y eran baratas:
+    - **A1:** un heredoc en un segmento vacío (`>&<<'X'`) lanzaba `KeyError`, y el hook fallaba abierto. Ahora usa `shells.get`.
+    - **A2:** seguir el `cd` dentro de un bloque dejaba pasar `ForEach-Object { Push-Location $_.FullName; git status; Pop-Location }; Set-Content f.sql x`, y PowerShell real escribe en la zona. Ahora un `cd` dentro de un bloque de `BLOQUES_PS` no mueve el cwd, como en la base (`NO_MUEVEN_CWD`).
+  - **Advertencias previas, al «No ve»:**
+    - una opción con valor antes del `{` (A3);
+    - las abreviaturas de las opciones largas y `sudo -h host` (A4);
+    - el shell detrás de un compuesto o de una sustitución en el pipe, y un compuesto antes de `| sudo bash` (A5);
+    - el costo cuadrático previo de un `cd` relativo repetido dentro del pipe, unos 7 s (A7).
+  - **Error de método del padre, que encontró el verificador:** el lanzador de Git Bash (`Git\bin\bash.exe`) antepone `mingw64` al `PATH`, así que el git falso pasado por el entorno nunca corría.
+    - La semántica de L82 («el shell real corre git en 0») estaba ciega: le faltaba un control positivo. Además, en `export PATH`, una ruta `C:/…` se parte en el `:`.
+    - **Ahora:** `usr\bin\bash.exe`, la ruta POSIX exportada adentro del comando y un control positivo que da `True` en Bash y en PowerShell.
+    - El arnés de U6g corría con `usr\bin\bash.exe` (`cygpath -w $(command -v bash)`), con el que el `PATH` por el entorno sí funciona, así que su semántica vale.
+    - También era falso que «error de sintaxis ⇒ no corre nada» en Bash, que corre las líneas anteriores al error. Las filas de Bash sin explicar ahora se corren en Bash real.
+  - **Pruebas primero:**
+    - Se sumaron los casos de B1, de B2, de A1 y de A2.
+    - Los casos de A4 que pasaban (`||`, `;`, comentario y comilla) se cambiaron por sus variantes con `| sudo bash`: la regex no las ve, y fijan la precisión de la tubería.
+    - RED por la razón correcta: B1 (6 casos), A2 (3) y A1 (`KeyError`). B2 (4 compuestos) se vio después de arreglar A1, que cortaba la prueba.
+    - GREEN: 101/101.
+  - **Mutaciones:** 49 en el lote, más la repetición de la sobreviviente, todas muertas, con 9 controles en verde.
+    - Sobrevivió `primer_heredoc` fijado en cada heredoc: con el respaldo `.get`, ya no revienta.
+    - La mató `cat <<'A' | sudo bash; cat <<'B'`, un heredoc anterior en la línea que va a un shell envuelto.
+  - **Diferencial:** semillas 20261103 y 9, con el oráculo al día (la regex como en la base, y el `cd` de los bloques como `true`).
+    - **Contra el oráculo:** 3 y 3 filas sin explicar en Bash; corridas en Bash real con el git falso, no corre git ni aparece ningún archivo. En PowerShell, 38 y 55, todas sin parsear, así que no corre nada. El control positivo da de 2 305 a 2 892.
+    - **Contra la base:** pasan a bloquear 4 105 y 4 281 en Bash, y 3 249 y 3 411 en PowerShell. Quedan menos estrictas 9 y 14, y 45 y 66: el `cd` detrás de `sudo`/`env` (que no pueden ejecutar un builtin) y, en PowerShell, el `}` suelto.
+    - **Semántica de esas filas,** corridas en shells reales dentro del mundo del corpus (en mi scratch), cada una en su cwd y con el control positivo en `True`: Bash 23 y PowerShell 104 (9 se saltaron por tener rutas fuera del scratch). No corre git en ninguna, y el único archivo nuevo es el `n.txt` del cegador.
+  - **Uso real:** 18 922 comandos de Bash y 1 957 de PowerShell, con 0 cambios; 17,2 s en la base y 16,7 s en la nueva.
+  - Las cinco suites (101, 43, 43, 28 y 19) en verde con `-W error`.
+  - **Siguiente:** commit propio y revisión limitada del verificador a B1, B2, A1 y A2.
