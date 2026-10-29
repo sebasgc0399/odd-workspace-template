@@ -11,6 +11,7 @@ from pathlib import Path
 
 import config_loader
 import plantilla_writer
+import verificar_capa
 from odd_ws import capas as convencion
 
 MARKETPLACE = "odd-workspace-template"
@@ -39,7 +40,14 @@ AYUDA_WRITER_AJENO = ("Sacalo de .claude/agents, corré --arreglar con su id y p
                       "<!-- instancia:... --> del nuevo: así la plantilla lo mantiene.")
 AYUDA_WRITER_NOMBRE = f"Renombrá la capa en {config_loader.NOMBRE} con minúsculas, dígitos y guiones, empezando por letra o dígito."
 AYUDA_WRITER_ILEGIBLE = "Guardalo en UTF-8 y volvé a correr el doctor."
+AYUDA_AGENTES_SKILLS = ("Creá la skill en .claude/skills/<skill>/SKILL.md o sacala del skills: del agente. Una skill precargada no puede llevar "
+                        "paths: ni disable-model-invocation: true (Claude Code la saltea en silencio), y criterios y capa-<capa> llevan una "
+                        "línea suelta CENTINELA <skill> <fecha>: sin ella, el writer cree que no vino y la vuelve a leer del disco.")
+AYUDA_AGENTES_HOOKS = ("Pasá esos hooks al .claude/settings.json de la instancia y filtrá por agent_type en el script: los del frontmatter de "
+                       "un agente del proyecto solo corren si la carpeta aceptó el diálogo de confianza, y nunca en una sesión -p.")
 COPIA_DE_EMERGENCIA = ".claude/plugin"
+CON_CENTINELA = re.compile(r"criterios|capa-.+")
+SIN_INVOCACION = re.compile(r"disable-model-invocation\s*:\s*(?:true|True|TRUE)\s*(?:#.*)?$")
 
 Resultado = namedtuple("Resultado", "id estado detalle comando ayuda arreglo")
 
@@ -206,6 +214,88 @@ def chequear_writer(raiz, capa):
     return resultado(id, OK, f"{ruta} al día (plantilla v{actual})")
 
 
+def leer_texto(ruta):
+    try:
+        return ruta.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def frontmatter(texto):
+    lineas = texto.splitlines()
+    if not lineas or lineas[0].strip() != "---":
+        return []
+    fin = next((i for i in range(1, len(lineas)) if lineas[i].strip() == "---"), None)
+    return lineas[1:fin] if fin else []
+
+
+def declara(cabecera, patron):
+    return any(re.match(patron, linea) for linea in cabecera)
+
+
+def chequear_agentes(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    carpeta = raiz / convencion.AGENTES
+    agentes = [(ruta, leer_texto(ruta)) for ruta in sorted(carpeta.glob("*.md"))] if carpeta.is_dir() else []
+    return [chequear_skills_precargadas(ctx, raiz, agentes), chequear_hooks_de_agentes(agentes)]
+
+
+def problemas_de_skill(nombre, ruta):
+    texto = leer_texto(ruta)
+    if texto is None:
+        return [(FALTA, f"{nombre} no se puede leer como UTF-8")]
+    cabecera, problemas = frontmatter(texto), []
+    if declara(cabecera, r"paths\s*:"):
+        problemas.append((FALTA, f"{nombre} tiene paths: en el frontmatter y Claude Code no la precarga"))
+    if declara(cabecera, SIN_INVOCACION):
+        problemas.append((FALTA, f"{nombre} tiene disable-model-invocation: true y Claude Code no la precarga"))
+    if CON_CENTINELA.fullmatch(nombre) and not re.search(r"(?m)^CENTINELA %s(?=\s|$)" % re.escape(nombre), texto):
+        problemas.append((AVISO, f"{nombre} no tiene su línea CENTINELA {nombre}"))
+    return problemas
+
+
+def chequear_skills_precargadas(ctx, raiz, agentes):
+    id = "agentes-skills"
+    if not agentes:
+        return resultado(id, NO_APLICA, f"la instancia no tiene agentes en {convencion.AGENTES}")
+    problemas, revisadas, de_plugins = [], 0, 0
+    for ruta, texto in agentes:
+        if texto is None:
+            problemas.append((FALTA, f"{ruta.name} no se puede leer como UTF-8"))
+            continue
+        for nombre in verificar_capa.skills_del_frontmatter(texto) or []:
+            if ":" in nombre:
+                de_plugins += 1
+                continue
+            revisadas += 1
+            relativa = convencion.skill_de(nombre)
+            skill = next((base / relativa for base in (raiz, ctx.home) if (base / relativa).is_file()), None)
+            if skill is None:
+                problemas.append((FALTA, f"{ruta.name} precarga {nombre} y no existe {relativa}"))
+                continue
+            problemas += [(estado, f"{ruta.name}: {detalle}") for estado, detalle in problemas_de_skill(nombre, skill)]
+    if problemas:
+        estado = FALTA if any(estado == FALTA for estado, _ in problemas) else AVISO
+        return resultado(id, estado, "; ".join(detalle for _, detalle in problemas), None, AYUDA_AGENTES_SKILLS)
+    if not revisadas + de_plugins:
+        return resultado(id, NO_APLICA, "ningún agente precarga skills")
+    sin_verificar = f"; {de_plugins} de plugins, sin verificar" if de_plugins else ""
+    return resultado(id, OK, f"{revisadas} skills precargadas, todas en disco y sin nada que las saltee{sin_verificar}")
+
+
+def chequear_hooks_de_agentes(agentes):
+    id = "agentes-hooks"
+    if not agentes:
+        return resultado(id, NO_APLICA, f"la instancia no tiene agentes en {convencion.AGENTES}")
+    con_hooks = [ruta.name for ruta, texto in agentes if texto is not None and declara(frontmatter(texto), r"hooks\s*:")]
+    if con_hooks:
+        return resultado(id, AVISO, f"{', '.join(con_hooks)}: hooks: en el frontmatter, que Claude Code saltea en silencio sin la confianza "
+                                    "de la carpeta", None, AYUDA_AGENTES_HOOKS)
+    return resultado(id, OK, "ningún agente declara hooks: en el frontmatter")
+
+
 def chequear_python(ctx):
     ruta = ctx.which("python")
     if not ruta:
@@ -286,6 +376,7 @@ def diagnosticar(ctx):
         chequear_lista_negra(ctx, raiz),
         chequear_plugin_root(ctx),
         *chequear_writers(ctx),
+        *chequear_agentes(ctx),
         chequear_python(ctx),
         chequear_credenciales(ctx),
         claude,
