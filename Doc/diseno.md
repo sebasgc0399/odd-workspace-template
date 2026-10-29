@@ -167,6 +167,38 @@ Antes de elegir la revisión, el triaje calcula sobre el diff las señales de ri
 - **Biblioteca por extensión:** `.sql` → `odd_ws.tsql`. Un lenguaje sin biblioteca no aporta tipos de dinero, DDL ni contrato, y la salida lo declara entre lo que el triaje no detecta.
 - **Lo de la instancia**, en `.claude/reglas/senales.py` (opcional): `MARCADORES` (cada uno con `id`, `patron`, `ejemplo`, `fuente` y `ancla`, más su `descripcion`), `DINERO_NOMBRES` (palabras), `COTA` (texto) y `NO_DETECTABLE` (textos que se suman a la lista del motor). Al cargarlo, el motor valida cada marcador: `id` único, `patron` que compila, un `ejemplo` que su propio `patron` detecta y un `ancla` dentro de la línea `fuente` (`<ruta relativa a la raíz de la instancia>:<línea>`). Si un marcador no cumple, o el módulo no carga, `efecto` y `dinero` quedan inválidas y la salida dice por qué. Sin el módulo, `efecto` sale negativa con «0 marcadores en la instancia», y la salida lo declara entre lo que no detecta.
 
+### Medir revisores (`rescatar.py`, `auditar_lecturas.py`, L87)
+
+Mide a los revisores de la instancia contra la revisión real de un líder (D6). El orquestador corre los scripts, nunca el revisor. Ningún script importa a otro: se pasan archivos JSON. El fixture ciego del origen (`preparar`, que saca la verdad de terreno del disco mientras corren los revisores) quedó en espera (U11c, riesgo 1), así que hoy el fixture se arma a mano.
+
+- **Transcripciones (`odd_ws/transcripcion.py`):**
+  - Es el lector único de los `.jsonl` de Claude Code, compartido con la compuerta de cierre (`writer_stop._usos`).
+  - Saltea y cuenta la línea que no es JSON (la última, a medio escribir) o que no es un objeto, y reemplaza los bytes que no son UTF-8.
+  - Le pone nombre a lo interno de Claude Code: la herramienta de handback y las de lectura. Ese formato no es una API estable; si cambia, se arregla en un solo lugar.
+- **`rescatar.py --sesion <dir> --destino <dir> --corrida <nombre>=<agentId>…`:**
+  - Lee `subagents/agent-<id>.jsonl` y su `.meta.json`.
+  - Escribe, en LF:
+    - `<nombre>.md`: el reporte del handback o, si no hay handback, el texto final;
+    - `.prompt.txt`;
+    - `.lecturas.json`, con `{agente, meta, lecturas, no_auditadas}`: los `Read`, `Grep` y `Glob`, y la cuenta de las demás herramientas;
+    - `.comandos.json`, solo si hubo `Bash` o `PowerShell`, con el exit y la salida cortada a 2 000 caracteres.
+  - Sale con 0; con 1 si alguna corrida no tiene reporte o no existe (esa corrida no escribe nada); y con 2 ante un error. Avisa por stderr las líneas salteadas.
+- **`auditar_lecturas.py <lecturas.json | jsonl>… [--manifest] [--scratch] [--prohibida] [--permitida] [--ceguera-fisica] [--cwd] [--json] [--salida]`:**
+  - Cruza cada `Read` con las rutas prohibidas (contaminado) y el alcance de cada `Grep` o `Glob` (exposición: «pudo ver», no «vio»).
+  - Gana la regla más larga y, en empate, la prohibida.
+  - Con `--scratch` también prohíbe la carpeta oculta, hermana del scratch (`capas.CARPETA_OCULTA`).
+  - Con `--ceguera-fisica`, una exposición baja a info solo si todas sus reglas pasan por la carpeta de la verdad de terreno (`capas.CARPETA_VERDAD`). Un `Read` prohibido nunca baja.
+  - Sin `--cwd`, las búsquedas parten de la raíz de la instancia (R-1). Sin raíz y sin `--cwd`, sale con 2.
+  - Sale con 0 si está limpio, con 1 si hay exposición o contaminado, y con 2 ante un error.
+- **Diferencias con el origen:**
+  - la línea rota se tolera, donde el origen salía con 2;
+  - `.lecturas.json` guarda `no_auditadas`, que el origen perdía;
+  - la raíz sale de la instancia;
+  - los archivos van en LF.
+- **No ve:**
+  - junctions ni links, porque compara texto normalizado y no el disco;
+  - lo que leyó un `Bash` o un `PowerShell`, que solo queda contado en `no_auditadas`.
+
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
 Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.
