@@ -394,6 +394,155 @@ def test_config_rota_da_un_solo_item_de_writers_en_falta():
         assert r["writers"].estado == "FALTA" and "layers" in r["writers"].detalle and r["writers"].arreglo is None and r["writers"].ayuda, r
 
 
+def poner(base, relativa, texto):
+    ruta = base / relativa
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(texto.encode("utf-8") if isinstance(texto, str) else texto)
+    return ruta
+
+
+def skill_con(nombre, cabecera="", cuerpo=None):
+    marca = "CENTINELA %s 2026-10-29" % nombre if cuerpo is None else cuerpo
+    return "---\nname: %s\n%s---\n%s\nReglas.\n" % (nombre, cabecera, marca)
+
+
+def agente_con(nombre, cabecera):
+    return "---\nname: %s\ndescription: x\n%s---\nCuerpo.\n" % (nombre, cabecera)
+
+
+def instancia_sana(e):
+    raiz = e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")}))
+    poner(raiz, ".claude/agents/writer-sql.md", pw().generar("sql"))
+    poner(raiz, ".claude/skills/criterios/SKILL.md", "﻿" + skill_con("criterios").replace("\n", "\r\n"))
+    poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql"))
+    return raiz
+
+
+def test_fuera_de_una_instancia_no_hay_items_de_agentes():
+    with Escenario() as e:
+        ids = list(por_id(Falso(e.base)))
+        assert not [i for i in ids if i.startswith("agentes")], ids
+
+
+def test_instancia_sin_agentes_los_items_de_agentes_no_aplican():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)
+        assert r["agentes-skills"].estado == "NO APLICA" and r["agentes-hooks"].estado == "NO APLICA", r
+        poner(raiz, ".claude/agents/solo.md", agente_con("solo", "tools: Read\n"))
+        r = por_id(ctx)
+        assert r["agentes-skills"].estado == "NO APLICA" and "ningún agente" in r["agentes-skills"].detalle, r
+        assert r["agentes-hooks"].estado == "OK", r
+
+
+def test_writer_con_sus_skills_en_la_instancia_es_ok_y_sale_cero():
+    with Escenario() as e:
+        ctx = Falso(e.base, cwd=instancia_sana(e))
+        r = por_id(ctx)
+        assert r["agentes-skills"].estado == "OK" and "2" in r["agentes-skills"].detalle, r["agentes-skills"]
+        assert r["agentes-hooks"].estado == "OK", r["agentes-hooks"]
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+
+
+def test_skill_precargada_que_no_existe_es_falta_sin_arreglo():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        (raiz / ".claude/skills/capa-sql/SKILL.md").unlink()
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["agentes-skills"]
+        assert r.estado == "FALTA" and "writer-sql.md" in r.detalle and ".claude/skills/capa-sql/SKILL.md" in r.detalle, r
+        assert "criterios" not in r.detalle and r.arreglo is None and r.comando is None and r.ayuda, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 1, salida
+        codigo, salida = correr(["--arreglar", "agentes-skills"], ctx)
+        assert codigo == 2 and r.ayuda in salida, salida
+
+
+def test_skill_precargada_que_claude_code_saltea_es_falta():
+    casos = (("paths: src/**\n", "paths:"), ("paths:\n  - src/**\n", "paths:"),
+             ("disable-model-invocation: true\n", "disable-model-invocation"),
+             ("disable-model-invocation: True  # manual\n", "disable-model-invocation"))
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz)
+        for cabecera, rastro in casos:
+            for texto in (skill_con("capa-sql", cabecera), "﻿" + skill_con("capa-sql", cabecera).replace("\n", "\r\n")):
+                poner(raiz, ".claude/skills/capa-sql/SKILL.md", texto)
+                r = por_id(ctx)["agentes-skills"]
+                assert r.estado == "FALTA" and rastro in r.detalle and "capa-sql" in r.detalle and "criterios" not in r.detalle, (texto, r)
+
+
+def test_skill_que_no_lo_declara_en_el_frontmatter_se_precarga():
+    casos = ("disable-model-invocation: false\n", "metadata:\n  paths: src/**\n", "# paths: src/**\n",
+             "user-invocable: false\n")
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz)
+        for cabecera in casos:
+            poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql", cabecera) + "paths: fuera del frontmatter\n")
+            r = por_id(ctx)["agentes-skills"]
+            assert r.estado == "OK", (cabecera, r)
+
+
+def test_criterios_y_capa_sin_su_centinela_es_aviso_y_no_hace_fallar():
+    cuerpos = ("Sin marca.", "CENTINELA capa-sql-extra 2026-10-29", "La línea CENTINELA capa-sql va suelta.", "CENTINELA capa-sqlx 2026-10-29")
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz)
+        for cuerpo in cuerpos:
+            poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql", cuerpo=cuerpo))
+            r = por_id(ctx)["agentes-skills"]
+            assert r.estado == "AVISO" and "CENTINELA capa-sql" in r.detalle and "criterios" not in r.detalle and r.ayuda, (cuerpo, r)
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+        poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql", cuerpo="CENTINELA capa-sql"))
+        assert por_id(ctx)["agentes-skills"].estado == "OK"
+
+
+def test_otras_skills_no_piden_centinela_las_personales_existen_y_las_de_plugins_no_se_verifican():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner(raiz, ".claude/agents/revisor.md", agente_con("revisor", "skills: [criterios-viejos, 'personal', odd-ws:doctor]\n"))
+        poner(raiz, ".claude/skills/criterios-viejos/SKILL.md", skill_con("criterios-viejos", cuerpo="Sin marca."))
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["agentes-skills"]
+        assert r.estado == "FALTA" and "revisor.md precarga personal" in r.detalle and "viejos" not in r.detalle, r
+        assert "odd-ws:doctor" not in r.detalle, r
+        poner(ctx.home, ".claude/skills/personal/SKILL.md", skill_con("personal", cuerpo="Sin marca."))
+        r = por_id(ctx)["agentes-skills"]
+        assert r.estado == "OK" and "4" in r.detalle and "1 de plugins" in r.detalle, r
+
+
+def test_agente_o_skill_ilegible_es_falta():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner(raiz, ".claude/skills/capa-sql/SKILL.md", b"---\nname: capa-sql\n---\n\xff\xfe\n")
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["agentes-skills"]
+        assert r.estado == "FALTA" and "writer-sql.md: capa-sql no se puede leer como UTF-8" in r.detalle, r
+        poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql"))
+        poner(raiz, ".claude/agents/roto.md", b"---\nname: roto\nskills: [x]\n---\n\xff\xfe\n")
+        r = por_id(ctx)
+        assert r["agentes-skills"].estado == "FALTA" and "roto.md" in r["agentes-skills"].detalle and "UTF-8" in r["agentes-skills"].detalle, r
+        assert r["agentes-hooks"].estado == "OK", r
+
+
+def test_agente_con_hooks_en_el_frontmatter_es_aviso_sin_arreglo():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner(raiz, ".claude/agents/revisor.md", agente_con("revisor", "hooks:\n  PreToolUse: []\n"))
+        poner(raiz, ".claude/agents/otro.md", agente_con("otro", "metadata:\n  hooks: x\n# hooks: no\n") + "hooks: en el cuerpo\n")
+        poner(raiz, ".claude/agents/suelto.md", "Sin frontmatter.\nhooks: en el cuerpo\n---\nMás.\n")
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["agentes-hooks"]
+        assert r.estado == "AVISO" and "revisor.md" in r.detalle and "otro.md" not in r.detalle and "suelto.md" not in r.detalle, r
+        assert r.arreglo is None and r.comando is None and "confianza" in r.ayuda and "-p" in r.ayuda, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+
+
 def test_el_plugin_del_contexto_real_es_la_carpeta_del_plugin():
     ctx = d().Contexto()
     assert ctx.plugin == AQUI.parent and (ctx.plugin / "scripts" / "reglas.py").is_file(), ctx.plugin

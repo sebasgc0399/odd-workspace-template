@@ -9,6 +9,7 @@ EVIDENCIA = REGLAS + "/evidencia.md"
 SENALES = REGLAS + "/senales.py"
 CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
+AGENTES = ".claude/agents"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
 WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
@@ -27,11 +28,15 @@ def prueba(capa):
 
 
 def skill(capa):
-    return ".claude/skills/capa-%s/SKILL.md" % capa
+    return skill_de("capa-%s" % capa)
+
+
+def skill_de(nombre):
+    return ".claude/skills/%s/SKILL.md" % nombre
 
 
 def revisor(capa):
-    return ".claude/agents/revisor-%s.md" % capa
+    return agente("revisor-%s" % capa)
 
 
 def writer(capa):
@@ -39,7 +44,7 @@ def writer(capa):
 
 
 def agente(nombre):
-    return ".claude/agents/%s.md" % nombre
+    return "%s/%s.md" % (AGENTES, nombre)
 
 
 def partir_bloque(lineas):

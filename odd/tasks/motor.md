@@ -49,7 +49,7 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U8 | Guard de comandos. Va tarde: mayor riesgo de regresión, y `writer-guard` ya cubre a los writers. Reescrito en Python (L48); config rota (L49) | — | — | — | partida en U8a–U8b |
 | U8a | `guard_comandos.py`: segmentador, Capa 1 (force push, `reset --hard`, `clean -f`, borrados recursivos fuera del scratch), cableado `Bash\|PowerShell` con `--plazo 8` y timeout 10; falla abierta | motor | inline | **2** (guard) → commit propio | hecho (L50) |
 | U8b | Capa 2: `repos.<clave>.agent_readonly`, git de solo lectura por lista blanca, contención canónica, falla cerrada (también con la config rota, L49) | motor | inline | **2** (guard) → commit propio y verificador independiente sobre U8a y U8b | hecho y verificado (L54–L56): `0e4aaef`, B1 y B2 `f5f8273` |
-| U9 | Salud del workspace recortada (casi todo era paridad entre carpetas de ticket, que el plugin elimina), dentro de `/odd-ws:doctor` | motor | inline | ninguno | pendiente |
+| U9 | Salud del workspace recortada (casi todo era paridad entre carpetas de ticket, que el plugin elimina), dentro de `/odd-ws:doctor`. Alcance (L85): `agentes-skills` y `agentes-hooks` | motor | inline | ninguno | hecho (L85, L86) |
 | U10 | Bibliotecas C# y Java/Android: solo con un segundo consumidor real | biblioteca | — | — | en espera |
 | U11 | `eval-reviewers` (medir reviewers contra revisiones reales) | motor | inline | ninguno | pendiente |
 | U12 | Doctor de conocimiento, en 3 cortes: chequeos genéricos de documentos, motor de afirmaciones, cruce | motor parcial | inline | ninguno | pendiente |
@@ -456,3 +456,38 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
   - **Scratch:** el del verificador se borró (31,5 MB, sin enlaces), junto con un resto del banco de 0,1 MB.
   - **Cierre de U6f:** `9c2e40c` y la corrección `ea03952`.
   - **Siguiente:** U9.
+- **L85 (2026-10-29): alcance de U9.** La pregunta fue «¿Va U9 con A y B, y lo de gentle-ai afuera?» y la respuesta del usuario, literal: «Si Vamos tomare tu recomendacion».
+  - **Entran dos ítems del doctor, solo en una instancia:**
+    - **A, `agentes-skills`:** las skills que precarga cada agente de `.claude/agents/*.md` existen, llevan su `CENTINELA` y no tienen `paths:`.
+    - **B, `agentes-hooks`:** ningún agente declara `hooks:` en el frontmatter.
+  - **Quedan afuera:**
+    - la paridad de `settings.json` entre carpetas de ticket y con la plantilla;
+    - el cableado de los scripts y de los hooks de writers y de `compact`, que hace el `hooks.json` del plugin;
+    - el informe de cableado;
+    - los cachés de gentle-ai (`.atl`), que son de otra herramienta y se resuelven con el `.gitignore` de la instancia.
+  - **Verificado antes de escribir:**
+    - En la doc oficial de subagentes y de skills: una skill listada que falta se saltea y solo queda un aviso en el log de depuración; `disable-model-invocation: true` impide la precarga; y los `hooks:` del frontmatter de un agente de proyecto solo corren con la confianza de la carpeta, nunca en `-p`.
+    - Sobre `paths:` la doc no dice nada. Lo midió el spike (e) del origen, con control positivo: `skills:` saltea en silencio las skills con `paths:`.
+  - **Decisiones técnicas (contadas):**
+    - A suma `disable-model-invocation: true`, porque es la misma falla documentada: la skill listada no se precarga.
+    - **Severidad:**
+      - Es FALTA lo que no se precarga: la skill que falta, la ilegible, la que lleva `paths:` o `disable-model-invocation: true`, y el agente ilegible.
+      - Es AVISO la `CENTINELA` que falta, que solo se exige a `criterios` y `capa-<capa>`.
+      - También es AVISO `hooks:`: depende de la confianza, que el doctor no ve.
+    - Las skills de un plugin (`plugin:skill`) no se verifican, y una skill personal (`~/.claude/skills/`) cuenta como existente.
+    - Ninguno de los dos tiene arreglo automático.
+    - `capas.py` suma `AGENTES` y `skill_de(nombre)` (R-8), y `skill`, `revisor` y `agente` pasan a usarlos con la misma salida.
+  - **Ruta:** inline. Riesgo: ninguno.
+- **L86 (2026-10-29): U9 hecho.**
+  - **RED:** 9 pruebas nuevas en `doctor.tests.py`, todas en `KeyError` porque los ítems no existían. **GREEN:** 53/53.
+  - **Mutaciones:** 30, con el plugin entero copiado al scratch.
+    - Una primera tanda copió solo `plugin/scripts`: el control salió en rojo (28/53, porque `plantilla_writer` lee `plugin/plantillas`) y la tanda se descartó.
+    - En la buena, el control dio 53/53 y murieron 29.
+    - Sobrevivió `frontmatter()` sin exigir el `---` de la primera línea. La mató un agente sin frontmatter con `hooks:` y un `---` en el cuerpo.
+  - **Diferencial contra `86613c7`:** siete escenarios con el mismo `Falso` de la suite (afuera, una instancia sana, desde un ticket, con skills rotas y `hooks:`, sin `workspace.local.json`, con la config rota y otra vez afuera). Los ítems previos coinciden en estado, detalle, comando, ayuda y arreglo, y también la tabla impresa. Solo cambian el código de salida y el resumen, y los explican los dos ítems nuevos: en «rota», el código pasa de 0 a 1, que es el control positivo de que el instrumento ve las diferencias.
+  - **Uso real**, en solo lectura, sobre la instancia de prueba de L19: `agentes-skills` sale en FALTA. Su `writer-sql` precarga `criterios` y `capa-sql`, y ninguna de las dos existe, así que ese writer cerraría `blocked` al llamarlo. No se tocó: queda fuera de U9.
+  - **Las 17 suites del plugin en verde con `-W error`.** Los finales de línea, medidos con Python, quedan como en HEAD: LF, sin BOM y con salto final.
+  - **Docs:**
+    - `Doc/diseno.md` §6, con los ítems y su «No ve»;
+    - la skill `/odd-ws:doctor`, con los dos ítems y la regla de no editar agentes ni skills;
+    - el estado del README.
