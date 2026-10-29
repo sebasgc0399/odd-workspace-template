@@ -51,7 +51,10 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U8b | Capa 2: `repos.<clave>.agent_readonly`, git de solo lectura por lista blanca, contención canónica, falla cerrada (también con la config rota, L49) | motor | inline | **2** (guard) → commit propio y verificador independiente sobre U8a y U8b | hecho y verificado (L54–L56): `0e4aaef`, B1 y B2 `f5f8273` |
 | U9 | Salud del workspace recortada (casi todo era paridad entre carpetas de ticket, que el plugin elimina), dentro de `/odd-ws:doctor`. Alcance (L85): `agentes-skills` y `agentes-hooks` | motor | inline | ninguno | hecho (L85, L86) |
 | U10 | Bibliotecas C# y Java/Android: solo con un segundo consumidor real | biblioteca | — | — | en espera |
-| U11 | `eval-reviewers` (medir reviewers contra revisiones reales) | motor | inline | ninguno | pendiente |
+| U11 | `eval-reviewers` (medir reviewers contra revisiones reales). Alcance (L87) | — | — | — | partida en U11a–U11c |
+| U11a | `rescatar.py` y `auditar_lecturas.py`, con el lector tolerante de transcripciones en `odd_ws/transcripcion.py`, compartido con `writer_stop` | motor | delegado (writer Sonnet, en paralelo con U11b) | ninguno | hecho (L88) |
+| U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | en curso |
+| U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
 | U12 | Doctor de conocimiento, en 3 cortes: chequeos genéricos de documentos, motor de afirmaciones, cruce | motor parcial | inline | ninguno | pendiente |
 
 **No se portan** (se documentan como ideas cuando valga la pena): el ritual de publicación con su auditoría de ramas, el aviso de trabajo parqueado, el aviso de SP del repo del equipo, el espejo del dispositivo (retirado), transcripción y redacción de mensajes, la matriz de reglas del origen y sus fixtures sembrados.
@@ -491,3 +494,46 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - `Doc/diseno.md` §6, con los ítems y su «No ve»;
     - la skill `/odd-ws:doctor`, con los dos ítems y la regla de no editar agentes ni skills;
     - el estado del README.
+- **L87 (2026-10-29): alcance de U11.**
+  - **Las respuestas del usuario:**
+    - a «¿Arranco U11?» respondió: «Vale tomare tu recomendacion»;
+    - a «¿Va U11 con U11a y U11b, y `preparar` en espera?» respondió, literal: «Si vamos».
+  - **Mapa:** lo hizo un explorador de solo lectura (~150 mil tokens), y el chequeo puntual del padre sobre `puntuar.py:57-58` y `:125-136` lo confirma.
+    - Son cuatro scripts que no se importan entre sí: se pasan archivos JSON.
+    - Ninguna prueba usa los fixtures sembrados, y cuatro leen datos reales del origen.
+  - **U11a: `rescatar` y `auditar_lecturas`** (~630 líneas, más ~720 de pruebas).
+    - El lector de transcripciones pasa a `odd_ws/transcripcion.py`, tolerante a una línea a medio escribir, y `writer_stop._usos` lo usa.
+    - `.lecturas.json` suma `no_auditadas`. En el origen, `rescatar` no lo guardaba y `auditar-lecturas` lo perdía.
+  - **U11b: `puntuar`** (~500, más ~380).
+    - El ratificador no tiene valor por defecto.
+    - La ratificación conserva las celdas disputadas. En el origen, `excluir_disputadas` las saca del dato que después se reescribe, así que una segunda ratificación las pierde.
+    - La escala queda fija: el mapa viejo la daba por parametrizable, pero no lo es y nadie pide otra.
+  - **U11c: `preparar` queda en espera, como U10.** Mueve carpetas reales de la instancia (riesgo 1), y no hay ninguna instancia con reviewers ni con revisiones reales que medir.
+  - **Ruta:** dos writers Sonnet en paralelo, como en U4 y U5c.
+    - Aplica el disparador de writer (a): son dos unidades independientes, con superficies disjuntas y varios cientos de líneas cada una.
+    - El padre es dueño de git y escribe al final la skill y los docs.
+    - Va un commit por unidad.
+- **L88 (2026-10-29): U11a hecho.** Lo escribió un writer Sonnet (~280 mil tokens, 25 minutos).
+  - **RED:**
+    - Los módulos nuevos fallan por no existir (`ModuleNotFoundError` y `AttributeError`).
+    - Para ver el ROJO por la razón correcta, el writer copió los scripts del origen a su scratch con los nombres del port y corrió ahí la suite nueva. Dio 15/25 en `rescatar` y 19/30 en `auditar_lecturas`, y fallaron justo las pruebas de `no_auditadas`, de la línea rota, de la raíz fija y de las constantes.
+    - El comportamiento previo de `_usos` quedó fijado con una prueba que estaba en verde antes del cambio y sigue en verde.
+  - **GREEN:** `rescatar` 26/26, `auditar_lecturas` 31/31, `transcripcion` 7/7, `capas` 10/10 y `writer_stop` 44/44.
+  - **Mutaciones:** murieron las 34.
+    - En la primera pasada sobrevivieron dos. Una pidió una prueba nueva: el texto posterior al handback no pisa el reporte. La otra tenía el fragmento mal escrito y no se había aplicado.
+    - El cierre salió de dos repeticiones parciales, no de una tanda completa nueva.
+  - **Diferencial contra el origen:** 11 escenarios de `rescatar` y 16 de `auditar_lecturas`, con control positivo y sin ninguna diferencia inesperada. Las diferencias esperadas son tres:
+    - `no_auditadas`;
+    - la línea rota, que ahora se tolera (el origen salía con 2);
+    - el prefijo de los mensajes.
+  - **`_usos` de HEAD contra el nuevo:** 426 transcripts reales y 852 comparaciones, con 0 distintas (15 629 usos). El control positivo, cruzando las listas de herramientas, da 328 de 426 distintos.
+  - **Lo que hizo el padre:**
+    - los archivos que escriben `rescatar` y `auditar_lecturas --salida` pasan a LF, como el resto del plugin, con la prueba en rojo primero;
+    - sacó el docstring de `transcripcion`;
+    - borró seis scripts sueltos que el writer dejó fuera del scratch;
+    - revisó cada diff contra su superficie.
+  - **Desvíos aceptados:**
+    - la línea salteada se avisa por stderr;
+    - la prueba de integración de `auditar_lecturas` corre `rescatar` por CLI;
+    - `armar_reglas` y `auditar` exigen el `cwd`.
+  - **Costura:** las 21 suites del plugin en verde con `-W error`.

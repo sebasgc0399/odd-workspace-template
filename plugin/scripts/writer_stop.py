@@ -10,7 +10,7 @@ import subprocess
 import time
 
 import config_loader
-from odd_ws import capas as convencion
+from odd_ws import capas as convencion, transcripcion
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, id_valido, plazo_de, raiz_de_instancia
 
 HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
@@ -56,24 +56,12 @@ def _guardia():
 
 
 def _usos(transcript, herramientas):
-    if not isinstance(transcript, (str, os.PathLike)):
-        return None
-    try:
-        with open(transcript, encoding="utf-8", errors="replace") as f:
-            lineas = f.read().splitlines()
-    except OSError:
+    leidos = transcripcion.leer(transcript)
+    if leidos is None:
         return None
     entradas = []
-    for linea in lineas:
-        try:
-            registro = json.loads(linea)
-        except ValueError:
-            continue
-        mensaje = registro.get("message") if isinstance(registro, dict) else None
-        contenido = mensaje.get("content") if isinstance(mensaje, dict) else None
-        if not isinstance(contenido, list):
-            continue
-        for bloque in contenido:
+    for registro in leidos[0]:
+        for bloque in transcripcion.bloques(registro):
             if isinstance(bloque, dict) and bloque.get("type") == "tool_use" and bloque.get("name") in herramientas:
                 entrada = bloque.get("input")
                 if isinstance(entrada, dict):

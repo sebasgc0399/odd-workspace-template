@@ -226,6 +226,25 @@ def test_archivos_tocados_solo_edit_y_write_en_orden_y_sin_repetir():
         assert W.archivos_tocados(base / "bin.jsonl") == []
 
 
+def test_usos_devuelve_nombre_y_entrada_en_orden_y_none_si_no_hay_transcripcion():
+    with temporal() as base:
+        t = transcript(base, [
+            ("Read", {"file_path": "a"}), ("Edit", {"file_path": "b"}), ("Bash", {"command": "ls"}),
+            ("Write", {"file_path": "c"}), ("Edit", {"file_path": "b"}), ("Edit", "no es dict"), ("Edit", None),
+        ])
+        assert W._usos(t, ("Edit", "Write")) == [("Edit", {"file_path": "b"}), ("Write", {"file_path": "c"}), ("Edit", {"file_path": "b"})]
+        assert W._usos(str(t), ("Bash", "PowerShell")) == [("Bash", {"command": "ls"})]
+        assert W._usos(t, ()) == []
+        assert W._usos(t, ("Grep",)) == []
+        for no_ruta in (None, 5, ["x"], b"bytes"):
+            assert W._usos(no_ruta, ("Edit",)) is None, no_ruta
+        assert W._usos(base / "no-existe.jsonl", ("Edit",)) is None
+        (base / "mixto.jsonl").write_bytes(
+            b'{"message": 5}\n[1]\n{"message": {"content": "texto"}}\n{"message": {"content": [7, {"type": "tool_use", "name": "Edit", "input": {"file_path": "x\xe9"}},'
+            b' {"type": "tool_use", "name": "Edit"}, {"type": "text", "name": "Edit", "input": {"a": 1}}]}}\n{"message": {"content": [{"type": "tool_use", "name": "Edit", "input": {"cortada')
+        assert W._usos(base / "mixto.jsonl", ("Edit",)) == [("Edit", {"file_path": "x�"})]
+
+
 def test_resultado_valido_para_los_tres_estados():
     for estado in ("ok", "partial", "blocked"):
         campos, errores = W.parsear_resultado(resultado(estado))

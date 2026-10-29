@@ -13,6 +13,8 @@ AGENTES = ".claude/agents"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
 WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
+CARPETA_VERDAD = "revision"
+CARPETA_OCULTA = "oculto"
 
 
 def es_writer(nombre):

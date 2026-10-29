@@ -79,6 +79,13 @@ def test_las_rutas_son_relativas_y_con_barra():
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
+def test_carpetas_de_la_verdad_de_terreno_y_de_lo_oculto():
+    assert m().CARPETA_VERDAD == "revision"
+    assert m().CARPETA_OCULTA == "oculto"
+    for nombre in (m().CARPETA_VERDAD, m().CARPETA_OCULTA):
+        assert nombre and not any(c in nombre for c in "/\\:."), nombre
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
