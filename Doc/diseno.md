@@ -167,9 +167,9 @@ Antes de elegir la revisión, el triaje calcula sobre el diff las señales de ri
 - **Biblioteca por extensión:** `.sql` → `odd_ws.tsql`. Un lenguaje sin biblioteca no aporta tipos de dinero, DDL ni contrato, y la salida lo declara entre lo que el triaje no detecta.
 - **Lo de la instancia**, en `.claude/reglas/senales.py` (opcional): `MARCADORES` (cada uno con `id`, `patron`, `ejemplo`, `fuente` y `ancla`, más su `descripcion`), `DINERO_NOMBRES` (palabras), `COTA` (texto) y `NO_DETECTABLE` (textos que se suman a la lista del motor). Al cargarlo, el motor valida cada marcador: `id` único, `patron` que compila, un `ejemplo` que su propio `patron` detecta y un `ancla` dentro de la línea `fuente` (`<ruta relativa a la raíz de la instancia>:<línea>`). Si un marcador no cumple, o el módulo no carga, `efecto` y `dinero` quedan inválidas y la salida dice por qué. Sin el módulo, `efecto` sale negativa con «0 marcadores en la instancia», y la salida lo declara entre lo que no detecta.
 
-### Medir revisores (`rescatar.py`, `auditar_lecturas.py`, L87)
+### Medir revisores (`rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, L87)
 
-Mide a los revisores de la instancia contra la revisión real de un líder (D6). El orquestador corre los scripts, nunca el revisor. Ningún script importa a otro: se pasan archivos JSON. El fixture ciego del origen (`preparar`, que saca la verdad de terreno del disco mientras corren los revisores) quedó en espera (U11c, riesgo 1), así que hoy el fixture se arma a mano.
+Mide a los revisores de la instancia contra la revisión real de un líder (D6), con la skill `/odd-ws:eval-reviewers`, que lleva el protocolo y las reglas duras. El orquestador corre los scripts, nunca el revisor. Ningún script importa a otro: se pasan archivos JSON. El fixture ciego del origen (`preparar`, que saca la verdad de terreno del disco mientras corren los revisores) quedó en espera (U11c, riesgo 1), así que hoy el fixture se arma a mano.
 
 - **Transcripciones (`odd_ws/transcripcion.py`):**
   - Es el lector único de los `.jsonl` de Claude Code, compartido con la compuerta de cierre (`writer_stop._usos`).
@@ -190,14 +190,30 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6).
   - Con `--ceguera-fisica`, una exposición baja a info solo si todas sus reglas pasan por la carpeta de la verdad de terreno (`capas.CARPETA_VERDAD`). Un `Read` prohibido nunca baja.
   - Sin `--cwd`, las búsquedas parten de la raíz de la instancia (R-1). Sin raíz y sin `--cwd`, sale con 2.
   - Sale con 0 si está limpio, con 1 si hay exposición o contaminado, y con 2 ante un error.
+- **`puntuar.py puntajes.json`**, con tres modos:
+  - **Agregar:** `[--brazo <nombre>=<corrida>,…]…`.
+    - El puntaje de una corrida es `ok + 0,5 × parcial`, y lo contrario, `reves + elogio`.
+    - Por brazo da la media, la unión (el mejor veredicto por observación), las estables (ok en todas, con N ≥ 2), el k/N y los conflictos (una corrida acierta y otra va en contra).
+    - Con dos brazos o más, da también la tabla pareada.
+  - **Armar la ratificación:** `--plantilla-ratificacion <tabla.md|-> --clave <clave.json> [--semilla N]`. La tabla es ciega: sin nombres de corrida ni de versión, con las filas mezcladas.
+  - **Aplicarla:** `--aplicar-ratificacion <tabla.md> <clave.json> --ratificado-por <quién> [--permitir-pendientes]`.
+    - Reescribe `puntajes.json` con el sello y el detalle de los cambios.
+    - Si quedan filas pendientes, sale con 1 y no escribe nada.
+  - **La escala es fija:** `ok`, `parcial`, `reves`, `elogio`, `derivado`, `contaminado` y `-`. El campo `escala` del JSON solo se muestra.
+  - **Disputadas:** las observaciones en `disputadas` (verdad de terreno que el código refuta) salen del conteo y de la tabla, pero quedan en el archivo.
+  - **Salidas:** 0 ok, 1 filas pendientes y 2 error.
 - **Diferencias con el origen:**
   - la línea rota se tolera, donde el origen salía con 2;
   - `.lecturas.json` guarda `no_auditadas`, que el origen perdía;
   - la raíz sale de la instancia;
   - los archivos van en LF.
+  - `puntuar`:
+    - no tiene ratificador por defecto: `--ratificado-por` es obligatorio (sale con 2) y los textos no nombran a nadie;
+    - la ratificación conserva las celdas y las observaciones disputadas, que el origen perdía desde la primera.
 - **No ve:**
   - junctions ni links, porque compara texto normalizado y no el disco;
-  - lo que leyó un `Bash` o un `PowerShell`, que solo queda contado en `no_auditadas`.
+  - lo que leyó un `Bash` o un `PowerShell`, que solo queda contado en `no_auditadas`;
+  - que la clave de la ratificación sea de esos puntajes, ni que la ratificación se haya hecho a ciegas.
 
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
