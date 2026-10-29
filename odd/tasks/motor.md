@@ -51,9 +51,9 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U8b | Capa 2: `repos.<clave>.agent_readonly`, git de solo lectura por lista blanca, contención canónica, falla cerrada (también con la config rota, L49) | motor | inline | **2** (guard) → commit propio y verificador independiente sobre U8a y U8b | hecho y verificado (L54–L56): `0e4aaef`, B1 y B2 `f5f8273` |
 | U9 | Salud del workspace recortada (casi todo era paridad entre carpetas de ticket, que el plugin elimina), dentro de `/odd-ws:doctor`. Alcance (L85): `agentes-skills` y `agentes-hooks` | motor | inline | ninguno | hecho (L85, L86) |
 | U10 | Bibliotecas C# y Java/Android: solo con un segundo consumidor real | biblioteca | — | — | en espera |
-| U11 | `eval-reviewers` (medir reviewers contra revisiones reales). Alcance (L87) | — | — | — | partida en U11a–U11c |
+| U11 | `eval-reviewers` (medir reviewers contra revisiones reales). Alcance (L87) | — | — | — | partida en U11a–U11c: U11a `adcbd31` y U11b hechos; U11c en espera |
 | U11a | `rescatar.py` y `auditar_lecturas.py`, con el lector tolerante de transcripciones en `odd_ws/transcripcion.py`, compartido con `writer_stop` | motor | delegado (writer Sonnet, en paralelo con U11b) | ninguno | hecho (L88) |
-| U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | en curso |
+| U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | hecho (L89) |
 | U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
 | U12 | Doctor de conocimiento, en 3 cortes: chequeos genéricos de documentos, motor de afirmaciones, cruce | motor parcial | inline | ninguno | pendiente |
 
@@ -537,3 +537,21 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - la prueba de integración de `auditar_lecturas` corre `rescatar` por CLI;
     - `armar_reglas` y `auditar` exigen el `cwd`.
   - **Costura:** las 21 suites del plugin en verde con `-W error`.
+  - **Commit:** `adcbd31`.
+- **L89 (2026-10-29): U11b hecho, y U11 cerrado salvo U11c.** Lo escribió un writer Sonnet (~200 mil tokens, 8 minutos y medio).
+  - **El orden no fue test primero estricto.** El writer escribió el script antes que las pruebas. El ROJO lo midió corriendo la suite nueva contra el script del origen, copiado a su scratch: dio 30/39, y las 9 que fallaban lo hacían por la razón correcta (el ratificador por defecto y las disputadas). Queda dicho tal cual.
+  - **Hallazgo:** en el origen, la celda disputada se pierde desde la **primera** ratificación, no desde la segunda como suponía el mapa.
+  - **GREEN:** 39/39.
+  - **Mutaciones:** murieron las 22, con el control en verde.
+  - **Diferencial:** 14 escenarios. En 8 no hay ninguna diferencia, y las 6 restantes son las esperadas:
+    - la última línea de la plantilla, que ya no nombra a nadie;
+    - `_excluidas`, que ya no se escribe;
+    - las disputadas, que se conservan;
+    - el ratificador, que pasa a ser obligatorio.
+    - El control positivo, con peso 0,4 en lugar de 0,5, muestra que la comparación detecta diferencias.
+  - **Lo que hizo el padre:**
+    - los tres archivos que escribe `puntuar` pasan a LF, con la prueba en rojo primero (40/40);
+    - la skill `/odd-ws:eval-reviewers` se escribió genérica, con el protocolo, las reglas duras y el modo sombra. El fixture se arma a mano mientras U11c sigue en espera;
+    - la sección «Medir revisores» de `Doc/diseno.md` y el README.
+  - **Costura:** las 21 suites en verde.
+  - **Scratch de los writers:** borrado.
