@@ -670,3 +670,34 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - de los mutantes del writer que anulan la matanza del árbol, 3 (`tail -f`).
     - El código corregido no deja ninguno.
   - **Siguiente:** commit de la corrección y la revisión limitada del verificador a B1–B5.
+  - **Commit de la corrección:** `aa05ee6`.
+- **L94 (2026-10-30): revisión limitada del verificador sobre `aa05ee6`. Cerraron B2, B3, B4, B5 y A2; B1 sigue abierto, y aparece N1.**
+  - **La causa, común a los dos.** Sin shell, los filtros de `usr\bin` son programas MSYS lanzados desde Python, que es nativo. En ese caso el runtime de MSYS **reinterpreta la línea de comandos**: expande llaves, globs y `~`, quita las `\` y toma la `'` como comilla. `shlex` ya había quitado las comillas de la afirmación.
+  - **B1 sigue abierto, y como regresión de la corrección.**
+    - `sort '--{,}output=…'`, `uniq '{-,a.txt}'` y `sort '--o*'`, entre comillas, pasan el lint y escriben. De punta a punta, `a.txt` trackeado quedó modificado con el lint en «ok».
+    - `head -n 1 '~/.gitconfig'` lee el home.
+    - Con bash (`0a5985f`), esas mismas afirmaciones eran inofensivas.
+  - **N1 (nuevo, misma causa):** `grep -c '^.*\.xt$'` da 1 donde bash da 0, y `grep -c "sig'ned"` también difiere. La medición cambia en silencio, y dos de las 19 afirmaciones del origen usan `.*\.`.
+  - **El residuo de B4:** un nieto MSYS por fork/exec escapa de `taskkill /T`.
+  - **La paridad de la lista blanca dio 0**, pero ya no mide la ejecución: el mismo texto aceptado es inofensivo con bash y peligroso sin él.
+  - **Decisión del padre para la segunda y última corrección de B1, que incluye N1 por ser la misma causa.**
+    - Se descarta `MSYS=noglob`, la propuesta del verificador: deja abierta la `'` dentro de un argumento, más las otras reinterpretaciones del runtime que no se conocen.
+    - En su lugar: ejecutar con bash, pero con un **script generado** donde cada token validado va citado con `shlex.quote`. bash recibe la ruta del script, no el texto, y dentro de comillas simples no expande nada. Entre procesos MSYS, los argumentos pasan sin reinterpretarse.
+    - Así se valida y se ejecuta el mismo argv, con la semántica del origen.
+    - Para el plazo, `timeout -k` adentro (mata a los MSYS, también al nieto) y `taskkill /T /F` afuera (mata a los nativos).
+    - Suma un diferencial **de ejecución** contra el origen (`bash -c` con el texto), y pruebas de plazo con un proceso que termina solo, para no dejar procesos inmortales.
+  - **Si algo sigue abierto después de esta corrección, va como «necesita tu decisión»**, no como otra vuelta.
+- **L95 (2026-10-30): la segunda corrección de B1 y N1, hecha por el mismo writer.**
+  - **RED:** 88/98 sobre `aa05ee6`.
+    - `sort '--{,}output=…'` escribió el archivo, y `grep -c '^.*\.xt$'` dio 2 donde bash da 0.
+    - El caso del `~` entre comillas y el de la ruta con espacios pasaron en el RED: quedan como regresión, sin un RED propio.
+  - **Arreglo:** `generar_guion` (`shlex.quote` en cada token, `timeout -k 2` por tramo y `PIPESTATUS`) y `ejecutar_con_bash`, que corre el `bash` real de `usr\bin`, le pasa solo la ruta del script y lo borra siempre.
+  - **GREEN:** 101/101 en `afirmaciones` y 111/111 en `conocimiento`.
+  - **Diferencial de la lista blanca:** 215 107 comandos, con 0 que el port acepte y el origen rechace.
+  - **Diferencial de ejecución (nuevo):** 1 172 comandos aceptados.
+    - 1 112 son idénticos a `bash -c`.
+    - 58 son idénticos a bash leyendo un script, pero distintos de `bash -c`: el runtime reduce `\\` a `\` también en el origen, y el port da la semántica correcta de bash.
+    - 2 se rechazan a propósito (un `$` entre comillas dobles).
+    - Hay 0 regresiones. El control positivo, con la ejecución anterior, da 285 diferencias.
+  - **Mutaciones:** 87, con 81 muertas. Murieron todas las de citado, script, `-c`, `timeout`, `</dev/null`, PATH, `PIPESTATUS` y `shell=True`. Las 6 vivas son las equivalentes de siempre.
+  - **Procesos:** ninguno de esta tanda. Las pruebas de plazo ya no cuelgan con `tail -f`: usan `sleep 30`, un bucle acotado o un plazo de 0,001 s.

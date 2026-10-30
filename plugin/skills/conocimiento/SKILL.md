@@ -46,7 +46,7 @@ Si aparece `TIER 2 ABIERTO`, quedan afirmaciones SQL sin veredicto, y ese nivel 
 
 - Viven en el archivo de `knowledge.claims` (por defecto, `<docs>/_claims.json`), en JSON.
 - Cada afirmación declara un `comando` de solo lectura sobre un repo de la config (`repo` es su clave en `repos`) y el valor `expected`. Un invariante que cambia sale `ROJO`; un inventario que sube sale `+`.
-- El comando corre **sin shell**. Fuera de comillas no valen `{ } * ? [ ] ~` ni las redirecciones, así que un ref relativo va entre comillas: `'{ref}~1'`. Si el lint lo rechaza, lo dice con su motivo.
+- El comando se valida token por token y corre tal cual se validó. Fuera de comillas no valen `{ } * ? [ ] ~` ni las redirecciones, así que un ref relativo va entre comillas: `'{ref}~1'`. Si el lint lo rechaza, lo dice con su motivo.
 - **Un `ROJO` se resuelve leyendo el código**, no tocando el `expected`. O el doc quedó viejo, y se corrige con sus copias, o el código rompió lo que el doc afirma, y se avisa.
 - El motor no hace fetch: si avisa que el último fetch de un repo es viejo, el veredicto puede estar desactualizado. El fetch lo hace el usuario.
 
