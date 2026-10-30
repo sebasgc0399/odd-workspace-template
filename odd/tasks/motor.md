@@ -55,9 +55,9 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U11a | `rescatar.py` y `auditar_lecturas.py`, con el lector tolerante de transcripciones en `odd_ws/transcripcion.py`, compartido con `writer_stop` | motor | delegado (writer Sonnet, en paralelo con U11b) | ninguno | hecho (L88) |
 | U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | hecho (L89) |
 | U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
-| U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c |
+| U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c: U12a `534ac5f` y U12b (verificado) hechos; U12c en espera |
 | U12a | `conocimiento.py` (R-7): esqueleto, chequeos de documentos (indexados, links, anclas, cifras en headings, tope del índice, frescura por frontmatter, sin trackear) y `--cruce`; sección opcional `knowledge` en `workspace.config.json` | motor | delegado (writer Sonnet, en paralelo con U12b) | ninguno | hecho (L91) |
-| U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | hecho (L92); verificador pendiente |
+| U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | hecho y verificado (L92–L96): `0a5985f`, correcciones `aa05ee6` y `b3eb445` |
 | U12c | El juicio de las afirmaciones SQL (el agente ejecuta por MCP, el script juzga) | motor | — | — | en espera (L90) |
 
 **No se portan** (se documentan como ideas cuando valga la pena): el ritual de publicación con su auditoría de ramas, el aviso de trabajo parqueado, el aviso de SP del repo del equipo, el espejo del dispositivo (retirado), transcripción y redacción de mensajes, la matriz de reglas del origen y sus fixtures sembrados.
@@ -701,3 +701,22 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - Hay 0 regresiones. El control positivo, con la ejecución anterior, da 285 diferencias.
   - **Mutaciones:** 87, con 81 muertas. Murieron todas las de citado, script, `-c`, `timeout`, `</dev/null`, PATH, `PIPESTATUS` y `shell=True`. Las 6 vivas son las equivalentes de siempre.
   - **Procesos:** ninguno de esta tanda. Las pruebas de plazo ya no cuelgan con `tail -f`: usan `sleep 30`, un bucle acotado o un plazo de 0,001 s.
+  - **Commit:** `b3eb445`.
+- **L96 (2026-10-30): revisión final del verificador sobre `b3eb445`. B1 y N1 cerrados; U12b queda hecho y verificado.**
+  - **B1, cerrado:** cada vecina tiene su control positivo contra `aa05ee6`.
+    - Llaves, globs y `~` entre comillas simples y dobles, en `sort`, `uniq`, `head`, `grep`, `cut` y `tr`, llegan literales.
+    - Con un archivo `--output=…` en el árbol, el glob trampa ya no escribe.
+    - Una ruta del repo con espacios, `'`, `$` y `á` funciona.
+    - De punta a punta, `a.txt` trackeado queda intacto.
+    - `@archivo` es literal, pero sin control positivo: `aa05ee6` tampoco lo expandía.
+  - **N1, cerrado:** 21 casos de `grep`, `cut`, `tr` y `git grep`, con `\.`, `\\`, `.*`, comillas internas y `$`, dan lo mismo que bash leyendo un script. El control `aa05ee6` difiere en 4.
+  - **Residuo, advertencia del mecanismo y no bloqueante:** un nieto MSYS por fork/exec bajo un `git.exe` nativo sobrevive al plazo (`timeout` mata al hijo directo, y el respaldo de Python solo actúa si bash no vuelve). Para alcanzarlo hace falta un fetch perezoso, que no se puede habilitar desde un archivo de afirmaciones. Queda documentado en «No ve».
+  - **Límites aceptados:**
+    - A1: un filtro con un archivo como operando lee el disco;
+    - el detalle de un `err` de filtro nombra la ruta absoluta (`/usr/bin/grep: …`).
+  - **Cierre de U12b:** `0a5985f`, la primera corrección `aa05ee6` y la segunda `b3eb445`.
+  - **Procesos huérfanos de pruebas, sin cerrar:**
+    - 12 del verificador (`git fetch` con `ext::` y sus hijos);
+    - 3 `tail -f` de los mutantes de la primera corrección.
+    - El clasificador no deja terminarlos desde la sesión: el usuario los terminó una vez como administrador, y estos se terminan igual o al reiniciar.
+  - **Siguiente:** U12 queda cerrado salvo U12c, que sigue en espera. Pendientes de la T7: U10, U11c y U12c, todos en espera de un consumidor real. El push lo decide el usuario.

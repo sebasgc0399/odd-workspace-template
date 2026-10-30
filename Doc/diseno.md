@@ -290,6 +290,7 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - un filtro que, fuera del primer tramo, lee un archivo como operando (solo lectura);
     - `git grep -f`;
     - otros ejecutables de la config local, más allá de los medidos y cerrados: `textconv`, `smudge`, `diff.external`, los cuatro programas de firma, `core.fsmonitor` y el fetch perezoso;
+    - un nieto MSYS nacido por fork/exec bajo un `git.exe` nativo sobrevive al plazo: `timeout` mata solo al hijo directo. Desde un archivo de afirmaciones no se alcanza, porque haría falta un fetch perezoso y `GIT_NO_LAZY_FETCH` está forzado (L96);
     - una capa mal declarada en la config, que también da 2 en `--claims`.
 - **Nivel 3**, `--cruce`: propone **candidatos**, no hallazgos, y sale siempre con 0. No usa git, red ni repos.
   - Busca entidades entre backticks que aparecen en 6 docs o más.
