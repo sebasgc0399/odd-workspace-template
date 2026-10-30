@@ -55,7 +55,7 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U11a | `rescatar.py` y `auditar_lecturas.py`, con el lector tolerante de transcripciones en `odd_ws/transcripcion.py`, compartido con `writer_stop` | motor | delegado (writer Sonnet, en paralelo con U11b) | ninguno | hecho (L88) |
 | U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | hecho (L89) |
 | U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
-| U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c: U12a `534ac5f` y U12b (verificado) hechos; U12c en espera |
+| U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c: U12a `534ac5f` y U12b (verificado) hechos; U12c en espera. **T7 cerrada (L98)** |
 | U12a | `conocimiento.py` (R-7): esqueleto, chequeos de documentos (indexados, links, anclas, cifras en headings, tope del índice, frescura por frontmatter, sin trackear) y `--cruce`; sección opcional `knowledge` en `workspace.config.json` | motor | delegado (writer Sonnet, en paralelo con U12b) | ninguno | hecho (L91) |
 | U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | hecho y verificado (L92–L96): `0a5985f`, correcciones `aa05ee6` y `b3eb445` |
 | U12c | El juicio de las afirmaciones SQL (el agente ejecuta por MCP, el script juzga) | motor | — | — | en espera (L90) |
@@ -725,3 +725,9 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
   - **Lo que lleva:** el push incluye este commit, y el `pre-push` barre todo lo que se empuja.
   - **Después:** el fast-forward de `main` queda para cuando el usuario dé la T7 por cerrada, con U10, U11c y U12c en espera.
   - **Recordatorio:** al cerrar la T7, compartir la plantilla con el compañero de C# y Mongo, que es el segundo consumidor que destraba U10.
+- **L98 (2026-10-30): T7 cerrada.** La pregunta fue «¿Cierro la T7 (fast-forward de `main` y push) y arranco la exploración de `/bootstrap`?» y la respuesta del usuario, literal: «Si prosigue».
+  - **Estado de las unidades:** U0 a U12 hechas.
+    - U10 (bibliotecas C# y Java), U11c (`preparar`) y U12c (juicio SQL) quedan en espera de un consumidor real. Se reabren como unidades de una tarea nueva, no de la T7.
+  - **Entrega:** `main` avanza por fast-forward hasta este commit y se empuja. Desde ahí, quien instale el plugin desde el marketplace recibe el motor.
+  - **Siguiente:** la T8, `/bootstrap`, que genera una instancia desde cero. Hoy una instancia se arma a mano: el doctor marcó que la de prueba tiene `writer-sql` sin `criterios` ni `capa-sql`. La T8 arranca por la exploración.
+  - **Recordatorio:** compartir la plantilla con el compañero de C# y Mongo cuando exista `/bootstrap`, que es lo que le permite adoptarla.
