@@ -720,3 +720,8 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - 3 `tail -f` de los mutantes de la primera corrección.
     - El clasificador no deja terminarlos desde la sesión: el usuario los terminó una vez como administrador, y estos se terminan igual o al reiniciar.
   - **Siguiente:** U12 queda cerrado salvo U12c, que sigue en espera. Pendientes de la T7: U10, U11c y U12c, todos en espera de un consumidor real. El push lo decide el usuario.
+- **L97 (2026-10-30): push de `feat/motor` a `origin`.** La pregunta fue «¿Empujo `feat/motor` a `origin` como rama (opción 1)?» y la respuesta del usuario, literal: «Si procede».
+  - **Alcance:** solo la rama, con `git push -u origin feat/motor`. `main` no cambia, ni lo que se instala desde el marketplace.
+  - **Lo que lleva:** el push incluye este commit, y el `pre-push` barre todo lo que se empuja.
+  - **Después:** el fast-forward de `main` queda para cuando el usuario dé la T7 por cerrada, con U10, U11c y U12c en espera.
+  - **Recordatorio:** al cerrar la T7, compartir la plantilla con el compañero de C# y Mongo, que es el segundo consumidor que destraba U10.
