@@ -763,6 +763,7 @@ def test_cli_arbol_sano_sale_con_cero_y_el_informe_exacto():
         "  ok   tope del índice\n"
         "\n[Frescura]\n"
         "  ok   verificación de docs -- 0/1 docs declaran 'verificado:' (opt-in) y 1 sin 'rol:' en el frontmatter\n"
+        "  n/a  cobertura de afirmaciones -- no existe docs/_claims.json (sin afirmaciones no hay cobertura que medir)\n"
         "\n[Higiene]\n"
         "  ok   todo commiteado\n"
         "\n"
@@ -961,9 +962,550 @@ def test_el_registro_real_declara_los_grupos_y_el_modo_cruce():
     etiquetas = [e for _, cs in m().GRUPOS for e, _ in cs]
     assert etiquetas == [
         "docs indexados en el índice", "links .md", "anclas de sección", "cifras en headings", "tope del índice",
-        "verificación de docs", "todo commiteado",
+        "verificación de docs", "cobertura de afirmaciones", "todo commiteado",
     ], etiquetas
-    assert list(m().MODOS) == ["cruce"], list(m().MODOS)
+    assert list(m().MODOS) == ["claims", "cruce"], list(m().MODOS)
+    assert m().MODOS["claims"].funcion is m().modo_claims and m().MODOS["claims"].argumentos == ()
+    assert [e for e, _ in dict(m().GRUPOS)["Frescura"]] == ["verificación de docs", "cobertura de afirmaciones"]
+
+
+CONTEO = r"git ls-tree -r {ref} --name-only | grep -c '\.txt$'"
+KNOWLEDGE_CLAIMS = {"docs": "docs", "claims": "docs/afirmaciones.json", "quantities": ["tablas"]}
+
+
+def repo_medido(ruta, archivos):
+    ruta.mkdir(parents=True)
+    git_en(ruta, "init", "-q", "-b", "main")
+    escribir(ruta, archivos)
+    git_en(ruta, "add", "-A")
+    git_en(ruta, "commit", "-q", "-m", "uno")
+    git_en(ruta, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git_en(ruta, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    escribir(ruta, {"extra.txt": "x\n"})
+    git_en(ruta, "add", "-A")
+    git_en(ruta, "commit", "-q", "-m", "dos")
+
+
+def af(comando=None, expected=1, **extra):
+    datos = {"id": "a1", "tipo": "contrato", "naturaleza": "invariante", "claim": "texto", "doc": "docs/a.md",
+             "ejecutor": "repo", "repo": "principal", "expected": expected, "expected_verificado": "2026-01-01", "notas": ""}
+    if comando is not None:
+        datos["comando"] = comando
+    datos.update(extra)
+    return datos
+
+
+def archivo(*claims, **extra):
+    datos = {"version": 1, "reglas": {}, "claims": list(claims), "rechazados": [], "cobertura_triada": []}
+    datos.update(extra)
+    return datos
+
+
+class ArbolDeAfirmaciones(Arbol):
+    def __init__(self, afirmaciones=None, archivos=None, knowledge=None, repos=("principal",), local=True, contenidos=None,
+                 ruta="docs/afirmaciones.json"):
+        knowledge = KNOWLEDGE_CLAIMS if knowledge is None else knowledge
+        config = config_de(knowledge)
+        if repos:
+            config["repos"] = {clave: {} for clave in repos}
+        archivos = {"CLAUDE.md": "- [a](docs/a.md)\n", "docs/a.md": "# A\n", **(archivos or {})}
+        if afirmaciones is not None:
+            archivos[ruta] = afirmaciones if isinstance(afirmaciones, str) else json.dumps(afirmaciones)
+        super().__init__(archivos, config=config)
+        self.claves, self.local, self.contenidos = repos, local, contenidos or {}
+
+    def __enter__(self):
+        super().__enter__()
+        self.medidos = {}
+        for clave in self.claves:
+            self.medidos[clave] = self.base / ("medido-" + clave)
+            repo_medido(self.medidos[clave], self.contenidos.get(clave, {"alfa.txt": "uno\n"}))
+        if self.local:
+            self.escribir({"workspace.local.json": json.dumps({"repos": {c: {"path": str(r)} for c, r in self.medidos.items()}})})
+        return self
+
+
+def fila(marca, cid, detalle):
+    return "  %s %-32s %s" % (marca, cid, detalle)
+
+
+def claims(a, *args):
+    codigo, salida, error = correr_main(a, "--claims", *args)
+    return codigo, salida.splitlines(), error
+
+
+def test_claims_sin_archivo_de_afirmaciones_no_aplica_y_sale_con_cero():
+    with Arbol(SANO, {"docs": "docs"}) as a:
+        codigo, salida, error = correr_main(a, "--claims")
+        assert (codigo, error) == (0, ""), (codigo, error)
+        assert salida == "\n[Claims]\n  no aplica: no existe docs/_claims.json (sin afirmaciones no hay nada que verificar)\n", salida
+    with Arbol(SANO, {"docs": "docs", "claims": "datos/otro.json"}) as a:
+        codigo, salida, error = correr_main(a, "--claims")
+        assert (codigo, error) == (0, ""), (codigo, error)
+        assert "no existe datos/otro.json" in salida and "CLAIMS" not in salida, salida
+    with Arbol(SANO, None) as a:
+        codigo, salida, error = correr_main(a, "--claims")
+        assert (codigo, error) == (0, "") and salida == "\n[Claims]\n  no aplica: sin knowledge.claims ni knowledge.docs en la config\n", (codigo, salida, error)
+
+
+def test_claims_un_archivo_roto_es_fail_con_su_motivo_y_sale_con_uno():
+    casos = (("{", "no es JSON válido"), ("[]", "tiene que ser un objeto"),
+             ('{"version": 1, "claims": [], "claims": []}', "clave(s) duplicada(s): claims"))
+    for contenido, motivo in casos:
+        with ArbolDeAfirmaciones(contenido) as a:
+            antes = a.instantanea()
+            codigo, salida, error = correr_main(a, "--claims")
+            assert (codigo, error) == (1, ""), (contenido, codigo, error)
+            lineas = salida.splitlines()
+            fallas = [l for l in lineas if l.startswith("  FAIL no se pudo cargar: ")]
+            assert len(fallas) == 1 and motivo in fallas[0], (contenido, salida)
+            assert "       -> arreglar el archivo; hasta entonces el tier 2 no verifica nada." in lineas
+            assert not any(l.startswith("CLAIMS") or "ejecución" in l for l in lineas), salida
+            assert a.instantanea() == antes
+
+
+def test_claims_la_config_rota_sale_con_dos_y_dice_cual():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO)), local=False) as a:
+        codigo, salida, error = correr_main(a, "--claims")
+        assert codigo == 2 and salida == "", (codigo, salida)
+        assert error == "conocimiento: config rota (falta la ruta del repo 'principal' en workspace.local.json)\n", error
+    with ArbolDeAfirmaciones(archivo(af(CONTEO)), local=False) as a:
+        a.escribir({"workspace.local.json": json.dumps({"repos": {"principal": {"path": str(a.base / "no-existe")}}})})
+        codigo, salida, error = correr_main(a, "--claims")
+        assert codigo == 2 and "la ruta del repo 'principal' no existe" in error, (codigo, error)
+
+
+def test_claims_el_archivo_roto_se_dice_antes_que_la_config():
+    with ArbolDeAfirmaciones("{", local=False) as a:
+        codigo, salida, error = correr_main(a, "--claims")
+        assert codigo == 1 and error == "", (codigo, error)
+
+
+def test_claims_el_lint_conoce_las_claves_de_repos_y_lo_bloqueado_no_se_ejecuta():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, id="bueno"), af("touch escrito", id="malo"), af(CONTEO, id="sin-repo", repo="otro"))) as a:
+        antes = a.instantanea()
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert "\n".join(lineas).count("[Claims - lint del archivo]") == 1
+        assert any(l.startswith("  FAIL sin-repo: el repo 'otro' no es una clave de repos de la config") for l in lineas), lineas
+        assert "       -> claves declaradas: principal" in lineas
+        assert any(l.startswith("  FAIL malo: comando no ejecutable (comando no permitido: touch)") for l in lineas), lineas
+        assert fila("err ", "malo", "no se ejecuta: FAIL del lint (comando no ejecutable (comando no permitido: touch))") in lineas, lineas
+        assert any(l.startswith("  err  sin-repo") and "no se ejecuta: FAIL del lint (el repo 'otro' no es una clave" in l for l in lineas)
+        assert fila("ok  ", "bueno", "1") in lineas, lineas
+        assert not (a.medidos["principal"] / "escrito").exists()
+        assert a.instantanea() == antes
+
+
+def test_claims_sin_repos_declarados_toda_afirmacion_de_repo_es_fail():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO)), repos=()) as a:
+        codigo, lineas, error = claims(a)
+        assert codigo == 1 and any("el repo 'principal' no es una clave de repos" in l for l in lineas), lineas
+        assert "       -> claves declaradas: (ninguna)" in lineas
+
+
+def test_claims_cada_veredicto_tiene_su_marca_su_linea_y_su_cuenta():
+    datos = archivo(
+        af(CONTEO, 1, id="a-ok"),
+        af(CONTEO, 0, id="b-crecio", naturaleza="inventario"),
+        af(CONTEO, 5, id="c-rojo"),
+        af("git ls-tree -r {ref} --name-only | grep nada", 0, id="d-err"),
+        af(CONTEO, 3, id="e-baja", naturaleza="inventario"),
+    )
+    with ArbolDeAfirmaciones(datos) as a:
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert fila("ok  ", "a-ok", "1") in lineas, lineas
+        i = lineas.index(fila("+   ", "b-crecio", "+1 (linea base 0 -> 1)"))
+        assert lineas[i + 1] == "       -> inventario que creció: mover la línea base (expected + expected_verificado). No es un hallazgo."
+        assert fila("ROJO", "c-rojo", "esperado ['5'], obtenido ['1']") in lineas, lineas
+        assert fila("err ", "d-err", "sin salida: git ls-tree -r origin/HEAD --name-only | grep nada") in lineas, lineas
+        assert fila("ROJO", "e-baja", "BAJO -2 (linea base 3 -> 1)") in lineas, lineas
+        assert "CLAIMS: 1 verde(s), 1 crecido(s), 2 ROJO(s), 1 error(es) de ejecución, 0 SQL sin veredicto." in lineas, lineas
+        assert not any(l.startswith("TIER 2 ABIERTO") for l in lineas)
+        assert "Los crecidos NO son hallazgos: son inventarios haciendo lo que hacen." in lineas
+        assert "Este conteo NO se mezcla con los hallazgos del nivel 1 ni con los candidatos de --cruce: son veredictos, no sugerencias." in lineas
+
+
+def test_claims_todo_verde_sale_con_cero_y_el_lint_dice_cuantas():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 1, id="a"), af(CONTEO, 1, id="b"))) as a:
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (0, ""), (codigo, lineas)
+        assert "[Claims - lint del archivo]" in lineas and "  ok   las 2 afirmaciones son ejecutables y bien formadas" in lineas, lineas
+        assert "[Claims - ejecución 'repo']" in lineas
+        assert "CLAIMS: 2 verde(s), 0 crecido(s), 0 ROJO(s), 0 error(es) de ejecución, 0 SQL sin veredicto." in lineas
+
+
+def test_claims_el_codigo_de_salida_sigue_a_rojo_err_y_fail_del_lint_y_no_a_lo_que_crecio():
+    casos = [
+        (archivo(af(CONTEO, 0, naturaleza="inventario")), 0),
+        (archivo(af(CONTEO, 2)), 1),
+        (archivo(af("git ls-tree -r {ref} --name-only | grep nada", 0)), 1),
+        (archivo(af(CONTEO, 1), version=2), 1),
+        (archivo(af(CONTEO, 1), claim_de_mas=[]), 0),
+    ]
+    for datos, esperado in casos:
+        with ArbolDeAfirmaciones(datos) as a:
+            codigo, lineas, error = claims(a)
+            assert (codigo, error) == (esperado, ""), (datos, codigo, lineas)
+
+
+def test_claims_un_warn_del_lint_se_muestra_y_no_rompe_el_codigo():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 1, tipo="volumen"))) as a:
+        codigo, lineas, error = claims(a)
+        assert codigo == 0, (codigo, lineas)
+        assert any(l.startswith("  warn a1: tipo 'volumen' no es estructura|contrato") for l in lineas), lineas
+        assert "       -> los volúmenes de datos vivos se rechazan" in lineas
+
+
+def test_claims_las_afirmaciones_sql_salen_sin_juicio_y_no_cuentan_en_el_codigo():
+    sql = {"id": "s%d", "tipo": "contrato", "naturaleza": "invariante", "claim": "t", "doc": "docs/a.md", "ejecutor": "sql",
+           "query": "SELECT 1 AS n", "expected": 1}
+    datos = archivo(af(CONTEO, 1, id="r1"), {**sql, "id": "s1"}, {**sql, "id": "s2"})
+    with ArbolDeAfirmaciones(datos) as a:
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (0, ""), (codigo, lineas)
+        assert "[Claims - 'sql' sin juicio (U12c en espera)]" in lineas, lineas
+        assert fila("~   ", "s1", "sin juicio (U12c en espera)") in lineas, lineas
+        assert fila("~   ", "s2", "sin juicio (U12c en espera)") in lineas
+        assert "CLAIMS: 1 verde(s), 0 crecido(s), 0 ROJO(s), 0 error(es) de ejecución, 2 SQL sin veredicto." in lineas, lineas
+        assert "TIER 2 ABIERTO: 2 de 2 afirmación(es) SQL sin veredicto" in lineas, lineas
+        j = lineas.index("TIER 2 ABIERTO: 2 de 2 afirmación(es) SQL sin veredicto")
+        assert lineas[j + 1].startswith("  El código de salida no las cuenta"), lineas[j + 1]
+        assert not any("r1" in l and "sin juicio" in l for l in lineas)
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 1))) as a:
+        codigo, lineas, error = claims(a)
+        assert not any(l.startswith("TIER 2 ABIERTO") or "sin juicio" in l for l in lineas), lineas
+
+
+def test_claims_un_claims_que_no_es_lista_es_fail_y_no_rompe_la_corrida():
+    for valor in ({"a1": {}}, "x", None):
+        with ArbolDeAfirmaciones({"version": 1, "claims": valor}) as a:
+            codigo, lineas, error = claims(a)
+            assert (codigo, error) == (1, ""), (valor, codigo, error)
+            assert "  FAIL claims: tiene que ser una lista de afirmaciones" in lineas, lineas
+            assert "CLAIMS: 0 verde(s), 0 crecido(s), 0 ROJO(s), 0 error(es) de ejecución, 0 SQL sin veredicto." in lineas
+
+
+def test_claims_una_afirmacion_sin_id_sale_como_sin_id_y_bloqueada():
+    sin_id = af(CONTEO)
+    del sin_id["id"]
+    sql = {"tipo": "contrato", "naturaleza": "invariante", "claim": "t", "doc": "d.md", "ejecutor": "sql", "query": "SELECT 1", "expected": 1}
+    with ArbolDeAfirmaciones(archivo(sin_id, sql, "suelta")) as a:
+        codigo, lineas, error = claims(a)
+        assert codigo == 1, lineas
+        assert fila("err ", "<sin id>", "no se ejecuta: FAIL del lint (sin id (una cadena no vacía))") in lineas, lineas
+        assert fila("~   ", "<sin id>", "sin juicio (U12c en espera)") in lineas, lineas
+        assert "  FAIL afirmación 2: no es un objeto" in lineas
+
+
+def test_claims_una_afirmacion_sql_con_fail_del_lint_rompe_el_codigo_por_el_fail():
+    sql = {"id": "s1", "tipo": "contrato", "naturaleza": "otra", "claim": "t", "doc": "d.md", "ejecutor": "sql", "query": "SELECT 1", "expected": 1}
+    with ArbolDeAfirmaciones(archivo(sql)) as a:
+        codigo, lineas, error = claims(a)
+        assert codigo == 1 and any(l.startswith("  FAIL s1: naturaleza 'otra'") for l in lineas), lineas
+        assert "TIER 2 ABIERTO: 1 de 1 afirmación(es) SQL sin veredicto" in lineas
+
+
+def test_claims_cada_repo_se_mide_en_su_ruta_de_la_config():
+    datos = archivo(af(CONTEO, 1, id="en-uno", repo="uno"), af(CONTEO, 3, id="en-dos", repo="dos"),
+                    af(CONTEO, 3, id="cruzada", repo="uno"))
+    contenidos = {"uno": {"a.txt": "1\n"}, "dos": {"a.txt": "1\n", "b.txt": "1\n", "c.txt": "1\n"}}
+    with ArbolDeAfirmaciones(datos, repos=("uno", "dos"), contenidos=contenidos) as a:
+        codigo, lineas, error = claims(a)
+        assert fila("ok  ", "en-uno", "1") in lineas, lineas
+        assert fila("ok  ", "en-dos", "3") in lineas, lineas
+        assert fila("ROJO", "cruzada", "esperado ['3'], obtenido ['1']") in lineas, lineas
+        assert codigo == 1
+
+
+def test_claims_el_fetch_solo_mira_los_repos_de_las_afirmaciones_de_repo():
+    sql = {"id": "s1", "tipo": "contrato", "naturaleza": "invariante", "claim": "t", "doc": "d.md", "ejecutor": "sql",
+           "query": "SELECT 1", "expected": 1, "repo": "principal"}
+    with ArbolDeAfirmaciones(archivo(sql)) as a:
+        codigo, lineas, error = claims(a)
+        i = lineas.index("[Claims - último fetch por repo (solo lectura: el motor no hace fetch)]")
+        assert not any("principal" in l for l in lineas[i:]), lineas
+
+
+def test_claims_el_fetch_se_avisa_una_vez_por_repo_usado():
+    datos = archivo(af(CONTEO, 1, id="a", repo="uno"), af(CONTEO, 1, id="b", repo="uno"))
+    with ArbolDeAfirmaciones(datos, repos=("uno", "libre")) as a:
+        codigo, lineas, error = claims(a)
+        i = lineas.index("[Claims - último fetch por repo (solo lectura: el motor no hace fetch)]")
+        bloque = []
+        for l in lineas[i + 1:]:
+            if l.startswith("["):
+                break
+            bloque.append(l)
+        bloque = [l for l in bloque if l]
+        assert len(bloque) == 2, bloque
+        assert bloque[0].startswith("  warn uno: sin FETCH_HEAD"), bloque
+        assert bloque[1].startswith("       -> git -C ") and bloque[1].endswith(" fetch (el motor no lo hace: solo lee)"), bloque
+        assert not any("libre" in l for l in lineas), "un repo sin afirmaciones no se mide"
+        fetch_head = Path(git_en(a.medidos["uno"], "rev-parse", "--git-path", "FETCH_HEAD"))
+        fetch_head = fetch_head if fetch_head.is_absolute() else a.medidos["uno"] / fetch_head
+        fetch_head.write_text("x\n", encoding="utf-8")
+        codigo, lineas, error = claims(a)
+        assert "  ok   uno: último fetch hace 0 día(s)" in lineas, lineas
+        viejo = os.stat(fetch_head).st_mtime - 40 * 86400
+        os.utime(fetch_head, (viejo, viejo))
+        codigo, lineas, error = claims(a)
+        assert any(l.startswith("  warn uno: último fetch hace 40 días (> 7)") for l in lineas), lineas
+        assert codigo == 0, "un fetch viejo es un aviso, no rompe el código"
+
+
+def test_claims_corre_sobre_repos_temporales_y_no_escribe_nada_en_ninguna_parte():
+    datos = archivo(af(CONTEO, 1, id="a"), af("git ls-tree -r {ref} | wc -l > escrito", 1, id="b"))
+    with ArbolDeAfirmaciones(datos) as a:
+        antes = a.instantanea()
+        codigo, lineas, error = claims(a)
+        assert codigo == 1
+        assert a.instantanea() == antes, "el modo claims no debe escribir nada"
+
+
+def test_claims_no_admite_los_argumentos_del_juicio_sql_ni_mezclarse_con_cruce():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO))) as a:
+        for extra in (["--worklist-json"], ["--resultados", "x.json"], ["--cruce"]):
+            codigo, salida, error = a.cli("--claims", *extra)
+            assert codigo == 2 and salida == "" and error != "", (extra, codigo, salida, error)
+
+
+def test_claims_por_la_cli_sale_con_el_codigo_y_en_utf8():
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 1))) as a:
+        codigo, salida, error = a.cli("--claims")
+        assert (codigo, error) == (0, ""), (codigo, error)
+        assert "ejecución 'repo'" in salida and "CLAIMS: 1 verde(s)" in salida
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 9))) as a:
+        codigo, salida, error = a.cli("--claims")
+        assert codigo == 1 and "ROJO" in salida
+
+
+def test_claims_el_informe_normal_no_ejecuta_las_afirmaciones():
+    with ArbolDeAfirmaciones(archivo(af("touch escrito", 1))) as a:
+        codigo, salida, error = correr_main(a)
+        assert "CLAIMS" not in salida and "ejecución" not in salida
+
+
+def _cobertura(a):
+    return m().chequear_cobertura(a.ctx())
+
+
+def _con_cobertura(docs, afirmaciones=None, triada=(), claims=(), knowledge=None, extra=None):
+    datos = afirmaciones if afirmaciones is not None else archivo(*claims, cobertura_triada=list(triada))
+    ubicados = {(k if "/" in k or k == "CLAUDE.md" else "docs/" + k): v for k, v in docs.items()}
+    return ArbolDeAfirmaciones(datos, {**ubicados, **(extra or {})}, knowledge=knowledge, repos=())
+
+
+DOC2 = "Hay 3 tablas y 2 tablas.\n"
+DOC1 = "Hay 4 tablas.\n"
+TRIADA = {"doc": "x.md", "cifras": ["3 tablas"], "motivo": "foto fechada", "fecha": "2026-09-01"}
+
+
+def test_cobertura_no_aplica_sin_docs_sin_vocabulario_o_sin_archivo_y_nunca_es_fail():
+    with Arbol(SANO, None) as a:
+        assert pares(_cobertura(a)) == [("n/a", "sin knowledge.docs en la config")]
+    with Arbol(SANO, {"docs": "docs", "claims": "docs/afirmaciones.json"}) as a:
+        assert pares(_cobertura(a)) == [("n/a", "sin knowledge.quantities en la config")]
+    with Arbol(SANO, {"docs": "docs", "quantities": ["tablas"]}) as a:
+        assert pares(_cobertura(a)) == [("n/a", "no existe docs/_claims.json (sin afirmaciones no hay cobertura que medir)")]
+    with Arbol(SANO, {"docs": "docs", "claims": "datos/x.json", "quantities": ["tablas"]}) as a:
+        assert pares(_cobertura(a)) == [("n/a", "no existe datos/x.json (sin afirmaciones no hay cobertura que medir)")]
+    with Arbol({"CLAUDE.md": "x\n"}, {"docs": "docs", "quantities": ["tablas"]}) as a:
+        sev = [h.sev for h in _cobertura(a)]
+        assert sev == ["n/a"], sev
+    with _con_cobertura({"x.md": DOC1}, knowledge={"docs": "docs", "claims": "docs/afirmaciones.json", "quantities": ["tablas"]}) as a:
+        assert all(h.sev != "FAIL" for h in _cobertura(a))
+
+
+def test_cobertura_un_archivo_que_no_se_lee_es_warn_con_su_motivo():
+    for contenido in ("{", "[]", '{"claims": [], "claims": []}'):
+        with _con_cobertura({"x.md": DOC1}, afirmaciones=contenido) as a:
+            h = _cobertura(a)
+            assert len(h) == 1 and h[0].sev == "warn", pares(h)
+            assert h[0].texto.startswith("no se pudo leer docs/afirmaciones.json (") and h[0].texto.endswith(")"), h[0].texto
+            assert h[0].arreglo == "el tier 2 tampoco va a correr: arreglarlo primero"
+
+
+def test_cobertura_un_doc_con_cifras_y_sin_afirmacion_es_worklist_y_sin_cifras_no():
+    with _con_cobertura({"x.md": DOC2, "y.md": "sin numeros\n", "README.md": DOC2}) as a:
+        h = _cobertura(a)
+        assert pares(h) == [
+            ("worklist", "x.md: 2 afirmación(es) numérica(s), CERO afirmaciones"),
+            ("info", "1/4 docs sin afirmación afirman cifras sin triar (0 con afirmación); los 1 de arriba sin triaje son el orden de backfill sugerido"),
+        ], pares(h)
+        assert h[0].arreglo == "candidato a backfill: o escribirle una afirmación, o bajar la cifra a prosa sin número si no sostiene nada"
+
+
+def test_cobertura_el_indice_cuenta_como_candidato_y_el_readme_no():
+    with _con_cobertura({"CLAUDE.md": "- [a](docs/a.md) 5 tablas\n", "docs/README.md": DOC2}) as a:
+        assert pares(_cobertura(a))[0] == ("worklist", "CLAUDE.md: 1 afirmación(es) numérica(s), CERO afirmaciones")
+        assert [t for _, t in pares(_cobertura(a)) if "README" in t] == []
+
+
+def test_cobertura_el_ranking_va_por_cifras_distintas_y_luego_por_nombre_con_tope_de_cinco():
+    docs = {"docs/g.md": "1 tablas, 2 tablas, 3 tablas\n", "docs/f.md": "1 tablas\n", "docs/e.md": "1 tablas\n",
+            "docs/d.md": "1 tablas\n", "docs/c.md": "1 tablas\n", "docs/b.md": "1 tablas\n", "docs/a.md": "1 tablas\n"}
+    with _con_cobertura(docs) as a:
+        h = pares(_cobertura(a))
+        nombres = [t.split(":")[0] for s, t in h if s == "worklist"]
+        assert nombres == ["g.md", "a.md", "b.md", "c.md", "d.md"], h
+        assert h[-1] == ("info", "7/8 docs sin afirmación afirman cifras sin triar (0 con afirmación); los 5 de arriba sin triaje son el orden de backfill sugerido"), h[-1]
+
+
+def test_cobertura_una_cifra_repetida_es_una_sola_en_el_ranking_pero_cuenta_por_aparicion():
+    with _con_cobertura({"x.md": "3 tablas, 3 tablas, 3 tablas, 3 tablas, 3 tablas\n"}) as a:
+        assert pares(_cobertura(a))[0] == ("worklist", "x.md: 1 afirmación(es) numérica(s), CERO afirmaciones")
+
+
+def test_cobertura_el_vocabulario_es_el_de_la_config_sin_mayusculas_ni_saltos_ni_mas_de_cuatro_digitos():
+    docs = {"a-ajeno.md": "7 tipos y 8 valores\n", "b-mayus.md": "7 TABLAS\n", "c-salto.md": "(2\ntablas)\n",
+            "d-mas.md": "9+ tablas\n", "e-largo.md": "12345 tablas\n", "f-pegado.md": "7tablas\n"}
+    with _con_cobertura(docs) as a:
+        h = pares(_cobertura(a))
+        nombres = sorted(t.split(":")[0] for s, t in h if s == "worklist")
+        assert nombres == ["b-mayus.md", "c-salto.md", "d-mas.md", "e-largo.md"], h
+    with _con_cobertura({"x.md": "7 tipos\n"}, knowledge={"docs": "docs", "claims": "docs/afirmaciones.json", "quantities": ["tipos", "valores"]}) as a:
+        assert pares(_cobertura(a))[0][1].startswith("x.md: 1 afirmación(es)")
+
+
+def test_cobertura_un_doc_con_afirmacion_sale_del_ranking_sea_cual_sea_la_forma_del_campo_doc():
+    for campo in ("docs/x.md", "x.md", "otra/carpeta\\x.md", ["z.md", "docs/x.md"], ["x.md"]):
+        with _con_cobertura({"x.md": DOC2}, claims=[af(CONTEO, doc=campo)]) as a:
+            assert pares(_cobertura(a)) == [("info", "todos los docs que afirman cifras tienen afirmación o triaje registrado")], (campo, pares(_cobertura(a)))
+    for campo in ("y.md", ["y.md"], None, "", [], 5):
+        with _con_cobertura({"x.md": DOC2}, claims=[af(CONTEO, doc=campo)]) as a:
+            assert pares(_cobertura(a))[0][0] == "worklist", (campo, pares(_cobertura(a)))
+    with _con_cobertura({"x.md": DOC2}, claims=["suelto", af(CONTEO, doc="x.md")]) as a:
+        assert pares(_cobertura(a))[0][0] == "info"
+
+
+def test_cobertura_el_resumen_cuenta_los_docs_con_afirmacion():
+    with _con_cobertura({"x.md": DOC1, "y.md": DOC2, "z.md": DOC1}, claims=[af(CONTEO, doc="x.md"), af(CONTEO, id="a2", doc="z.md")]) as a:
+        h = pares(_cobertura(a))
+        assert h == [
+            ("worklist", "y.md: 2 afirmación(es) numérica(s), CERO afirmaciones"),
+            ("info", "1/5 docs sin afirmación afirman cifras sin triar (2 con afirmación); los 1 de arriba sin triaje son el orden de backfill sugerido"),
+        ], h
+
+
+def test_cobertura_la_triada_calla_al_doc_y_lo_dice_en_una_linea_info():
+    with _con_cobertura({"x.md": "Hay 3 tablas.\n"}, triada=[TRIADA]) as a:
+        assert pares(_cobertura(a)) == [
+            ("info", "todos los docs que afirman cifras tienen afirmación o triaje registrado; "
+                     "1 doc(s) con cifras triadas en docs/afirmaciones.json (cobertura_triada), callados salvo cifra nueva: x.md"),
+        ], pares(_cobertura(a))
+
+
+def test_cobertura_la_triada_resta_por_aparicion_y_la_cifra_nueva_es_warn_y_sale_primera():
+    docs = {"x.md": "3 tablas y otra vez 3 tablas, y 8 tablas.\n", "y.md": "1 tablas\n", "z.md": "1 tablas\n"}
+    triada = {**TRIADA, "cifras": ["3 tablas"]}
+    with _con_cobertura(docs, triada=[triada]) as a:
+        h = _cobertura(a)
+        assert pares(h) == [
+            ("warn", "x.md: 2 afirmación(es) numérica(s) que el triaje del 2026-09-01 no cubre ('3 tablas', '8 tablas'), CERO afirmaciones"),
+            ("worklist", "y.md: 1 afirmación(es) numérica(s), CERO afirmaciones"),
+            ("worklist", "z.md: 1 afirmación(es) numérica(s), CERO afirmaciones"),
+            ("info", "3/5 docs sin afirmación afirman cifras sin triar (0 con afirmación); los 2 de arriba sin triaje son el orden de backfill sugerido"),
+            ("info", "1 doc(s) con cifras triadas en docs/afirmaciones.json (cobertura_triada), callados salvo cifra nueva: x.md"),
+        ], pares(h)
+        assert h[0].arreglo == "cifra nueva en un doc triado: o escribirle una afirmación, o bajarla a prosa sin número, o sumarla a su entrada de cobertura_triada con el motivo"
+    triada2 = {**TRIADA, "cifras": ["3 tablas", "3 tablas"]}
+    with _con_cobertura({"x.md": "3 tablas, 3 tablas, 3 tablas\n"}, triada=[triada2]) as a:
+        assert pares(_cobertura(a))[0] == ("warn", "x.md: 1 afirmación(es) numérica(s) que el triaje del 2026-09-01 no cubre ('3 tablas'), CERO afirmaciones")
+
+
+def test_cobertura_la_triada_normaliza_los_espacios_de_sus_cifras():
+    with _con_cobertura({"x.md": "3\ntablas\n"}, triada=[{**TRIADA, "cifras": ["3   tablas"]}]) as a:
+        assert pares(_cobertura(a))[0][0] == "info"
+
+
+def test_cobertura_una_cifra_triada_que_el_doc_ya_no_afirma_es_warn_del_registro():
+    with _con_cobertura({"x.md": "Hay 3 tablas.\n"}, triada=[{**TRIADA, "cifras": ["3 tablas", "9 tablas", "9 tablas"]}]) as a:
+        h = _cobertura(a)
+        assert pares(h) == [
+            ("warn", "cobertura_triada de x.md lista '9 tablas' y el doc ya no la afirma (sobra 2 en la lista)"),
+            ("info", "todos los docs que afirman cifras tienen afirmación o triaje registrado; "
+                     "1 doc(s) con cifras triadas en docs/afirmaciones.json (cobertura_triada), callados salvo cifra nueva: x.md"),
+        ], pares(h)
+        assert h[0].arreglo == "sacarla de la lista: una cifra triada que ya no está callaría a la próxima frase que la repita"
+
+
+def test_cobertura_una_entrada_incompleta_no_calla_nada_y_lo_dice():
+    for faltante in ("doc", "cifras", "motivo", "fecha"):
+        entrada = {k: v for k, v in TRIADA.items() if k != faltante}
+        with _con_cobertura({"x.md": DOC1}, triada=[entrada]) as a:
+            h = pares(_cobertura(a))
+            nombre = "x.md" if faltante != "doc" else "sin doc"
+            assert ("warn", "cobertura_triada: la entrada 1 (%s) no trae %s -- no calla nada" % (nombre, faltante)) in h, (faltante, h)
+            if faltante != "doc":
+                assert h[0] == ("worklist", "x.md: 1 afirmación(es) numérica(s), CERO afirmaciones"), h
+    with _con_cobertura({"x.md": DOC1}, triada=[{**TRIADA, "cifras": "3 tablas"}]) as a:
+        assert ("warn", "cobertura_triada: la entrada 1 (x.md) no trae cifras como lista -- no calla nada") in pares(_cobertura(a))
+    with _con_cobertura({"x.md": DOC1}, triada=["suelta"]) as a:
+        assert ("warn", "cobertura_triada: la entrada 1 (sin doc) no trae doc, cifras, motivo, fecha -- no calla nada") in pares(_cobertura(a))
+    with _con_cobertura({"x.md": DOC1}, triada=[{**TRIADA, "cifras": []}]) as a:
+        assert any("no trae cifras" in t for _, t in pares(_cobertura(a)))
+
+
+def test_cobertura_dos_entradas_para_un_doc_valen_la_primera():
+    otra = {**TRIADA, "cifras": ["4 tablas"], "fecha": "2026-10-01"}
+    with _con_cobertura({"x.md": "3 tablas y 4 tablas\n"}, triada=[TRIADA, otra]) as a:
+        h = pares(_cobertura(a))
+        assert ("warn", "cobertura_triada: x.md tiene más de una entrada; vale la primera") in h, h
+        assert h[0] == ("warn", "x.md: 1 afirmación(es) numérica(s) que el triaje del 2026-09-01 no cubre ('4 tablas'), CERO afirmaciones"), h
+
+
+def test_cobertura_una_entrada_de_un_doc_que_no_se_mide_es_warn():
+    with _con_cobertura({"x.md": DOC1}, triada=[{**TRIADA, "doc": "fantasma.md"}]) as a:
+        h = _cobertura(a)
+        assert ("warn", "cobertura_triada: 'fantasma.md' no es un doc que este chequeo mida (el índice o los .md de knowledge.docs)") in pares(h), pares(h)
+        assert [x for x in h if x.sev == "warn"][0].arreglo == "corregir la ruta o borrar la entrada: así no calla nada"
+    with _con_cobertura({"x.md": "3 tablas\n"}, triada=[{**TRIADA, "doc": "otra/carpeta/x.md"}]) as a:
+        assert pares(_cobertura(a))[0][0] == "info", "el campo doc se compara por nombre de archivo"
+
+
+def test_cobertura_una_entrada_de_un_doc_con_afirmacion_sobra():
+    with _con_cobertura({"x.md": DOC1}, claims=[af(CONTEO, doc="x.md")], triada=[TRIADA]) as a:
+        h = _cobertura(a)
+        assert pares(h) == [
+            ("warn", "cobertura_triada: x.md ya tiene afirmación; la entrada sobra"),
+            ("info", "todos los docs que afirman cifras tienen afirmación o triaje registrado"),
+        ], pares(h)
+        assert h[0].arreglo == "borrarla: la afirmación ya lo saca del ranking, y mientras exista la lista no se valida"
+
+
+def test_cobertura_la_triada_tiene_que_ser_una_lista():
+    for valor in ({"doc": "x.md"}, "x", 5):
+        with _con_cobertura({"x.md": DOC1}, afirmaciones=archivo(cobertura_triada=valor)) as a:
+            assert pares(_cobertura(a)) == [
+                ("worklist", "x.md: 1 afirmación(es) numérica(s), CERO afirmaciones"),
+                ("info", "1/3 docs sin afirmación afirman cifras sin triar (0 con afirmación); los 1 de arriba sin triaje son el orden de backfill sugerido"),
+                ("warn", "cobertura_triada: tiene que ser una lista de entradas"),
+            ], (valor, pares(_cobertura(a)))
+
+
+def test_cobertura_sin_cifras_que_cubrir_es_una_sola_linea_info():
+    with _con_cobertura({"x.md": "nada que contar\n"}) as a:
+        assert pares(_cobertura(a)) == [("info", "todos los docs que afirman cifras tienen afirmación o triaje registrado")]
+
+
+def test_cobertura_vive_en_frescura_y_la_worklist_no_es_deuda_en_la_cli():
+    with _con_cobertura({"x.md": DOC2}, extra={"CLAUDE.md": "- [a](docs/a.md) [x](docs/x.md)\n"}) as a:
+        antes = a.instantanea()
+        codigo, salida, error = correr_main(a)
+        lineas = salida.splitlines()
+        assert codigo == 0, (codigo, salida)
+        assert "  worklist cobertura de afirmaciones (1)" in lineas, lineas
+        assert "       - x.md: 2 afirmación(es) numérica(s), CERO afirmaciones" in lineas
+        assert "WORKLIST: 1 item(s) para cruzar o decidir. No son deuda ni cuentan en el exit." in lineas
+        assert a.instantanea() == antes
+    with _con_cobertura({"x.md": "3 tablas\n"}, triada=[TRIADA]) as a:
+        codigo, salida, error = correr_main(a)
+        assert "  ok   cobertura de afirmaciones -- todos los docs que afirman cifras tienen afirmación o triaje registrado; 1 doc(s)" in salida, salida
+    with _con_cobertura({"x.md": DOC1}, afirmaciones="{") as a:
+        codigo, salida, error = correr_main(a)
+        assert "  warn cobertura de afirmaciones (1)" in salida.splitlines() and codigo == 3, (codigo, salida)
 
 
 def test_la_fuente_esta_en_lf_sin_bom_y_con_salto_final():
