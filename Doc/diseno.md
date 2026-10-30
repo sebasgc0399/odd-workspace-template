@@ -312,6 +312,29 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
   - plurales del vocabulario de cifras.
 - **No viajaron:** los chequeos de proceso del origen (compromisos, drenaje de preguntas, estado de los tickets y candidatos atrapados) y el rol de evidencia por nombre de doc.
 
+### Bootstrap (`bootstrap.py`, T8)
+
+Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con una entrevista (B8). **Nunca pisa un archivo del usuario.**
+
+- **La spec** es JSON: `{"spec_version": 1, "config": <workspace.config.json exacto>, "local": <workspace.local.json sin plugin_root>, …}`. Hay un ejemplo en `plugin/plantillas/bootstrap.ejemplo.json`.
+  - No hay un segundo esquema: las capas, los repos y `knowledge` salen de `config`.
+  - Cada generador registra las claves de nivel superior que suma. Una clave desconocida, otra versión o `local.plugin_root` (que anota el doctor) rechazan la spec.
+- **Antes de escribir**, valida `config` y `local` en una copia dentro de un temporal, con `config_loader.cargar` y `config_loader.conocimiento`. Si alguno lanza `ConfigRota`, no se escribe nada, ni siquiera la raíz.
+- **El plan** (`planificar`) junta las acciones `(ruta, contenido)` de los generadores registrados (`registrar_generador`) y marca cada una como `crear` o `ya_existe`. Antes de escribir nada, rechaza:
+  - las rutas absolutas;
+  - las que tienen `..`, `\` o `:`;
+  - los segmentos vacíos o que terminan en punto o espacio;
+  - las rutas repetidas;
+  - un choque entre archivo y carpeta;
+  - un ancestro que es archivo;
+  - un enlace que sale de la raíz.
+- **La aplicación** (`aplicar`) crea solo las acciones `crear`, con `open(…, "xb")`. Un archivo que apareció entre el plan y la aplicación queda como «ya existía». Nunca modifica, trunca ni borra nada.
+- **El `.gitignore`:** si ya existe, no se toca, y el informe dice `falta en .gitignore: <línea>` por cada línea que falta (`workspace.local.json` y `.claude/estado/`).
+- **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo]`.
+  - `--ensayo` muestra el plan (`crearía …` y `ya existe …`) sin escribir nada.
+  - Sale con 0 aunque haya archivos que ya existían, y con 2 ante una spec, una config o un plan inválidos, un error de aplicación (con el informe parcial de lo creado) o un error interno.
+- **Generadores:** B1 registra el de config, que escribe `workspace.config.json`, `workspace.local.json` y `.gitignore` en UTF-8, LF y sin BOM. B2 a B6 suman los suyos.
+
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
 Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.

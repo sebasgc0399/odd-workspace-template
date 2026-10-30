@@ -15,6 +15,8 @@ ESTADO_WRITERS = ".claude/estado/writers"
 WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
 CARPETA_VERDAD = "revision"
 CARPETA_OCULTA = "oculto"
+ESTADO = ".claude/estado"
+GITIGNORE = ".gitignore"
 
 
 def es_writer(nombre):

@@ -86,6 +86,13 @@ def test_carpetas_de_la_verdad_de_terreno_y_de_lo_oculto():
         assert nombre and not any(c in nombre for c in "/\\:."), nombre
 
 
+def test_rutas_de_la_instancia_para_el_bootstrap():
+    assert m().ESTADO == ".claude/estado"
+    assert m().GITIGNORE == ".gitignore"
+    assert m().PRIMER_TOQUE.startswith(m().ESTADO + "/")
+    assert m().ESTADO_WRITERS.startswith(m().ESTADO + "/")
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
