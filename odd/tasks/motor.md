@@ -633,3 +633,40 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - `TaskStop` de la tarea colgada se llevó 5.
     - El usuario terminó los otros 6 como administrador.
   - **Lo que hizo el padre:** el nivel 2 y la cobertura en `Doc/diseno.md` y en la skill, y el README.
+  - **Commit:** `0a5985f`.
+- **L93 (2026-10-30): el verificador independiente sobre `0a5985f` NO pasa: 5 bloqueantes, todos corregidos en una sola tanda.**
+  - **El verificador:** Opus, ~300 mil tokens, con controles positivos. El chequeo puntual del padre confirma B1 y B2: `comando_seguro` aceptaba `--{,}output=x.txt` y `--format=%+G?`.
+  - **B1. Bash expandía el comando después de validarlo** (llaves, globs y `~`).
+    - `--{,}output=`, `{-O<prog>,-i}` y `sort {-o…,-u}` escribían archivos y ejecutaban programas, y reactivaban `--textconv`, `--ext-diff`, `--filters` y `--show-signature`.
+    - De punta a punta, una afirmación sobrescribió un archivo trackeado del repo medido.
+  - **B2. `%+G?`, `% G?` y `%-G?`, y la config `format.pretty` o `pretty.*`, ejecutaban `gpg.program`**, incluso sin config si el commit está firmado.
+  - **B3. En un clon parcial, el motor hacía fetch perezoso:** tocaba la red, escribía un pack y ejecutaba un remoto `ext::`.
+  - **B4. El plazo no se cumplía:** 20 s con plazo 3, y más de 120 s colgado. Los descendientes nativos de `git.exe` sobrevivían.
+  - **B5. `core.fsmonitor` de la config local** se ejecutaba con `diff-tree`.
+  - **Advertencias:**
+    - A1: un filtro con un archivo como operando lee el disco, y su contenido sale en el detalle. Queda como límite documentado, por decisión del padre: es solo lectura, sin ejecución ni escritura, y el origen es más laxo.
+    - A2: un NUL abortaba `--claims` con 2.
+    - A3: el orden de empates de `--cruce` ya variaba en la línea base.
+    - A4: la línea nueva de la cobertura, que es pedida.
+  - **La paridad con el origen y el entorno pasaron.**
+  - **La tanda de correcciones (decisión técnica del padre: ejecutar sin shell)**, hecha por el mismo writer:
+    - **B1:** se valida y se ejecuta el mismo argv, tokenizado con `shlex` en modo POSIX, encadenado con `Popen` y con los filtros solo de `usr\bin` de Git. Además se rechazan `{ } * ? [ ] ~` fuera de comillas.
+    - **B2:** la regex `%[-+ ]?G` y cuatro programas de firma forzados a una ruta inexistente. Suma `gpg.openpgp.program`, que el writer encontró y midió.
+    - **B3:** `GIT_NO_LAZY_FETCH=1`.
+    - **B4:** archivos temporales en lugar de pipes, y `taskkill /T /F` del árbol.
+    - **B5:** `core.fsmonitor=false`.
+    - **A2:** el NUL se rechaza, y un `ValueError` deja la afirmación en `err`.
+  - **RED:** 74/92 contra `0a5985f`, con cada defecto reproducido. **GREEN:** 90/90 en `afirmaciones` y 110/110 en `conocimiento`.
+  - **Diferencial:** 215 107 comandos, con los casos del verificador.
+    - Hay **0** que el port acepte y el origen rechace.
+    - Rechaza 13 333 que el origen aceptaba, todos clasificados.
+    - El control positivo (`tee`) da 145.
+  - **Mutaciones:** 68, con 62 muertas.
+    - Murieron las 24 que relajan la lista blanca y las 17 del entorno y la config.
+    - Las 6 vivas son redundantes, o de POSIX, que no se ejercita en Windows.
+  - **Cambio de uso:** un ref relativo va entre comillas, `'{ref}~1'`.
+  - **Procesos huérfanos:**
+    - del verificador quedaron 12 (`git fetch` con `ext::`);
+    - de los mutantes del writer que anulan la matanza del árbol, 3 (`tail -f`).
+    - El código corregido no deja ninguno.
+  - **Siguiente:** commit de la corrección y la revisión limitada del verificador a B1–B5.

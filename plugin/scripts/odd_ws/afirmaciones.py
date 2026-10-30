@@ -1,8 +1,10 @@
 import json
 import math
+import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -19,11 +21,10 @@ EJECUTORES = ("repo", "sql")
 FAIL, WARN, INFO = "FAIL", "warn", "info"
 OK, CRECIO, DRIFT, ERROR = "OK", "CRECIO", "DRIFT", "ERROR"
 REF_POR_DEFECTO = "origin/HEAD"
-REF_VALIDO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/@~^-]*")
+REF_VALIDO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/@^-]*")
 PLAZO_POR_DEFECTO = 60
-MARGEN_DEL_PLAZO = 10
-SALIDAS_DE_PLAZO = (124, 137)
-GUION_DEL_PLAZO = 'timeout -k 2 "$1" bash -c "$2"'
+ESPERA_TRAS_MATAR = 5
+PLAZO_DE_TASKKILL = 20
 FETCH_MAX_DIAS = 7
 
 GIT_VERBOS_SEGUROS = frozenset(("ls-tree", "show", "log", "cat-file", "rev-parse", "diff-tree", "grep"))
@@ -39,11 +40,23 @@ GIT_LARGAS_PROHIBIDAS = ("output", "open-files-in-pager", "ext-diff", "textconv"
 ENTORNO_DE_ARRANQUE = frozenset(("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "BASH_XTRACEFD", "POSIXLY_CORRECT",
                                  "GREP_OPTIONS"))
 PREFIJO_DE_FUNCIONES_EXPORTADAS = "BASH_FUNC_"
-GIT_CONSERVADAS = frozenset(("GIT_OPTIONAL_LOCKS", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"))
-PREFIJO_DE_GIT = ('git() { local v="$1"; shift; case "$v" in '
-                  'show|log) command git "$v" --no-textconv --no-ext-diff --no-show-signature "$@" ;; '
-                  'diff-tree) command git "$v" --no-textconv --no-ext-diff "$@" ;; '
-                  '*) command git "$v" "$@" ;; esac; }; ')
+GIT_CONSERVADAS = frozenset(("GIT_OPTIONAL_LOCKS",))
+CARACTERES_DE_EXPANSION = "{}*?[]~"
+REGEX_DE_FIRMAS = re.compile(r"%[-+ ]?G")
+SIN_PROGRAMA = "/odd-ws-sin-programa/no-existe"
+CONFIG_FORZADA = (
+    ("core.fsmonitor", "false"),
+    ("log.showSignature", "false"),
+    ("gpg.program", SIN_PROGRAMA),
+    ("gpg.openpgp.program", SIN_PROGRAMA),
+    ("gpg.ssh.program", SIN_PROGRAMA),
+    ("gpg.x509.program", SIN_PROGRAMA),
+)
+PROTECCIONES_DE_GIT = {
+    "show": ("--no-textconv", "--no-ext-diff", "--no-show-signature"),
+    "log": ("--no-textconv", "--no-ext-diff", "--no-show-signature"),
+    "diff-tree": ("--no-textconv", "--no-ext-diff"),
+}
 
 Hallazgo = namedtuple("Hallazgo", "sev texto arreglo claim")
 Veredicto = namedtuple("Veredicto", "estado detalle")
@@ -132,6 +145,8 @@ def metacaracter_activo(texto):
             comilla = c
         elif c == "#":
             return "apertura de comentario ('#') fuera de comillas"
+        elif c in CARACTERES_DE_EXPANSION:
+            return "expansión de llaves, globs o '~' ('%s') fuera de comillas" % c
         elif texto.startswith("&&", i):
             i += 2
             continue
@@ -190,7 +205,7 @@ def _motivo_uniq(toks):
 
 def _motivo_git(toks):
     for t in toks[2:]:
-        if "%G" in t:
+        if REGEX_DE_FIRMAS.search(t):
             return "git %s ejecuta el programa de firmas de la config del repo" % t
         if t.startswith("--"):
             if t[2:].startswith("output") or _larga_prohibida(t, GIT_LARGAS_PROHIBIDAS):
@@ -205,38 +220,48 @@ def flag_que_escribe(toks):
     return revisor(toks) if revisor else None
 
 
-def comando_seguro(texto):
+def plan_de_comando(texto):
     if not isinstance(texto, str):
-        return False, "comando vacío"
+        return None, "comando vacío"
+    if "\x00" in texto:
+        return None, "carácter NUL no permitido"
     texto = texto.replace("\\\n", " ")
-    segmentos = []
+    comandos = []
     for comando in partir_comandos(texto):
-        for posicion, tramo in enumerate(partir_tramos(comando)):
+        tramos = []
+        for tramo in partir_tramos(comando):
             try:
-                segmentos.append((posicion == 0, shlex.split(tramo, posix=True)))
+                tramos.append(shlex.split(tramo, posix=True))
             except ValueError as exc:
-                return False, "comando mal formado (%s)" % exc
-    if not segmentos:
-        return False, "comando vacío"
+                return None, "comando mal formado (%s)" % exc
+        comandos.append((comando, tramos))
+    if not comandos:
+        return None, "comando vacío"
     motivo = metacaracter_activo(texto)
     if motivo:
-        return False, motivo + " no permitida"
-    for primero, toks in segmentos:
-        if not toks:
-            return False, "tramo vacío"
-        if any(t in ("&", "||", ">", ">>", "<") for t in toks):
-            return False, "redirección o ejecución en background no permitida"
-        if toks[0] == "git":
-            if len(toks) < 2 or toks[1] not in GIT_VERBOS_SEGUROS:
-                return False, "verbo git no permitido: %s" % (" ".join(toks[:2]))
-        elif toks[0] not in FILTROS_SEGUROS:
-            return False, "comando no permitido: %s" % toks[0]
-        elif primero:
-            return False, "el primer tramo de cada comando tiene que ser git: un filtro al comienzo lee archivos del disco"
-        motivo = flag_que_escribe(toks)
-        if motivo:
-            return False, motivo
-    return True, None
+        return None, motivo + " no permitida"
+    for _, tramos in comandos:
+        for posicion, toks in enumerate(tramos):
+            if not toks:
+                return None, "tramo vacío"
+            if any(t in ("&", "||", ">", ">>", "<") for t in toks):
+                return None, "redirección o ejecución en background no permitida"
+            if toks[0] == "git":
+                if len(toks) < 2 or toks[1] not in GIT_VERBOS_SEGUROS:
+                    return None, "verbo git no permitido: %s" % (" ".join(toks[:2]))
+            elif toks[0] not in FILTROS_SEGUROS:
+                return None, "comando no permitido: %s" % toks[0]
+            elif posicion == 0:
+                return None, "el primer tramo de cada comando tiene que ser git: un filtro al comienzo lee archivos del disco"
+            motivo = flag_que_escribe(toks)
+            if motivo:
+                return None, motivo
+    return comandos, None
+
+
+def comando_seguro(texto):
+    comandos, motivo = plan_de_comando(texto)
+    return motivo is None, motivo
 
 
 def ref_de(afirmacion):
@@ -267,35 +292,56 @@ def tramo_git_sin_ref(comando):
     return None
 
 
-def _git_de_instalacion():
-    git_exe = shutil.which("git")
-    if git_exe:
-        for padre in Path(git_exe).parents:
-            candidato = padre / "bin" / "bash.exe"
-            if candidato.exists():
-                return str(candidato)
-    return None
+def carpeta_de_filtros():
+    if os.name == "nt":
+        git_exe = shutil.which("git")
+        if git_exe:
+            for padre in Path(git_exe).parents:
+                candidato = padre / "usr" / "bin"
+                if (candidato / "sort.exe").is_file():
+                    return str(candidato)
+        return None
+    return "/usr/bin" if os.path.isdir("/usr/bin") else None
 
 
-def bash_ejecutable():
-    derivado = _git_de_instalacion()
-    if derivado:
-        return derivado
-    encontrado = shutil.which("bash")
-    if encontrado and "system32" not in encontrado.lower():
-        return encontrado
-    return None
+def resolver_argv(argv):
+    if not argv:
+        return None, "tramo vacío"
+    nombre = argv[0]
+    if nombre == "git":
+        git_exe = shutil.which("git")
+        if not git_exe:
+            return None, "git no encontrado en el PATH"
+        verbo = argv[1:2]
+        return [git_exe, *verbo, *PROTECCIONES_DE_GIT.get(verbo[0] if verbo else "", ()), *argv[2:]], None
+    if nombre not in FILTROS_SEGUROS:
+        return None, "comando no permitido: %s" % nombre
+    carpeta = carpeta_de_filtros()
+    if carpeta is None:
+        return None, "no se encontró la carpeta usr/bin de Git for Windows (de ahí salen los filtros, nunca del PATH)"
+    ruta = os.path.join(carpeta, nombre + (".exe" if os.name == "nt" else ""))
+    if not os.path.isfile(ruta):
+        return None, "no existe el filtro %s en %s" % (nombre, carpeta)
+    return [ruta, *argv[1:]], None
 
 
 def entorno_de_corrida(base=None):
+    propio = entorno_git(base)
     resultado = {}
-    for k, v in entorno_git(base).items():
+    for k, v in propio.items():
         mayus = k.upper()
         if mayus in ENTORNO_DE_ARRANQUE or mayus.startswith(PREFIJO_DE_FUNCIONES_EXPORTADAS):
             continue
         if mayus.startswith("GIT_") and k not in GIT_CONSERVADAS:
             continue
         resultado[k] = v
+    pares = [(propio["GIT_CONFIG_KEY_%d" % i], propio["GIT_CONFIG_VALUE_%d" % i]) for i in range(int(propio.get("GIT_CONFIG_COUNT", "0")))]
+    pares.extend(CONFIG_FORZADA)
+    resultado["GIT_CONFIG_COUNT"] = str(len(pares))
+    for i, (clave, valor) in enumerate(pares):
+        resultado["GIT_CONFIG_KEY_%d" % i] = clave
+        resultado["GIT_CONFIG_VALUE_%d" % i] = valor
+    resultado["GIT_NO_LAZY_FETCH"] = "1"
     return resultado
 
 
@@ -304,18 +350,56 @@ def _plazo_valido(plazo):
     return plazo if ok else PLAZO_POR_DEFECTO
 
 
-def _ejecutar(argv, cwd, env, plazo):
-    with tempfile.TemporaryFile() as salida, tempfile.TemporaryFile() as error:
-        proceso = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=salida, stderr=error, cwd=cwd, env=env)
+def _matar_arboles(procesos):
+    for proceso in procesos:
+        if proceso.poll() is not None:
+            continue
+        if os.name == "nt":
+            try:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proceso.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=PLAZO_DE_TASKKILL)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        else:
+            try:
+                os.killpg(proceso.pid, signal.SIGKILL)
+            except OSError:
+                pass
         try:
-            proceso.wait(timeout=plazo + MARGEN_DEL_PLAZO)
-        except subprocess.TimeoutExpired:
             proceso.kill()
-            proceso.wait()
+        except OSError:
+            pass
+    for proceso in procesos:
+        try:
+            proceso.wait(timeout=ESPERA_TRAS_MATAR)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def ejecutar_tramos(argvs, cwd, env, plazo):
+    plazo = _plazo_valido(plazo)
+    opciones = {} if os.name == "nt" else {"start_new_session": True}
+    with tempfile.TemporaryFile() as salida, tempfile.TemporaryFile() as error:
+        procesos = []
+        try:
+            previo = None
+            for i, argv in enumerate(argvs):
+                proceso = subprocess.Popen(
+                    argv, stdin=subprocess.DEVNULL if previo is None else previo.stdout,
+                    stdout=salida if i == len(argvs) - 1 else subprocess.PIPE, stderr=error, cwd=cwd, env=env, **opciones)
+                if previo is not None:
+                    previo.stdout.close()
+                procesos.append(proceso)
+                previo = proceso
+            limite = time.monotonic() + plazo
+            for proceso in procesos:
+                proceso.wait(timeout=max(0.0, limite - time.monotonic()))
+        except BaseException:
+            _matar_arboles(procesos)
             raise
         salida.seek(0)
         error.seek(0)
-        return proceso.returncode, salida.read(), error.read()
+        return salida.read(), error.read()
 
 
 def juzgar(afirmacion, obtenidos):
@@ -356,42 +440,46 @@ def correr(afirmacion, ruta_repo, entorno=None, plazo=PLAZO_POR_DEFECTO):
     ref = ref_de(afirmacion)
     if not ref_valido(ref):
         return Veredicto(ERROR, "ref no válido: %r" % (ref,))
-    comando = comando_sustituido(afirmacion)
-    ok, motivo = comando_seguro(comando)
-    if not ok:
+    comandos, motivo = plan_de_comando(comando_sustituido(afirmacion))
+    if motivo:
+        return Veredicto(ERROR, motivo)
+    ejecuciones = []
+    for texto, tramos in comandos:
+        argvs = []
+        for tramo in tramos:
+            argv, motivo = resolver_argv(tramo)
+            if motivo:
+                return Veredicto(ERROR, motivo)
+            argvs.append(argv)
+        ejecuciones.append((texto, argvs))
+    argv_ref, motivo = resolver_argv(["git", "rev-parse", "--verify", "--quiet", "%s^{commit}" % ref])
+    if motivo:
         return Veredicto(ERROR, motivo)
     plazo = _plazo_valido(plazo)
     env = entorno_de_corrida(entorno)
     try:
-        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", "%s^{commit}" % ref],
-                           capture_output=True, stdin=subprocess.DEVNULL, timeout=plazo, env=env)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        salida, error = ejecutar_tramos([argv_ref], str(repo), env, plazo)
+    except subprocess.TimeoutExpired:
+        return Veredicto(ERROR, "plazo de %s s agotado: la verificación del ref" % plazo)
+    except (OSError, ValueError) as exc:
         return Veredicto(ERROR, "no se pudo ejecutar git (%s)" % exc)
-    if r.returncode != 0:
-        causa = decodificar(r.stderr).strip().splitlines()
-        return Veredicto(ERROR, "el ref '%s' no resuelve a un commit en %s%s" % (
-            ref, repo, " (%s)" % causa[0].strip() if causa else ""))
-    bash = bash_ejecutable()
-    if not bash:
-        return Veredicto(ERROR, "bash no encontrado (ni junto a git ni en el PATH)")
-    modo = "-c" if bash == _git_de_instalacion() else "-lc"
+    if not decodificar(salida).strip():
+        causa = decodificar(error).strip().splitlines()
+        return Veredicto(ERROR, "el ref '%s' no resuelve a un commit en %s%s" % (ref, repo, " (%s)" % causa[0].strip() if causa else ""))
     obtenidos = []
-    for cmd in partir_comandos(comando.replace("\\\n", " ")):
+    for texto, argvs in ejecuciones:
         try:
-            codigo, salida, error = _ejecutar([bash, modo, GUION_DEL_PLAZO, "_", str(plazo), PREFIJO_DE_GIT + cmd],
-                                              str(repo), env, plazo)
+            salida, error = ejecutar_tramos(argvs, str(repo), env, plazo)
         except subprocess.TimeoutExpired:
-            return Veredicto(ERROR, "plazo de %s s agotado: %s" % (plazo, cmd))
-        except OSError as exc:
+            return Veredicto(ERROR, "plazo de %s s agotado: %s" % (plazo, texto))
+        except (OSError, ValueError) as exc:
             return Veredicto(ERROR, "no se pudo ejecutar (%s)" % exc)
-        if codigo in SALIDAS_DE_PLAZO:
-            return Veredicto(ERROR, "plazo de %s s agotado: %s" % (plazo, cmd))
         causa = decodificar(error).strip().splitlines()
         if causa:
             return Veredicto(ERROR, "stderr: %s" % causa[0].strip())
         valores = decodificar(salida).strip().splitlines()
         if not valores:
-            return Veredicto(ERROR, "sin salida: %s" % cmd)
+            return Veredicto(ERROR, "sin salida: %s" % texto)
         obtenidos.append(valores[-1].strip())
     return juzgar(afirmacion, obtenidos)
 
@@ -474,14 +562,15 @@ def _lint_de_repo(c, cid, i, conocidos, agregar):
 
 
 def antiguedad_fetch(ruta_repo):
-    try:
-        r = subprocess.run(["git", "-C", str(ruta_repo), "rev-parse", "--git-path", "FETCH_HEAD"],
-                           capture_output=True, stdin=subprocess.DEVNULL, timeout=PLAZO_POR_DEFECTO,
-                           env=entorno_de_corrida())
-    except (OSError, subprocess.TimeoutExpired):
+    argv, motivo = resolver_argv(["git", "rev-parse", "--git-path", "FETCH_HEAD"])
+    if motivo:
         return None
-    ruta = decodificar(r.stdout).strip()
-    if r.returncode != 0 or not ruta:
+    try:
+        salida, _ = ejecutar_tramos([argv], str(ruta_repo), entorno_de_corrida(), PLAZO_POR_DEFECTO)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    ruta = decodificar(salida).strip()
+    if not ruta:
         return None
     fetch_head = Path(ruta)
     if not fetch_head.is_absolute():

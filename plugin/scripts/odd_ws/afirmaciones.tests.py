@@ -357,7 +357,7 @@ def test_comando_seguro_endurecimiento_drivers_de_la_config_del_repo():
                 "git cat-file --fil origin/HEAD:alfa.txt",
                 "git grep --no-index x", "git grep --no-i x", "git grep -c --no-index x -- /",
                 "git log -1 --show-signature origin/HEAD", "git show --show-signature origin/HEAD",
-                "git log --show-s origin/HEAD", "git log -1 --format=%G? origin/HEAD",
+                "git log --show-s origin/HEAD", "git log -1 '--format=%G?' origin/HEAD",
                 "git log -1 --pretty=format:%GG origin/HEAD", "git show -s --format='%GK' origin/HEAD",
                 "git log -1 --format='%H %GS' origin/HEAD"):
         ok, motivo = m().comando_seguro(cmd)
@@ -445,8 +445,10 @@ def test_correr_ref_invalido_no_llega_a_git_ni_al_shell():
             v = m().correr(af(CONTEO, 1, ref=ref), repo)
             assert v.estado == "ERROR" and "ref" in v.detalle, (ref, v)
         assert listar(repo) == antes, "un ref hostil escribió en el repo"
-        for ref in ("origin/HEAD", "origin/main", "HEAD", "main", "HEAD~1", "main^", "v1.0", "refs/remotes/origin/main"):
+        for ref in ("origin/HEAD", "origin/main", "HEAD", "main", "main^", "v1.0", "refs/remotes/origin/main"):
             assert m().ref_valido(ref), ref
+        for ref in ("HEAD~1", "a~", "a{b}", "a*", "a?", "a[b]", "@{u}"):
+            assert not m().ref_valido(ref), ref
         assert m().ref_de(af(CONTEO)) == "origin/HEAD"
         assert m().ref_de(af(CONTEO, ref=None)) == "origin/HEAD"
         assert m().ref_de(af(CONTEO, ref="main")) == "main"
@@ -575,37 +577,28 @@ def test_correr_un_plazo_invalido_vale_el_de_por_defecto():
             assert tuple(v) == ("OK", "1"), (plazo, tuple(v))
 
 
-def test_correr_el_plazo_de_respaldo_corta_aunque_falle_el_timeout_del_shell():
-    modulo = m()
-    previo = (modulo.GUION_DEL_PLAZO, modulo.MARGEN_DEL_PLAZO)
-    modulo.GUION_DEL_PLAZO = "sleep 20"
-    modulo.MARGEN_DEL_PLAZO = 1
-    try:
-        with temporal() as tmp:
-            repo = repo_fixture(tmp)
-            t0 = time.time()
-            v = modulo.correr(af(CONTEO, 1), repo, plazo=1)
-            assert v.estado == "ERROR" and v.detalle.startswith("plazo de 1 s agotado: "), v
-            assert time.time() - t0 < 12, "el respaldo no cortó a tiempo"
-    finally:
-        modulo.GUION_DEL_PLAZO, modulo.MARGEN_DEL_PLAZO = previo
-
-
 def test_correr_el_plazo_corta_un_comando_colgado():
+    modulo = m()
+    lanzados = []
+    original = modulo.subprocess.Popen
+
+    class Espia(original):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
+            lanzados.append(self)
+
     with temporal() as tmp:
         repo = repo_fixture(tmp)
         t0 = time.time()
-        v = m().correr(af("git ls-tree -r {ref} --name-only | tail -f alfa.txt", 1), repo, plazo=2)
+        modulo.subprocess.Popen = Espia
+        try:
+            v = modulo.correr(af("git ls-tree -r {ref} --name-only | tail -f alfa.txt", 1), repo, plazo=2)
+        finally:
+            modulo.subprocess.Popen = original
         assert v.estado == "ERROR" and v.detalle.startswith("plazo de 2 s agotado: "), v
         assert time.time() - t0 < 9, "el plazo no mató al proceso hijo"
-
-
-def test_bash_ejecutable_es_el_de_git_y_no_el_lanzador_de_wsl():
-    ruta = m().bash_ejecutable()
-    assert ruta is not None and Path(ruta).is_file(), ruta
-    assert "system32" not in ruta.lower()
-    r = subprocess.run([ruta, "-c", "echo hola"], capture_output=True, timeout=60)
-    assert r.stdout.strip() == b"hola"
+    assert len(lanzados) >= 3, [p.args for p in lanzados]
+    assert all(p.poll() is not None for p in lanzados), "quedó un proceso vivo después del plazo"
 
 
 def test_entorno_de_corrida_quita_el_arranque_de_bash():
@@ -632,10 +625,17 @@ def test_entorno_de_corrida_la_config_de_git_es_solo_la_de_entorno_git():
     env = m().entorno_de_corrida(base)
     propias = comun.entorno_git({})
     git_ = {k: v for k, v in env.items() if k.upper().startswith("GIT_")}
-    assert git_ == {k: v for k, v in propias.items() if k.upper().startswith("GIT_")}, git_
-    assert git_ == {"GIT_OPTIONAL_LOCKS": "0", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "diff.autoRefreshIndex",
-                    "GIT_CONFIG_VALUE_0": "false"}, "la config inyectada por entorno_git cambió: revisar si abre un hueco"
+    pares = [("diff.autoRefreshIndex", "false"), ("core.fsmonitor", "false"), ("log.showSignature", "false"),
+             ("gpg.program", m().SIN_PROGRAMA), ("gpg.openpgp.program", m().SIN_PROGRAMA),
+             ("gpg.ssh.program", m().SIN_PROGRAMA), ("gpg.x509.program", m().SIN_PROGRAMA)]
+    esperado = {"GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1", "GIT_CONFIG_COUNT": str(len(pares))}
+    for i, (clave, valor) in enumerate(pares):
+        esperado["GIT_CONFIG_KEY_%d" % i] = clave
+        esperado["GIT_CONFIG_VALUE_%d" % i] = valor
+    assert git_ == esperado, "la config del entorno de corrida cambió: revisar si abre un hueco\n%s" % git_
+    assert git_["GIT_CONFIG_KEY_0"] == propias["GIT_CONFIG_KEY_0"] and git_["GIT_CONFIG_VALUE_0"] == propias["GIT_CONFIG_VALUE_0"]
     assert env["PATH"] == "/p"
+    assert m().SIN_PROGRAMA.startswith("/") and not os.path.exists(m().SIN_PROGRAMA)
 
 
 def test_entorno_de_corrida_usa_os_environ_por_defecto():
@@ -644,31 +644,27 @@ def test_entorno_de_corrida_usa_os_environ_por_defecto():
     assert "BASH_ENV" not in env and "GIT_DIR" not in env and env["MARCA_PROPIA"] == "z"
 
 
-def test_correr_ignora_el_entorno_que_altera_bash_y_git():
+def test_correr_ignora_el_entorno_que_altera_a_git_y_a_los_filtros():
+    modulo = m()
     with temporal() as tmp:
         repo = repo_fixture(tmp)
         otro = tmp / "otro"
         otro.mkdir()
         git(otro, "init", "-q", "-b", "main")
         commitear(otro, {"x.txt": "1\n", "y.txt": "1\n"})
-        arranque = tmp / "arranque.sh"
-        arranque.write_text("echo ruido-de-arranque >&2\n", encoding="utf-8", newline="\n")
         casos = [
-            ("SHELLOPTS", "xtrace", "bash traza cada comando en stderr"),
             ("GIT_TRACE", "1", "git traza en stderr"),
-            ("GIT_DIR", str(otro / ".git"), "git -C lee OTRO repo, donde el ref no existe"),
+            ("GIT_DIR", str(otro / ".git"), "git lee OTRO repo, donde el ref no existe"),
             ("GREP_OPTIONS", "-v", "grep aplica opciones heredadas"),
-            ("BASH_ENV", arranque.as_posix(), "bash -c lee el script de arranque"),
             ("GIT_CONFIG_COUNT", "2", "el segundo par de config inyectada no existe: git muere"),
         ]
-        bash = m().bash_ejecutable()
+        sin_limpiar = [modulo.resolver_argv(a)[0] for a in (["git", "ls-tree", "-r", "origin/HEAD", "--name-only"], ["grep", "-c", r"\.txt$"])]
         for var, valor, porque in casos:
             with entorno(**{var: valor}):
-                v = m().correr(af(CONTEO, 1), repo)
+                v = modulo.correr(af(CONTEO, 1), repo)
                 assert tuple(v) == ("OK", "1"), "con %s un claim sano dio %s (%s)" % (var, tuple(v), porque)
-                r = subprocess.run([bash, "-c", CONTEO.replace("{ref}", "origin/HEAD")], capture_output=True, text=True,
-                                   cwd=str(repo), timeout=60, env=dict(os.environ))
-                assert (r.stdout.strip(), r.stderr.strip()) != ("1", ""), \
+                salida, error = modulo.ejecutar_tramos(sin_limpiar, str(repo), dict(os.environ), 30)
+                assert (salida.strip(), error.strip()) != (b"1", b""), \
                     "%s no cambió nada sin limpiar el entorno: el caso no demuestra nada (%s)" % (var, porque)
 
 
@@ -1061,6 +1057,411 @@ def test_fetch_viejo_en_un_worktree_mira_el_fetch_head_que_git_indica():
         t = time.time() - 3 * 86400 - 60
         os.utime(fh, (t, t))
         assert m().antiguedad_fetch(arbol) == 3
+
+
+def marcador(carpeta, nombre, cuerpo="exit 0\n"):
+    ruta = carpeta / nombre
+    marca = carpeta / (nombre + ".marca")
+    ruta.write_text("#!/bin/sh\necho x >> '%s'\n%s" % (marca.as_posix(), cuerpo), encoding="utf-8", newline="\n")
+    ruta.chmod(0o755)
+    return ruta, marca
+
+
+def firmar(repo, armadura="PGP SIGNATURE", nombre="firmada"):
+    arbol = git(repo, "rev-parse", "HEAD^{tree}")
+    padre = git(repo, "rev-parse", "HEAD")
+    objeto = ("tree %s\nparent %s\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n"
+              "gpgsig -----BEGIN %s-----\n \n abc\n -----END %s-----\n\nfirmado\n") % (arbol, padre, armadura, armadura)
+    git(repo, "update-ref", "refs/heads/" + nombre, git(repo, "hash-object", "-t", "commit", "-w", "--stdin", entrada=objeto))
+    return nombre
+
+
+def sin_nuevos(repo, antes):
+    return sorted(p.name for p in repo.iterdir()) == antes
+
+
+LLAVES_Y_GLOBS = [
+    "git log -1 --format=%s --{,}output=escrito.txt origin/HEAD",
+    "git log -1 --format=%s --o{u,u}tput=escrito.txt origin/HEAD",
+    "git log -1 --format=%s {--output=escrito.txt,--no-color} origin/HEAD",
+    "git grep {-Omarcador,-i} -e alfa origin/HEAD",
+    "git grep --{,}open-files-in-pager=marcador -e alfa origin/HEAD",
+    "git ls-tree -r origin/HEAD | sort {-oescrito.txt,-u}",
+    "git ls-tree -r origin/HEAD | sort --{,}output=escrito.txt",
+    "git ls-tree -r origin/HEAD | uniq {-,escrito.txt}",
+    "git grep {--no-index,-h} -e alfa origin/HEAD -- fuera.txt",
+    "git show --{,}textconv origin/HEAD:alfa.txt",
+    "git log -1 -p --{,}ext-diff origin/HEAD",
+    "git cat-file --{,}filters origin/HEAD:alfa.txt",
+    "git log -1 --format=%s --{,}show-signature origin/HEAD",
+    "git log -1 --format=%s --o* origin/HEAD",
+    "git log -1 --format=%{,G}? origin/HEAD",
+    "git log -1 --format=%s origin/HEAD~1",
+    "git ls-tree -r origin/HEAD | grep -c a*",
+    "git ls-tree -r origin/HEAD | grep -c [a]",
+    "git ls-tree -r origin/HEAD | grep -c a?",
+    "git ls-tree -r origin/HEAD | grep -c a}",
+    "git ls-tree -r origin/HEAD | grep -c {a",
+    "git ls-tree -r origin/HEAD | grep -c a]",
+    "git ls-tree -r origin/HEAD | grep -c ~",
+]
+
+
+def test_comando_seguro_rechaza_llaves_globs_corchetes_y_tilde_fuera_de_comillas():
+    for cmd in LLAVES_Y_GLOBS:
+        ok, motivo = m().comando_seguro(cmd)
+        assert not ok, "%r pasó la lista blanca: bash lo expandiría después de validarlo" % cmd
+        assert "fuera de comillas" in motivo, (cmd, motivo)
+    for caracter in "{}*?[]~":
+        ok, motivo = m().comando_seguro("git ls-tree -r origin/HEAD | grep -c a%sb" % caracter)
+        assert not ok and "fuera de comillas" in motivo, (caracter, motivo)
+
+
+def test_comando_seguro_lo_que_va_entre_comillas_sigue_valiendo_aunque_traiga_llaves_o_globs():
+    for cmd in ("git ls-tree -r origin/HEAD | grep -c '{a,b}'", "git ls-tree -r origin/HEAD | grep -c \"a*b?\"",
+                "git ls-tree -r origin/HEAD | grep -cE '^[a-z]+~$'", "git log -1 '--format=%s' origin/HEAD",
+                "git log -1 '--format=%s' 'origin/HEAD~1'", "git grep -c '*' origin/HEAD -- '*.txt'"):
+        ok, motivo = m().comando_seguro(cmd)
+        assert ok, "%r es inerte y se rechazó (%s)" % (cmd, motivo)
+
+
+def test_correr_no_expande_llaves_ni_globs_ni_escribe_ni_ejecuta():
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        programa, marca = marcador(tmp, "pager")
+        (repo / "--output=glob.txt").write_text("x\n", encoding="utf-8", newline="\n")
+        antes = sorted(p.name for p in repo.iterdir())
+        comandos = [c.replace("marcador", programa.as_posix()) for c in LLAVES_Y_GLOBS]
+        for cmd in comandos:
+            v = m().correr(af(cmd, 1), repo)
+            assert v.estado == "ERROR", "%r -> %s" % (cmd, tuple(v))
+            assert sorted(p.name for p in repo.iterdir()) == antes, "%r escribió en el repo: %s" % (cmd, sorted(p.name for p in repo.iterdir()))
+            assert not marca.exists(), "%r ejecutó el programa" % cmd
+
+
+def test_correr_la_afirmacion_de_un_glob_con_un_archivo_que_parece_opcion_no_escribe():
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        (repo / "--output=glob.txt").write_text("x\n", encoding="utf-8", newline="\n")
+        v = m().correr(af("git log -1 --format=%s --o* {ref}", "dos"), repo)
+        assert v.estado == "ERROR", tuple(v)
+        assert not (repo / "glob.txt").exists()
+
+
+def test_plan_de_comando_da_el_argv_exacto_que_se_valida_y_se_ejecuta():
+    comandos, motivo = m().plan_de_comando("git log -1 '--format=%s' origin/HEAD | wc -l && git rev-parse origin/HEAD\ngit ls-tree -r origin/HEAD | grep -c 'a b'")
+    assert motivo is None
+    assert [c[0] for c in comandos] == ["git log -1 '--format=%s' origin/HEAD | wc -l", "git rev-parse origin/HEAD",
+                                       "git ls-tree -r origin/HEAD | grep -c 'a b'"], comandos
+    assert [c[1] for c in comandos] == [
+        [["git", "log", "-1", "--format=%s", "origin/HEAD"], ["wc", "-l"]],
+        [["git", "rev-parse", "origin/HEAD"]],
+        [["git", "ls-tree", "-r", "origin/HEAD"], ["grep", "-c", "a b"]],
+    ], comandos
+    assert m().plan_de_comando("rm x") == (None, "comando no permitido: rm")
+    ok, motivo = m().comando_seguro("rm x")
+    assert (ok, motivo) == (False, "comando no permitido: rm")
+    assert m().comando_seguro("git ls-tree origin/HEAD") == (True, None)
+
+
+def test_correr_ejecuta_sin_shell_git_resuelto_y_filtros_solo_de_usr_bin():
+    modulo = m()
+    lanzados, opciones = [], []
+    original = modulo.subprocess.Popen
+
+    class Espia(original):
+        def __init__(self, argv, *args, **kw):
+            lanzados.append(list(argv))
+            opciones.append(kw)
+            super().__init__(argv, *args, **kw)
+
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        modulo.subprocess.Popen = Espia
+        try:
+            v = modulo.correr(af(r"git ls-tree -r {ref} --name-only | sort | head -n 5 | wc -l", 1), repo)
+        finally:
+            modulo.subprocess.Popen = original
+        assert tuple(v) == ("OK", "1"), v
+    assert lanzados, "no se lanzó nada"
+    assert not any(kw.get("shell") for kw in opciones), "se lanzó con shell=True"
+    for argv in lanzados:
+        nombre = Path(argv[0]).name.lower()
+        assert nombre not in ("bash", "bash.exe", "sh", "sh.exe", "cmd", "cmd.exe", "powershell.exe"), argv
+        assert not any(t in ("-c", "-lc") for t in argv[1:2]), argv
+    filtros = [a for a in lanzados if Path(a[0]).stem.lower() in ("sort", "head", "wc")]
+    assert len(filtros) == 3, lanzados
+    for argv in filtros:
+        assert os.path.isabs(argv[0]), "un filtro se resolvió por el PATH: %s" % argv
+        assert Path(argv[0]).parent.name == "bin" and Path(argv[0]).parent.parent.name == "usr", argv
+    gits = [a for a in lanzados if Path(a[0]).stem.lower() == "git"]
+    assert gits and all(os.path.isabs(a[0]) for a in gits), gits
+    assert any(a[1:2] == ["ls-tree"] for a in gits), gits
+
+
+def test_correr_inserta_las_protecciones_de_git_justo_despues_del_verbo():
+    modulo = m()
+    casos = [
+        (["git", "show", "origin/HEAD:alfa.txt"], ["--no-textconv", "--no-ext-diff", "--no-show-signature"]),
+        (["git", "log", "-1", "origin/HEAD"], ["--no-textconv", "--no-ext-diff", "--no-show-signature"]),
+        (["git", "diff-tree", "-r", "origin/HEAD"], ["--no-textconv", "--no-ext-diff"]),
+        (["git", "ls-tree", "-r", "origin/HEAD"], []),
+        (["git", "cat-file", "-p", "origin/HEAD:alfa.txt"], []),
+        (["git", "grep", "-c", "x", "origin/HEAD"], []),
+        (["git", "rev-parse", "origin/HEAD"], []),
+    ]
+    for argv, extra in casos:
+        resuelto, motivo = modulo.resolver_argv(argv)
+        assert motivo is None, (argv, motivo)
+        assert resuelto[1:] == [argv[1], *extra, *argv[2:]], resuelto
+        assert Path(resuelto[0]).stem.lower() == "git"
+
+
+def test_resolver_argv_los_filtros_salen_de_usr_bin_y_no_del_path():
+    modulo = m()
+    carpeta = modulo.carpeta_de_filtros()
+    assert carpeta is not None and Path(carpeta).is_dir(), carpeta
+    assert Path(carpeta).parent.name == "usr" and Path(carpeta).name == "bin", carpeta
+    for filtro in ("grep", "wc", "sort", "uniq", "head", "tail", "cut", "tr"):
+        resuelto, motivo = modulo.resolver_argv([filtro, "-x"])
+        assert motivo is None and resuelto[1:] == ["-x"], (filtro, resuelto, motivo)
+        assert Path(resuelto[0]).parent == Path(carpeta) and Path(resuelto[0]).stem == filtro, resuelto
+        assert Path(resuelto[0]).is_file(), resuelto
+    assert os.name != "nt" or "system32" not in modulo.resolver_argv(["sort"])[0][0].lower()
+    resuelto, motivo = modulo.resolver_argv(["rm", "x"])
+    assert resuelto is None and motivo == "comando no permitido: rm", (resuelto, motivo)
+    resuelto, motivo = modulo.resolver_argv([])
+    assert resuelto is None and motivo, (resuelto, motivo)
+
+
+def test_resolver_argv_sin_carpeta_de_filtros_es_un_motivo_y_no_un_fallback_al_path():
+    modulo = m()
+    original = modulo.carpeta_de_filtros
+    modulo.carpeta_de_filtros = lambda: None
+    try:
+        resuelto, motivo = modulo.resolver_argv(["sort"])
+    finally:
+        modulo.carpeta_de_filtros = original
+    assert resuelto is None and "usr" in motivo, (resuelto, motivo)
+
+
+CASOS_G = [
+    "git log -1 '--format=%+G?' {ref}", "git log -1 '--format=% G?' {ref}", "git log -1 '--format=%-G?' {ref}",
+    "git log -1 '--format=%G?' {ref}", "git log -1 '--format=%GG' {ref}", "git show -s '--format=%GS' {ref}",
+    "git log -1 '--pretty=format:%+GK' {ref}", "git log -1 '--format=%s%+G?' {ref}", "git log -1 '--format=%-GF' {ref}",
+    "git log -1 --pretty=tformat:'% GP' {ref}",
+]
+
+
+def test_comando_seguro_rechaza_percent_g_con_o_sin_modificadores():
+    for cmd in CASOS_G:
+        ok, motivo = m().comando_seguro(cmd.replace("{ref}", "origin/HEAD"))
+        assert not ok, "%r pasó la lista blanca y verifica firmas con el programa de la config" % cmd
+        assert "firmas" in motivo, (cmd, motivo)
+    for cmd in ("git log -1 '--format=%gd' origin/HEAD", "git log -1 '--format=%H %cs %s' origin/HEAD",
+                "git log -1 '--format=G' origin/HEAD", "git log -1 '--format=%%' origin/HEAD", "git log -1 '--format=%h' origin/HEAD"):
+        ok, motivo = m().comando_seguro(cmd)
+        assert ok, "%r no verifica firmas y se rechazó (%s)" % (cmd, motivo)
+    assert m().REGEX_DE_FIRMAS.pattern == "%[-+ ]?G"
+
+
+def test_correr_el_programa_de_firmas_no_corre_ni_con_percent_g_modificado_ni_por_config():
+    with temporal() as tmp:
+        repo, marca = repo_con_firma(tmp)
+        git(repo, "config", "--unset", "log.showSignature")
+        casos = [
+            ("pgp-sin-config", "git log -1 '--format=%+G?' {ref}", None),
+            ("pgp-espacio", "git log -1 '--format=% G?' {ref}", None),
+            ("pgp-menos", "git log -1 '--format=%-G?' {ref}", None),
+        ]
+        for nombre, cmd, _ in casos:
+            v = m().correr(af(cmd, 1, ref="firmada"), repo)
+            assert v.estado == "ERROR" and not marca.exists(), (nombre, tuple(v), marca.exists())
+        git(repo, "config", "format.pretty", "%G?")
+        git(repo, "log", "-1", "firmada")
+        assert marca.exists(), "el instrumento no sabe decir que sí: format.pretty=%G? no ejecutó gpg.program"
+        marca.unlink()
+        for cmd in ("git log -1 {ref} | wc -l", "git show -s {ref} | wc -l", "git log -1 --format=%s {ref}"):
+            v = m().correr(af(cmd, 1, ref="firmada"), repo)
+            assert not marca.exists(), "%s ejecutó el programa de firmas por format.pretty" % cmd
+            assert v.estado in ("ERROR", "DRIFT", "OK"), v
+        git(repo, "config", "--unset", "format.pretty")
+        git(repo, "config", "pretty.sig", "format:%G? %s")
+        git(repo, "log", "-1", "--pretty=sig", "firmada")
+        assert marca.exists(), "el instrumento no sabe decir que sí: pretty.sig=%G? no ejecutó gpg.program"
+        marca.unlink()
+        v = m().correr(af("git log -1 --pretty=sig {ref}", 1, ref="firmada"), repo)
+        assert v.estado == "ERROR" and not marca.exists(), (tuple(v), marca.exists())
+
+
+def test_correr_los_programas_de_firma_ssh_x509_y_openpgp_de_la_config_no_corren():
+    with temporal() as tmp:
+        repo, marca = repo_con_firma(tmp)
+        git(repo, "config", "--unset", "log.showSignature")
+        firmantes = tmp / "firmantes"
+        firmantes.write_text("", encoding="utf-8")
+        git(repo, "config", "gpg.ssh.allowedSignersFile", firmantes.as_posix())
+        programa = marca.parent / "firma"
+        for armadura, clave in (("SSH SIGNATURE", "gpg.ssh.program"), ("SIGNED MESSAGE", "gpg.x509.program"),
+                                ("PGP SIGNATURE", "gpg.openpgp.program")):
+            git(repo, "config", "gpg.program", "no-existe")
+            git(repo, "config", clave, programa.as_posix())
+            git(repo, "config", "format.pretty", "%G?")
+            ref = firmar(repo, armadura, "f" + armadura.split()[0].lower())
+            if marca.exists():
+                marca.unlink()
+            git(repo, "log", "-1", ref)
+            assert marca.exists(), "el instrumento no sabe decir que sí: %s no ejecutó su programa" % clave
+            marca.unlink()
+            v = m().correr(af("git log -1 {ref} | wc -l", 1, ref=ref), repo)
+            assert v.estado == "ERROR" and not marca.exists(), (clave, tuple(v), marca.exists())
+            git(repo, "config", "--unset", clave)
+
+
+def test_correr_core_fsmonitor_de_la_config_local_no_corre_con_diff_tree():
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        programa, marca = marcador(tmp, "fsmonitor")
+        git(repo, "config", "core.fsmonitor", programa.as_posix())
+        try:
+            git(repo, "diff-tree", "--name-only", "-r", "HEAD")
+        except RuntimeError:
+            pass
+        assert marca.exists(), "el instrumento no sabe decir que sí: core.fsmonitor no se ejecutó con diff-tree"
+        marca.unlink()
+        for cmd in ("git diff-tree --name-only -r {ref} | wc -l", "git diff-tree --no-commit-id --name-only -r HEAD | wc -l",
+                    "git diff-tree -p {ref} | wc -l"):
+            v = m().correr(af(cmd, 0, ref="HEAD"), repo)
+            assert not marca.exists(), "%s ejecutó el core.fsmonitor del repo medido (%s)" % (cmd, tuple(v))
+
+
+def repo_promisor(base, programa):
+    repo = base / "promisor"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    commitear(repo, {"p.txt": "presente\n"}, "base")
+    ausente = "1" * 40
+    presente = git(repo, "rev-parse", "HEAD:p.txt")
+    arbol = git(repo, "mktree", "--missing", entrada="100644 blob %s\tmissing.txt\n100644 blob %s\tp.txt\n" % (ausente, presente))
+    commit = git(repo, "commit-tree", "-p", "HEAD", "-m", "con blob ausente", arbol)
+    git(repo, "update-ref", "refs/remotes/origin/main", commit)
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    for clave, valor in (("core.repositoryformatversion", "1"), ("extensions.partialClone", "origin"),
+                         ("remote.origin.url", "ext::%s %%S" % programa.as_posix()), ("remote.origin.promisor", "true"),
+                         ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"), ("protocol.ext.allow", "always")):
+        git(repo, "config", clave, valor)
+    return repo
+
+
+def paquetes(repo):
+    return sorted(p.name for p in (repo / ".git" / "objects" / "pack").glob("*") if p.is_file())
+
+
+def test_correr_un_clon_parcial_no_baja_objetos_ni_escribe_un_pack():
+    with temporal() as tmp:
+        fuente = tmp / "fuente"
+        fuente.mkdir()
+        git(fuente, "init", "-q", "-b", "main")
+        commitear(fuente, {"a.txt": "uno\ndos\ntres\n"}, "uno")
+        git(fuente, "config", "uploadpack.allowFilter", "true")
+        git(fuente, "config", "uploadpack.allowAnySHA1InWant", "true")
+        medido, testigo = tmp / "medido", tmp / "testigo"
+        for destino in (medido, testigo):
+            git(tmp, "clone", "-q", "--no-checkout", "--filter=blob:none", fuente.as_uri(), str(destino))
+        antes = paquetes(testigo)
+        git(testigo, "show", "origin/HEAD:a.txt")
+        assert paquetes(testigo) != antes, "el instrumento no sabe decir que sí: git show no bajó el blob del clon parcial"
+        antes = paquetes(medido)
+        for cmd in ("git show {ref}:a.txt | wc -l", "git cat-file -p {ref}:a.txt | wc -l", "git grep -c uno {ref}"):
+            v = m().correr(af(cmd, 3), medido)
+            assert v.estado == "ERROR", "%s -> %s" % (cmd, tuple(v))
+            assert paquetes(medido) == antes, "%s escribió un pack en .git/objects" % cmd
+
+
+def test_correr_un_remoto_ext_del_clon_parcial_no_corre_su_programa():
+    with temporal() as tmp:
+        programa, marca = marcador(tmp, "remoto")
+        repo = repo_promisor(tmp, programa)
+        try:
+            git(repo, "cat-file", "-p", "origin/HEAD:missing.txt")
+        except RuntimeError:
+            pass
+        assert marca.exists(), "el instrumento no sabe decir que sí: el fetch perezoso no ejecutó el remoto ext::"
+        marca.unlink()
+        antes = paquetes(repo)
+        for cmd in ("git cat-file -p {ref}:missing.txt", "git show {ref}:missing.txt | wc -l"):
+            v = m().correr(af(cmd, 1), repo)
+            assert v.estado == "ERROR", "%s -> %s" % (cmd, tuple(v))
+            assert not marca.exists(), "%s ejecutó el programa del remoto ext::" % cmd
+        v = m().correr(af("git log -1 --format=%s {ref}", 1, ref="2" * 40), repo)
+        assert v.estado == "ERROR" and not marca.exists(), (tuple(v), marca.exists())
+        assert paquetes(repo) == antes
+
+
+LATIDO = "i=0\nwhile [ $i -lt 30 ]; do echo x >> '%s'; i=$((i+1)); sleep 1; done\nexit 1\n"
+
+
+def test_el_plazo_se_cumple_y_no_queda_ningun_descendiente_vivo():
+    modulo = m()
+    with temporal() as tmp:
+        latido = tmp / "latido"
+        programa, _ = marcador(tmp, "remoto", LATIDO % latido.as_posix())
+        repo = repo_promisor(tmp, programa)
+        env = modulo.entorno_de_corrida()
+        env.pop("GIT_NO_LAZY_FETCH", None)
+        argv = [shutil.which("git"), "rev-parse", "--verify", "--quiet", "2" * 40 + "^{commit}"]
+        t0 = time.time()
+        try:
+            modulo.ejecutar_tramos([argv], str(repo), env, 3)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("el remoto que duerme no agotó el plazo: el instrumento no demuestra nada")
+        assert time.time() - t0 < 3 + 8, "el plazo de 3 s tardó %.1f s" % (time.time() - t0)
+        assert latido.exists() and latido.stat().st_size > 0, "el descendiente no llegó a correr: el instrumento no demuestra nada"
+        time.sleep(2.5)
+        tamano = latido.stat().st_size
+        time.sleep(2.5)
+        assert latido.stat().st_size == tamano, "un descendiente sigue vivo escribiendo después del plazo"
+
+
+def test_correr_con_un_remoto_perezoso_que_duerme_vuelve_antes_del_plazo_y_sin_descendientes():
+    with temporal() as tmp:
+        latido = tmp / "latido"
+        programa, _ = marcador(tmp, "remoto", LATIDO % latido.as_posix())
+        repo = repo_promisor(tmp, programa)
+        t0 = time.time()
+        v = m().correr(af("git log -1 --format=%s {ref}", 1, ref="2" * 40), repo, plazo=3)
+        assert v.estado == "ERROR", tuple(v)
+        assert time.time() - t0 < 3 + 8, "tardó %.1f s con plazo 3" % (time.time() - t0)
+        assert not latido.exists(), "el remoto perezoso corrió aunque el fetch perezoso está apagado"
+
+
+def test_correr_un_nul_en_el_comando_es_err_y_no_levanta():
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        for cmd in ("git log -1 --format=%s {ref}\x00", "git ls-tree -r {ref} | wc -l\x00", "git\x00 log {ref}", "\x00"):
+            v = m().correr(af(cmd, 1), repo)
+            assert v.estado == "ERROR", (cmd, tuple(v))
+            assert "NUL" in v.detalle or "vacío" in v.detalle, v
+        ok, motivo = m().comando_seguro("git log -1 origin/HEAD\x00")
+        assert not ok and "NUL" in motivo, motivo
+        h = m().lint(archivo([af("git log -1 --format=%s {ref}\x00", 1)]))
+        assert [x.sev for x in con_texto(h, "comando no ejecutable")] == ["FAIL"] and "NUL" in con_texto(h, "comando no ejecutable")[0].texto, h
+        v = m().correr(af("git log -1 --format=%s {ref}", "uno"), repo)
+        assert tuple(v) == ("OK", "uno"), "una afirmación con NUL no tiene que dejar mal a la siguiente"
+
+
+def test_ejecutar_tramos_encadena_los_tramos_con_pipes_y_deja_stdout_y_stderr_en_archivos():
+    modulo = m()
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        resuelto = [modulo.resolver_argv(a)[0] for a in (["git", "ls-tree", "-r", "origin/HEAD", "--name-only"], ["wc", "-l"])]
+        salida, error = modulo.ejecutar_tramos(resuelto, str(repo), modulo.entorno_de_corrida(), 30)
+        assert salida.strip() == b"1" and error == b"", (salida, error)
+        malo = [modulo.resolver_argv(a)[0] for a in (["git", "ls-tree", "-r", "no-existe"], ["wc", "-l"])]
+        salida, error = modulo.ejecutar_tramos(malo, str(repo), modulo.entorno_de_corrida(), 30)
+        assert salida.strip() == b"0" and b"no-existe" in error, (salida, error)
 
 
 def main():
