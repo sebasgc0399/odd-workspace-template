@@ -1228,6 +1228,22 @@ def test_claims_las_llaves_y_los_globs_fuera_de_comillas_son_err_y_no_escriben_n
         assert not (a.medidos["principal"] / "escrito.txt").exists()
 
 
+def test_claims_un_filtro_con_llaves_entre_comillas_no_sobrescribe_un_archivo_trackeado_y_el_regex_mide_como_bash():
+    datos = archivo(af("git ls-tree -r {ref} --name-only | uniq '{-,alfa.txt}'", 1, id="llaves"),
+                    af(r"git ls-tree -r {ref} --name-only | grep -c '^.*\.xt$'", 0, id="regex"),
+                    af('git ls-tree -r {ref} --name-only | grep -c "sig' + "'" + 'ned"', 0, id="comilla"))
+    with ArbolDeAfirmaciones(datos) as a:
+        antes = a.instantanea()
+        contenido = (a.medidos["principal"] / "alfa.txt").read_bytes()
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert "  ok   las 3 afirmaciones son ejecutables y bien formadas" in lineas, lineas
+        assert any(l.startswith("  err  llaves") for l in lineas), lineas
+        assert fila("ok  ", "regex", "0") in lineas and fila("ok  ", "comilla", "0") in lineas, lineas
+        assert (a.medidos["principal"] / "alfa.txt").read_bytes() == contenido
+        assert a.instantanea() == antes
+
+
 def test_claims_cada_repo_se_mide_en_su_ruta_de_la_config():
     datos = archivo(af(CONTEO, 1, id="en-uno", repo="uno"), af(CONTEO, 3, id="en-dos", repo="dos"),
                     af(CONTEO, 3, id="cruzada", repo="uno"))

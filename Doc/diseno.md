@@ -258,12 +258,17 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
       - en git, `--output`, `-O`, `--ext-diff`, `--textconv`, `--filters`, `--no-index` y `--show-signature`, con las opciones largas comparadas por prefijo;
       - un formato que cumpla `%[-+ ]?G` (`afirmaciones.REGEX_DE_FIRMAS`).
     - El `ref` se valida con una regex, así que no puede ser una opción ni meter shell.
-  - **Ejecución, sin shell (L93):**
-    - Cada comando se parte en tramos, y cada tramo en un argv con `shlex` en modo POSIX. Se valida ese argv y se ejecuta **ese mismo** argv: no queda nada que un shell pueda expandir después del chequeo.
-    - Los tramos se encadenan con `subprocess.Popen`, con `cwd` en el repo. El stdin del primero es nulo, y el stdout final y el stderr van a archivos temporales, no a pipes.
-    - git es el del PATH. Justo después del verbo se le insertan `--no-textconv`, `--no-ext-diff` y `--no-show-signature` en `show` y `log`, y las dos primeras en `diff-tree`.
-    - Los filtros salen **solo** de `usr\bin` de Git for Windows (`/usr/bin` en POSIX), nunca del PATH: en Windows, `sort` resolvería a otro programa.
-    - Cuando vence el plazo, se mata el **árbol** de cada tramo: `taskkill /T /F` en Windows, con su propio plazo, y `os.killpg` en POSIX. El `rev-parse --verify` previo usa la misma maquinaria.
+  - **Ejecución: un script de bash generado, con cada token citado (L93-L95):**
+    - Cada comando se parte en tramos, y cada tramo en un argv con `shlex` en modo POSIX. Se valida ese argv.
+    - El motor **genera** un script con `shlex.quote` en cada token de ese argv. Dentro de comillas simples, bash no expande nada, y entre procesos MSYS los argumentos pasan sin reinterpretarse: cada programa recibe exactamente lo validado.
+    - **No se ejecuta sin shell.** Un filtro MSYS lanzado desde un proceso nativo reinterpreta su línea de comandos: expande llaves, globs y `~`, quita las `\` y toma la `'` como comilla (medido, L94).
+    - El script va en un archivo temporal. Lo corre el `bash` real de Git for Windows (`usr\bin\bash.exe`, ubicado a partir de `git`, sin depender del PATH; `/bin/bash` en POSIX), que recibe **solo la ruta del archivo**, nunca el texto por `-c`. Después se borra.
+    - El script entra al repo con `cd --`. El stdin del primer tramo es `/dev/null`, y cada tramo va con `/usr/bin/timeout -k 2 <plazo>`. Si algún tramo sale con 124 o 137 (lo mira con `PIPESTATUS`), el plazo se agotó.
+    - git va por su ruta absoluta. Justo después del verbo se le insertan `--no-textconv`, `--no-ext-diff` y `--no-show-signature` en `show` y `log`, y las dos primeras en `diff-tree`.
+    - Los filtros van por su ruta MSYS absoluta (`/usr/bin/<filtro>`), nunca por el PATH: en Windows, `sort` resolvería a otro programa.
+    - **El respaldo en Python** mata el árbol (`taskkill /T /F` en Windows, `os.killpg` en POSIX) cuando pasan el plazo más 10 s. Lo hace con archivos temporales en lugar de pipes, y alcanza a los descendientes nativos de `git.exe`, que `timeout` no mata.
+    - El `rev-parse --verify` previo y la antigüedad del fetch corren nativos, con la misma maquinaria de archivos y del árbol.
+    - **La semántica es la de bash:** un diferencial **de ejecución** sobre 1 170 comandos aceptados da lo mismo que bash leyendo un script. El origen corría `bash -c "<texto>"` desde Python y sufría la misma reinterpretación: reducía `\\` a `\`.
     - El entorno parte de `comun.entorno_git` y quita `BASH_*`, `ENV`, `SHELLOPTS`, `GREP_OPTIONS`, `POSIXLY_CORRECT` y todo `GIT_*` ajeno.
     - Por `GIT_CONFIG_COUNT`, que gana a la config local del repo medido, fuerza:
       - `core.fsmonitor=false` y `log.showSignature=false`;
@@ -280,7 +285,7 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - `repo` como clave;
     - el `ref` validado;
     - una lista blanca **más estricta en todo**: sobre 215 107 comandos, el port no acepta ninguno que el origen rechace y rechaza 13 333 que el origen aceptaba;
-    - ejecución sin shell, config forzada, sin fetch perezoso y un plazo que mata el árbol de procesos.
+    - un script con cada token citado, config forzada, sin fetch perezoso y un plazo que mata el árbol de procesos.
   - **No ve:**
     - un filtro que, fuera del primer tramo, lee un archivo como operando (solo lectura);
     - `git grep -f`;

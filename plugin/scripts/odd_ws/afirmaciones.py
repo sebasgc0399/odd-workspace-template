@@ -23,7 +23,9 @@ OK, CRECIO, DRIFT, ERROR = "OK", "CRECIO", "DRIFT", "ERROR"
 REF_POR_DEFECTO = "origin/HEAD"
 REF_VALIDO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/@^-]*")
 PLAZO_POR_DEFECTO = 60
+MARGEN_DEL_PLAZO = 10
 ESPERA_TRAS_MATAR = 5
+PLAZO_MINIMO = 0.000001
 PLAZO_DE_TASKKILL = 20
 FETCH_MAX_DIAS = 7
 
@@ -322,7 +324,18 @@ def resolver_argv(argv):
     ruta = os.path.join(carpeta, nombre + (".exe" if os.name == "nt" else ""))
     if not os.path.isfile(ruta):
         return None, "no existe el filtro %s en %s" % (nombre, carpeta)
-    return [ruta, *argv[1:]], None
+    return ["/usr/bin/" + nombre, *argv[1:]], None
+
+
+def ruta_de_bash():
+    if os.name == "nt":
+        carpeta = carpeta_de_filtros()
+        if carpeta:
+            ruta = os.path.join(carpeta, "bash.exe")
+            if os.path.isfile(ruta):
+                return ruta
+        return None
+    return "/bin/bash" if os.path.isfile("/bin/bash") else shutil.which("bash")
 
 
 def entorno_de_corrida(base=None):
@@ -376,7 +389,7 @@ def _matar_arboles(procesos):
             pass
 
 
-def ejecutar_tramos(argvs, cwd, env, plazo):
+def _lanzar(argvs, cwd, env, plazo):
     plazo = _plazo_valido(plazo)
     opciones = {} if os.name == "nt" else {"start_new_session": True}
     with tempfile.TemporaryFile() as salida, tempfile.TemporaryFile() as error:
@@ -399,7 +412,55 @@ def ejecutar_tramos(argvs, cwd, env, plazo):
             raise
         salida.seek(0)
         error.seek(0)
-        return salida.read(), error.read()
+        return salida.read(), error.read(), [proceso.returncode for proceso in procesos]
+
+
+def ejecutar_tramos(argvs, cwd, env, plazo):
+    salida, error, _ = _lanzar(argvs, cwd, env, plazo)
+    return salida, error
+
+
+def _texto_de_plazo(plazo):
+    texto = ("%.6f" % max(plazo, PLAZO_MINIMO)).rstrip("0").rstrip(".")
+    return texto or "%g" % PLAZO_MINIMO
+
+
+def generar_guion(argvs, cwd, plazo):
+    tuberia = []
+    for i, argv in enumerate(argvs):
+        linea = " ".join(shlex.quote(t) for t in ["/usr/bin/timeout", "-k", "2", _texto_de_plazo(plazo), *argv])
+        tuberia.append(linea + " </dev/null" if i == 0 else linea)
+    return "\n".join([
+        "cd -- %s || exit 125" % shlex.quote(cwd),
+        " | ".join(tuberia),
+        'estados=("${PIPESTATUS[@]}")',
+        'for estado in "${estados[@]}"; do',
+        '    if [ "$estado" = 124 ] || [ "$estado" = 137 ]; then exit 124; fi',
+        "done",
+        "exit 0",
+    ]) + "\n"
+
+
+def ejecutar_con_bash(argvs, cwd, env, plazo):
+    plazo = _plazo_valido(plazo)
+    bash = ruta_de_bash()
+    if bash is None:
+        raise OSError("no se encontró el bash de Git for Windows")
+    guion = generar_guion(argvs, str(cwd), plazo)
+    descriptor, ruta = tempfile.mkstemp(prefix="afirmaciones-", suffix=".sh")
+    try:
+        with os.fdopen(descriptor, "wb") as archivo:
+            archivo.write(guion.encode("utf-8"))
+        carpeta, nombre = os.path.split(ruta)
+        salida, error, codigos = _lanzar([[bash, nombre]], carpeta, env, plazo + MARGEN_DEL_PLAZO)
+    finally:
+        try:
+            os.unlink(ruta)
+        except OSError:
+            pass
+    if codigos[0] == 124:
+        raise subprocess.TimeoutExpired(argvs, plazo)
+    return salida, error
 
 
 def juzgar(afirmacion, obtenidos):
@@ -469,7 +530,7 @@ def correr(afirmacion, ruta_repo, entorno=None, plazo=PLAZO_POR_DEFECTO):
     obtenidos = []
     for texto, argvs in ejecuciones:
         try:
-            salida, error = ejecutar_tramos(argvs, str(repo), env, plazo)
+            salida, error = ejecutar_con_bash(argvs, str(repo), env, plazo)
         except subprocess.TimeoutExpired:
             return Veredicto(ERROR, "plazo de %s s agotado: %s" % (plazo, texto))
         except (OSError, ValueError) as exc:
