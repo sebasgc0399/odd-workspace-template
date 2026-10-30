@@ -215,6 +215,49 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6),
   - lo que leyó un `Bash` o un `PowerShell`, que solo queda contado en `no_auditadas`;
   - que la clave de la ratificación sea de esos puntajes, ni que la ratificación se haya hecho a ciegas.
 
+### Conocimiento (`conocimiento.py`, L90)
+
+Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:conocimiento`. Es de solo lectura, y su nombre es distinto del doctor de la máquina (R-7).
+
+- **Config: sección opcional `knowledge`** en `workspace.config.json`.
+  - La lee y la valida solo `config_loader.conocimiento(raiz)`. `cargar()` no la conoce: un error en la config de los documentos nunca deja la config «rota» para los guards.
+  - Sus claves:
+    - `docs`: la carpeta de los docs de dominio, sus `*.md` sin recursión;
+    - `index`: el índice, por defecto `CLAUDE.md`;
+    - `index_max_lines`: el tope del índice, por defecto 200;
+    - `scan`: globs de `.md` extra para links y anclas, con la semántica de R-3;
+    - `quantities`: los sustantivos de las cifras;
+    - `claims`: el archivo de afirmaciones, por defecto `<docs>/_claims.json`.
+  - Son rutas relativas con `/`. Una clave desconocida o un tipo inválido hacen que `conocimiento.py` salga con 2 y nombre la clave.
+- **Nivel 1**, `conocimiento.py [--v]`. Los hallazgos son FAIL o warn, más una worklist que no cuenta como deuda. Sale con 0 si está sano, con 1 si hay algún FAIL, con 3 si solo hay deuda y con 2 ante un error.
+  - **Docs indexados:** cada doc de `docs` aparece nombrado en el índice. Es un warn por doc.
+  - **Links:** un link `.md` cuyo destino no existe es FAIL. Se revisan el índice, los docs y el `scan`, y se ignoran los esquemas (`https:` y `mailto:`).
+  - **Anclas:** una `#ancla` que no existe en el destino es warn. Se compara contra el slug de GitHub y contra `<a id|name>`.
+  - **Cifras en headings:** un heading con `<n> <sustantivo>` que tiene links entrantes es warn, porque el ancla cambia cuando cambia la cifra.
+  - **Tope del índice:** pasar de `index_max_lines` es warn.
+  - **Frescura:** el frontmatter `verificado:` (fecha ISO) y `volatilidad:` (alta 30 días, media 90, baja nunca) dan un warn cuando el doc está vencido.
+  - **Sin commitear:** `git status --porcelain -uall`, acotado a los archivos de conocimiento, separa conflictos, borrados, modificados y nuevos.
+  - **Sin `docs`**, los chequeos que la necesitan dan «no aplica», nunca un FAIL.
+- **Nivel 3**, `--cruce`: propone **candidatos**, no hallazgos, y sale siempre con 0. No usa git, red ni repos.
+  - Busca entidades entre backticks que aparecen en 6 docs o más.
+  - Busca cifras del mismo sustantivo (de `quantities`) que difieren entre docs, siempre con la frase que las rodea.
+  - Lee primero los docs con `rol: resumen`.
+- **Diferencias con el origen:**
+  - la config reemplaza las constantes de rutas;
+  - el vocabulario de cifras viene vacío por defecto;
+  - el rol sale solo del frontmatter;
+  - un link con esquema ya no es FAIL;
+  - lo nuevo se lista archivo por archivo (`-uall`), no por carpeta;
+  - fuera de un repo git, «sin commitear» da «no aplica».
+- **No ve:**
+  - links por referencia o entre `<…>`;
+  - un `#ancla` dentro del mismo doc;
+  - headings dentro de bloques de código, que cuentan como headings;
+  - frontmatter YAML anidado, porque lo lee por líneas `clave: valor`;
+  - subcarpetas de `docs`;
+  - plurales del vocabulario de cifras.
+- **No viajaron:** los chequeos de proceso del origen (compromisos, drenaje de preguntas, estado de los tickets y candidatos atrapados) y el rol de evidencia por nombre de doc.
+
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
 Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.
