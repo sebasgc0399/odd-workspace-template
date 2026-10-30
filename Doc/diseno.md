@@ -249,14 +249,27 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
   - **Lista blanca:**
     - git solo con `ls-tree`, `show`, `log`, `cat-file`, `rev-parse`, `diff-tree` y `grep`, siempre como primer tramo de cada comando;
     - después, por `|`, solo los filtros `grep`, `wc`, `sort`, `uniq`, `head`, `tail`, `cut` y `tr`.
-    - Fuera de comillas simples se rechazan `$`, el backtick y `\`; fuera de toda comilla, `#`, `<`, `>` y `&`.
-    - Se rechazan los flags que escriben, leen el disco o ejecutan: `sort -o` y `-T`, `uniq` con dos operandos, y en git `--output`, `-O`, `--ext-diff`, `--textconv`, `--filters`, `--no-index`, `--show-signature` y `%G` en un formato. Las opciones largas se comparan por prefijo.
+    - Fuera de comillas simples se rechazan `$`, el backtick y `\`.
+    - Fuera de toda comilla se rechazan `#`, `<`, `>`, `&`, `{`, `}`, `*`, `?`, `[`, `]` y `~`. Por eso `{ref}~1` va entre comillas: `'{ref}~1'`.
+    - El NUL se rechaza en cualquier parte.
+    - Se rechazan los flags que escriben, leen el disco o ejecutan:
+      - `sort -o` y `-T`;
+      - `uniq` con dos operandos;
+      - en git, `--output`, `-O`, `--ext-diff`, `--textconv`, `--filters`, `--no-index` y `--show-signature`, con las opciones largas comparadas por prefijo;
+      - un formato que cumpla `%[-+ ]?G` (`afirmaciones.REGEX_DE_FIRMAS`).
     - El `ref` se valida con una regex, así que no puede ser una opción ni meter shell.
-  - **Ejecución:**
-    - Corre con el `bash` de Git for Windows, con `cwd` en el repo, stdin cerrado, `timeout` adentro y un respaldo en Python.
-    - El entorno parte de `comun.entorno_git` y quita las variables de arranque de bash y todo `GIT_*` ajeno.
-    - Una función `git` en el shell antepone `--no-textconv`, `--no-ext-diff` y `--no-show-signature`, porque `git show` y `git log` ejecutarían los drivers de la config local del repo medido (medido).
-    - Cualquier stderr, una salida vacía o un plazo agotado es error.
+  - **Ejecución, sin shell (L93):**
+    - Cada comando se parte en tramos, y cada tramo en un argv con `shlex` en modo POSIX. Se valida ese argv y se ejecuta **ese mismo** argv: no queda nada que un shell pueda expandir después del chequeo.
+    - Los tramos se encadenan con `subprocess.Popen`, con `cwd` en el repo. El stdin del primero es nulo, y el stdout final y el stderr van a archivos temporales, no a pipes.
+    - git es el del PATH. Justo después del verbo se le insertan `--no-textconv`, `--no-ext-diff` y `--no-show-signature` en `show` y `log`, y las dos primeras en `diff-tree`.
+    - Los filtros salen **solo** de `usr\bin` de Git for Windows (`/usr/bin` en POSIX), nunca del PATH: en Windows, `sort` resolvería a otro programa.
+    - Cuando vence el plazo, se mata el **árbol** de cada tramo: `taskkill /T /F` en Windows, con su propio plazo, y `os.killpg` en POSIX. El `rev-parse --verify` previo usa la misma maquinaria.
+    - El entorno parte de `comun.entorno_git` y quita `BASH_*`, `ENV`, `SHELLOPTS`, `GREP_OPTIONS`, `POSIXLY_CORRECT` y todo `GIT_*` ajeno.
+    - Por `GIT_CONFIG_COUNT`, que gana a la config local del repo medido, fuerza:
+      - `core.fsmonitor=false` y `log.showSignature=false`;
+      - `gpg.program`, `gpg.openpgp.program`, `gpg.ssh.program` y `gpg.x509.program` apuntando a una ruta inexistente. Falla cerrado: la afirmación queda `err`.
+    - Suma `GIT_NO_LAZY_FETCH=1`, porque en un clon parcial `git show` haría fetch por red y podría ejecutar un remoto `ext::`.
+    - Cualquier stderr, una salida vacía o un plazo agotado es error. Un comando que no se puede lanzar es `err` de esa afirmación, y la corrida sigue.
   - **Veredictos:** `ok`, `+` (creció; solo los inventarios, y no es un hallazgo), `ROJO` (drift) y `err`.
     - Una afirmación con un FAIL del lint no se ejecuta.
     - Las SQL salen «sin juicio» (U12c, en espera), con la línea `TIER 2 ABIERTO`, y no cuentan en el código de salida.
@@ -266,12 +279,12 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - JSON en lugar de YAML;
     - `repo` como clave;
     - el `ref` validado;
-    - una lista blanca **más estricta en todo**: sobre 208 231 comandos, el port no acepta ninguno que el origen rechace y rechaza 6 333 que el origen aceptaba;
-    - stdin cerrado y plazo que mata a los hijos.
+    - una lista blanca **más estricta en todo**: sobre 215 107 comandos, el port no acepta ninguno que el origen rechace y rechaza 13 333 que el origen aceptaba;
+    - ejecución sin shell, config forzada, sin fetch perezoso y un plazo que mata el árbol de procesos.
   - **No ve:**
     - un filtro que, fuera del primer tramo, lee un archivo como operando (solo lectura);
     - `git grep -f`;
-    - otros ejecutables de la config local, más allá de los medidos (`textconv`, `smudge`, `diff.external` y `gpg.program`);
+    - otros ejecutables de la config local, más allá de los medidos y cerrados: `textconv`, `smudge`, `diff.external`, los cuatro programas de firma, `core.fsmonitor` y el fetch perezoso;
     - una capa mal declarada en la config, que también da 2 en `--claims`.
 - **Nivel 3**, `--cruce`: propone **candidatos**, no hallazgos, y sale siempre con 0. No usa git, red ni repos.
   - Busca entidades entre backticks que aparecen en 6 docs o más.

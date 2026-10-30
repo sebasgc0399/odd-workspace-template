@@ -1207,6 +1207,27 @@ def test_claims_una_afirmacion_sql_con_fail_del_lint_rompe_el_codigo_por_el_fail
         assert "TIER 2 ABIERTO: 1 de 1 afirmación(es) SQL sin veredicto" in lineas
 
 
+def test_claims_un_nul_en_el_comando_es_err_y_la_corrida_sigue():
+    datos = archivo(af("git log -1 --format=%s {ref}\x00", 1, id="con-nul"), af(CONTEO, 1, id="sana"))
+    with ArbolDeAfirmaciones(datos) as a:
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert any(l.startswith("  err  con-nul") and "NUL" in l for l in lineas), lineas
+        assert fila("ok  ", "sana", "1") in lineas, lineas
+        assert "CLAIMS: 1 verde(s), 0 crecido(s), 0 ROJO(s), 1 error(es) de ejecución, 0 SQL sin veredicto." in lineas, lineas
+
+
+def test_claims_las_llaves_y_los_globs_fuera_de_comillas_son_err_y_no_escriben_nada():
+    datos = archivo(af("git log -1 --format=%s --{,}output=escrito.txt {ref}", 1, id="llaves"), af("git log -1 --format=%s --o* {ref}", 1, id="glob"))
+    with ArbolDeAfirmaciones(datos) as a:
+        antes = a.instantanea()
+        codigo, lineas, error = claims(a)
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert sum(1 for l in lineas if l.startswith("  err  ") and "fuera de comillas" in l) == 2, lineas
+        assert a.instantanea() == antes
+        assert not (a.medidos["principal"] / "escrito.txt").exists()
+
+
 def test_claims_cada_repo_se_mide_en_su_ruta_de_la_config():
     datos = archivo(af(CONTEO, 1, id="en-uno", repo="uno"), af(CONTEO, 3, id="en-dos", repo="dos"),
                     af(CONTEO, 3, id="cruzada", repo="uno"))
