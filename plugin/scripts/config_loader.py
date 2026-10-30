@@ -1,5 +1,6 @@
 import json
 import os
+import posixpath
 import re
 from collections import namedtuple
 from functools import lru_cache
@@ -10,6 +11,9 @@ NOMBRE_LOCAL = "workspace.local.json"
 VERSION_SOPORTADA = 1
 MOLDES = ("repo", "propio")
 PREFIJO_RE = re.compile(r"[A-Z][A-Z0-9]*")
+CLAVES_DE_CONOCIMIENTO = ("docs", "index", "index_max_lines", "scan", "quantities", "claims")
+INDICE_POR_DEFECTO = "CLAUDE.md"
+TOPE_DEL_INDICE_POR_DEFECTO = 200
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -208,12 +212,56 @@ def _capas(config, repos, molde):
     return capas
 
 
+def _ruta_de_conocimiento(valor, donde):
+    if not isinstance(valor, str) or not valor or valor.startswith("/") or "\\" in valor or ":" in valor or ".." in valor.split("/"):
+        raise ConfigRota(f"{donde} debe ser una ruta relativa a la raíz de la instancia, con /")
+    return posixpath.normpath(valor)
+
+
+def _lista_de_textos(valor, donde):
+    if not isinstance(valor, list) or not all(isinstance(t, str) and t.strip() and t == t.strip() for t in valor):
+        raise ConfigRota(f"{donde} debe ser una lista de textos no vacíos y sin espacios en los bordes")
+    return list(valor)
+
+
+def _conocimiento(config):
+    seccion = config.get("knowledge", {})
+    if not isinstance(seccion, dict):
+        raise ConfigRota("knowledge debe ser un objeto con las claves " + ", ".join(CLAVES_DE_CONOCIMIENTO))
+    desconocidas = sorted(set(seccion) - set(CLAVES_DE_CONOCIMIENTO))
+    if desconocidas:
+        raise ConfigRota(f"knowledge.{desconocidas[0]} no es una clave conocida ({', '.join(CLAVES_DE_CONOCIMIENTO)})")
+    docs = _ruta_de_conocimiento(seccion["docs"], "knowledge.docs") if "docs" in seccion else None
+    indice = _ruta_de_conocimiento(seccion["index"], "knowledge.index") if "index" in seccion else INDICE_POR_DEFECTO
+    tope = seccion.get("index_max_lines", TOPE_DEL_INDICE_POR_DEFECTO)
+    if isinstance(tope, bool) or not isinstance(tope, int) or tope <= 0:
+        raise ConfigRota(f"knowledge.index_max_lines debe ser un entero mayor que 0, no {tope!r}")
+    escaneo = _lista_de_textos(seccion.get("scan", []), "knowledge.scan")
+    for patron in escaneo:
+        try:
+            _glob_a_regex(patron)
+        except re.error as error:
+            raise ConfigRota(f"knowledge.scan: el glob {patron!r} no es válido ({error})")
+    cantidades = _lista_de_textos(seccion.get("quantities", []), "knowledge.quantities")
+    if "claims" in seccion:
+        afirmaciones = _ruta_de_conocimiento(seccion["claims"], "knowledge.claims")
+    else:
+        afirmaciones = posixpath.normpath(docs + "/_claims.json") if docs is not None else None
+    return {"docs": docs, "index": indice, "index_max_lines": tope, "scan": escaneo, "quantities": cantidades, "claims": afirmaciones}
+
+
 def capas(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     molde = _molde((config.get("defaults") or {}).get("mold_source", "repo"), "defaults.mold_source")
     _banderas(config)
     return _capas(config, config.get("repos") or {}, molde)
+
+
+def conocimiento(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return _conocimiento(config)
 
 
 def cargar(raiz):

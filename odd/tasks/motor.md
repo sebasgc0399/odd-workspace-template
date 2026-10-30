@@ -55,7 +55,10 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U11a | `rescatar.py` y `auditar_lecturas.py`, con el lector tolerante de transcripciones en `odd_ws/transcripcion.py`, compartido con `writer_stop` | motor | delegado (writer Sonnet, en paralelo con U11b) | ninguno | hecho (L88) |
 | U11b | `puntuar.py`: sin ratificador por defecto, la ratificación conserva las celdas disputadas y la escala queda fija | motor | delegado (writer Sonnet, en paralelo con U11a) | ninguno | hecho (L89) |
 | U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
-| U12 | Doctor de conocimiento, en 3 cortes: chequeos genéricos de documentos, motor de afirmaciones, cruce | motor parcial | inline | ninguno | pendiente |
+| U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c |
+| U12a | `conocimiento.py` (R-7): esqueleto, chequeos de documentos (indexados, links, anclas, cifras en headings, tope del índice, frescura por frontmatter, sin trackear) y `--cruce`; sección opcional `knowledge` en `workspace.config.json` | motor | delegado (writer Sonnet, en paralelo con U12b) | ninguno | hecho (L91) |
+| U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | en curso |
+| U12c | El juicio de las afirmaciones SQL (el agente ejecuta por MCP, el script juzga) | motor | — | — | en espera (L90) |
 
 **No se portan** (se documentan como ideas cuando valga la pena): el ritual de publicación con su auditoría de ramas, el aviso de trabajo parqueado, el aviso de SP del repo del equipo, el espejo del dispositivo (retirado), transcripción y redacción de mensajes, la matriz de reglas del origen y sus fixtures sembrados.
 
@@ -555,3 +558,55 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - la sección «Medir revisores» de `Doc/diseno.md` y el README.
   - **Costura:** las 21 suites en verde.
   - **Scratch de los writers:** borrado.
+  - **Commit:** `4b35e03`.
+- **L90 (2026-10-30): alcance de U12.**
+  - **Las respuestas del usuario:**
+    - a «¿Arranco U12?» respondió: «Si arranquemos»;
+    - a «¿Va U12 con U12a y U12b, y el juicio SQL en espera?» respondió, literal: «Si vamos tomare tu recomendacion».
+  - **Mapa:** lo hizo un explorador de solo lectura (~200 mil tokens).
+    - El chequeo puntual del padre confirma los 15 chequeos de `GRUPOS` y que `config_loader.cargar` devuelve solo las claves que conoce.
+    - El mapa corrige la nota vieja en cuatro cosas: son 15 chequeos y no ~17; ninguno consulta Azure; el tier 2 no ejecuta SQL (lo corre el agente y el script lo juzga); y el cruce no usa git, red ni repos.
+  - **U12a, `conocimiento.py`:**
+    - Es otro nombre que el doctor de la máquina (R-7).
+    - **Entran:** indexados, links, anclas, cifras en headings, tope de líneas del índice, frescura por frontmatter, sin trackear y `--cruce`.
+    - **La config suma una sección opcional `knowledge`:** la carpeta de docs, el índice, el tope, los globs extra a revisar, el vocabulario de cifras y el archivo de afirmaciones.
+  - **U12b, motor de afirmaciones de repo:**
+    - **Primero la biblioteca:** `odd_ws/afirmaciones.py`.
+    - **Después, ya con U12a:** `--claims` y la cobertura en `conocimiento.py`.
+    - **Riesgo 2:** ejecuta texto que viene de un archivo de la instancia. Va con commit propio y verificador independiente.
+  - **U12c, el juicio SQL:** queda en espera, porque no hay ninguna instancia con afirmaciones SQL.
+  - **No viajan:**
+    - compromisos, drenaje de preguntas, estado y frescura de los work items y candidatos atrapados, que son procedimiento del origen;
+    - la paridad de la salud del workspace (ya la cubrió U9);
+    - el rol de evidencia por nombre de doc;
+    - la simulación del validador del MCP del origen;
+    - `hooks cableados`, que queda como idea para el doctor de la máquina.
+  - **Decisiones técnicas (contadas):**
+    - El archivo de afirmaciones pasa a **JSON**, que rechaza las claves duplicadas, porque el plugin no usa PyYAML.
+    - El `repo` de una afirmación es una clave de `repos` de la config, no una ruta absoluta.
+    - El `ref` por defecto es `origin/HEAD`, como en U7c.
+    - El entorno parte de `comun.entorno_git`.
+  - **Ruta:** dos writers Sonnet en paralelo, con superficies disjuntas (disparador (a)). El enganche de U12b en `conocimiento.py` va después de U12a, con el mismo writer.
+- **L91 (2026-10-30): U12a hecho.** Lo escribió un writer Sonnet (~345 mil tokens, 40 minutos), más una corrección.
+  - **RED antes del código:** `config_loader.tests.py` dio 53/72, y `conocimiento.tests.py` dio 6/63 contra un esqueleto que solo tenía las firmas. **GREEN:** 67/67 y 72/72.
+  - **Mutaciones:** murieron las 72.
+    - En la primera tanda sobrevivieron 12, todos bordes: `>` contra `>=`, 150 contra 151, orden y duplicados, `-uall`, mayúsculas en el ancla y `LC_ALL`.
+    - Los mató un endurecimiento de las pruebas.
+  - **Diferencial contra el origen**, cargado por ruta con sus constantes apuntadas a un árbol sintético:
+    - Coinciden los indexados, las anclas, las cifras, el tope, la frescura y el cruce.
+    - Las 8 diferencias son todas esperadas: los links con esquema ya no son FAIL, el `scan` suma archivos, `-uall`, `quotepath`, la config en lugar de las constantes, el vocabulario vacío, la falta de `ROL_EVIDENCIA` y el orden.
+    - El control positivo, con dos archivos cambiados, difiere en 8 claves.
+  - **Corrección de diseño, del padre (el error fue suyo, en el brief).**
+    - **El problema:** el brief pedía que `cargar()` devolviera `knowledge`. `cargar()` lo usan todos los hooks, así que un error de tipeo en la sección de documentos dejaba la config «rota», y el guard de comandos pasaba a preguntar ante todo git.
+    - **La corrección:** `cargar()` vuelve a ser idéntico al de HEAD, sin ningún hunk dentro, y la sección vive solo en `config_loader.conocimiento(raiz)`.
+    - **Pruebas:** el ROJO de la corrección dio 64/73 y el GREEN 73/73. Una prueba fija que, con `knowledge` válida o inválida, `cargar()`, `estado()` y `capas()` no cambian.
+    - **Mutaciones:** murieron las 3 nuevas, que validaban la sección en `cargar()`, en `estado()` o en `capas()`.
+  - **Desvíos aceptados:**
+    - `conocimiento(raiz)` es pública;
+    - los links con esquema se ignoran;
+    - fuera de un repo git, «sin commitear» da «no aplica»;
+    - la salida de consola en Windows sale en CRLF, como la del doctor.
+  - **Lo que hizo el padre:**
+    - la skill `/odd-ws:conocimiento` (los niveles 1 y 3, las reglas duras del cruce y el enrutamiento), escrita genérica;
+    - la sección «Conocimiento» de `Doc/diseno.md`;
+    - el README.

@@ -563,6 +563,193 @@ def test_el_repo_declarado_por_junction_reconoce_la_ruta_real():
         assert m().clasificar(i.repo / "sp" / "Uno.sql", cargada) == ("sql", "db")
 
 
+KNOWLEDGE_POR_DEFECTO = {"docs": None, "index": "CLAUDE.md", "index_max_lines": 200, "scan": [], "quantities": [], "claims": None}
+
+
+def con_knowledge(valor):
+    config = config_valida()
+    config["knowledge"] = valor
+    return config
+
+
+def test_cargar_sigue_igual_que_antes_y_no_conoce_la_seccion_knowledge():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        esperada = {
+            "raiz": str(i.raiz),
+            "schema_version": 1,
+            "defaults": {"mold_source": "repo"},
+            "repos": {"db": {"path": str(i.repo), "worktrees": []}},
+            "layers": config_valida()["layers"],
+        }
+        assert cargada == esperada, cargada
+        assert m().capas(i.raiz) == config_valida()["layers"]
+        e = m().estado(i.raiz)
+        assert e.tipo == "ok" and e.config == esperada, e
+
+
+def test_cargar_ignora_la_seccion_knowledge_valida_o_invalida_y_solo_conocimiento_la_juzga():
+    invalidas = ([], "docs", {"docz": "docs"}, {"index_max_lines": 0}, {"docs": 3}, {"scan": ["a[9-0]"]})
+    validas = ({}, {"docs": "docs", "quantities": ["tablas"]})
+    for valor in (*invalidas, *validas):
+        with Instancia(config=con_knowledge(valor)) as i:
+            con_seccion = m().cargar(i.raiz)
+            estado = m().estado(i.raiz)
+            assert m().capas(i.raiz) == config_valida()["layers"], valor
+            (i.raiz / "workspace.config.json").write_text(json.dumps(config_valida()), encoding="utf-8")
+            sin_seccion = m().cargar(i.raiz)
+            assert "knowledge" not in con_seccion, (valor, con_seccion)
+            assert con_seccion == sin_seccion, (valor, con_seccion, sin_seccion)
+            assert estado.tipo == "ok" and estado.config == sin_seccion, (valor, estado)
+    for valor in invalidas:
+        with Instancia(config=con_knowledge(valor)) as i:
+            try:
+                m().conocimiento(i.raiz)
+            except m().ConfigRota as error:
+                assert "knowledge" in str(error), (valor, error)
+            else:
+                raise AssertionError(f"conocimiento() debe lanzar ConfigRota para {valor!r}")
+
+
+def test_knowledge_vacio_da_los_valores_por_defecto():
+    with Instancia(config=con_knowledge({})) as i:
+        assert m().conocimiento(i.raiz) == KNOWLEDGE_POR_DEFECTO
+
+
+def test_knowledge_completo_se_devuelve_tal_cual():
+    completo = {
+        "docs": "docs",
+        "index": "README.md",
+        "index_max_lines": 50,
+        "scan": ["notas/**/*.md", "otro.md"],
+        "quantities": ["tablas", "módulos"],
+        "claims": "docs/afirmaciones.json",
+    }
+    with Instancia(config=con_knowledge(dict(completo))) as i:
+        assert m().conocimiento(i.raiz) == completo
+
+
+def test_knowledge_claims_por_defecto_cuelga_de_docs():
+    for docs, claims in (("docs", "docs/_claims.json"), ("docs/", "docs/_claims.json"), ("a/b", "a/b/_claims.json"), (".", "_claims.json")):
+        with Instancia(config=con_knowledge({"docs": docs})) as i:
+            conocimiento = m().conocimiento(i.raiz)
+            assert conocimiento["claims"] == claims, (docs, conocimiento)
+            assert conocimiento["docs"] == os.path.normpath(docs).replace("\\", "/"), (docs, conocimiento)
+
+
+def test_knowledge_sin_docs_no_inventa_el_archivo_de_afirmaciones():
+    with Instancia(config=con_knowledge({"index": "LEEME.md"})) as i:
+        assert m().conocimiento(i.raiz)["claims"] is None
+
+
+def test_conocimiento_se_lee_sin_exigir_las_rutas_locales_de_los_repos():
+    with Instancia(config=con_knowledge({"docs": "docs"}), local=False) as i:
+        assert m().estado(i.raiz).tipo == "rota"
+        assert m().conocimiento(i.raiz) == {**KNOWLEDGE_POR_DEFECTO, "docs": "docs", "claims": "docs/_claims.json"}
+
+
+def test_conocimiento_sin_la_seccion_da_los_valores_por_defecto_y_valida_la_version():
+    with Instancia() as i:
+        assert m().conocimiento(i.raiz) == KNOWLEDGE_POR_DEFECTO
+    config = config_valida()
+    config["schema_version"] = 2
+    with Instancia(config=config) as i:
+        try:
+            m().conocimiento(i.raiz)
+        except m().ConfigRota as error:
+            assert "schema_version" in str(error), error
+        else:
+            raise AssertionError("una schema_version desconocida debe lanzar ConfigRota")
+
+
+def _rota_por_knowledge(valor, esperado):
+    with Instancia(config=con_knowledge(valor)) as i:
+        assert m().estado(i.raiz).tipo == "ok", valor
+        try:
+            m().conocimiento(i.raiz)
+        except m().ConfigRota as error:
+            assert "knowledge" in str(error) and all(t in str(error) for t in esperado), (valor, str(error))
+        else:
+            raise AssertionError(f"conocimiento() debe lanzar ConfigRota para {valor!r}")
+
+
+def test_knowledge_que_no_es_un_objeto_es_rota():
+    for malo in ([], "docs", 3, None, True):
+        _rota_por_knowledge(malo, ["objeto"])
+
+
+def test_knowledge_con_una_clave_desconocida_es_rota():
+    _rota_por_knowledge({"docz": "docs"}, ["docz"])
+    _rota_por_knowledge({"docs": "docs", "Docs": "x"}, ["Docs"])
+
+
+def test_knowledge_rutas_invalidas_son_rota():
+    malas = (3, True, None, ["x"], {}, "", "/abs", "C:/x", "C:\\x", "a\\b", "../fuera", "a/../b", "..")
+    for campo in ("docs", "index", "claims"):
+        for malo in malas:
+            _rota_por_knowledge({campo: malo}, [f"knowledge.{campo}"])
+
+
+def test_knowledge_rutas_relativas_validas_se_aceptan_y_se_normalizan():
+    with Instancia(config=con_knowledge({"docs": "./docs//sub/", "index": "./LEEME.md", "claims": "x/./c.json"})) as i:
+        conocimiento = m().conocimiento(i.raiz)
+        assert conocimiento["docs"] == "docs/sub", conocimiento
+        assert conocimiento["index"] == "LEEME.md", conocimiento
+        assert conocimiento["claims"] == "x/c.json", conocimiento
+
+
+def test_knowledge_tope_del_indice_invalido_es_rota():
+    for malo in (0, -1, 1.5, "200", True, False, None, [200]):
+        _rota_por_knowledge({"index_max_lines": malo}, ["knowledge.index_max_lines"])
+
+
+def test_knowledge_tope_del_indice_valido():
+    for valido in (1, 200, 5000):
+        with Instancia(config=con_knowledge({"index_max_lines": valido})) as i:
+            assert m().conocimiento(i.raiz)["index_max_lines"] == valido
+
+
+def test_knowledge_scan_invalido_es_rota():
+    for malo in ("docs/*.md", [""], [3], [None], None, {}, ["ok", ""]):
+        _rota_por_knowledge({"scan": malo}, ["knowledge.scan"])
+
+
+def test_knowledge_scan_con_un_glob_mal_formado_es_rota_y_nombra_el_glob():
+    for malo in ("notas/[z-a]*.md", "a[9-0]"):
+        _rota_por_knowledge({"scan": ["ok/*.md", malo]}, ["knowledge.scan", malo])
+
+
+def test_knowledge_scan_vacio_es_valido():
+    with Instancia(config=con_knowledge({"scan": []})) as i:
+        assert m().conocimiento(i.raiz)["scan"] == []
+
+
+def test_knowledge_vocabulario_de_cifras_invalido_es_rota():
+    for malo in ("tablas", [""], [3], [None], None, {}, [" tablas"], ["tablas "], ["ok", " "]):
+        _rota_por_knowledge({"quantities": malo}, ["knowledge.quantities"])
+
+
+def test_knowledge_vocabulario_de_cifras_valido_conserva_el_orden_y_los_acentos():
+    with Instancia(config=con_knowledge({"quantities": ["módulos", "tablas", "work items"]})) as i:
+        assert m().conocimiento(i.raiz)["quantities"] == ["módulos", "tablas", "work items"]
+
+
+def test_knowledge_roto_no_cambia_el_error_de_las_otras_secciones():
+    config = con_knowledge({"docs": 3})
+    config["layers"]["sql"]["extensions"] = ["sql"]
+    with Instancia(config=config) as i:
+        e = m().estado(i.raiz)
+        assert e.tipo == "rota" and "extensions" in e.razon and "knowledge" not in e.razon, e
+
+
+def test_knowledge_no_devuelve_las_listas_de_la_config_original():
+    config = con_knowledge({"scan": ["a/*.md"], "quantities": ["tablas"]})
+    resultado = m()._conocimiento(config)
+    resultado["scan"].append("b")
+    resultado["quantities"].append("c")
+    assert config["knowledge"] == {"scan": ["a/*.md"], "quantities": ["tablas"]}, config
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
