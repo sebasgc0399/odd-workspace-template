@@ -238,6 +238,41 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
   - **Frescura:** el frontmatter `verificado:` (fecha ISO) y `volatilidad:` (alta 30 días, media 90, baja nunca) dan un warn cuando el doc está vencido.
   - **Sin commitear:** `git status --porcelain -uall`, acotado a los archivos de conocimiento, separa conflictos, borrados, modificados y nuevos.
   - **Sin `docs`**, los chequeos que la necesitan dan «no aplica», nunca un FAIL.
+  - **Cobertura de afirmaciones** (U12b):
+    - Busca los docs que afirman cifras del vocabulario sin una afirmación que los cite en su `doc`.
+    - Resta las cifras declaradas en `cobertura_triada`, por aparición.
+    - Es worklist (hasta 5 docs); una cifra nueva en un doc ya triado y los problemas de la triada son warn.
+- **Nivel 2**, `--claims` (U12b, L92): **veredictos** sobre afirmaciones verificables del código, con el motor en `odd_ws/afirmaciones.py`.
+  - **El archivo** es JSON (por defecto `<docs>/_claims.json`) y rechaza las claves duplicadas. Lleva `version: 1`, `claims`, `rechazados` y `cobertura_triada`.
+    - Cada afirmación tiene `id`, `naturaleza` (invariante o inventario), `ejecutor` (`repo` o `sql`) y `expected`.
+    - Las de `repo` suman `repo`, que es una **clave** de `repos` de la config; `ref`, por defecto `origin/HEAD`; y `comando`, con `{ref}`.
+  - **Lista blanca:**
+    - git solo con `ls-tree`, `show`, `log`, `cat-file`, `rev-parse`, `diff-tree` y `grep`, siempre como primer tramo de cada comando;
+    - después, por `|`, solo los filtros `grep`, `wc`, `sort`, `uniq`, `head`, `tail`, `cut` y `tr`.
+    - Fuera de comillas simples se rechazan `$`, el backtick y `\`; fuera de toda comilla, `#`, `<`, `>` y `&`.
+    - Se rechazan los flags que escriben, leen el disco o ejecutan: `sort -o` y `-T`, `uniq` con dos operandos, y en git `--output`, `-O`, `--ext-diff`, `--textconv`, `--filters`, `--no-index`, `--show-signature` y `%G` en un formato. Las opciones largas se comparan por prefijo.
+    - El `ref` se valida con una regex, así que no puede ser una opción ni meter shell.
+  - **Ejecución:**
+    - Corre con el `bash` de Git for Windows, con `cwd` en el repo, stdin cerrado, `timeout` adentro y un respaldo en Python.
+    - El entorno parte de `comun.entorno_git` y quita las variables de arranque de bash y todo `GIT_*` ajeno.
+    - Una función `git` en el shell antepone `--no-textconv`, `--no-ext-diff` y `--no-show-signature`, porque `git show` y `git log` ejecutarían los drivers de la config local del repo medido (medido).
+    - Cualquier stderr, una salida vacía o un plazo agotado es error.
+  - **Veredictos:** `ok`, `+` (creció; solo los inventarios, y no es un hallazgo), `ROJO` (drift) y `err`.
+    - Una afirmación con un FAIL del lint no se ejecuta.
+    - Las SQL salen «sin juicio» (U12c, en espera), con la línea `TIER 2 ABIERTO`, y no cuentan en el código de salida.
+    - Por cada repo usado se informa la antigüedad de su último fetch: el motor no hace fetch.
+  - **Salidas:** 0 si está todo verde (crecidos y SQL abiertas incluidos); 1 si hay algún `ROJO`, algún `err`, un FAIL del lint o un archivo que no carga; 2 si la config está rota (por ejemplo, falta la ruta local de un repo).
+  - **Diferencias con el origen:**
+    - JSON en lugar de YAML;
+    - `repo` como clave;
+    - el `ref` validado;
+    - una lista blanca **más estricta en todo**: sobre 208 231 comandos, el port no acepta ninguno que el origen rechace y rechaza 6 333 que el origen aceptaba;
+    - stdin cerrado y plazo que mata a los hijos.
+  - **No ve:**
+    - un filtro que, fuera del primer tramo, lee un archivo como operando (solo lectura);
+    - `git grep -f`;
+    - otros ejecutables de la config local, más allá de los medidos (`textconv`, `smudge`, `diff.external` y `gpg.program`);
+    - una capa mal declarada en la config, que también da 2 en `--claims`.
 - **Nivel 3**, `--cruce`: propone **candidatos**, no hallazgos, y sale siempre con 0. No usa git, red ni repos.
   - Busca entidades entre backticks que aparecen en 6 docs o más.
   - Busca cifras del mismo sustantivo (de `quantities`) que difieren entre docs, siempre con la frase que las rodea.

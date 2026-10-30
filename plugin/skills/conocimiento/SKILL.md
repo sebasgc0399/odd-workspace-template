@@ -21,10 +21,11 @@ Son niveles de **naturaleza distinta**: nunca los sumes en un mismo conteo. Un v
 
 | Nivel | Comando | Naturaleza |
 |---|---|---|
-| 1, mecánico | `conocimiento.py [--v]` | **Hallazgos**, y aparte una worklist que no es deuda. Revisa los docs indexados, los links, las anclas, las cifras en los headings, el tope de líneas del índice, la frescura por frontmatter y lo que falta commitear. |
+| 1, mecánico | `conocimiento.py [--v]` | **Hallazgos**, y aparte una worklist que no es deuda. Revisa los docs indexados, los links, las anclas, las cifras en los headings, el tope de líneas del índice, la frescura por frontmatter, la cobertura de afirmaciones y lo que falta commitear. |
+| 2, afirmaciones | `conocimiento.py --claims` | **Veredictos.** Lintea el archivo de afirmaciones, ejecuta las de `repo` con una lista blanca de comandos de solo lectura y las juzga: `ok`, `+` (creció), `ROJO` o `err`. Las SQL todavía no se juzgan. |
 | 3, cruce | `conocimiento.py --cruce`, más leer | **Candidatos**, no hallazgos: el script propone y vos juzgás. Busca entidades repetidas en muchos docs y cifras del mismo sustantivo que difieren entre docs. |
 
-Corré el nivel 1 siempre, porque es barato y determinista. El cruce, solo si lo piden o si el nivel 1 sale limpio y quedan dudas de contenido. Su precisión medida en el proyecto de origen fue de alrededor del 8 %: a esa tasa, reportar sus candidatos como hallazgos sería ruido nueve de cada diez veces.
+Corré los niveles 1 y 2 siempre, porque son baratos y deterministas. El cruce, solo si lo piden o si el nivel 1 sale limpio y quedan dudas de contenido. Su precisión medida en el proyecto de origen fue de alrededor del 8 %: a esa tasa, reportar sus candidatos como hallazgos sería ruido nueve de cada diez veces.
 
 **Salidas del nivel 1:**
 - 0: sano, aunque haya worklist;
@@ -33,6 +34,20 @@ Corré el nivel 1 siempre, porque es barato y determinista. El cruce, solo si lo
 - 2: error (sin instancia, config rota o git roto).
 
 El cruce sale siempre con 0.
+
+**Salidas del nivel 2:**
+- 0: todo verde (un `+` no es un hallazgo: se mueve la línea base);
+- 1: algún `ROJO`, algún `err`, un FAIL del lint o un archivo que no carga;
+- 2: config rota.
+
+Si aparece `TIER 2 ABIERTO`, quedan afirmaciones SQL sin veredicto, y ese nivel no está cerrado aunque salga con 0.
+
+## Afirmaciones (nivel 2)
+
+- Viven en el archivo de `knowledge.claims` (por defecto, `<docs>/_claims.json`), en JSON.
+- Cada afirmación declara un `comando` de solo lectura sobre un repo de la config (`repo` es su clave en `repos`) y el valor `expected`. Un invariante que cambia sale `ROJO`; un inventario que sube sale `+`.
+- **Un `ROJO` se resuelve leyendo el código**, no tocando el `expected`. O el doc quedó viejo, y se corrige con sus copias, o el código rompió lo que el doc afirma, y se avisa.
+- El motor no hace fetch: si avisa que el último fetch de un repo es viejo, el veredicto puede estar desactualizado. El fetch lo hace el usuario.
 
 ## Reglas duras del cruce
 

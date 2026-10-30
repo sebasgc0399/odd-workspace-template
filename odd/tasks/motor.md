@@ -57,7 +57,7 @@ El mapa detallado, con la evidencia del proyecto de origen, vive en el cuaderno 
 | U11c | `preparar.py` (el fixture ciego: mueve carpetas de la instancia y las restaura) | motor | — | 1 | en espera (L87) |
 | U12 | Doctor de conocimiento, en 3 cortes. Alcance (L90) | — | — | — | partida en U12a–U12c |
 | U12a | `conocimiento.py` (R-7): esqueleto, chequeos de documentos (indexados, links, anclas, cifras en headings, tope del índice, frescura por frontmatter, sin trackear) y `--cruce`; sección opcional `knowledge` en `workspace.config.json` | motor | delegado (writer Sonnet, en paralelo con U12b) | ninguno | hecho (L91) |
-| U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | en curso |
+| U12b | Motor de afirmaciones de repo: `odd_ws/afirmaciones.py` (archivo JSON, lista blanca, ejecución, juicio, lint, antigüedad del fetch) y, después de U12a, `--claims` y la cobertura en `conocimiento.py` | motor | delegado (writer Sonnet, en paralelo con U12a; el enganche, después) | **2** (ejecuta texto de un archivo de la instancia) → commit propio y verificador independiente | hecho (L92); verificador pendiente |
 | U12c | El juicio de las afirmaciones SQL (el agente ejecuta por MCP, el script juzga) | motor | — | — | en espera (L90) |
 
 **No se portan** (se documentan como ideas cuando valga la pena): el ritual de publicación con su auditoría de ramas, el aviso de trabajo parqueado, el aviso de SP del repo del equipo, el espejo del dispositivo (retirado), transcripción y redacción de mensajes, la matriz de reglas del origen y sus fixtures sembrados.
@@ -610,3 +610,26 @@ Ruta: todo inline salvo que el disparador de writer lo justifique (unidades para
     - la skill `/odd-ws:conocimiento` (los niveles 1 y 3, las reglas duras del cruce y el enrutamiento), escrita genérica;
     - la sección «Conocimiento» de `Doc/diseno.md`;
     - el README.
+  - **Commit:** `534ac5f`.
+- **L92 (2026-10-30): U12b hecho, a la espera del verificador independiente.** Lo escribió un writer Sonnet en dos fases (~490 mil tokens).
+  - **Fase 1, la biblioteca `odd_ws/afirmaciones.py`:**
+    - **RED:** 8/68 contra un esqueleto permisivo. Las 60 fallas son por la regla que prueba cada una.
+    - **Un tercer hueco**, medido: `gpg.program`, que se dispara con `%G` o con `--show-signature`. RED 67/69.
+    - **GREEN:** 73/73. Cinco pruebas salieron de mutantes vivos, sin un ROJO previo.
+    - **Mutaciones:** 141, con 135 muertas.
+      - De las 56 que relajan la lista blanca murieron 54. Las 2 vivas son equivalentes (W21, que ya cubre `metacaracter_activo`, y W37, que ya cubre la tupla).
+      - Las 4 vivas de ejecución son defensa en profundidad o equivalentes, medidas: `diff-tree` no aplica `textconv`; `show` y `log` no usan `diff.external` sin `--ext-diff`; y `-c` contra `-lc`.
+    - **Diferencial de la lista blanca:** 208 231 comandos contra el origen.
+      - El port no acepta **ninguno** que el origen rechace.
+      - Rechaza 6 333 que el origen aceptaba, todos clasificados: `sort -T`, `--textconv`, `--filters`, `--no-index`, el primer tramo que no es git, y `%G`/`--show-signature`.
+      - `juzgar` no tiene diferencias en 4 608 casos.
+      - El control positivo, con `tee` agregado o la regla del `$` borrada, muestra que la comparación detecta los cambios.
+  - **Fase 2, el enganche en `conocimiento.py`:**
+    - **RED:** 68/104 contra un esqueleto neutro. **GREEN:** 108/108.
+    - **Mutaciones:** murieron las 74.
+    - **Diferencial de la cobertura:** 400 árboles al azar. La única diferencia es que el origen cuenta un índice inexistente en el denominador del resumen. El control positivo da entre 124 y 231 árboles distintos.
+  - **Procesos huérfanos de la fase 1:**
+    - Quedaron 11 (`tail -f`, `bash` y `python`), que `Stop-Process` no podía terminar, ni siquiera el usuario.
+    - `TaskStop` de la tarea colgada se llevó 5.
+    - El usuario terminó los otros 6 como administrador.
+  - **Lo que hizo el padre:** el nivel 2 y la cobertura en `Doc/diseno.md` y en la skill, y el README.

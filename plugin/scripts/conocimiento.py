@@ -8,11 +8,12 @@ import posixpath
 import re
 import subprocess
 import unicodedata
-from collections import namedtuple
+from collections import Counter, namedtuple
 from datetime import date
 from pathlib import Path
 
 import config_loader
+from odd_ws import afirmaciones as motor
 from odd_ws.comun import decodificar, entorno_git, raiz_de_instancia
 
 FAIL, WARN, INFO, WORKLIST, NOAPLICA = "FAIL", "warn", "info", "worklist", "n/a"
@@ -468,6 +469,197 @@ def modo_cruce(ctx, args):
     return 0
 
 
+def nombre_de_doc(ruta):
+    return str(ruta).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _lista_de_afirmaciones(datos):
+    lista = datos.get("claims")
+    return [c for c in lista if isinstance(c, dict)] if isinstance(lista, list) else []
+
+
+def docs_con_afirmacion(datos):
+    nombres = set()
+    for c in _lista_de_afirmaciones(datos):
+        doc = c.get("doc")
+        for ruta in (doc if isinstance(doc, list) else [doc] if doc else []):
+            nombres.add(nombre_de_doc(ruta))
+    return nombres
+
+
+def cifras_afirmadas(texto, patron):
+    return Counter("%s %s" % par for par in patron.findall(texto))
+
+
+def triaje_de_cobertura(datos):
+    triados, problemas = {}, []
+    arreglo = "completarla en %s: doc, cifras (una por aparición), motivo y fecha; hasta entonces el doc sigue en el ranking"
+    entradas = datos.get("cobertura_triada") or []
+    if not isinstance(entradas, list):
+        return triados, [Hallazgo(WARN, "cobertura_triada: tiene que ser una lista de entradas", "una entrada por doc: doc, cifras, motivo y fecha")]
+    for i, e in enumerate(entradas, 1):
+        e = e if isinstance(e, dict) else {}
+        faltan = [k for k in ("doc", "cifras", "motivo", "fecha") if not e.get(k)]
+        if not faltan and not isinstance(e["cifras"], list):
+            faltan = ["cifras como lista"]
+        if faltan:
+            problemas.append(Hallazgo(WARN, "cobertura_triada: la entrada %d (%s) no trae %s -- no calla nada" % (i, e.get("doc") or "sin doc", ", ".join(faltan)), arreglo))
+            continue
+        nombre = nombre_de_doc(e["doc"])
+        if nombre in triados:
+            problemas.append(Hallazgo(WARN, "cobertura_triada: %s tiene más de una entrada; vale la primera" % nombre, "unirlas en una sola, con las cifras de las dos"))
+            continue
+        triados[nombre] = {"cifras": Counter(" ".join(str(c).split()) for c in e["cifras"]), "fecha": str(e["fecha"])}
+    return triados, problemas
+
+
+def chequear_cobertura(ctx):
+    ausente = _sin_docs(ctx)
+    if ausente:
+        return ausente
+    if not ctx.cantidades:
+        return [Hallazgo(NOAPLICA, "sin knowledge.quantities en la config")]
+    ruta = ctx.raiz / ctx.afirmaciones
+    if not ruta.is_file():
+        return [Hallazgo(NOAPLICA, "no existe %s (sin afirmaciones no hay cobertura que medir)" % ctx.afirmaciones)]
+    try:
+        datos = motor.cargar(ruta)
+    except (OSError, ValueError) as error:
+        return [Hallazgo(WARN, "no se pudo leer %s (%s)" % (ctx.afirmaciones, error), "el tier 2 tampoco va a correr: arreglarlo primero")]
+    cubiertos = docs_con_afirmacion(datos)
+    triados, registro = triaje_de_cobertura(datos)
+    patron = patron_de_cantidad(ctx.cantidades)
+    candidatos = [d for d in [ctx.ruta_indice, *docs_de_dominio(ctx)] if d.is_file() and d.name != "README.md"]
+    huecos, callados = [], []
+    for doc in candidatos:
+        if doc.name in cubiertos:
+            continue
+        cifras = cifras_afirmadas(leer(doc), patron)
+        triaje = triados.get(doc.name)
+        if triaje:
+            callados.append(doc.name)
+            for cifra, n in sorted((triaje["cifras"] - cifras).items()):
+                registro.append(Hallazgo(
+                    WARN,
+                    "cobertura_triada de %s lista '%s' y el doc ya no la afirma (sobra %d en la lista)" % (doc.name, cifra, n),
+                    "sacarla de la lista: una cifra triada que ya no está callaría a la próxima frase que la repita",
+                ))
+            cifras = cifras - triaje["cifras"]
+        if cifras:
+            huecos.append((len(cifras), doc.name, triaje, sorted(cifras)))
+    huecos.sort(key=lambda x: (-x[0], x[1]))
+    vistos = {d.name for d in candidatos}
+    for nombre in sorted(set(triados) - vistos):
+        registro.append(Hallazgo(
+            WARN,
+            "cobertura_triada: '%s' no es un doc que este chequeo mida (el índice o los .md de knowledge.docs)" % nombre,
+            "corregir la ruta o borrar la entrada: así no calla nada",
+        ))
+    for nombre in sorted(set(triados) & cubiertos):
+        registro.append(Hallazgo(
+            WARN,
+            "cobertura_triada: %s ya tiene afirmación; la entrada sobra" % nombre,
+            "borrarla: la afirmación ya lo saca del ranking, y mientras exista la lista no se valida",
+        ))
+    info_triados = (
+        "%d doc(s) con cifras triadas en %s (cobertura_triada), callados salvo cifra nueva: %s" % (len(callados), ctx.afirmaciones, ", ".join(callados))
+        if callados else None
+    )
+    if not huecos:
+        return registro + [Hallazgo(INFO, "todos los docs que afirman cifras tienen afirmación o triaje registrado" + ("; " + info_triados if info_triados else ""))]
+    backfill = [h for h in huecos if not h[2]]
+    salida = []
+    for n, nombre, triaje, nuevas in [h for h in huecos if h[2]]:
+        salida.append(Hallazgo(
+            WARN,
+            "%s: %d afirmación(es) numérica(s) que el triaje del %s no cubre (%s), CERO afirmaciones" % (nombre, n, triaje["fecha"], ", ".join("'%s'" % c for c in nuevas)),
+            "cifra nueva en un doc triado: o escribirle una afirmación, o bajarla a prosa sin número, o sumarla a su entrada de cobertura_triada con el motivo",
+        ))
+    for n, nombre, _, _ in backfill[:5]:
+        salida.append(Hallazgo(
+            WORKLIST,
+            "%s: %d afirmación(es) numérica(s), CERO afirmaciones" % (nombre, n),
+            "candidato a backfill: o escribirle una afirmación, o bajar la cifra a prosa sin número si no sostiene nada",
+        ))
+    resumen = "%d/%d docs sin afirmación afirman cifras sin triar (%d con afirmación)" % (len(huecos), len(candidatos), len(cubiertos))
+    if backfill:
+        resumen += "; los %d de arriba sin triaje son el orden de backfill sugerido" % min(len(backfill), 5)
+    salida.append(Hallazgo(INFO, resumen))
+    if info_triados:
+        salida.append(Hallazgo(INFO, info_triados))
+    return salida + registro
+
+
+MARCAS = {motor.OK: "ok  ", motor.CRECIO: "+   ", motor.DRIFT: "ROJO", motor.ERROR: "err "}
+
+
+def _imprimir_hallazgo(h):
+    print("  %s %s" % ("ok  " if h.sev == motor.INFO else h.sev.ljust(4), h.texto))
+    if h.arreglo:
+        print("       -> %s" % h.arreglo)
+
+
+def modo_claims(ctx, args):
+    if ctx.afirmaciones is None:
+        print("\n[Claims]\n  no aplica: sin knowledge.claims ni knowledge.docs en la config")
+        return 0
+    ruta = ctx.raiz / ctx.afirmaciones
+    if not ruta.is_file():
+        print("\n[Claims]\n  no aplica: no existe %s (sin afirmaciones no hay nada que verificar)" % ctx.afirmaciones)
+        return 0
+    try:
+        datos = motor.cargar(ruta)
+    except (OSError, ValueError) as error:
+        print("\n[Claims]\n  FAIL no se pudo cargar: %s" % error)
+        print("       -> arreglar el archivo; hasta entonces el tier 2 no verifica nada.")
+        return 1
+    repos = config_loader.cargar(ctx.raiz)["repos"]
+    print("\n[Claims - lint del archivo]")
+    problemas = motor.lint(datos, repos_conocidos=set(repos))
+    for h in problemas:
+        _imprimir_hallazgo(h)
+    lista = datos.get("claims") if isinstance(datos.get("claims"), list) else []
+    if not problemas:
+        print("  ok   las %d afirmaciones son ejecutables y bien formadas" % len(lista))
+    print("\n[Claims - último fetch por repo (solo lectura: el motor no hace fetch)]")
+    usados = sorted({c.get("repo") for c in lista if isinstance(c, dict) and c.get("ejecutor") == "repo" and c.get("repo") in repos})
+    for clave in usados:
+        _imprimir_hallazgo(motor.fetch_viejo(repos[clave]["path"], nombre=clave))
+    bloqueados = {}
+    for h in problemas:
+        if h.sev == motor.FAIL and h.claim is not None and h.claim not in bloqueados:
+            bloqueados[h.claim] = h.texto.split(": ", 1)[-1]
+    cuenta = {motor.OK: 0, motor.CRECIO: 0, motor.DRIFT: 0, motor.ERROR: 0}
+    print("\n[Claims - ejecución 'repo']")
+    for i, c in enumerate(lista):
+        if not isinstance(c, dict) or c.get("ejecutor") != "repo":
+            continue
+        cid = c.get("id") if isinstance(c.get("id"), str) and c.get("id") else "<sin id>"
+        if i in bloqueados:
+            veredicto = motor.Veredicto(motor.ERROR, "no se ejecuta: FAIL del lint (%s)" % bloqueados[i])
+        else:
+            veredicto = motor.correr(c, repos[c["repo"]]["path"])
+        print("  %s %-32s %s" % (MARCAS[veredicto.estado], cid, veredicto.detalle))
+        if veredicto.estado == motor.CRECIO:
+            print("       -> inventario que creció: mover la línea base (expected + expected_verificado). No es un hallazgo.")
+        cuenta[veredicto.estado] += 1
+    sqls = [c for c in lista if isinstance(c, dict) and c.get("ejecutor") == "sql"]
+    if sqls:
+        print("\n[Claims - 'sql' sin juicio (U12c en espera)]")
+        for c in sqls:
+            cid = c.get("id") if isinstance(c.get("id"), str) and c.get("id") else "<sin id>"
+            print("  ~    %-32s sin juicio (U12c en espera)" % cid)
+    print("\nCLAIMS: %d verde(s), %d crecido(s), %d ROJO(s), %d error(es) de ejecución, %d SQL sin veredicto." % (
+        cuenta[motor.OK], cuenta[motor.CRECIO], cuenta[motor.DRIFT], cuenta[motor.ERROR], len(sqls)))
+    if sqls:
+        print("TIER 2 ABIERTO: %d de %d afirmación(es) SQL sin veredicto" % (len(sqls), len(sqls)))
+        print("  El código de salida no las cuenta: salir con 0 con SQL abiertas NO significa que se verificaron todas.")
+    print("Los crecidos NO son hallazgos: son inventarios haciendo lo que hacen.")
+    print("Este conteo NO se mezcla con los hallazgos del nivel 1 ni con los candidatos de --cruce: son veredictos, no sugerencias.")
+    fallo = cuenta[motor.DRIFT] or cuenta[motor.ERROR] or any(h.sev == motor.FAIL for h in problemas)
+    return 1 if fallo else 0
+
+
 GRUPOS = [
     ("Índice y navegación", [
         ("docs indexados en el índice", chequear_indexados),
@@ -478,6 +670,7 @@ GRUPOS = [
     ]),
     ("Frescura", [
         ("verificación de docs", chequear_frescura),
+        ("cobertura de afirmaciones", chequear_cobertura),
     ]),
     ("Higiene", [
         ("todo commiteado", chequear_sin_trackear),
@@ -485,6 +678,7 @@ GRUPOS = [
 ]
 
 MODOS = {
+    "claims": Modo(modo_claims, (), "tier 2: ejecuta las afirmaciones de repo y las juzga (sale con 1 si hay ROJO, err o FAIL del lint)"),
     "cruce": Modo(modo_cruce, (), "tier 3: candidatos de divergencia entre docs (siempre sale con 0)"),
 }
 
