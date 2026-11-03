@@ -15,6 +15,7 @@ AQUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI))
 EJEMPLO = AQUI.parent / "plantillas" / "bootstrap.ejemplo.json"
 GITIGNORE_ESPERADO = "workspace.local.json\n.claude/estado/\n"
+VARIABLES_DE_GIT_AISLADAS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
 
 
 def b():
@@ -32,6 +33,14 @@ class Escenario:
         self.repo = self.base / "repo-a"
         self.repo.mkdir()
         self.raiz = self.base / "instancia"
+        self.git_global = self.base / "gitconfig-aislado"
+        self.git_global.write_bytes(b"")
+        self.git_sistema = self.base / "gitconfig-sistema"
+        self.git_sistema.write_bytes(b"")
+        self.entorno_previo = {c: os.environ.get(c) for c in VARIABLES_DE_GIT_AISLADAS}
+        os.environ["GIT_CONFIG_GLOBAL"] = str(self.git_global)
+        os.environ["GIT_CONFIG_SYSTEM"] = str(self.git_sistema)
+        os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
         return self
 
     def crear_raiz(self):
@@ -56,6 +65,11 @@ class Escenario:
         return ruta
 
     def __exit__(self, *_):
+        for clave, valor in self.entorno_previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
         shutil.rmtree(self.base, onexc=_forzar_borrado)
 
 
@@ -79,6 +93,10 @@ def correr(argv):
 
 def esperado_json(objeto):
     return (json.dumps(objeto, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def local_esperado(spec):
+    return esperado_json({**spec["local"], "plugin_root": str(b().RAIZ_DEL_PLUGIN)})
 
 
 @contextlib.contextmanager
@@ -205,7 +223,7 @@ def test_instancia_nueva_crea_los_tres_archivos():
         assert codigo == 0 and errores == "", (codigo, errores)
         assert arbol(e.raiz) == {
             "workspace.config.json": esperado_json(spec["config"]),
-            "workspace.local.json": esperado_json(spec["local"]),
+            "workspace.local.json": local_esperado(spec),
             ".gitignore": GITIGNORE_ESPERADO.encode("utf-8"),
         }
         lineas = salida.splitlines()
@@ -970,7 +988,7 @@ def test_escritura_que_falla_no_deja_un_archivo_a_medias():
         assert sorted(os.listdir(e.raiz)) == ["workspace.config.json"]
         codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])
         assert codigo == 0 and "creado workspace.local.json" in salida and "ya existía workspace.config.json" in salida
-        assert (e.raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+        assert (e.raiz / "workspace.local.json").read_bytes() == local_esperado(e.spec())
 
 
 def test_si_el_link_falla_no_queda_ni_destino_ni_temporal():
@@ -1170,7 +1188,7 @@ def test_raiz_que_termina_en_punto_o_espacio_se_rechaza():
         for texto in (str(e.raiz) + ".", str(e.raiz) + " ", str(e.base / "a.") + os.sep + "instancia", str(e.base / "a ") + os.sep + "instancia"):
             codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", texto])
             assert codigo == 2 and salida == "" and "punto o espacio" in errores, (texto, errores)
-        assert os.listdir(e.base) == ["repo-a", "spec.json"]
+        assert sorted(os.listdir(e.base)) == ["gitconfig-aislado", "gitconfig-sistema", "repo-a", "spec.json"]
 
 
 def test_raiz_con_punto_como_componente_se_acepta():
@@ -1266,7 +1284,7 @@ def test_un_temporal_que_no_se_puede_borrar_se_avisa_y_sale_cero():
         for nombre in ("workspace.config.json", "workspace.local.json", ".gitignore"):
             assert len(lineas_de_sobrante(lineas, nombre)) == 1, lineas
             assert (raiz / nombre).is_file()
-        assert (raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+        assert (raiz / "workspace.local.json").read_bytes() == local_esperado(e.spec())
         assert lineas[-1].startswith("resumen: 3 creados"), lineas
         assert len([n for n in os.listdir(raiz) if n.endswith(".tmp")]) == 3
 
@@ -1372,7 +1390,7 @@ def test_un_nombre_de_temporal_ocupado_no_se_usa():
         assert list(fuera.iterdir()) == []
         assert os.path.islink(roto) if hay_enlace else roto.read_bytes() == b"del usuario 2"
         assert (raiz / "workspace.config.json").read_bytes() == esperado_json(e.spec()["config"])
-        assert (raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+        assert (raiz / "workspace.local.json").read_bytes() == local_esperado(e.spec())
         assert sorted(n for n in os.listdir(raiz) if n.endswith(".tmp")) == sorted([f".workspace.config.json.{fijo}.tmp", roto.name])
 
 
@@ -1458,6 +1476,631 @@ def test_el_informe_del_gitignore_coincide_con_git_check_ignore():
             _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz), "--ensayo"])
             faltas = {l.split(": ", 1)[1] for l in salida.splitlines() if l.startswith("falta en .gitignore: ")}
             assert faltas == esperadas, (contenido, faltas, esperadas)
+
+
+def test_plugin_root_se_escribe_al_crear_con_la_carpeta_del_plugin_que_corre():
+    with Escenario() as e:
+        assert b().RAIZ_DEL_PLUGIN == AQUI.parent
+        assert correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])[0] == 0
+        local = json.loads((e.raiz / "workspace.local.json").read_text(encoding="utf-8"))
+        assert local["plugin_root"] == str(AQUI.parent)
+        assert (Path(local["plugin_root"]) / "scripts" / "reglas.py").is_file()
+        assert list(local) == ["repos", "plugin_root"]
+
+
+def test_plugin_root_sale_de_la_constante_del_modulo():
+    with Escenario() as e:
+        anterior = b().RAIZ_DEL_PLUGIN
+        b().RAIZ_DEL_PLUGIN = e.base / "otro-plugin"
+        try:
+            assert correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])[0] == 0
+        finally:
+            b().RAIZ_DEL_PLUGIN = anterior
+        assert json.loads((e.raiz / "workspace.local.json").read_text(encoding="utf-8"))["plugin_root"] == str(e.base / "otro-plugin")
+
+
+def test_plugin_root_no_se_anota_si_el_local_ya_existia():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        previo = json.dumps(e.spec()["local"]).encode("utf-8")
+        (raiz / "workspace.local.json").write_bytes(previo)
+        codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "ya existía workspace.local.json" in salida
+        assert (raiz / "workspace.local.json").read_bytes() == previo
+
+
+def test_la_spec_sigue_rechazando_plugin_root_en_local():
+    with Escenario() as e:
+        spec = e.spec()
+        spec["local"]["plugin_root"] = "x"
+        rechazada(e, spec, "plugin_root")
+
+
+def permisos_de(plan, ruta):
+    return next(a.permisos for a in plan if a.ruta == ruta)
+
+
+def test_una_accion_con_permisos_los_lleva_al_plan():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        with generadores_temporales(("extra", generador_de(("gancho", "#!/bin/sh\n", 0o755), ("normal.txt", "x")))):
+            plan = b().planificar(e.spec(), raiz)
+        assert permisos_de(plan, "gancho") == 0o755
+        assert permisos_de(plan, "normal.txt") is None
+        assert permisos_de(plan, "workspace.config.json") is None
+
+
+def test_permisos_invalidos_se_rechazan_en_el_plan():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        for permisos in (True, "755", -1, 0o1000, 1.5, 0o7777):
+            with generadores_temporales(("extra", generador_de(("g", "x", permisos)))):
+                try:
+                    b().planificar(e.spec(), raiz)
+                except b().ErrorDePlan as error:
+                    assert "permisos" in str(error)
+                else:
+                    raise AssertionError(f"se aceptó {permisos!r}")
+
+
+def test_los_permisos_se_aplican_al_temporal_antes_del_link():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        eventos = []
+        chmod, link = os.chmod, os.link
+
+        def espia_chmod(ruta, modo, *a, **k):
+            eventos.append(("chmod", os.path.basename(str(ruta)), modo))
+            return chmod(ruta, modo, *a, **k)
+
+        def espia_link(origen, destino, *a, **k):
+            eventos.append(("link", os.path.basename(str(destino))))
+            return link(origen, destino, *a, **k)
+
+        os.chmod, os.link = espia_chmod, espia_link
+        try:
+            with generadores_temporales(("extra", generador_de(("gancho", "#!/bin/sh\n", 0o755)))):
+                codigo, _, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            os.chmod, os.link = chmod, link
+        assert codigo == 0, errores
+        mios = [x for x in eventos if x[1] == "gancho" or x[1].startswith(".gancho.")]
+        assert [x[0] for x in mios] == ["chmod", "link"], eventos
+        assert mios[0][2] == 0o755
+        assert not any(x[0] == "chmod" and not x[1].startswith(".gancho.") for x in eventos)
+
+
+def test_en_posix_el_archivo_con_permisos_queda_ejecutable():
+    if os.name == "nt":
+        print("      (Windows no tiene bit de ejecución: prueba omitida)")
+        return
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        with generadores_temporales(("extra", generador_de(("gancho", "#!/bin/sh\n", 0o755), ("normal.txt", "x")))):
+            assert correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])[0] == 0
+        assert os.stat(raiz / "gancho").st_mode & 0o777 == 0o755
+        assert not os.access(raiz / "normal.txt", os.X_OK)
+
+
+def con_windows(valor):
+    anterior = b().EN_WINDOWS
+    b().EN_WINDOWS = valor
+    return anterior
+
+
+def test_en_windows_el_informe_dice_como_marcar_ejecutable():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        anterior = con_windows(True)
+        try:
+            with generadores_temporales(("extra", generador_de((".githooks/pre-commit", "x", 0o755), ("normal.txt", "x")))):
+                codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+                ensayo = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.base / "otra"), "--ensayo"])[1]
+        finally:
+            b().EN_WINDOWS = anterior
+        assert codigo == 0
+        lineas = salida.splitlines()
+        indice = lineas.index("creado .githooks/pre-commit")
+        assert lineas[indice + 1] == "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit", lineas
+        assert sum("marcalo ejecutable" in l for l in lineas) == 1
+        assert "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit" in ensayo.splitlines()
+
+
+def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        anterior = con_windows(False)
+        try:
+            with generadores_temporales(("extra", generador_de((".githooks/pre-commit", "x", 0o755)))):
+                _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            b().EN_WINDOWS = anterior
+        assert "marcalo ejecutable" not in salida
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / ".githooks").mkdir()
+        (raiz / ".githooks" / "pre-commit").write_bytes(b"mio")
+        anterior = con_windows(True)
+        try:
+            with generadores_temporales(("extra", generador_de((".githooks/pre-commit", "x", 0o755)))):
+                _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            b().EN_WINDOWS = anterior
+        assert "ya existía .githooks/pre-commit" in salida and "marcalo ejecutable" not in salida
+        assert (raiz / ".githooks" / "pre-commit").read_bytes() == b"mio"
+
+
+def pasos_de_git(*pasos):
+    return lambda spec: [b().AccionDeGit(tipo, valor) for tipo, valor in pasos]
+
+
+def instalacion_git():
+    return pasos_de_git((b().GIT_INIT, None), (b().GIT_HOOKS, ".githooks"))
+
+
+def git_aislado(*args, cwd):
+    entorno = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") or k in VARIABLES_DE_GIT_AISLADAS}
+    resultado = subprocess.run(["git", *args], cwd=cwd, capture_output=True, env=entorno, timeout=60)
+    return resultado.returncode, resultado.stdout.decode("utf-8", "replace").strip(), resultado.stderr.decode("utf-8", "replace").strip()
+
+
+def hay_repo_arriba(ruta):
+    return any((p / ".git").exists() for p in (Path(ruta).resolve(), *Path(ruta).resolve().parents))
+
+
+def correr_con_git(e, raiz, *extra, generadores=None):
+    alta = ("instalacion", generadores or instalacion_git())
+    with generadores_temporales(alta):
+        return correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz), *extra])
+
+
+def test_git_init_en_una_raiz_fuera_de_todo_repo():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        codigo, salida, errores = correr_con_git(e, e.raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (e.raiz / ".git").is_dir()
+        codigo, toplevel, _ = git_aislado("rev-parse", "--show-toplevel", cwd=e.raiz)
+        assert codigo == 0 and os.path.normcase(os.path.realpath(toplevel)) == os.path.normcase(os.path.realpath(e.raiz))
+        lineas = salida.splitlines()
+        assert "git init: repo creado" in lineas, lineas
+        assert lineas.index("git init: repo creado") > lineas.index("creado .gitignore")
+        assert lineas[-1].startswith("resumen:")
+
+
+def test_core_hookspath_se_configura_en_local_cuando_no_tiene_valor():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        codigo, salida, _ = correr_con_git(e, e.raiz)
+        assert codigo == 0
+        assert git_aislado("config", "--local", "--get", "core.hooksPath", cwd=e.raiz)[1] == ".githooks"
+        assert "core.hooksPath = .githooks: configurado (--local)" in salida.splitlines()
+        assert "hooksPath" not in e.git_global.read_text(encoding="utf-8")
+        assert e.git_global.read_bytes() == b""
+
+
+def test_nunca_se_toca_la_config_global_ni_la_del_sistema():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        e.git_global.write_bytes(b"[user]\n\tname = Otra Persona\n")
+        antes = e.git_global.read_bytes()
+        antes_listado = git_aislado("config", "--global", "--list", cwd=e.base)
+        codigo, _, _ = correr_con_git(e, e.raiz)
+        assert codigo == 0
+        assert e.git_global.read_bytes() == antes
+        assert git_aislado("config", "--global", "--list", cwd=e.base) == antes_listado
+        assert git_aislado("config", "--local", "--get", "core.hooksPath", cwd=e.raiz)[1] == ".githooks"
+        assert git_aislado("config", "--global", "--get", "core.hooksPath", cwd=e.base)[0] == 1
+        assert git_aislado("config", "--system", "--get", "core.hooksPath", cwd=e.base)[0] == 1
+        assert e.git_sistema.read_bytes() == b""
+
+
+def test_un_hookspath_global_no_cuenta_como_valor_del_repo_y_no_se_toca():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        e.git_global.write_bytes(b"[core]\n\thooksPath = /global/hooks\n")
+        antes = e.git_global.read_bytes()
+        codigo, salida, _ = correr_con_git(e, e.raiz)
+        assert codigo == 0
+        assert e.git_global.read_bytes() == antes
+        assert git_aislado("config", "--local", "--get", "core.hooksPath", cwd=e.raiz)[1] == ".githooks"
+        assert "core.hooksPath = .githooks: configurado (--local)" in salida.splitlines()
+
+
+def test_un_archivo_con_permisos_sin_bit_de_ejecucion_no_lleva_aviso():
+    with Escenario() as e:
+        anterior = con_windows(True)
+        try:
+            with generadores_temporales(("extra", generador_de(("datos.txt", "x", 0o644), ("script.sh", "x", 0o700)))):
+                _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])
+        finally:
+            b().EN_WINDOWS = anterior
+        assert "git add --chmod=+x script.sh" in salida
+        assert "datos.txt" not in "".join(l for l in salida.splitlines() if "marcalo" in l)
+
+
+def test_una_raiz_que_ya_es_un_repo_no_se_reinicia_y_conserva_su_hookspath_vacio():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        assert git_aislado("init", "-q", cwd=raiz)[0] == 0
+        (raiz / ".git" / "marca").write_bytes(b"no me toques")
+        codigo, salida, _ = correr_con_git(e, raiz)
+        assert codigo == 0
+        assert (raiz / ".git" / "marca").read_bytes() == b"no me toques"
+        lineas = salida.splitlines()
+        assert "git init: no hace falta, la raíz ya es un repo git" in lineas, lineas
+        assert "core.hooksPath = .githooks: configurado (--local)" in lineas
+
+
+def test_hookspath_con_otro_valor_no_se_toca_y_se_informa():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        git_aislado("init", "-q", cwd=raiz)
+        git_aislado("config", "--local", "core.hooksPath", "otros-hooks", cwd=raiz)
+        antes = (raiz / ".git" / "config").read_bytes()
+        codigo, salida, _ = correr_con_git(e, raiz)
+        assert codigo == 0
+        assert (raiz / ".git" / "config").read_bytes() == antes
+        assert "core.hooksPath = otros-hooks: no se tocó; el pre-commit no va a correr" in salida.splitlines()
+
+
+def test_hookspath_que_ya_es_githooks_no_se_vuelve_a_escribir():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        git_aislado("init", "-q", cwd=raiz)
+        git_aislado("config", "--local", "core.hooksPath", ".githooks", cwd=raiz)
+        antes = (raiz / ".git" / "config").read_bytes()
+        _, salida, _ = correr_con_git(e, raiz)
+        assert (raiz / ".git" / "config").read_bytes() == antes
+        assert "core.hooksPath = .githooks: ya estaba" in salida.splitlines()
+
+
+def test_una_raiz_dentro_de_otro_repo_no_anida_otro_ni_toca_su_config():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        externo = e.base / "externo"
+        externo.mkdir()
+        git_aislado("init", "-q", cwd=externo)
+        antes = (externo / ".git" / "config").read_bytes()
+        raiz = externo / "sub" / "instancia"
+        codigo, salida, _ = correr_con_git(e, raiz)
+        assert codigo == 0
+        assert not (raiz / ".git").exists() and not (externo / "sub" / ".git").exists()
+        assert (externo / ".git" / "config").read_bytes() == antes
+        lineas = salida.splitlines()
+        assert any(l.startswith("git init: no se hizo; la raíz está dentro del repo ") and "externo" in l for l in lineas), lineas
+        assert any(l.startswith("core.hooksPath: no se tocó; la raíz está dentro del repo ") and l.endswith(", que no es la instancia") for l in lineas), lineas
+        assert (raiz / "workspace.config.json").is_file()
+
+
+def test_una_raiz_que_es_subcarpeta_de_un_repo_existente_tampoco_se_toca():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        externo = e.base / "externo"
+        (externo / "sub").mkdir(parents=True)
+        git_aislado("init", "-q", cwd=externo)
+        antes = (externo / ".git" / "config").read_bytes()
+        codigo, salida, _ = correr_con_git(e, externo / "sub")
+        assert codigo == 0
+        assert (externo / ".git" / "config").read_bytes() == antes
+        assert not (externo / "sub" / ".git").exists()
+        assert "core.hooksPath = .githooks: configurado (--local)" not in salida
+
+
+def test_ensayo_no_ejecuta_nada_de_git_y_dice_que_haria():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        e.archivo_spec()
+        antes = arbol(e.base)
+        codigo, salida, errores = correr_con_git(e, e.raiz, "--ensayo")
+        assert codigo == 0 and errores == ""
+        assert not e.raiz.exists()
+        assert arbol(e.base) == antes
+        lineas = salida.splitlines()
+        assert "git init: se haría (la raíz no está en ningún repo)" in lineas, lineas
+        assert "core.hooksPath = .githooks: se configuraría (--local)" in lineas
+        assert lineas[-1].startswith("ensayo:")
+
+
+def test_ensayo_en_un_repo_existente_no_escribe_su_config():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        git_aislado("init", "-q", cwd=raiz)
+        e.archivo_spec()
+        antes = arbol(e.base)
+        codigo, salida, _ = correr_con_git(e, raiz, "--ensayo")
+        assert codigo == 0 and arbol(e.base) == antes
+        assert "core.hooksPath = .githooks: se configuraría (--local)" in salida.splitlines()
+        assert "git init: no hace falta, la raíz ya es un repo git" in salida.splitlines()
+
+
+def test_ensayo_dentro_de_otro_repo_dice_que_no_tocaria_nada():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        externo = e.base / "externo"
+        externo.mkdir()
+        git_aislado("init", "-q", cwd=externo)
+        codigo, salida, _ = correr_con_git(e, externo / "nueva", "--ensayo")
+        assert codigo == 0
+        assert any(l.startswith("git init: no se hizo; la raíz está dentro del repo ") for l in salida.splitlines())
+        assert not (externo / "nueva").exists()
+
+
+def test_sin_git_instalado_los_archivos_salen_y_la_salida_es_cero():
+    with Escenario() as e:
+        vacio = e.base / "path-vacio"
+        vacio.mkdir()
+        spec = e.archivo_spec()
+        programa = (
+            "import sys\n"
+            "sys.path.insert(0, %r)\n"
+            "import bootstrap\n"
+            "bootstrap.registrar_generador('instalacion', lambda spec: [bootstrap.AccionDeGit(bootstrap.GIT_INIT, None), bootstrap.AccionDeGit(bootstrap.GIT_HOOKS, '.githooks')])\n"
+            "sys.exit(bootstrap.principal(['--spec', %r, '--raiz', %r]))\n"
+        ) % (str(AQUI), str(spec), str(e.raiz))
+        entorno = {**os.environ, "PATH": str(vacio)}
+        resultado = subprocess.run([sys.executable, "-W", "error", "-c", programa], capture_output=True, env=entorno, timeout=120)
+        salida = resultado.stdout.decode("utf-8")
+        assert resultado.returncode == 0, resultado.stderr
+        assert (e.raiz / "workspace.config.json").is_file()
+        assert not (e.raiz / ".git").exists()
+        lineas = salida.splitlines()
+        assert "git init: no se hizo; git no está instalado" in lineas, lineas
+        assert "core.hooksPath: no se tocó; git no está instalado" in lineas
+
+
+def test_un_git_que_falla_se_informa_sin_cambiar_la_salida():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        original = b()._git
+
+        def roto(argumentos):
+            if "init" in argumentos:
+                return 1, "", "fatal: no se puede crear el repo"
+            return original(argumentos)
+
+        b()._git = roto
+        try:
+            codigo, salida, _ = correr_con_git(e, e.raiz)
+        finally:
+            b()._git = original
+        assert codigo == 0
+        assert "git init: falló: fatal: no se puede crear el repo" in salida.splitlines()
+        assert not (e.raiz / ".git").exists()
+        assert (e.raiz / "workspace.config.json").is_file()
+
+
+def test_el_estado_de_git_se_vuelve_a_mirar_al_aplicar_y_no_se_confia_en_el_plan():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        with generadores_temporales(("instalacion", instalacion_git())):
+            plan = b().planificar(e.spec(), raiz)
+            assert [p.modo for p in plan.pasos_git] == ["hacer", "hacer"]
+            git_aislado("init", "-q", cwd=raiz)
+            git_aislado("config", "--local", "core.hooksPath", "otros-hooks", cwd=raiz)
+            resultados = b().aplicar(plan, raiz)
+        assert resultados.git == ["git init: no hace falta, la raíz ya es un repo git", "core.hooksPath = otros-hooks: no se tocó; el pre-commit no va a correr"]
+        assert git_aislado("config", "--local", "--get", "core.hooksPath", cwd=raiz)[1] == "otros-hooks"
+
+
+def test_si_git_desaparece_entre_la_consulta_y_la_escritura_se_informa_sin_romper():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        original = b()._git
+
+        def desaparece(argumentos):
+            if "init" in argumentos or "--get" not in argumentos and "config" in argumentos:
+                return None
+            return original(argumentos)
+
+        b()._git = desaparece
+        try:
+            codigo, salida, errores = correr_con_git(e, e.raiz)
+        finally:
+            b()._git = original
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        assert "git init: no se hizo; git no está instalado" in lineas, lineas
+        assert not (e.raiz / ".git").exists()
+
+
+def test_si_no_se_puede_leer_el_hookspath_no_se_escribe():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        git_aislado("init", "-q", cwd=raiz)
+        antes = (raiz / ".git" / "config").read_bytes()
+        original = b()._git
+
+        def ilegible(argumentos):
+            if "--get" in argumentos:
+                return 128, "", "fatal: bad config line 1"
+            return original(argumentos)
+
+        b()._git = ilegible
+        try:
+            codigo, salida, _ = correr_con_git(e, raiz)
+        finally:
+            b()._git = original
+        assert codigo == 0
+        assert (raiz / ".git" / "config").read_bytes() == antes
+        assert "core.hooksPath: no se tocó; no se pudo leer su valor (fatal: bad config line 1)" in salida.splitlines()
+
+
+def test_si_git_no_puede_leer_un_repo_de_arriba_no_se_inicia_otro():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        externo = e.base / "externo"
+        (externo / ".git").mkdir(parents=True)
+        original = b()._git
+
+        def ownership(argumentos):
+            if "rev-parse" in argumentos:
+                return 128, "", "fatal: detected dubious ownership in repository"
+            return original(argumentos)
+
+        b()._git = ownership
+        try:
+            codigo, salida, _ = correr_con_git(e, externo / "instancia")
+        finally:
+            b()._git = original
+        assert codigo == 0
+        assert not (externo / "instancia" / ".git").exists()
+        lineas = salida.splitlines()
+        assert any(l.startswith("git init: no se hizo; hay un repo git arriba de la raíz que git no pudo leer") for l in lineas), lineas
+        assert "core.hooksPath: no se tocó; hay un repo git arriba de la raíz que git no pudo leer" in lineas, lineas
+
+
+def test_los_comandos_de_git_son_solo_locales_y_con_la_raiz_como_directorio():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        original, llamadas = b()._git, []
+
+        def espia(argumentos):
+            llamadas.append(list(argumentos))
+            return original(argumentos)
+
+        b()._git = espia
+        try:
+            assert correr_con_git(e, e.raiz)[0] == 0
+        finally:
+            b()._git = original
+        assert llamadas
+        for llamada in llamadas:
+            assert llamada[0] == "-C", llamada
+            assert "--global" not in llamada and "--system" not in llamada, llamada
+        escrituras = [l for l in llamadas if "config" in l and "--get" not in l]
+        assert len(escrituras) == 1 and "--local" in escrituras[0] and escrituras[0][-2:] == ["core.hooksPath", ".githooks"], escrituras
+
+
+def test_las_acciones_de_git_se_rechazan_si_son_invalidas():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        casos = [
+            [b().AccionDeGit("clonar", None)],
+            [b().AccionDeGit(b().GIT_HOOKS, "../fuera")],
+            [b().AccionDeGit(b().GIT_HOOKS, "/abs")],
+            [b().AccionDeGit(b().GIT_HOOKS, None)],
+            [b().AccionDeGit(b().GIT_HOOKS, "--global")],
+            [b().AccionDeGit(b().GIT_INIT, "--bare")],
+            [b().AccionDeGit(b().GIT_INIT, None), b().AccionDeGit(b().GIT_INIT, None)],
+        ]
+        for acciones in casos:
+            with generadores_temporales(("extra", generador_de(*acciones))):
+                try:
+                    b().planificar(e.spec(), raiz)
+                except b().ErrorDePlan:
+                    pass
+                else:
+                    raise AssertionError(f"se aceptó {acciones!r}")
+
+
+def test_las_acciones_de_git_no_corren_si_fallaron_los_archivos():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        original, llamadas = b()._git, []
+        b()._git = lambda argumentos: llamadas.append(list(argumentos)) or original(argumentos)
+        try:
+            with generadores_temporales(("a", generador_de(("d/x.txt", "x"))), ("b", instalacion_git())):
+                plan = b().planificar(e.spec(), raiz)
+                llamadas.clear()
+                (raiz / "d").write_bytes(b"archivo en el lugar de la carpeta")
+                try:
+                    b().aplicar(plan, raiz)
+                except b().ErrorDeAplicacion:
+                    pass
+                else:
+                    raise AssertionError("no falló")
+        finally:
+            b()._git = original
+        assert llamadas == []
+        assert not (raiz / ".git").exists()
+
+
+def test_las_acciones_de_git_respetan_la_raiz_real_del_plan():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        original = b()._publicar
+        estado = {"llamadas": 0, "enlace": None}
+
+        def publicar(*a, **k):
+            resultado = original(*a, **k)
+            estado["llamadas"] += 1
+            if estado["llamadas"] == 3:
+                os.rename(raiz, e.base / "instancia-movida")
+                estado["enlace"] = crear_enlace(raiz, fuera)
+            return resultado
+
+        b()._publicar = publicar
+        try:
+            codigo, salida, errores = correr_con_git(e, raiz)
+        finally:
+            b()._publicar = original
+        if not estado["enlace"]:
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert codigo == 2 and "raíz" in errores, (codigo, errores)
+        assert os.listdir(fuera) == []
+        assert not (fuera / ".git").exists()
+
+
+def test_el_informe_dice_en_cada_modo_lo_que_se_hizo_con_git_en_un_repo_propio():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        assert correr_con_git(e, e.raiz)[0] == 0
+        codigo, salida, _ = correr_con_git(e, e.raiz)
+        lineas = salida.splitlines()
+        assert codigo == 0
+        assert "git init: no hace falta, la raíz ya es un repo git" in lineas
+        assert "core.hooksPath = .githooks: ya estaba" in lineas
 
 
 def main():

@@ -45,7 +45,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 | B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | delegado (writer Sonnet, en paralelo con B4/B6 y B7, L4) | ninguno | hecho (L9): `d4c15f9` |
 | B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | hecho (L9): `d4c15f9` |
 | B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | delegado (writer Sonnet, con B6, en paralelo, L4) | ninguno | hecho (L9): `0a629a5` |
-| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | después del veredicto de B1, porque extiende su motor con acciones que no son archivos | a evaluar (toca la config de git del usuario) | pendiente |
+| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | hecho (L13); verificador pendiente |
 | B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
 | B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
 | B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | inline o writer, tras B1–B7 | ninguno, si no cambia el motor de aplicación de B1; si lo cambia, **1** | pendiente |
@@ -191,3 +191,35 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
   - **Mutaciones:** 30, con 27 muertas. Las 3 vivas son el chequeo de raíz repetido en tres puntos, que es redundante.
   - **Verificación:** el `~/.gitconfig` sigue igual (md5).
   - **B1 queda cerrado.**
+  - **Commit:** `6b5c5d8`.
+- **L12 (2026-11-03): el diseño de B5, decisión técnica del padre.**
+  - **`plugin_root`:** el generador de config lo escribe en `workspace.local.json` al crearlo, con la ruta del plugin que está corriendo.
+    - Si el archivo ya existe, no se toca, y lo anota el doctor (`--arreglar plugin-root`).
+    - La spec sigue sin poder traerlo.
+  - **Acciones que no son archivos:**
+    - `git init`, solo si la raíz no está dentro de ningún repo;
+    - `core.hooksPath = .githooks`, solo si la raíz es el toplevel de su repo y el valor no existe.
+
+    Las dos se planifican, se muestran en `--ensayo` y se informan. Una raíz dentro de otro repo no se toca (no se anida un repo), y un `hooksPath` con otro valor se informa sin tocarlo.
+  - **Archivos:**
+    - `.githooks/pre-commit`, desde `plugin/plantillas/pre-commit`, con modo 0755. En Windows git no registra el bit de ejecución, así que el informe dice cómo agregarlo al commitear;
+    - `.claude/settings.json` con `enabledPlugins`. Si ya existe, no se toca, y el doctor avisa si le falta el plugin.
+  - **Riesgo 1,** porque extiende el motor de aplicación con acciones sobre el repo del usuario: commit propio y verificador.
+- **L13 (2026-11-03): B5 hecho por el writer de B1.**
+  - **RED:** esqueletos (los tipos, las constantes y un generador vacío), para que cada prueba fallara por su regla y no por un módulo inexistente: 87 de 116 y 2 de 11. **GREEN:** 121/121 en `bootstrap.tests.py` y 11/11 en `bootstrap_instalacion.tests.py`.
+  - **Mutaciones:** unas 50, todas muertas. Incluyen `--local` → `--global` y `--system`, init siempre, hooks en un repo ajeno, ensayo que aplica, `chmod` después del `link` y el aviso fuera de Windows. Se rehicieron todas después del incidente, porque la primera corrida dio falsos muertos.
+  - **Incidente:**
+    - El mutante `GL2` (`--local` → `--system`) escribió `core.hooksPath = .githooks` en la config del sistema de git. `GIT_CONFIG_NOSYSTEM=1` solo apaga la lectura implícita, no un `--system` explícito.
+    - Al writer el clasificador le negó deshacerlo, y lo deshizo el usuario (`git config --system --unset core.hooksPath`). El padre verificó en solo lectura que el sistema y el global quedaron sin `hooksPath`.
+    - El arreglo: `Escenario` y el arnés fijan también `GIT_CONFIG_SYSTEM` a un archivo propio. La regla de la memoria `mutaciones-aislar-git-global` ahora pide las tres variables y probar el aislamiento antes de mutar.
+  - **Chequeo del padre:**
+    - las 31 suites en verde, con la config global y la del sistema aisladas (`--system --list` leyó el archivo vacío del scratch);
+    - el barrido limpio;
+    - el diff, dentro de la superficie.
+  - **Decisiones del padre:**
+    - `SETTINGS`, `HOOKS_PATH` y `PRE_COMMIT` siguen en `doctor.py`, donde B7 ya guarda rutas de instancia (`COPIA_DE_EMERGENCIA`). Moverlas a `capas.py` (R-8) queda como sugerencia.
+    - Que `bootstrap.py` corra como `__main__` duplica el módulo y sus clases (`AccionDeGit`, `SpecInvalida`). Se resuelve en B8, que es donde se cablean los generadores.
+  - **No ejecutado en esta máquina:** el bit POSIX real. Dos pruebas se omiten en Windows. Un espía sobre `os.chmod` y `os.link` verifica en cualquier SO el orden y el modo 0o755.
+  - **Desvíos del writer:**
+    - dos heredocs vacíos, que no escribieron nada;
+    - una corrida que quedó colgada en tres shells inertes, que el padre frenó con `TaskStop`.
