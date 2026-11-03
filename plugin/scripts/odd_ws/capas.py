@@ -17,6 +17,9 @@ CARPETA_VERDAD = "revision"
 CARPETA_OCULTA = "oculto"
 ESTADO = ".claude/estado"
 GITIGNORE = ".gitignore"
+TICKETS = "tickets"
+INDICE = "CLAUDE.md"
+TICKET_PLANTILLA = TICKETS + "/_plantilla/CLAUDE.md"
 
 
 def es_writer(nombre):
