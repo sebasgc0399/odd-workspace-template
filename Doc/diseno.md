@@ -399,7 +399,9 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
     - `revisor-<capa>`, desde `plantillas/revisor.md`, con el mismo mecanismo de versión, huella y bloques `<!-- instancia:... -->`, que ahora es `plantilla_writer.armar` y recibe la plantilla. El revisor es de solo lectura y reporta con severidad y `ruta:línea`;
     - `capa-<capa>`, con `CENTINELA` y el bloque no-negociables, sin `paths:` ni `disable-model-invocation`.
 
-    Además genera, una sola vez, `criterios`: el Paso 0, el alcance mínimo, la evidencia y el contrato de reporte. Lo generado pasa los ítems `writer-<capa>` y `agentes-skills` del doctor.
+    Además genera, una sola vez y solo si hay al menos una capa válida, `revisor-diseno`, desde `plantillas/revisor-diseno.md`, con el mismo mecanismo de versión, huella y bloques. Revisa entre capas en cuatro pasos con tabla: el mapa del cambio, el hermano vigente, el consumidor de cada dato, y los errores, el ciclo de vida y el tamaño relativo al hermano. Precarga `criterios`, es de solo lectura y lo usa `/odd-ws:revisar`. Por eso `diseno` es un nombre de capa reservado: su `revisor-diseno.md` chocaría con este, y el plan sale con «ruta repetida».
+
+    También genera, una sola vez, `criterios`: el Paso 0, el alcance mínimo, la evidencia y el contrato de reporte. Lo generado pasa los ítems `writer-<capa>` y `agentes-skills` del doctor.
   - **Reglas vacías** (`bootstrap_reglas.py`, principio 2).
     - Genera la matriz, solo con el encabezado de `matriz.ENCABEZADO`, y `evidencia.md`.
     - Por cada capa, un stub `verificar_<capa>.py` (`REGLAS = ()`, y `verificar(ctx)` devuelve `[]`) y su suite, que cumple el contrato P1 y pasa `reglas.py --test <capa>`.
@@ -407,6 +409,25 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - **Textos** (`bootstrap_textos.py`, clave `proyecto.nombre`):
     - un `CLAUDE.md` liviano (116 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets y las skills del plugin;
     - la plantilla del ticket en `tickets/_plantilla/CLAUDE.md`, con los dos relojes (Estado y Conocimiento), alcance y no-goals, Paso 0, bitácora y candidatos a graduar. No lleva tracker.
+
+### Revisar (`skills/revisar`, T9)
+
+Orquesta la revisión de un cambio de un ticket antes del commit, con los agentes que genera `/bootstrap`: `revisor-diseno` (entre capas) y el `revisor-<capa>` de cada capa tocada. Los revisores solo leen. La skill arma la entrada, lanza, rescata, consolida y escribe el recibo, y no commitea.
+
+- **El modo lo propone `triaje.py`** (`sin-cambios`, `0`, `rapido` o `completo`), y las señales solo escalan. Como el triaje no puede detectar si el cambio va a un líder, la skill lo pregunta, y si va, el modo es `completo`.
+- **Antes de lanzar nada**, anuncia el modo, las señales, las capas y el costo en corridas (`0`, `1 + capas` o `3 + capas`), y espera el sí. Lo espera aunque la haya invocado el modelo.
+- **Nunca corre dos revisiones a la vez** ni hace un bucle automático de corrección.
+- **La entrada** va en `<ticket>/revision/<fecha>-<modo>/entrada/`, con un diff por repo. Un archivo sin trackear entra con `--no-index`, nunca con `git add -N`.
+- **`completo`** son tres corridas de diseño, con el orden de los archivos distinto en cada una, más una corrida por capa. Todas usan el mismo modelo, sin IDs fijos.
+- **El rescate** se hace con `rescatar.py`. Una corrida cortada se informa y no se reintenta en silencio.
+- **La consolidación** la hace el orquestador, en prosa (`consolidado.md`):
+  - cuenta la frecuencia k/3 y marca como «a confirmar» lo que salió 1/3;
+  - muestra los conflictos sin votar;
+  - deja separadas las severidades de diseño y de capa;
+  - marca las derivaciones «sin dueño»;
+  - pone aparte las preguntas para el líder.
+- **El recibo** se escribe con `recibo.py --write`, con la lista explícita de archivos y la base completa del triaje. `--check`, sobre la carpeta de la revisión, se corre antes de cualquier «listo».
+- **El modo sombra** sigue siendo de `/odd-ws:eval-reviewers`. Esta skill no congela nada.
 
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 

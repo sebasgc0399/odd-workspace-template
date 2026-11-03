@@ -10,6 +10,7 @@ SENALES = REGLAS + "/senales.py"
 CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
 AGENTES = ".claude/agents"
+REVISOR_DISENO = AGENTES + "/revisor-diseno.md"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
 WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")

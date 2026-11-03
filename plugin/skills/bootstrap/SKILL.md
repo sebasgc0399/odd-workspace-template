@@ -28,7 +28,7 @@ Una pregunta por vez, cada una con tu propuesta. Esperá la respuesta antes de l
 
    Antes de seguir, comprobá que la ruta exista: si no, el script rechaza la spec.
 3. **Las capas.** Por cada capa:
-   - el nombre, en minúsculas y con guiones;
+   - el nombre, en minúsculas y con guiones. `diseno` está reservado para el revisor de diseño;
    - las extensiones, como `.sql`;
    - los repos que la usan;
    - el `rule_prefix`. Derivalo del nombre (mayúsculas y dígitos, empezando por letra) y confirmalo con el usuario: `sql` da `SQL`, `capa-web` da `CW`. Tiene que ser único entre las capas.

@@ -22,6 +22,7 @@ HOY = datetime.date(2026, 10, 30)
 CAPAS = ("sql", "web", "movil")
 PROHIBIDAS = re.compile(r"(?:paths|disable-model-invocation|hooks|model)\s*:")
 HUELLAS_DEL_REVISOR = {1: "ab73f19f2dae734c3fae2bb0d1d5a1904c89cfed513d9f7344819ed120c9e0dc"}
+HUELLAS_DEL_REVISOR_DE_DISENO = {1: "3fbcd9c42c77035b069dd112c707748c7c3ab43792afc7f14e7353d49de3aeac"}
 GOLDEN_DEL_WRITER = {
     "sql": "1b99b17a282494b2c83d33bb697c24e88b1c39142eac6bdfea03f408edb1cab4",
     "web": "3bd61a704704a1ba8340969fcb8b191f469c32f5469c83fb34597c32c76fe086",
@@ -88,12 +89,13 @@ def test_no_suma_claves_a_la_spec():
 
 def test_por_capa_salen_el_writer_el_revisor_y_la_skill_y_criterios_una_sola_vez():
     generados = archivos(*CAPAS)
-    esperadas = {capas.CRITERIOS_SKILL}
+    esperadas = {capas.CRITERIOS_SKILL, capas.REVISOR_DISENO}
     for capa in CAPAS:
         esperadas |= {capas.writer(capa), capas.revisor(capa), capas.skill(capa)}
     assert set(generados) == esperadas, sorted(set(generados) ^ esperadas)
-    assert len(generados) == 3 * len(CAPAS) + 1
+    assert len(generados) == 3 * len(CAPAS) + 2
     assert [ruta for ruta, _ in a().generar(spec_de(*CAPAS), HOY)].count(capas.CRITERIOS_SKILL) == 1
+    assert [ruta for ruta, _ in a().generar(spec_de(*CAPAS), HOY)].count(capas.REVISOR_DISENO) == 1
 
 
 def test_las_rutas_son_las_de_capas_y_van_en_orden_de_la_config():
@@ -108,7 +110,7 @@ def test_las_rutas_son_las_de_capas_y_van_en_orden_de_la_config():
 def test_una_capa_que_no_cumple_writer_re_no_genera_nada_y_las_demas_siguen():
     for invalida in ("SQL", "c_sharp", "-web", "", "a/b", "con espacio"):
         generados = archivos(invalida, "sql")
-        assert set(generados) == {capas.writer("sql"), capas.revisor("sql"), capas.skill("sql"), capas.CRITERIOS_SKILL}, (invalida, sorted(generados))
+        assert set(generados) == {capas.writer("sql"), capas.revisor("sql"), capas.skill("sql"), capas.CRITERIOS_SKILL, capas.REVISOR_DISENO}, (invalida, sorted(generados))
     solo_invalidas = archivos("SQL", "c_sharp")
     assert set(solo_invalidas) == {capas.CRITERIOS_SKILL}, sorted(solo_invalidas)
 
@@ -199,7 +201,7 @@ def test_criterios_trae_los_criterios_transversales_genericos():
 
 def test_ninguna_skill_ni_agente_generado_lleva_paths_disable_hooks_ni_model():
     generados = archivos(*CAPAS)
-    assert len(generados) == 10, sorted(generados)
+    assert len(generados) == 11, sorted(generados)
     for ruta, texto in generados.items():
         for linea in frontmatter(texto)[1:]:
             assert not PROHIBIDAS.match(linea), (ruta, linea)
@@ -276,9 +278,97 @@ def test_cambiar_el_revisor_obliga_a_subir_su_version():
         "lo generado cambió: subí odd-ws-plantilla en plugin/plantillas/revisor.md y anotá %d: %r en HUELLAS_DEL_REVISOR" % (version + 1, huella))
 
 
+def test_el_revisor_de_diseno_sale_una_sola_vez_por_instancia_aunque_haya_varias_capas():
+    for nombres in (("sql",), CAPAS, ("web", "sql", "movil", "otra")):
+        rutas = [ruta for ruta, _ in a().generar(spec_de(*nombres), HOY)]
+        assert rutas.count(capas.REVISOR_DISENO) == 1, (nombres, rutas)
+    assert capas.REVISOR_DISENO == capas.agente("revisor-diseno")
+
+
+def test_sin_capas_validas_no_sale_el_revisor_de_diseno():
+    for spec in ({"spec_version": 1}, {"spec_version": 1, "config": {}}, {"spec_version": 1, "config": {"layers": {}}},
+                 {"spec_version": 1, "config": {"layers": ["sql"]}}, {"spec_version": 1, "config": {"layers": None}}, spec_de("SQL", "c_sharp", "", "a/b")):
+        rutas = [ruta for ruta, _ in a().generar(spec, HOY)]
+        assert capas.REVISOR_DISENO not in rutas, (spec, rutas)
+        assert rutas == [capas.CRITERIOS_SKILL], (spec, rutas)
+
+
+def test_el_revisor_de_diseno_es_el_de_su_plantilla_y_sale_antes_de_criterios():
+    resultado = a().generar(spec_de(*CAPAS), HOY)
+    rutas = [ruta for ruta, _ in resultado]
+    assert rutas[-2:] == [capas.REVISOR_DISENO, capas.CRITERIOS_SKILL], rutas
+    assert dict(resultado)[capas.REVISOR_DISENO] == a().generar_revisor_diseno()
+
+
+def test_el_revisor_de_diseno_es_de_solo_lectura_y_precarga_criterios():
+    texto = archivos(*CAPAS)[capas.REVISOR_DISENO]
+    cabecera = frontmatter(texto)
+    assert cabecera[0] == "---" and "name: revisor-diseno" in cabecera, cabecera
+    assert "tools: Read, Glob, Grep" in cabecera, cabecera
+    assert verificar_capa.skills_del_frontmatter(texto) == ["criterios"]
+    herramientas = next(l for l in cabecera if l.startswith("tools:"))
+    assert not {"Edit", "Write", "Bash", "PowerShell", "NotebookEdit"} & set(re.findall(r"\w+", herramientas.split(":", 1)[1])), herramientas
+    descripcion = next(l for l in cabecera if l.startswith("description:"))
+    assert re.fullmatch(r'description: "((?:[^"\\]|\\.)*)"', descripcion), descripcion
+    assert "{{" not in texto and "}}" not in texto
+
+
+def test_el_revisor_de_diseno_revisa_hermano_consumidor_errores_y_tamano_con_el_contrato_comun():
+    texto = archivos("sql")[capas.REVISOR_DISENO]
+    for pedida in ("CENTINELA criterios", "hermano vigente", "consumidor", "definitivo", "commit", "aborta o sigue", "Tamaño relativo",
+                   "CRITICAL", "WARNING", "SUGGESTION", "ruta:línea", "Solo lees", "Alcance y límites", "workspace.config.json"):
+        assert pedida in texto, pedida
+
+
+def test_el_revisor_de_diseno_trae_su_version_y_su_huella_y_regenerarlo_no_cambia_nada():
+    texto = archivos(*CAPAS)[capas.REVISOR_DISENO]
+    cabecera = frontmatter(texto)
+    version = plantilla_writer.version(plantilla_writer.leer_plantilla(a().PLANTILLA_REVISOR_DISENO))
+    assert isinstance(version, int) and version >= 1
+    assert "odd-ws-plantilla: %d" % version in cabecera, cabecera
+    assert "odd-ws-hash: %s" % plantilla_writer.huella(texto) in cabecera, cabecera
+    assert re.fullmatch(r"[0-9a-f]{64}", plantilla_writer.huella(texto))
+    assert a().generar_revisor_diseno(texto) == texto
+    assert a().generar_revisor_diseno() == texto
+    revisor = archivos("sql")[capas.revisor("sql")]
+    assert [l.split(":")[0] for l in frontmatter(revisor) if l.startswith("odd-ws-")] == [l.split(":")[0] for l in cabecera if l.startswith("odd-ws-")]
+
+
+def test_regenerar_el_revisor_de_diseno_conserva_los_bloques_de_la_instancia():
+    base = a().generar_revisor_diseno()
+    nombres = re.findall(r"<!-- instancia:([a-z][a-z0-9-]*) -->", base)
+    assert "identidad" in nombres and "foco" in nombres, nombres
+    propio = re.sub(r"(<!-- instancia:identidad -->\n).*?(<!-- /instancia:identidad -->)",
+                    lambda m: m.group(1) + "Soy el revisor de diseño propio.\n" + m.group(2), base, count=1, flags=re.S)
+    propio = propio.replace("<!-- instancia:foco -->\n", "<!-- instancia:foco -->\nMira primero los contratos entre capas.\n", 1)
+    propio = re.sub(r"(?m)^description:.*$", 'description: "Mía: # propia"', propio, count=1)
+    regenerado = a().generar_revisor_diseno(propio)
+    assert "Soy el revisor de diseño propio.\n<!-- /instancia:identidad -->" in regenerado
+    assert "<!-- instancia:foco -->\nMira primero los contratos entre capas.\n<!-- /instancia:foco -->" in regenerado
+    assert 'description: "Mía: # propia"' in regenerado
+    assert a().generar_revisor_diseno(regenerado) == regenerado
+    assert plantilla_writer.huella(propio) == plantilla_writer.huella(base)
+    roto = base.replace("<!-- /instancia:foco -->\n", "", 1)
+    try:
+        a().generar_revisor_diseno(roto)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("regeneró sobre bloques mal formados")
+
+
+def test_cambiar_el_revisor_de_diseno_obliga_a_subir_su_version():
+    version = plantilla_writer.version(plantilla_writer.leer_plantilla(a().PLANTILLA_REVISOR_DISENO))
+    huella = sha(a().generar_revisor_diseno())
+    if version not in HUELLAS_DEL_REVISOR_DE_DISENO:
+        raise AssertionError("anotá %d: %r en HUELLAS_DEL_REVISOR_DE_DISENO" % (version, huella))
+    assert HUELLAS_DEL_REVISOR_DE_DISENO[version] == huella, (
+        "lo generado cambió: subí odd-ws-plantilla en plugin/plantillas/revisor-diseno.md y anotá %d: %r en HUELLAS_DEL_REVISOR_DE_DISENO" % (version + 1, huella))
+
+
 def test_todo_sale_en_lf_sin_bom_con_salto_final_y_sin_marcas_sin_resolver():
     generados = archivos(*CAPAS)
-    assert len(generados) == 10, sorted(generados)
+    assert len(generados) == 11, sorted(generados)
     for ruta, texto in generados.items():
         crudo = texto.encode("utf-8")
         assert not crudo.startswith(b"\xef\xbb\xbf") and b"\r" not in crudo, ruta
@@ -291,7 +381,7 @@ def test_generar_es_pura_y_determinista_y_no_toca_la_spec():
     spec = spec_de("sql", "web")
     copia = json.loads(json.dumps(spec))
     primero = a().generar(spec, HOY)
-    assert len(primero) == 7, primero
+    assert len(primero) == 8, primero
     assert a().generar(spec, HOY) == primero
     assert spec == copia
 
@@ -304,7 +394,7 @@ def test_el_doctor_da_ok_sobre_lo_generado():
         resultados = modulo.por_id(modulo.Falso(e.base, cwd=raiz))
         for id in ("writer-sql", "writer-web", "agentes-skills", "agentes-hooks"):
             assert resultados[id].estado == "OK", resultados[id]
-        assert "8 skills precargadas" in resultados["agentes-skills"].detalle, resultados["agentes-skills"].detalle
+        assert "9 skills precargadas" in resultados["agentes-skills"].detalle, resultados["agentes-skills"].detalle
 
 
 def test_control_positivo_el_doctor_si_marca_lo_que_no_debe_pasar():
