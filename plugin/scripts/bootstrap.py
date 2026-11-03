@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws.comun import entorno_git
 
 VERSION_DE_SPEC = 1
 USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo]"
@@ -24,9 +26,16 @@ RESERVADOS = frozenset(
     | {"lpt" + n for n in SUFIJOS_DE_PUERTO}
 )
 INTENTOS_DE_TEMPORAL = 5
+PLAZO_DE_GIT = 60
 SEPARADORES = re.compile(r"[\\/]+")
 
-Accion = namedtuple("Accion", "ruta contenido modo")
+GIT_INIT, GIT_HOOKS = "init", "hooks_path"
+EN_WINDOWS = os.name == "nt"
+RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
+
+Accion = namedtuple("Accion", "ruta contenido modo permisos", defaults=(None,))
+AccionDeGit = namedtuple("AccionDeGit", "tipo valor")
+PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
 Opciones = namedtuple("Opciones", "spec raiz ensayo")
@@ -36,12 +45,15 @@ GENERADORES = []
 
 class Plan(list):
     raiz_real = None
+    acciones_git = ()
+    pasos_git = ()
 
 
 class Resultados(list):
     def __init__(self, *argumentos):
         super().__init__(*argumentos)
         self.sobrantes = []
+        self.git = []
 
 
 class SpecInvalida(Exception):
@@ -165,7 +177,7 @@ def validar_spec(spec, raiz=None):
 def _generar_config(spec):
     return [
         (config_loader.NOMBRE, serializar(spec["config"])),
-        (config_loader.NOMBRE_LOCAL, serializar(spec.get("local", {}))),
+        (config_loader.NOMBRE_LOCAL, serializar({**spec.get("local", {}), "plugin_root": str(RAIZ_DEL_PLUGIN)})),
         (convencion.GITIGNORE, "".join(linea + "\n" for linea in LINEAS_DE_GITIGNORE)),
     ]
 
@@ -183,11 +195,32 @@ def _ruta_relativa(ruta):
     return ruta
 
 
+def _permisos(valor, ruta):
+    if valor is None:
+        return None
+    if type(valor) is not int or not 0 <= valor <= 0o777:
+        raise ErrorDePlan(f"los permisos de {ruta} deben ser un entero entre 0 y 0o777, no {valor!r}")
+    return valor
+
+
+def _paso_de_git(valor, generador):
+    if valor.tipo not in (GIT_INIT, GIT_HOOKS):
+        raise ErrorDePlan(f"el generador {generador} pidió una acción de git desconocida: {valor.tipo!r}")
+    if valor.tipo == GIT_INIT and valor.valor is not None:
+        raise ErrorDePlan("la acción git init no lleva valor")
+    if valor.tipo == GIT_HOOKS:
+        _ruta_relativa(valor.valor)
+        if valor.valor.startswith("-"):
+            raise ErrorDePlan(f"el valor de core.hooksPath {valor.valor!r} no puede empezar con -")
+    return valor
+
+
 def _accion(valor, generador):
-    if not isinstance(valor, (tuple, list)) or len(valor) != 2:
-        raise ErrorDePlan(f"el generador {generador} devolvió una acción que no es (ruta, contenido): {valor!r}")
-    ruta, contenido = valor
+    if not isinstance(valor, (tuple, list)) or len(valor) not in (2, 3):
+        raise ErrorDePlan(f"el generador {generador} devolvió una acción que no es (ruta, contenido[, permisos]): {valor!r}")
+    ruta, contenido, *resto = valor
     ruta = _ruta_relativa(ruta)
+    permisos = _permisos(resto[0] if resto else None, ruta)
     if isinstance(contenido, str):
         try:
             contenido = contenido.encode("utf-8")
@@ -195,7 +228,7 @@ def _accion(valor, generador):
             raise ErrorDePlan(f"el contenido de {ruta} no se puede escribir en UTF-8: {error}")
     if not isinstance(contenido, bytes):
         raise ErrorDePlan(f"el contenido de {ruta} debe ser un texto o bytes")
-    return ruta, contenido
+    return ruta, contenido, permisos
 
 
 def _dentro(ruta, carpeta):
@@ -237,19 +270,160 @@ def planificar(spec, raiz):
         raise ErrorDePlan(f"la raíz {raiz} existe y no es una carpeta")
     vistas = {}
     acciones = []
+    acciones_git = []
     for generador in GENERADORES:
         for valor in generador.funcion(spec):
-            ruta, contenido = _accion(valor, generador.nombre)
+            if isinstance(valor, AccionDeGit):
+                if any(a.tipo == valor.tipo for a in acciones_git):
+                    raise ErrorDePlan(f"la acción de git {valor.tipo} está repetida")
+                acciones_git.append(_paso_de_git(valor, generador.nombre))
+                continue
+            ruta, contenido, permisos = _accion(valor, generador.nombre)
             clave = ruta.casefold()
             if clave in vistas:
                 raise ErrorDePlan(f"la ruta {ruta} está repetida (generadores {vistas[clave][1]} y {generador.nombre})")
             vistas[clave] = (ruta, generador.nombre)
             _revisar_destino(raiz, ruta)
-            acciones.append((ruta, contenido))
+            acciones.append((ruta, contenido, permisos))
     _revisar_choques(vistas)
-    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR) for ruta, contenido in acciones)
+    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR, permisos) for ruta, contenido, permisos in acciones)
     plan.raiz_real = os.path.realpath(raiz)
+    plan.acciones_git = acciones_git
+    plan.pasos_git = _planificar_git(raiz, acciones_git)
     return plan
+
+
+EstadoGit = namedtuple("EstadoGit", "disponible toplevel ilegible detalle")
+
+
+def _git(argumentos):
+    try:
+        resultado = subprocess.run(["git", *argumentos], capture_output=True, stdin=subprocess.DEVNULL, env=entorno_git(), timeout=PLAZO_DE_GIT)
+    except (FileNotFoundError, PermissionError):
+        return None
+    except subprocess.TimeoutExpired:
+        return 124, "", f"git no respondió en {PLAZO_DE_GIT} segundos"
+    return resultado.returncode, resultado.stdout.decode("utf-8", "replace").strip(), resultado.stderr.decode("utf-8", "replace").strip()
+
+
+def _carpeta_existente(raiz):
+    actual = Path(os.path.abspath(raiz))
+    while not os.path.isdir(actual) and actual.parent != actual:
+        actual = actual.parent
+    return actual
+
+
+def _hay_git_arriba(carpeta):
+    return any(os.path.lexists(p / ".git") for p in (carpeta, *carpeta.parents))
+
+
+def _consultar_repo(raiz):
+    carpeta = _carpeta_existente(raiz)
+    respuesta = _git(["-C", str(carpeta), "rev-parse", "--show-toplevel"])
+    if respuesta is None:
+        return EstadoGit(False, None, False, "")
+    codigo, salida, error = respuesta
+    if codigo == 0 and salida:
+        return EstadoGit(True, Path(salida), False, "")
+    if _hay_git_arriba(carpeta):
+        return EstadoGit(True, None, True, error or salida)
+    return EstadoGit(True, None, False, "")
+
+
+def _es_la_raiz(toplevel, raiz):
+    return config_loader.canonica(toplevel) == config_loader.canonica(raiz)
+
+
+def _decidir_init(raiz, estado):
+    if not estado.disponible:
+        return PasoDeGit(GIT_INIT, None, "no_disponible", "git init: no se hizo; git no está instalado")
+    if estado.ilegible:
+        detalle = f" ({estado.detalle})" if estado.detalle else ""
+        return PasoDeGit(GIT_INIT, None, "omitir", f"git init: no se hizo; hay un repo git arriba de la raíz que git no pudo leer{detalle}")
+    if estado.toplevel is None:
+        return PasoDeGit(GIT_INIT, None, "hacer", "git init: se haría (la raíz no está en ningún repo)")
+    if _es_la_raiz(estado.toplevel, raiz):
+        return PasoDeGit(GIT_INIT, None, "omitir", "git init: no hace falta, la raíz ya es un repo git")
+    return PasoDeGit(GIT_INIT, None, "omitir", f"git init: no se hizo; la raíz está dentro del repo {estado.toplevel}")
+
+
+def _valor_de_hooks(raiz):
+    respuesta = _git(["-C", str(raiz), "config", "--local", "--get", "core.hooksPath"])
+    if respuesta is None:
+        return None, "git no está instalado"
+    codigo, salida, error = respuesta
+    if codigo == 0:
+        return salida, ""
+    if codigo == 1:
+        return "", ""
+    return None, error or salida
+
+
+def _decidir_hooks(raiz, valor, estado, init_pendiente):
+    def omitir(motivo, modo="omitir"):
+        return PasoDeGit(GIT_HOOKS, valor, modo, f"core.hooksPath: no se tocó; {motivo}")
+
+    if not estado.disponible:
+        return omitir("git no está instalado", "no_disponible")
+    if init_pendiente:
+        return PasoDeGit(GIT_HOOKS, valor, "hacer", f"core.hooksPath = {valor}: se configuraría (--local)")
+    if estado.ilegible:
+        return omitir("hay un repo git arriba de la raíz que git no pudo leer")
+    if estado.toplevel is None:
+        return omitir("la raíz no está en un repo git")
+    if not _es_la_raiz(estado.toplevel, raiz):
+        return omitir(f"la raíz está dentro del repo {estado.toplevel}, que no es la instancia")
+    actual, error = _valor_de_hooks(raiz)
+    if actual is None:
+        return omitir(f"no se pudo leer su valor ({error})")
+    if actual == valor:
+        return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {valor}: ya estaba")
+    if actual:
+        return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {actual}: no se tocó; el pre-commit no va a correr")
+    return PasoDeGit(GIT_HOOKS, valor, "hacer", f"core.hooksPath = {valor}: se configuraría (--local)")
+
+
+def _decidir(accion, raiz, estado, init_pendiente):
+    if accion.tipo == GIT_INIT:
+        return _decidir_init(raiz, estado)
+    return _decidir_hooks(raiz, accion.valor, estado, init_pendiente)
+
+
+def _planificar_git(raiz, acciones):
+    if not acciones:
+        return []
+    estado = _consultar_repo(raiz)
+    pasos = []
+    init_pendiente = False
+    for accion in acciones:
+        paso = _decidir(accion, raiz, estado, init_pendiente)
+        init_pendiente = init_pendiente or (accion.tipo == GIT_INIT and paso.modo == "hacer")
+        pasos.append(paso)
+    return pasos
+
+
+def _ejecutar_paso(paso, raiz):
+    if paso.tipo == GIT_INIT:
+        etiqueta, argumentos, exito = "git init", ["-C", str(raiz), "init", "-q"], "git init: repo creado"
+    else:
+        etiqueta = f"core.hooksPath = {paso.valor}"
+        argumentos = ["-C", str(raiz), "config", "--local", "core.hooksPath", paso.valor]
+        exito = f"core.hooksPath = {paso.valor}: configurado (--local)"
+    respuesta = _git(argumentos)
+    if respuesta is None:
+        return f"{etiqueta}: no se hizo; git no está instalado"
+    codigo, salida, error = respuesta
+    if codigo != 0:
+        return f"{etiqueta}: falló: {error or salida or 'código ' + str(codigo)}"
+    return exito
+
+
+def _aplicar_git(plan, raiz, referencia, resultados):
+    for accion in getattr(plan, "acciones_git", ()):
+        if os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(referencia):
+            raise ErrorDeAplicacion(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan", resultados)
+        paso = _decidir(accion, raiz, _consultar_repo(raiz), False)
+        resultados.git.append(_ejecutar_paso(paso, raiz) if paso.modo == "hacer" else paso.motivo)
 
 
 def _confirmar(raiz, ruta, referencia):
@@ -277,6 +451,8 @@ def _publicar(raiz, accion, raiz_real=None, sobrantes=None):
     try:
         with archivo:
             archivo.write(accion.contenido)
+        if accion.permisos is not None:
+            os.chmod(temporal, accion.permisos)
         _confirmar(raiz, accion.ruta, referencia)
         try:
             os.link(temporal, destino)
@@ -316,6 +492,7 @@ def aplicar(plan, raiz):
         except OSError as error:
             raise ErrorDeAplicacion(f"no se pudo escribir {accion.ruta}: {error}", resultados)
         resultados.append(Resultado(accion.ruta, estado))
+    _aplicar_git(plan, raiz, referencia, resultados)
     return resultados
 
 
@@ -357,9 +534,12 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     else:
         hechos = [(r.ruta, r.estado == YA_EXISTIA) for r in resultados]
         fraseo = (CREADO, "ya existía")
+    ejecutables = {a.ruta for a in plan if a.permisos and a.permisos & 0o111}
     lineas = []
     for ruta, existe in hechos:
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
+        if EN_WINDOWS and not existe and ruta in ejecutables:
+            lineas.append(f"al commitear, marcalo ejecutable: git add --chmod=+x {ruta}")
         if existe and ruta == convencion.GITIGNORE:
             destino = Path(raiz) / ruta
             pedidas = _pedidas(contenidos[ruta])
@@ -372,6 +552,10 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
                 lineas.append(f"falta en {convencion.GITIGNORE}: {linea}")
     for temporal, destino in getattr(resultados, "sobrantes", ()):
         lineas.append(f"no se pudo borrar {temporal}: borralo a mano (es una copia de {destino})")
+    if ensayo:
+        lineas.extend(paso.motivo for paso in getattr(plan, "pasos_git", ()))
+    else:
+        lineas.extend(getattr(resultados, "git", ()))
     if con_resumen:
         nuevos = sum(1 for _, existe in hechos if not existe)
         previos = len(hechos) - nuevos

@@ -324,7 +324,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
 - **La raíz:** sin `--raiz`, es la instancia que haya arriba del cwd (`config_loader.encontrar_raiz`) o, si no hay ninguna, el cwd. Así nunca se crea una instancia anidada.
   - Un `--raiz` dentro de otra instancia sale con 2.
   - También sale con 2 un `--raiz` con un componente que termina en punto o espacio, que Windows recortaría.
-- **El plan** (`planificar`) junta las acciones `(ruta, contenido)` de los generadores registrados (`registrar_generador`) y marca cada una como `crear` o `ya_existe`. Antes de escribir nada, rechaza:
+- **El plan** (`planificar`) junta las acciones `(ruta, contenido[, permisos])` y las `AccionDeGit` de los generadores registrados (`registrar_generador`), y marca cada archivo como `crear` o `ya_existe`. Los permisos son un entero entre 0 y `0o777`. Antes de escribir nada, rechaza:
   - las rutas absolutas;
   - las que tienen `..`, `\` o `:`;
   - los segmentos vacíos o que terminan en punto o espacio;
@@ -339,9 +339,19 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Después borra siempre el temporal, así que una escritura que falla (por ejemplo, un disco lleno) no deja un archivo a medias.
   - Si el temporal no se puede borrar (por ejemplo, lo tiene abierto un antivirus), el informe dice `no se pudo borrar <temporal>: borralo a mano (es una copia de <destino>)`, y la salida sigue en 0. Es un enlace duro del archivo publicado, y el de `workspace.local.json` no lo cubre el `.gitignore`: hay que borrarlo antes de commitear.
   - Antes de crear carpetas, de escribir y de cada publicación, vuelve a revisar que ningún ancestro sea un enlace que salga de la raíz, y que la raíz resuelva igual que al planificar.
-  - Nunca modifica, trunca ni borra nada.
+  - Con permisos, hace `chmod` sobre el temporal antes del `link`, así que el archivo nunca aparece sin ellos.
+  - Nunca modifica, trunca ni borra un archivo.
   - **Límite:** en FAT o exFAT, sin enlaces duros, sale con 2 sin escribir nada, en lugar de degradar a una escritura insegura.
   - **No ve:** que otro proceso mueva afuera una carpeta del usuario, con el temporal adentro, y la reemplace por una junction justo antes del `link` (L10, R2). Es inherente a trabajar con rutas en lugar de handles, y exige un proceso que modifique la instancia a mitad de la corrida.
+- **Las acciones de git** (`AccionDeGit`, B5) son dos: `init` y `hooks_path`. Corren después de los archivos, y solo si no falló ninguno.
+  - **Solo si hace falta:**
+    - `git init` corre únicamente si la raíz no está en ningún repo. No se anida un repo.
+    - `core.hooksPath` se configura solo si la raíz es el toplevel de su repo, porque un valor relativo se interpreta desde ahí, y si no tiene valor propio.
+    - Un valor ajeno se informa (`core.hooksPath = <valor>: no se tocó; el pre-commit no va a correr`) y no se toca.
+  - **Solo la config del repo:** los comandos son `git -C <raíz> …`, con `config --local` para escribir y `config --local --get` para leer. Leer sin `--local` mezclaría el valor global y el del sistema. Nunca usa `--global` ni `--system`.
+  - **Decide al aplicar:** vuelve a mirar el estado del repo justo antes de cada acción, sin copiar la decisión del plan, y antes de cada una compara la raíz real con la del plan.
+  - Si `rev-parse` falla pero hay un `.git` en algún ancestro (por ejemplo, con «dubious ownership»), no hace `git init` ni toca el `hooksPath`.
+  - **Salida 0 y aviso** si git no está, si falla un comando o si se pasa el plazo de 60 s. El informe lleva una línea por acción, antes del resumen.
 - **El `.gitignore`** nunca se modifica.
   - Se lee tolerando el BOM. Una línea cuenta como presente si coincide, o si la cubre una carpeta ancestro (`.claude/` cubre `.claude/estado/`).
   - Igual que en git, una barra final solo cubre carpetas: `workspace.local.json/` no ignora el archivo. Esto se verificó contra `git check-ignore`.
@@ -349,10 +359,12 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - El informe dice `falta en .gitignore: <línea>` por cada línea que falta.
   - Si no se puede leer (por ejemplo, porque es una carpeta), el informe lo dice y lista qué revisar a mano.
 - **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo]`.
-  - `--ensayo` muestra el plan (`crearía …` y `ya existe …`) sin escribir nada.
+  - `--ensayo` muestra el plan (`crearía …`, `ya existe …` y lo que haría git, como `git init: se haría (la raíz no está en ningún repo)`) sin escribir nada. Solo ejecuta git de lectura.
+  - En Windows, debajo de un archivo creado con bit de ejecución, el informe agrega `al commitear, marcalo ejecutable: git add --chmod=+x <ruta>`, porque git ahí no registra el bit.
   - Sale con 0 aunque haya archivos que ya existían, y con 2 ante una spec, una config o un plan inválidos, un error de aplicación (con el informe parcial de lo creado) o un error interno.
 - **Generadores.** Cada uno es un módulo con `CLAVES`, un `validar(spec)` opcional y `generar(spec)`, y B8 lo registra con `registrar_generador`.
-  - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM.
+  - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM. `workspace.local.json` se crea con el `plugin_root` del plugin que está corriendo; si ya existía, lo cubre `--arreglar plugin-root` del doctor.
+  - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins`, y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
   - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
     - `writer-<capa>`, con `plantilla_writer.generar`, cuya salida no cambió;
     - `revisor-<capa>`, desde `plantillas/revisor.md`, con el mismo mecanismo de versión, huella y bloques `<!-- instancia:... -->`, que ahora es `plantilla_writer.armar` y recibe la plantilla. El revisor es de solo lectura y reporta con severidad y `ruta:línea`;
