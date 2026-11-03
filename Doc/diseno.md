@@ -383,6 +383,15 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Al importar `bootstrap`, solo se registra `config`.
   - La CLI (`__main__`) primero hace `sys.modules.setdefault("bootstrap", …)`, para que el `from bootstrap import …` de los generadores reciba las mismas clases (`SpecInvalida`, `AccionDeGit`), y después `registrar_estandar()` agrega `agentes`, `reglas`, `textos` e `instalacion` (B8, L17).
   - `plantillas/bootstrap.ejemplo.json` es una spec completa para la CLI.
+- **La prueba de punta a punta** (`bootstrap_e2e.tests.py`, B9, unos 10 s) corre todo por subproceso, con la config de git aislada. Cubre cuatro casos:
+  - **una instancia sintética nueva:**
+    - la CLI sale con 0;
+    - el doctor da OK en sus ítems de instancia, que se llaman por su API para no depender de la máquina;
+    - el pre-commit generado corre de verdad;
+    - el primer commit lo dispara, y un pre-commit que falla lo frena;
+  - **la segunda corrida:** todo «ya existía» y no cambia ningún byte;
+  - **una instancia con solo la config y el local escritos a mano:** se completa, y esos dos archivos quedan iguales byte a byte;
+  - **una anterior a T8 sin `rule_prefix`:** sale con 2 sin escribir nada, y se completa después de agregar el prefijo a mano.
   - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM. `workspace.local.json` se crea con el `plugin_root` del plugin que está corriendo; si ya existía, lo cubre `--arreglar plugin-root` del doctor.
   - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins`, y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
   - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
