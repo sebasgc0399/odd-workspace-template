@@ -21,8 +21,8 @@ def normalizar(texto):
     return texto.lstrip("\ufeff").replace("\r\n", "\n")
 
 
-def leer_plantilla():
-    return normalizar(RUTA.read_bytes().decode("utf-8"))
+def leer_plantilla(ruta=RUTA):
+    return normalizar(Path(ruta).read_bytes().decode("utf-8"))
 
 
 def _fin_de_cabecera(lineas):
@@ -106,8 +106,17 @@ def _descripcion(lineas):
 def generar(capa, actual=None, plantilla=None):
     if not isinstance(capa, str) or not capas.es_writer("writer-%s" % capa):
         raise ValueError("writer-%s no cumple %s" % (capa, capas.WRITER_RE.pattern))
-    base = leer_plantilla() if plantilla is None else normalizar(plantilla)
-    lineas = base.replace("{{capa}}", capa).replace("{{resultado}}", writer_stop.PLANTILLA).split("\n")
+    base = leer_plantilla() if plantilla is None else plantilla
+    return armar(capa, base, actual, (("{{resultado}}", writer_stop.PLANTILLA),))
+
+
+def armar(capa, plantilla, actual=None, sustituciones=()):
+    if not isinstance(capa, str) or not capas.es_writer("writer-%s" % capa):
+        raise ValueError("la capa %r no cumple %s" % (capa, capas.WRITER_RE.pattern))
+    texto = normalizar(plantilla).replace("{{capa}}", capa)
+    for marca, valor in sustituciones:
+        texto = texto.replace(marca, valor)
+    lineas = texto.split("\n")
     propios, descripcion = {}, None
     if actual is not None:
         previas = normalizar(actual).split("\n")

@@ -20,7 +20,15 @@ from odd_ws import capas as convencion  # noqa: E402
 CAPAS = ("sql", "web", "movil")
 BLOQUES = ("identidad", "limites", "verificacion")
 HUELLAS_POR_VERSION = {1: "e20a7bdca2eba9d355a04ebd6faca3758fad17b686b3477933c5be7fc89a8eb3"}
-DESCRIPCION_RARA = 'Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
+GOLDEN_DEL_WRITER = {
+    "sql": "1b99b17a282494b2c83d33bb697c24e88b1c39142eac6bdfea03f408edb1cab4",
+    "web": "3bd61a704704a1ba8340969fcb8b191f469c32f5469c83fb34597c32c76fe086",
+    "movil": "20774e6229f1458f6257bcc76ab33f0c7cdf93e6d4a90e5580e062c5579f3b0f",
+    "a": "e6d2b6d3ef5cb218a6c51e64de97013102558b2a85a9ffa58572503aca52e103",
+    "x-y-1": "47037bbb6d1551bfb32a1ff146a373182210aaed3dc328f63670c989aa30f4da",
+    "capa-larga-con-guiones": "c69a18b7f68c7bab730555f05ec7b8d6235e522b9e8bcae775648fdfd491ff63",
+}
+DESCRIPCION_RARA ='Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
 
 
 def p():
@@ -302,6 +310,71 @@ def test_escribir_nunca_pisa_un_writer_editado_o_ajeno():
             else:
                 raise AssertionError("pisó un writer %s" % p().revisar(i.raiz, "sql").codigo)
             assert ruta.read_bytes() == texto.encode("utf-8")
+
+
+def sha(texto):
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+def plantilla_ajena():
+    return ("---\nname: otro-{{capa}}\ndescription: \"Otra pieza de {{capa}}.\"\nodd-ws-plantilla: 3\nodd-ws-hash: {{hash}}\n---\n"
+            "Texto fijo {{otra}}.\n<!-- instancia:foco -->\nFoco por defecto de {{capa}}.\n<!-- /instancia:foco -->\nCierre fijo.\n")
+
+
+def test_la_salida_del_writer_es_la_de_antes_de_generalizar():
+    for capa, esperado in GOLDEN_DEL_WRITER.items():
+        assert sha(p().generar(capa)) == esperado, capa
+
+
+def test_armar_usa_el_mismo_mecanismo_con_otra_plantilla():
+    plantilla = plantilla_ajena()
+    generado = p().armar("sql", plantilla, sustituciones=(("{{otra}}", "valor"),))
+    cabecera = frontmatter(generado).splitlines()
+    assert "name: otro-sql" in cabecera and "odd-ws-plantilla: 3" in cabecera, cabecera
+    assert "Texto fijo valor." in generado and "{{" not in generado, generado
+    assert "odd-ws-hash: %s" % p().huella(generado) in cabecera
+    assert p().version(plantilla) == 3
+    propio = con_bloque(con_descripcion(generado, '"Mía: # propia"'), "foco", "Foco de la instancia.\n")
+    regenerado = p().armar("sql", plantilla, propio, (("{{otra}}", "valor"),))
+    assert bloque(regenerado, "foco") == "Foco de la instancia.\n" and descripcion(regenerado)[1] == "Mía: # propia"
+    assert p().armar("sql", plantilla, regenerado, (("{{otra}}", "valor"),)) == regenerado
+    assert p().huella(con_bloque(generado, "foco", "otra cosa\n")) == p().huella(generado)
+
+
+def test_una_plantilla_con_crlf_y_bom_sale_igual_que_con_lf():
+    ajena = plantilla_ajena()
+    sucia = "﻿" + ajena.replace("\n", "\r\n")
+    assert p().armar("sql", sucia) == p().armar("sql", ajena) and "\r" not in p().armar("sql", sucia)
+    propia = p().leer_plantilla()
+    assert p().generar("sql", None, "﻿" + propia.replace("\n", "\r\n")) == p().generar("sql")
+
+
+def test_armar_rechaza_una_capa_invalida_y_bloques_mal_formados():
+    for capa in ("SQL", "c_sharp", "-web", "", "a/b", None):
+        try:
+            p().armar(capa, plantilla_ajena())
+        except ValueError:
+            continue
+        raise AssertionError("armó con la capa %r" % (capa,))
+    for roto in (plantilla_ajena().replace("<!-- /instancia:foco -->\n", "", 1),):
+        try:
+            p().armar("sql", roto)
+        except ValueError:
+            continue
+        raise AssertionError("armó una plantilla con bloques mal formados")
+    try:
+        p().armar("sql", plantilla_ajena(), p().armar("sql", plantilla_ajena()).replace("<!-- /instancia:foco -->\n", "", 1))
+    except ValueError:
+        return
+    raise AssertionError("armó sobre una instancia con bloques mal formados")
+
+
+def test_leer_plantilla_acepta_otra_ruta_y_la_por_defecto_sigue_siendo_la_del_writer():
+    assert p().leer_plantilla() == p().leer_plantilla(p().RUTA)
+    with Instancia() as i:
+        ruta = i.raiz / "otra.md"
+        ruta.write_bytes(b"\xef\xbb\xbfuno\r\ndos\r\n")
+        assert p().leer_plantilla(ruta) == "uno\ndos\n"
 
 
 def main():
