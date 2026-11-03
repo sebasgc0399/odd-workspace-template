@@ -15,7 +15,7 @@ import verificar_capa
 from odd_ws import capas as convencion
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks
 
-MARKETPLACE ="odd-workspace-template"
+MARKETPLACE = "odd-workspace-template"
 URL_MARKETPLACE = "https://github.com/sebasgc0399/odd-workspace-template.git"
 UMBRAL_MS = 100
 OK, FALTA, AVISO, NO_APLICA = "OK", "FALTA", "AVISO", "NO APLICA"
@@ -52,7 +52,7 @@ AYUDA_HOOKS_AJENO = ("core.hooksPath apunta a otro lado y el doctor no lo pisa: 
                      "a esos hooks.")
 AYUDA_HOOKS_NO_TOCAR = ("Integrá .githooks/pre-commit a esos hooks (llamalo desde ellos) o configurá core.hooksPath = .githooks a mano, sabiendo que lo que "
                         "corre hoy dejaría de correr o que el cambio alcanza a todos los checkouts del repo. El doctor no lo hace por vos.")
-AYUDA_PRE_COMMIT ="Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
+AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
 AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
 COPIA_DE_EMERGENCIA = ".claude/plugin"
 SETTINGS = ".claude/settings.json"
