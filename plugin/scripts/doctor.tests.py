@@ -35,7 +35,8 @@ def d():
 
 
 def entorno_sin_git():
-    return {clave: valor for clave, valor in os.environ.items() if not clave.startswith("GIT_")}
+    return {**{clave: valor for clave, valor in os.environ.items() if not clave.startswith("GIT_")},
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 
 def _forzar_borrado(funcion, ruta, _error):
@@ -679,6 +680,232 @@ def test_leer_version():
     assert d().leer_version("2.1.284 (Claude Code)") == (2, 1, 284)
     assert d().leer_version("jq-1.8.2") == (1, 8, 2)
     assert d().leer_version("sin numeros") is None
+
+
+NUEVOS = ("config", "instancia-hooks", "instancia-plugin")
+CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
+ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "agentes-skills", "agentes-hooks", "python",
+                      "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
+
+
+def git_en(raiz, *args):
+    subprocess.run(["git", *args], cwd=raiz, env=entorno_sin_git(), check=True, capture_output=True)
+
+
+def hooks_path(raiz):
+    r = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=raiz, env=entorno_sin_git(), capture_output=True)
+    return r.stdout.decode("utf-8").strip()
+
+
+def instancia_git(e, hooks=None, precommit=True):
+    raiz = e.instancia()
+    git_en(raiz, "init", "-q")
+    if hooks:
+        git_en(raiz, "config", "core.hooksPath", hooks)
+    if precommit:
+        poner(raiz, ".githooks/pre-commit", "#!/bin/sh\n")
+    return raiz
+
+
+def instancia_con_repos(e, local):
+    raiz = e.base / "instancia"
+    raiz.mkdir()
+    config = {"schema_version": 1, "repos": {"db": {}}, "layers": {"sql": {"extensions": [".sql"], "repos": ["db"]}}}
+    (raiz / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+    if local is not None:
+        (raiz / "workspace.local.json").write_text(json.dumps(local), encoding="utf-8")
+    return raiz
+
+
+def poner_settings(raiz, contenido):
+    return poner(raiz, ".claude/settings.json", contenido if isinstance(contenido, (str, bytes)) else json.dumps(contenido))
+
+
+def test_fuera_de_una_instancia_no_hay_items_nuevos_de_instancia():
+    with Escenario() as e:
+        ids = list(por_id(Falso(e.base)))
+        assert not [i for i in ids if i in NUEVOS], ids
+
+
+def test_los_items_de_antes_conservan_su_orden_y_los_nuevos_van_tras_plugin_root():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ids = [r.id for r in d().diagnosticar(Falso(e.base, cwd=raiz))]
+        assert [i for i in ids if i not in NUEVOS] == ANTES_EN_INSTANCIA, ids
+        assert ids[ids.index("plugin-root") + 1:ids.index("plugin-root") + 4] == list(NUEVOS), ids
+
+
+def test_config_con_la_ruta_del_repo_que_existe_es_ok():
+    with Escenario() as e:
+        repo = e.base / "db"
+        repo.mkdir()
+        raiz = instancia_con_repos(e, {"repos": {"db": {"path": str(repo)}}})
+        r = por_id(Falso(e.base, cwd=raiz))["config"]
+        assert r.estado == "OK" and r.arreglo is None and r.comando is None, r
+
+
+def test_config_sin_repos_es_ok():
+    with Escenario() as e:
+        r = por_id(Falso(e.base, cwd=e.instancia()))["config"]
+        assert r.estado == "OK", r
+
+
+def test_config_con_la_ruta_de_un_repo_que_falta_es_falta_sin_arreglo_y_writers_no_la_ve():
+    for local, rastro in ((None, "falta la ruta del repo 'db'"), ({"repos": {}}, "falta la ruta del repo 'db'"),
+                          ({"repos": {"db": {}}}, "falta la ruta del repo 'db'")):
+        with Escenario() as e:
+            raiz = instancia_con_repos(e, local)
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)
+            assert r["config"].estado == "FALTA" and rastro in r["config"].detalle, (local, r["config"])
+            assert r["config"].arreglo is None and r["config"].comando is None, r["config"]
+            assert "workspace.local.json" in r["config"].ayuda and "repos" in r["config"].ayuda, r["config"]
+            assert r["writer-sql"].estado == "AVISO" and "writers" not in r, "el hueco: writers no ve la ruta"
+            codigo, salida = correr([], ctx)
+            assert codigo == 1 and "config" in salida and "cómo:" in salida, salida
+
+
+def test_config_con_la_ruta_de_un_repo_que_no_existe_es_falta_con_su_ruta_en_el_detalle():
+    with Escenario() as e:
+        ausente = str(e.base / "no-existe")
+        raiz = instancia_con_repos(e, {"repos": {"db": {"path": ausente}}})
+        r = por_id(Falso(e.base, cwd=raiz))["config"]
+        assert r.estado == "FALTA" and "no existe" in r.detalle and ausente in r.detalle, r
+
+
+def test_config_arreglar_sin_arreglo_automatico_sale_dos_y_no_toca_nada():
+    with Escenario() as e:
+        raiz = instancia_con_repos(e, {"repos": {"db": {}}})
+        antes = leer_local(raiz)
+        codigo, salida = correr(["--arreglar", "config"], Falso(e.base, cwd=raiz))
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert leer_local(raiz) == antes
+
+
+def test_config_rota_por_otra_causa_tambien_es_falta_con_el_mensaje_de_config_rota():
+    with Escenario() as e:
+        raiz = e.instancia()
+        (raiz / "workspace.config.json").write_text('{"schema_version": 7, "layers": {}}', encoding="utf-8")
+        r = por_id(Falso(e.base, cwd=raiz))["config"]
+        assert r.estado == "FALTA" and "schema_version" in r.detalle, r
+
+
+def test_instancia_hooks_no_aplica_si_la_raiz_no_esta_en_un_repo_git():
+    for git_real in (False, True):
+        with Escenario() as e:
+            raiz = e.instancia()
+            r = por_id(Falso(e.base, cwd=raiz, git_real=git_real))["instancia-hooks"]
+            assert r.estado == "NO APLICA" and r.arreglo is None and r.comando is None, (git_real, r)
+            assert "no está en un repo git" in r.detalle, (git_real, r)
+
+
+def test_instancia_hooks_si_git_falla_al_leer_el_valor_no_toma_el_error_por_valor():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz, respuestas={
+            ("git", "-C", str(raiz), "rev-parse", "--show-toplevel"): (0, str(raiz) + "\n"),
+            ("git", "-C", str(raiz), "config", "--get", "core.hooksPath"): (128, "fatal: bad config line 1\n"),
+        })
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and "sin configurar" in r.detalle and "fatal" not in r.detalle and r.comando is not None, r
+
+
+def test_instancia_hooks_con_hookspath_y_pre_commit_es_ok():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks=".githooks")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-hooks"]
+        assert r.estado == "OK" and ".githooks" in r.detalle, r
+
+
+def test_instancia_hooks_sin_valor_es_falta_y_arreglar_lo_configura():
+    with Escenario() as e:
+        raiz = instancia_git(e)
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and "sin configurar" in r.detalle and r.comando is not None, r
+        assert hooks_path(raiz) == ""
+        codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
+        assert codigo == 0 and "instancia-hooks: OK" in salida, salida
+        assert hooks_path(raiz) == ".githooks"
+
+
+def test_instancia_hooks_con_otro_valor_es_falta_sin_arreglo_y_no_lo_pisa():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks="otros-hooks")
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and "otros-hooks" in r.detalle and r.comando is None and r.arreglo is None and r.ayuda, r
+        codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert hooks_path(raiz) == "otros-hooks"
+
+
+def test_instancia_hooks_apuntando_bien_pero_sin_pre_commit_es_falta_sin_arreglo():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks=".githooks", precommit=False)
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-hooks"]
+        assert r.estado == "FALTA" and "pre-commit" in r.detalle and r.comando is None and r.arreglo is None and r.ayuda, r
+
+
+def test_instancia_hooks_sin_valor_y_sin_pre_commit_lo_dice_y_el_arreglo_no_lo_da_por_bueno():
+    with Escenario() as e:
+        raiz = instancia_git(e, precommit=False)
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and "falta .githooks/pre-commit" in r.detalle and r.comando is not None and r.ayuda, r
+        codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
+        assert codigo == 1 and hooks_path(raiz) == ".githooks", (codigo, salida)
+
+
+def test_instancia_hooks_no_aplica_si_la_instancia_esta_dentro_de_otro_repo():
+    with Escenario() as e:
+        git_en(e.base, "init", "-q")
+        raiz = e.instancia()
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-hooks"]
+        assert r.estado == "NO APLICA" and r.comando is None, r
+        assert hooks_path(e.base) == "", "no toca el repo de afuera"
+
+
+def test_instancia_plugin_habilitado_es_ok_con_o_sin_bom():
+    for crudo in (json.dumps({"enabledPlugins": {CLAVE_PLUGIN: True, "otro@mercado": False}}),
+                  b"\xef\xbb\xbf" + json.dumps({"enabledPlugins": {CLAVE_PLUGIN: True}}).encode("utf-8")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            poner_settings(raiz, crudo)
+            r = por_id(Falso(e.base, cwd=raiz))["instancia-plugin"]
+            assert r.estado == "OK" and CLAVE_PLUGIN in r.detalle and r.arreglo is None, r
+
+
+def test_instancia_plugin_sin_habilitar_es_aviso_sin_arreglo_y_no_toca_el_archivo():
+    casos = [None, {}, {"enabledPlugins": {}}, {"enabledPlugins": {"otro@mercado": True}}, {"enabledPlugins": {CLAVE_PLUGIN: False}},
+             {"enabledPlugins": [CLAVE_PLUGIN]}, {"enabledPlugins": {CLAVE_PLUGIN: "true"}}, {"enabledPlugins": {CLAVE_PLUGIN: None}}]
+    for contenido in casos:
+        with Escenario() as e:
+            raiz = e.instancia()
+            if contenido is not None:
+                poner_settings(raiz, contenido)
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)["instancia-plugin"]
+            assert r.estado == "AVISO" and r.arreglo is None and r.comando is None, (contenido, r)
+            assert CLAVE_PLUGIN in r.ayuda and "enabledPlugins" in r.ayuda, r
+            codigo, salida = correr(["--arreglar", "instancia-plugin"], ctx)
+            assert codigo == 2, (contenido, salida)
+            assert (raiz / ".claude" / "settings.json").is_file() == (contenido is not None)
+            if contenido is not None:
+                assert json.loads((raiz / ".claude" / "settings.json").read_text(encoding="utf-8")) == contenido
+
+
+def test_instancia_plugin_con_settings_roto_es_falta_sin_arreglo():
+    for malo in ("{no es json", "[1]", "null", b"\xff\xfe\x00 roto"):
+        with Escenario() as e:
+            raiz = e.instancia()
+            poner_settings(raiz, malo)
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)["instancia-plugin"]
+            assert r.estado == "FALTA" and ".claude/settings.json" in r.detalle and r.arreglo is None and r.comando is None, (malo, r)
+            codigo, salida = correr([], ctx)
+            assert codigo == 1, salida
+            assert (raiz / ".claude" / "settings.json").read_bytes() == (malo if isinstance(malo, bytes) else malo.encode("utf-8"))
 
 
 def main():

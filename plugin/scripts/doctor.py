@@ -45,7 +45,20 @@ AYUDA_AGENTES_SKILLS = ("Creá la skill en .claude/skills/<skill>/SKILL.md o sac
                         "línea suelta CENTINELA <skill> <fecha>: sin ella, el writer cree que no vino y la vuelve a leer del disco.")
 AYUDA_AGENTES_HOOKS = ("Pasá esos hooks al .claude/settings.json de la instancia y filtrá por agent_type en el script: los del frontmatter de "
                        "un agente del proyecto solo corren si la carpeta aceptó el diálogo de confianza, y nunca en una sesión -p.")
+AYUDA_RUTAS = (f"Poné en {config_loader.NOMBRE_LOCAL} la ruta de cada repo de {config_loader.NOMBRE} (repos.<repo>.path, una carpeta que "
+               "exista en esta máquina) o corregí lo que diga el detalle. Después, otra vez el doctor.")
+AYUDA_HOOKS_AJENO = ("core.hooksPath apunta a otro lado y el doctor no lo pisa: cambialo a mano a .githooks o integrá .githooks/pre-commit "
+                     "a esos hooks.")
+AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
+AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
 COPIA_DE_EMERGENCIA = ".claude/plugin"
+SETTINGS = ".claude/settings.json"
+PLUGIN = "odd-ws"
+CLAVE_PLUGIN = f"{PLUGIN}@{MARKETPLACE}"
+HOOKS_PATH = ".githooks"
+PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
+AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
+                "y reiniciá Claude Code.")
 CON_CENTINELA = re.compile(r"criterios|capa-.+")
 SIN_INVOCACION = re.compile(r"disable-model-invocation\s*:\s*(?:true|True|TRUE)\s*(?:#.*)?$")
 
@@ -171,6 +184,68 @@ def chequear_plugin_root(ctx):
         return resultado("plugin-root", FALTA, f"plugin_root = {anotado} es otra copia del plugin; el doctor corre desde {ctx.plugin}",
                          arreglo=arreglo)
     return resultado("plugin-root", OK, f"plugin_root = {anotado}")
+
+
+def chequear_instancia(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    return [chequear_config(raiz), chequear_hooks_de_instancia(ctx, raiz), chequear_plugin_habilitado(raiz)]
+
+
+def chequear_config(raiz):
+    try:
+        config = config_loader.cargar(raiz)
+    except config_loader.ConfigRota as error:
+        return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
+    return resultado("config", OK, f"{len(config['repos'])} repos con su ruta y {len(config['layers'])} capas")
+
+
+def raiz_del_repo_de(ctx, raiz):
+    codigo, salida = ctx.ejecutar(["git", "-C", str(raiz), "rev-parse", "--show-toplevel"])
+    return Path(primera_linea(salida)) if codigo == 0 and primera_linea(salida) else None
+
+
+def chequear_hooks_de_instancia(ctx, raiz):
+    id = "instancia-hooks"
+    repo = raiz_del_repo_de(ctx, raiz)
+    if repo is None:
+        return resultado(id, NO_APLICA, "la raíz de la instancia no está en un repo git")
+    if config_loader.canonica(repo) != config_loader.canonica(raiz):
+        return resultado(id, NO_APLICA, f"la instancia está dentro del repo {repo} y no es la raíz de uno: el doctor no toca sus hooks")
+    codigo, salida = ctx.ejecutar(["git", "-C", str(raiz), "config", "--get", "core.hooksPath"])
+    valor = primera_linea(salida) if codigo == 0 else ""
+    hay_pre_commit = (raiz / PRE_COMMIT).is_file()
+    if valor and valor != HOOKS_PATH:
+        return resultado(id, FALTA, f"core.hooksPath = {valor}: en esta instancia no corre su pre-commit", None, AYUDA_HOOKS_AJENO)
+    if valor and hay_pre_commit:
+        return resultado(id, OK, f"core.hooksPath = {HOOKS_PATH} y existe {PRE_COMMIT}")
+    if valor:
+        return resultado(id, FALTA, f"core.hooksPath = {HOOKS_PATH}, pero falta {PRE_COMMIT}", None, AYUDA_PRE_COMMIT)
+    arreglo = ["git", "-C", str(raiz), "config", "core.hooksPath", HOOKS_PATH]
+    detalle = "core.hooksPath = (sin configurar): en esta instancia no corre ningún pre-commit"
+    if hay_pre_commit:
+        return resultado(id, FALTA, detalle, arreglo)
+    return resultado(id, FALTA, f"{detalle}, y además falta {PRE_COMMIT}", arreglo, AYUDA_PRE_COMMIT)
+
+
+def chequear_plugin_habilitado(raiz):
+    id = "instancia-plugin"
+    ruta = raiz / SETTINGS
+    if not ruta.is_file():
+        return resultado(id, AVISO, f"no hay {SETTINGS}: el plugin {PLUGIN} no está habilitado en esta instancia", None, AYUDA_PLUGIN)
+    texto = leer_texto(ruta)
+    try:
+        datos = json.loads(texto) if texto is not None else None
+    except ValueError:
+        datos = None
+    if not isinstance(datos, dict):
+        return resultado(id, FALTA, f"{SETTINGS} no se puede leer como un objeto JSON", None, AYUDA_SETTINGS)
+    habilitados = datos.get("enabledPlugins")
+    if isinstance(habilitados, dict) and habilitados.get(CLAVE_PLUGIN) is True:
+        return resultado(id, OK, f"{CLAVE_PLUGIN} habilitado en {SETTINGS}")
+    return resultado(id, AVISO, f"{CLAVE_PLUGIN} no está habilitado en {SETTINGS}: sin el plugin, la instancia no tiene sus hooks", None,
+                     AYUDA_PLUGIN)
 
 
 def chequear_writers(ctx):
@@ -375,6 +450,7 @@ def diagnosticar(ctx):
         chequear_repo_hooks(ctx, raiz),
         chequear_lista_negra(ctx, raiz),
         chequear_plugin_root(ctx),
+        *chequear_instancia(ctx),
         *chequear_writers(ctx),
         *chequear_agentes(ctx),
         chequear_python(ctx),
