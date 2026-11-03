@@ -25,7 +25,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 
 ## 1. Las entradas
 
-- **El ticket.** Su carpeta es `tickets/<id>-<slug>/`. Si el usuario solo dio el id, búscala con el glob recursivo `tickets/**/<id>-*`: un ticket archivado puede estar en una subcarpeta.
+- **El ticket.** Su carpeta es `tickets/<id>-<slug>/`. Si el usuario solo dio el id, búscala con el glob recursivo `tickets/**/<id>-*/CLAUDE.md` (la herramienta Glob lista archivos, no carpetas): un ticket archivado puede estar en una subcarpeta.
 - **Los repos tocados**, con su rama o worktree:
   - la ruta de cada repo sale de `workspace.local.json` (`repos.<repo>.path`);
   - el worktree y la rama del ticket están en su `CLAUDE.md`, en «Worktree y rama». Si el ticket trabaja en un worktree, ese es el `--repo`, no el árbol principal;
