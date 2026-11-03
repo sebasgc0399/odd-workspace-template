@@ -60,7 +60,7 @@ def archivos_esperados():
     c = capas()
     return [
         "workspace.config.json", "workspace.local.json", ".gitignore",
-        c.writer("capa-a"), c.revisor("capa-a"), c.skill("capa-a"), c.CRITERIOS_SKILL,
+        c.writer("capa-a"), c.revisor("capa-a"), c.skill("capa-a"), c.REVISOR_DISENO, c.CRITERIOS_SKILL,
         c.MATRIZ, c.EVIDENCIA, c.chequeo("capa-a"), c.prueba("capa-a"),
         c.INDICE, c.TICKET_PLANTILLA,
         ".githooks/pre-commit", ".claude/settings.json",

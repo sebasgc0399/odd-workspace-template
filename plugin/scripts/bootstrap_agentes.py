@@ -7,6 +7,7 @@ from odd_ws import capas
 CLAVES = ()
 PLANTILLAS = Path(__file__).resolve().parents[1] / "plantillas"
 PLANTILLA_REVISOR = PLANTILLAS / "revisor.md"
+PLANTILLA_REVISOR_DISENO = PLANTILLAS / "revisor-diseno.md"
 PLANTILLA_CAPA = PLANTILLAS / "capa.md"
 PLANTILLA_CRITERIOS = PLANTILLAS / "criterios.md"
 
@@ -43,12 +44,19 @@ def generar_revisor(capa, actual=None):
     return plantilla_writer.armar(capa, plantilla_writer.leer_plantilla(PLANTILLA_REVISOR), actual)
 
 
+def generar_revisor_diseno(actual=None):
+    return plantilla_writer.armar("diseno", plantilla_writer.leer_plantilla(PLANTILLA_REVISOR_DISENO), actual)
+
+
 def generar(spec, hoy=None):
     fecha = _fecha(hoy)
     acciones = []
-    for capa in _capas_de(spec):
+    por_capa = _capas_de(spec)
+    for capa in por_capa:
         acciones.append((capas.writer(capa), plantilla_writer.generar(capa)))
         acciones.append((capas.revisor(capa), generar_revisor(capa)))
         acciones.append((capas.skill(capa), _sustituir(PLANTILLA_CAPA, capa, fecha)))
+    if por_capa:
+        acciones.append((capas.REVISOR_DISENO, generar_revisor_diseno()))
     acciones.append((capas.CRITERIOS_SKILL, _sustituir(PLANTILLA_CRITERIOS, "", fecha)))
     return acciones
