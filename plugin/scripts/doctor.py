@@ -13,8 +13,9 @@ import config_loader
 import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
+from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks
 
-MARKETPLACE = "odd-workspace-template"
+MARKETPLACE ="odd-workspace-template"
 URL_MARKETPLACE = "https://github.com/sebasgc0399/odd-workspace-template.git"
 UMBRAL_MS = 100
 OK, FALTA, AVISO, NO_APLICA = "OK", "FALTA", "AVISO", "NO APLICA"
@@ -49,7 +50,9 @@ AYUDA_RUTAS = (f"Poné en {config_loader.NOMBRE_LOCAL} la ruta de cada repo de {
                "exista en esta máquina) o corregí lo que diga el detalle. Después, otra vez el doctor.")
 AYUDA_HOOKS_AJENO = ("core.hooksPath apunta a otro lado y el doctor no lo pisa: cambialo a mano a .githooks o integrá .githooks/pre-commit "
                      "a esos hooks.")
-AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
+AYUDA_HOOKS_NO_TOCAR = ("Integrá .githooks/pre-commit a esos hooks (llamalo desde ellos) o configurá core.hooksPath = .githooks a mano, sabiendo que lo que "
+                        "corre hoy dejaría de correr o que el cambio alcanza a todos los checkouts del repo. El doctor no lo hace por vos.")
+AYUDA_PRE_COMMIT ="Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
 AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
 COPIA_DE_EMERGENCIA = ".claude/plugin"
 SETTINGS = ".claude/settings.json"
@@ -224,6 +227,13 @@ def chequear_hooks_de_instancia(ctx, raiz):
         return resultado(id, FALTA, f"core.hooksPath = {HOOKS_PATH}, pero falta {PRE_COMMIT}", None, AYUDA_PRE_COMMIT)
     arreglo = ["git", "-C", str(raiz), "config", "core.hooksPath", HOOKS_PATH]
     detalle = "core.hooksPath = (sin configurar): en esta instancia no corre ningún pre-commit"
+    codigo, salida = ctx.ejecutar(["git", "-C", str(raiz), *COMANDO_RUTAS_DE_HOOKS])
+    decision = decidir_hooks(raiz, salida if codigo == 0 else "")
+    if not decision.puede:
+        detalle = f"{detalle}, y el doctor no lo configura porque {decision.motivo}"
+        if hay_pre_commit:
+            return resultado(id, FALTA, detalle, None, AYUDA_HOOKS_NO_TOCAR)
+        return resultado(id, FALTA, f"{detalle}; además falta {PRE_COMMIT}", None, f"{AYUDA_HOOKS_NO_TOCAR} {AYUDA_PRE_COMMIT}")
     if hay_pre_commit:
         return resultado(id, FALTA, detalle, arreglo)
     return resultado(id, FALTA, f"{detalle}, y además falta {PRE_COMMIT}", arreglo, AYUDA_PRE_COMMIT)

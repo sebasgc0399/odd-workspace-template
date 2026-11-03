@@ -10,7 +10,7 @@ from pathlib import Path
 
 import config_loader
 from odd_ws import capas as convencion
-from odd_ws.comun import entorno_git
+from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
 USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo]"
@@ -200,6 +200,8 @@ def _permisos(valor, ruta):
         return None
     if type(valor) is not int or not 0 <= valor <= 0o777:
         raise ErrorDePlan(f"los permisos de {ruta} deben ser un entero entre 0 y 0o777, no {valor!r}")
+    if not valor & 0o200:
+        raise ErrorDePlan(f"los permisos de {ruta} deben incluir la escritura del dueño (0o200), no {oct(valor)}")
     return valor
 
 
@@ -348,15 +350,20 @@ def _decidir_init(raiz, estado):
 
 
 def _valor_de_hooks(raiz):
-    respuesta = _git(["-C", str(raiz), "config", "--local", "--get", "core.hooksPath"])
+    respuesta = _git(["-C", str(raiz), "config", "--local", "--includes", "--get", "core.hooksPath"])
     if respuesta is None:
-        return None, "git no está instalado"
+        return "error", "git no está instalado"
     codigo, salida, error = respuesta
     if codigo == 0:
-        return salida, ""
+        return "valor", salida
     if codigo == 1:
-        return "", ""
-    return None, error or salida
+        return "sin_valor", ""
+    return "error", error or salida
+
+
+def _decision_de_hooks(raiz):
+    respuesta = _git(["-C", str(raiz), *COMANDO_RUTAS_DE_HOOKS])
+    return decidir_hooks(raiz, respuesta[1] if respuesta is not None and respuesta[0] == 0 else "")
 
 
 def _decidir_hooks(raiz, valor, estado, init_pendiente):
@@ -373,13 +380,16 @@ def _decidir_hooks(raiz, valor, estado, init_pendiente):
         return omitir("la raíz no está en un repo git")
     if not _es_la_raiz(estado.toplevel, raiz):
         return omitir(f"la raíz está dentro del repo {estado.toplevel}, que no es la instancia")
-    actual, error = _valor_de_hooks(raiz)
-    if actual is None:
-        return omitir(f"no se pudo leer su valor ({error})")
-    if actual == valor:
-        return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {valor}: ya estaba")
-    if actual:
-        return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {actual}: no se tocó; el pre-commit no va a correr")
+    lectura, actual = _valor_de_hooks(raiz)
+    if lectura == "error":
+        return omitir(f"no se pudo leer su valor ({actual})")
+    if lectura == "valor":
+        if actual == valor:
+            return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {valor}: ya estaba")
+        return PasoDeGit(GIT_HOOKS, valor, "omitir", f"core.hooksPath = {actual or '(vacío)'}: no se tocó; el pre-commit no va a correr")
+    decision = _decision_de_hooks(raiz)
+    if not decision.puede:
+        return omitir(decision.motivo)
     return PasoDeGit(GIT_HOOKS, valor, "hacer", f"core.hooksPath = {valor}: se configuraría (--local)")
 
 

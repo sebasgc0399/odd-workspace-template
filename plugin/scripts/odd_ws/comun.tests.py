@@ -39,8 +39,11 @@ class Temporal:
         shutil.rmtree(self.base, onerror=_forzar_borrado)
 
 
+VARIABLES_DE_GIT_AISLADAS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+
+
 def _entorno_limpio():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_") or k in VARIABLES_DE_GIT_AISLADAS}
 
 
 def git(repo, *args):
@@ -311,6 +314,178 @@ def test_cada_nombre_publico_existe():
         cargado = importlib.import_module("odd_ws." + modulo)
         for nombre in nombres:
             assert hasattr(cargado, nombre), f"{modulo}.{nombre}"
+
+
+def salida_de_git(carpeta_hooks, git_dir, git_comun, fin="\n"):
+    return fin.join([carpeta_hooks, git_dir, git_comun]) + fin
+
+
+def decidir(raiz, salida):
+    return m().decidir_hooks(raiz, salida)
+
+
+def repo_con_hooks(base, hooks):
+    raiz = base / "r"
+    (raiz / ".git" / "hooks").mkdir(parents=True)
+    for nombre, contenido in hooks.items():
+        (raiz / ".git" / "hooks" / nombre).write_bytes(contenido)
+    return raiz
+
+
+def test_el_comando_de_rutas_de_hooks_es_el_que_pregunta_las_tres_cosas():
+    assert m().COMANDO_RUTAS_DE_HOOKS == ("rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir")
+
+
+def test_hooks_solo_de_ejemplo_se_pueden_tocar():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit.sample": b"x", "commit-msg.sample": b"y", "pre-push.sample": b"z"})
+        decision = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        assert decision.puede is True and decision.motivo == ""
+
+
+def test_una_carpeta_de_hooks_que_no_existe_o_esta_vacia_se_puede_tocar():
+    with Temporal() as base:
+        raiz = base / "r"
+        raiz.mkdir()
+        assert decidir(raiz, salida_de_git(".git/hooks", ".git", ".git")).puede is True
+        (raiz / ".git" / "hooks").mkdir(parents=True)
+        assert decidir(raiz, salida_de_git(".git/hooks", ".git", ".git")).puede is True
+
+
+def test_un_hook_propio_impide_tocarlo_y_el_motivo_lo_nombra():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit": b"#!/bin/sh\n", "commit-msg": b"#!/bin/sh\n", "pre-commit.sample": b"x"})
+        decision = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        carpeta = os.path.normpath(str(raiz / ".git" / "hooks"))
+        assert decision.puede is False
+        assert decision.motivo == f"hay hooks propios en {carpeta} (commit-msg, pre-commit), que dejarían de correr", decision.motivo
+
+
+def test_solo_el_sufijo_sample_exacto_se_ignora():
+    with Temporal() as base:
+        for nombre in ("pre-commit.sample.bak", "sample", "post-commit.samples", "hook.SAMPLE"):
+            raiz = repo_con_hooks(base, {nombre: b"x"})
+            decision = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+            assert decision.puede is False and nombre in decision.motivo, (nombre, decision)
+            shutil.rmtree(raiz, onerror=_forzar_borrado)
+
+
+def test_una_subcarpeta_en_hooks_cuenta_como_propia():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {})
+        (raiz / ".git" / "hooks" / "pre-commit.d").mkdir()
+        decision = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        assert decision.puede is False and "pre-commit.d" in decision.motivo
+
+
+def test_las_rutas_relativas_se_normalizan_contra_la_raiz_y_las_absolutas_se_respetan():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit": b"x"})
+        absolutas = decidir(raiz, salida_de_git((raiz / ".git" / "hooks").as_posix(), (raiz / ".git").as_posix(), (raiz / ".git").as_posix()))
+        relativas = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        assert absolutas == relativas and absolutas.puede is False
+        con_rodeos = decidir(raiz, salida_de_git(".git/../.git/hooks", "./.git", "./.git/../.git"))
+        assert con_rodeos == relativas
+
+
+def test_un_worktree_enlazado_no_se_toca_aunque_no_haya_hooks_propios():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {})
+        decision = decidir(raiz, salida_de_git("../principal/.git/hooks", "../principal/.git/worktrees/wt", "../principal/.git"))
+        assert decision.puede is False
+        assert decision.motivo == "la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts"
+
+
+def test_el_worktree_enlazado_se_decide_antes_que_los_hooks_propios():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit": b"x"})
+        decision = decidir(raiz, salida_de_git(".git/hooks", ".git/worktrees/wt", ".git"))
+        assert decision.puede is False and "worktree enlazado" in decision.motivo
+
+
+def test_git_dir_y_git_common_dir_iguales_con_otra_escritura_no_son_un_worktree():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {})
+        for comun in (".git", "./.git", ".git/", str((raiz / ".git").resolve()), (raiz / ".git").as_posix()):
+            assert decidir(raiz, salida_de_git(".git/hooks", ".git", comun)).puede is True, comun
+
+
+def enlazar_carpeta(destino, origen):
+    try:
+        os.symlink(origen, destino, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        pass
+    if os.name == "nt":
+        return subprocess.run(["cmd", "/c", "mklink", "/J", str(destino), str(origen)], capture_output=True).returncode == 0
+    return False
+
+
+def test_el_git_dir_y_el_comun_escritos_distinto_pero_iguales_no_son_un_worktree():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {})
+        if not enlazar_carpeta(raiz / "git-enlazado", raiz / ".git"):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert decidir(raiz, salida_de_git(".git/hooks", ".git", "git-enlazado")).puede is True
+        if os.name == "nt":
+            mayusculas = str(raiz / ".git").upper()
+            assert decidir(raiz, salida_de_git(".git/hooks", ".git", mayusculas)).puede is True
+
+
+def test_una_salida_que_no_son_tres_rutas_no_se_toca():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {})
+        for salida in ("", "\n\n", ".git/hooks\n", ".git/hooks\n.git\n", ".git/hooks\n.git\n.git\nextra\n", None):
+            decision = decidir(raiz, salida)
+            assert decision.puede is False and decision.motivo == "git no dijo dónde están los hooks del repo", (salida, decision)
+
+
+def test_la_salida_con_crlf_y_espacios_se_lee():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit": b"x"})
+        decision = decidir(raiz, "  .git/hooks \r\n.git\r\n .git \r\n")
+        assert decision.puede is False and "pre-commit" in decision.motivo
+
+
+def test_una_carpeta_de_hooks_que_no_se_puede_leer_no_se_toca():
+    with Temporal() as base:
+        raiz = base / "r"
+        (raiz / ".git").mkdir(parents=True)
+        (raiz / ".git" / "hooks").write_bytes(b"soy un archivo")
+        decision = decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        assert decision.puede is False and "no se puede leer la carpeta de hooks" in decision.motivo, decision
+
+
+def test_la_decision_no_corre_git():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base, {"pre-commit": b"x"})
+        original = subprocess.run
+        popen = subprocess.Popen
+
+        def prohibido(*a, **k):
+            raise AssertionError("corrió un proceso")
+
+        subprocess.run, subprocess.Popen = prohibido, prohibido
+        try:
+            decidir(raiz, salida_de_git(".git/hooks", ".git", ".git"))
+        finally:
+            subprocess.run, subprocess.Popen = original, popen
+
+
+def test_con_git_real_un_repo_recien_creado_se_puede_tocar_y_con_un_hook_ya_no():
+    with Temporal() as base:
+        raiz = base / "real"
+        raiz.mkdir()
+        git(raiz, "init", "-q")
+
+        def preguntar():
+            r = subprocess.run(["git", "-C", str(raiz), *m().COMANDO_RUTAS_DE_HOOKS], capture_output=True, check=True, env=_entorno_limpio())
+            return decidir(raiz, r.stdout.decode("utf-8"))
+
+        assert preguntar().puede is True
+        (raiz / ".git" / "hooks" / "pre-commit").write_bytes(b"#!/bin/sh\nexit 0\n")
+        assert preguntar().puede is False
 
 
 def main():

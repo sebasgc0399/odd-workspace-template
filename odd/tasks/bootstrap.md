@@ -45,7 +45,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 | B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | delegado (writer Sonnet, en paralelo con B4/B6 y B7, L4) | ninguno | hecho (L9): `d4c15f9` |
 | B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | hecho (L9): `d4c15f9` |
 | B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | delegado (writer Sonnet, con B6, en paralelo, L4) | ninguno | hecho (L9): `0a629a5` |
-| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | hecho (L13); verificador pendiente |
+| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | `bc3b95b` (L13) y la corrección de L14 (L15); revisión limitada pendiente |
 | B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
 | B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
 | B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | inline o writer, tras B1–B7 | ninguno, si no cambia el motor de aplicación de B1; si lo cambia, **1** | pendiente |
@@ -223,3 +223,43 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
   - **Desvíos del writer:**
     - dos heredocs vacíos, que no escribieron nada;
     - una corrida que quedó colgada en tres shells inertes, que el padre frenó con `TaskStop`.
+  - **Commit:** `bc3b95b`.
+- **L14 (2026-11-03): el verificador independiente (Opus) sobre `bc3b95b`.**
+  - **Aislamiento:** la config real quedó igual antes y después (el md5 del global, el `hooksPath` del sistema y del global sin valor, y el mtime del sistema).
+  - **Verde:** las cuatro suites, y el diferencial de la CLI contra `6b5c5d8` en 36 escenarios. La única diferencia es la pedida, el `plugin_root`. S1, S4 y S8: ok.
+  - **B-1, bloqueante de diseño (del padre, en L12):** «sin valor local» no equivale a «hace falta». Poner `core.hooksPath` apaga en silencio los hooks propios de `.git/hooks`: en la sonda, antes corrían `pre-commit` y `commit-msg`, y después ninguno. Pone en duda el «solo si hace falta» de S6. El doctor (B7) ya tenía el mismo hueco en su arreglo.
+  - **Advertencias:**
+    - **A-1:** en un worktree enlazado, `--local` escribe la config compartida.
+    - **A-2:** tres mutantes vivos que el comportamiento sí distingue (sin `entorno_git`, sin el `except` del plazo y `_es_la_raiz` sin `realpath`).
+    - **A-3:** con permisos sin escritura, en Windows queda el temporal.
+    - **A-4:** `--local --get` no sigue los `include.path`.
+    - **A-5:** un valor vacío se reemplaza.
+    - **A-6:** la identidad de clase bajo `__main__`.
+    - **A-7:** el `chmod` va por ruta.
+  - **Decisión del padre (técnica, S6):**
+    - Una sola tanda, al mismo writer, que arregla B-1 y las advertencias baratas:
+      - no se toca el `hooksPath` con hooks propios, en un worktree enlazado ni con un valor vacío;
+      - se lee con `--includes`;
+      - los permisos exigen la escritura del dueño;
+      - se suman pruebas que maten los tres mutantes.
+    - El doctor adopta la misma guarda, con una función pura compartida en `odd_ws/comun.py` (la usan bootstrap y doctor), y sin arreglo en esos casos.
+    - A-6 se resuelve en B8. A-7 va al «No ve» del diseño, junto a R2.
+    - Después, una revisión limitada a esos puntos.
+- **L15 (2026-11-03): la tanda de corrección de L14, hecha por el mismo writer.**
+  - **ROJO → VERDE** por regla, en los 7 puntos.
+    - Las pruebas de A-2 ya pasaban, porque el código estaba bien. Matan sus mutantes (MU1, MU2 y MU12).
+  - **Suites:** `bootstrap` 132/132, `bootstrap_instalacion` 11/11, `doctor` 76/76, `config_loader` 73/73, `comun` 44/44 y `capas` 12/12. El barrido salió limpio.
+  - **La guarda única:**
+    - `odd_ws.comun.decidir_hooks(raiz, salida)` recibe la salida de `rev-parse --git-path hooks --git-dir --git-common-dir`. Decide primero el worktree y después los hooks propios.
+    - Bootstrap y doctor no repiten la regla: un `grep` de `sample|worktree enlazado|--git-dir` en los dos no encuentra nada.
+    - No entra en `PUBLICO`: la API de `odd_ws` para las instancias no cambia.
+  - **Mutantes:**
+    - 12 de 13 en `decidir_hooks`. El restante era una redundancia y se quitó del código.
+    - 10 de 10 en bootstrap y 5 de 5 en el doctor.
+    - Vive `MU12c` (`abspath` sobre el toplevel que devuelve git): es equivalente, porque git ya devuelve la ruta larga y real.
+  - **Desvíos:**
+    - Si el `rev-parse` de rutas falla, el doctor tampoco ofrece arreglo. Por eso se ajustó una prueba vieja, sin cambiar su intención.
+    - `doctor.tests` y `comun.tests` ahora aíslan también la config del sistema.
+    - Dos heredocs vacíos por descuido, otra vez. Uno dejó una corrida colgada, que el writer frenó con `TaskStop`.
+  - **Config real:** sin cambios antes y después (el md5 del global, los dos `--get` con código 1 y el mtime del sistema).
+  - **Docs:** `diseno.md` (las acciones de git, los permisos, el «No ve» y el ítem `instancia-hooks`) y la skill del doctor.
