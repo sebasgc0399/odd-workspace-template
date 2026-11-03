@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -1205,6 +1206,258 @@ def test_rutas_de_repos_relativas_o_mal_formadas_invalidan_la_spec():
             spec = e.spec()
             spec["local"] = local
             rechazada(e, spec, fragmento)
+
+
+def test_la_raiz_pasa_a_ser_un_enlace_entre_dos_publicaciones():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        (fuera / "centinela.txt").write_bytes(b"c")
+        original = b()._publicar
+        estado = {"llamadas": 0, "enlace": None}
+
+        def publicar(*a, **k):
+            if estado["llamadas"] == 1:
+                os.rename(raiz, e.base / "instancia-movida")
+                estado["enlace"] = crear_enlace(raiz, fuera)
+            estado["llamadas"] += 1
+            return original(*a, **k)
+
+        b()._publicar = publicar
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            b()._publicar = original
+        if not estado["enlace"]:
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert codigo == 2 and "raíz" in errores, (codigo, errores)
+        assert os.listdir(fuera) == ["centinela.txt"]
+        assert "creado workspace.config.json" in salida
+
+
+def correr_con_unlink_bloqueado(e, raiz, extra=()):
+    unlink = os.unlink
+
+    def sin_borrar(ruta, *a, **k):
+        if str(ruta).endswith(".tmp"):
+            raise PermissionError(13, "bloqueado por otro proceso")
+        return unlink(ruta, *a, **k)
+
+    os.unlink = sin_borrar
+    try:
+        return correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz), *extra])
+    finally:
+        os.unlink = unlink
+
+
+def lineas_de_sobrante(lineas, nombre):
+    patron = re.compile(r"no se pudo borrar \." + re.escape(nombre) + r"\.[0-9a-f]{32}\.tmp: borralo a mano \(es una copia de " + re.escape(nombre) + r"\)")
+    return [l for l in lineas if patron.fullmatch(l)]
+
+
+def test_un_temporal_que_no_se_puede_borrar_se_avisa_y_sale_cero():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        codigo, salida, errores = correr_con_unlink_bloqueado(e, raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        for nombre in ("workspace.config.json", "workspace.local.json", ".gitignore"):
+            assert len(lineas_de_sobrante(lineas, nombre)) == 1, lineas
+            assert (raiz / nombre).is_file()
+        assert (raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+        assert lineas[-1].startswith("resumen: 3 creados"), lineas
+        assert len([n for n in os.listdir(raiz) if n.endswith(".tmp")]) == 3
+
+
+def test_un_temporal_que_ya_no_esta_no_se_avisa():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        unlink = os.unlink
+
+        def ya_borrado(ruta, *a, **k):
+            if str(ruta).endswith(".tmp"):
+                unlink(ruta, *a, **k)
+                raise FileNotFoundError(2, "ya no estaba")
+            return unlink(ruta, *a, **k)
+
+        os.unlink = ya_borrado
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            os.unlink = unlink
+        assert codigo == 0 and errores == "" and "no se pudo borrar" not in salida, (salida, errores)
+        assert sorted(os.listdir(raiz)) == [".gitignore", "workspace.config.json", "workspace.local.json"]
+
+
+def test_un_temporal_trabado_por_otro_handle_se_avisa():
+    if os.name != "nt":
+        print("      (solo Windows: un archivo abierto no se puede borrar en POSIX)")
+        return
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        link, asas = os.link, []
+
+        def link_trabado(origen, destino):
+            asas.append(open(origen, "rb"))
+            return link(origen, destino)
+
+        os.link = link_trabado
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            os.link = link
+            for asa in asas:
+                asa.close()
+        assert codigo == 0 and errores == "", (codigo, errores)
+        for nombre in ("workspace.config.json", "workspace.local.json", ".gitignore"):
+            assert len(lineas_de_sobrante(salida.splitlines(), nombre)) == 1, salida
+
+
+def test_un_temporal_que_no_se_borra_tras_un_error_tambien_se_avisa():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        link = os.link
+
+        def sin_links(origen, destino, **k):
+            raise OSError(95, "link no soportado")
+
+        os.link = sin_links
+        try:
+            codigo, salida, errores = correr_con_unlink_bloqueado(e, raiz)
+        finally:
+            os.link = link
+        assert codigo == 2 and "workspace.config.json" in errores
+        assert len(lineas_de_sobrante(salida.splitlines(), "workspace.config.json")) == 1, salida
+
+
+class Ns:
+    def __init__(self, **k):
+        self.__dict__.update(k)
+
+
+@contextlib.contextmanager
+def uuid_de(secuencia):
+    real = b().uuid
+    llamadas = []
+
+    def uuid4():
+        llamadas.append(1)
+        return Ns(hex=next(secuencia))
+
+    b().uuid = Ns(uuid4=uuid4)
+    try:
+        yield llamadas
+    finally:
+        b().uuid = real
+
+
+def test_un_nombre_de_temporal_ocupado_no_se_usa():
+    fijo = "0" * 32
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        (raiz / f".workspace.config.json.{fijo}.tmp").write_bytes(b"del usuario")
+        roto = raiz / f".workspace.local.json.{2:032x}.tmp"
+        hay_enlace = enlace_de_archivo(roto, fuera / "por-el-temporal.json")
+        if not hay_enlace:
+            roto.write_bytes(b"del usuario 2")
+        secuencia = iter([fijo, fijo, "1" * 32] + [f"{n:032x}" for n in range(2, 60)])
+        with uuid_de(secuencia):
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (raiz / f".workspace.config.json.{fijo}.tmp").read_bytes() == b"del usuario"
+        assert list(fuera.iterdir()) == []
+        assert os.path.islink(roto) if hay_enlace else roto.read_bytes() == b"del usuario 2"
+        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(e.spec()["config"])
+        assert (raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+        assert sorted(n for n in os.listdir(raiz) if n.endswith(".tmp")) == sorted([f".workspace.config.json.{fijo}.tmp", roto.name])
+
+
+def test_sin_nombre_libre_para_el_temporal_es_un_error():
+    fijo = "0" * 32
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / f".workspace.config.json.{fijo}.tmp").write_bytes(b"del usuario")
+        secuencia = iter([fijo] * 100)
+        with uuid_de(secuencia) as llamadas:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 2 and "nombre libre" in errores and "workspace.config.json" in errores, errores
+        assert len(llamadas) == b().INTENTOS_DE_TEMPORAL
+        assert sorted(os.listdir(raiz)) == [f".workspace.config.json.{fijo}.tmp"]
+        assert (raiz / f".workspace.config.json.{fijo}.tmp").read_bytes() == b"del usuario"
+
+
+def test_una_barra_final_en_gitignore_no_cubre_un_archivo():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        original = b"workspace.local.json/\n.claude/estado/\n"
+        (raiz / ".gitignore").write_bytes(original)
+        _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert "falta en .gitignore: workspace.local.json" in salida.splitlines(), salida
+        assert "falta en .gitignore: .claude/estado/" not in salida
+        assert (raiz / ".gitignore").read_bytes() == original
+
+
+def test_una_carpeta_con_barra_final_cubre_su_contenido_y_su_propia_linea():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / ".gitignore").write_bytes(b".claude/estado/\nworkspace.local.json\n")
+        _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert "falta en" not in salida
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / ".gitignore").write_bytes(b"workspace.local.json/\n.claude/\n")
+        _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert "falta en .gitignore: workspace.local.json" in salida.splitlines()
+        assert "falta en .gitignore: .claude/estado/" not in salida
+
+
+def entorno_git_aislado(base):
+    vacio = base / "gitconfig-vacio"
+    vacio.write_bytes(b"")
+    entorno = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    entorno.update(GIT_CONFIG_GLOBAL=str(vacio), GIT_CONFIG_NOSYSTEM="1")
+    return entorno
+
+
+def test_el_informe_del_gitignore_coincide_con_git_check_ignore():
+    if shutil.which("git") is None:
+        print("      (sin git: prueba omitida)")
+        return
+    casos = [
+        b"workspace.local.json/\n.claude/estado/\n",
+        b"workspace.local.json\n.claude/estado/\n",
+        b"/workspace.local.json\n.claude/estado\n",
+        b".claude/\nworkspace.local.json\n",
+        b"workspace.local.json/\n.claude/\n",
+    ]
+    with Escenario() as e:
+        entorno = entorno_git_aislado(e.base)
+        for indice, contenido in enumerate(casos):
+            repo = e.base / f"git-{indice}"
+            (repo / ".claude" / "estado").mkdir(parents=True)
+            (repo / "workspace.local.json").write_bytes(b"{}")
+            (repo / ".claude" / "estado" / "x").write_bytes(b"x")
+            (repo / ".gitignore").write_bytes(contenido)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=entorno, capture_output=True, timeout=60)
+
+            def ignorado(ruta):
+                return subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", "--no-index", ruta], env=entorno, capture_output=True, timeout=60).returncode == 0
+
+            esperadas = set()
+            if not ignorado("workspace.local.json"):
+                esperadas.add("workspace.local.json")
+            if not ignorado(".claude/estado/x"):
+                esperadas.add(".claude/estado/")
+            raiz = e.base / f"raiz-{indice}"
+            raiz.mkdir()
+            (raiz / ".gitignore").write_bytes(contenido)
+            _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz), "--ensayo"])
+            faltas = {l.split(": ", 1)[1] for l in salida.splitlines() if l.startswith("falta en .gitignore: ")}
+            assert faltas == esperadas, (contenido, faltas, esperadas)
 
 
 def main():

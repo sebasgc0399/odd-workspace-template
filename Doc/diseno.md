@@ -335,12 +335,17 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - los nombres reservados de Windows (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1-9` y `LPT1-9`, con o sin extensión, también como carpeta) y los caracteres `<>:"|?*` y de control.
 - **La aplicación** (`aplicar`) nunca escribe directo al destino (L5, T8):
   - Escribe el contenido completo en un temporal hermano oculto y lo publica con `os.link(temporal, destino)`. Un enlace duro no reemplaza nada: un archivo existente, un symlink roto o una carpeta en el destino nunca se siguen ni se pisan, y quedan como «ya existía». En Windows, `open(…, "xb")` sí seguiría un symlink roto.
+  - El nombre del temporal nunca reutiliza algo que ya exista, ni siquiera un symlink roto. Prueba hasta 5 nombres y, si ninguno está libre, sale con 2.
   - Después borra siempre el temporal, así que una escritura que falla (por ejemplo, un disco lleno) no deja un archivo a medias.
-  - Antes de crear carpetas, de escribir y de publicar, vuelve a revisar que ningún ancestro sea un enlace que salga de la raíz, y que la raíz resuelva igual que al planificar.
+  - Si el temporal no se puede borrar (por ejemplo, lo tiene abierto un antivirus), el informe dice `no se pudo borrar <temporal>: borralo a mano (es una copia de <destino>)`, y la salida sigue en 0. Es un enlace duro del archivo publicado, y el de `workspace.local.json` no lo cubre el `.gitignore`: hay que borrarlo antes de commitear.
+  - Antes de crear carpetas, de escribir y de cada publicación, vuelve a revisar que ningún ancestro sea un enlace que salga de la raíz, y que la raíz resuelva igual que al planificar.
   - Nunca modifica, trunca ni borra nada.
   - **Límite:** en FAT o exFAT, sin enlaces duros, sale con 2 sin escribir nada, en lugar de degradar a una escritura insegura.
+  - **No ve:** que otro proceso mueva afuera una carpeta del usuario, con el temporal adentro, y la reemplace por una junction justo antes del `link` (L10, R2). Es inherente a trabajar con rutas en lugar de handles, y exige un proceso que modifique la instancia a mitad de la corrida.
 - **El `.gitignore`** nunca se modifica.
-  - Se lee tolerando el BOM. Una línea cuenta como presente si coincide, o si la cubre un patrón de carpeta (`.claude/` cubre `.claude/estado/`).
+  - Se lee tolerando el BOM. Una línea cuenta como presente si coincide, o si la cubre una carpeta ancestro (`.claude/` cubre `.claude/estado/`).
+  - Igual que en git, una barra final solo cubre carpetas: `workspace.local.json/` no ignora el archivo. Esto se verificó contra `git check-ignore`.
+  - Los globs no se interpretan, así que el informe puede marcar de más una línea que falta.
   - El informe dice `falta en .gitignore: <línea>` por cada línea que falta.
   - Si no se puede leer (por ejemplo, porque es una carpeta), el informe lo dice y lista qué revisar a mano.
 - **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo]`.
