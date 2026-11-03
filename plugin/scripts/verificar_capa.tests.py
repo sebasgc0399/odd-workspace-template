@@ -900,6 +900,98 @@ def test_compact_y_clear_resetean_solo_la_sesion_principal():
         assert w.correr(inicio("compact", sesion="../s2")) == (0, "", b"") and "s2/principal.sql" in w.marcas()
 
 
+def aviso_de(out):
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["hookEventName"] == "SessionStart", hso
+    return hso["additionalContext"]
+
+
+def entorno_de_sesion(raiz):
+    return dict(_entorno_sin_git(), CLAUDE_PROJECT_DIR=str(raiz))
+
+
+def test_inicio_con_la_config_rota_avisa_en_startup_y_resume_con_un_aviso_corto():
+    with Mundo() as w:
+        casos = {"{rota": "workspace.config.json", '{"schema_version": 9, "layers": {}}': "schema_version"}
+        for contenido, rastro in casos.items():
+            escribir(w.raiz, "workspace.config.json", contenido)
+            for source in ("startup", "resume"):
+                codigo, out, err = w.correr(inicio(source))
+                texto = aviso_de(out)
+                assert codigo == 0 and err == b"", (source, codigo, err)
+                assert "/odd-ws:doctor" in texto and rastro in texto, (source, texto)
+                assert "\n" not in texto and len(texto) <= 400, (source, len(texto), texto)
+        sin_sesion = {"hook_event_name": "SessionStart", "source": "startup"}
+        assert "/odd-ws:doctor" in aviso_de(w.correr(sin_sesion)[1]), "el aviso no depende del session_id"
+
+
+def test_inicio_con_la_ruta_local_de_un_repo_que_falta_o_no_existe_avisa():
+    with Mundo() as w:
+        escribir(w.raiz, "workspace.local.json", json.dumps({"repos": {"web": {"path": str(w.web)}}}))
+        for source in ("startup", "resume"):
+            texto = aviso_de(w.correr(inicio(source))[1])
+            assert "db" in texto and "workspace.local.json" in texto and "/odd-ws:doctor" in texto, texto
+        ausente = str(w.base / "no-existe")
+        escribir(w.raiz, "workspace.local.json", json.dumps({"repos": {"web": {"path": str(w.web)}, "db": {"path": ausente}}}))
+        assert ausente in aviso_de(w.correr(inicio("startup"))[1])
+        os.remove(w.raiz / "workspace.local.json")
+        assert "falta la ruta" in aviso_de(w.correr(inicio("resume"))[1])
+
+
+def test_el_aviso_queda_en_una_linea_y_corto_aunque_el_motivo_sea_largo_y_traiga_saltos():
+    with Mundo() as w:
+        larga = "x\n" + "y" * 600
+        escribir(w.raiz, "workspace.local.json", json.dumps({"repos": {"web": {"path": str(w.web)}, "db": {"path": larga}}}))
+        texto = aviso_de(w.correr(inicio("startup"))[1])
+        assert "\n" not in texto and len(texto) <= 400 and "yyyy" in texto and "/odd-ws:doctor" in texto, (len(texto), texto)
+
+
+def test_inicio_con_la_config_sana_calla_en_startup_y_resume_y_no_deja_marcas():
+    with Toque() as w:
+        for source in ("startup", "resume"):
+            assert w.correr(inicio(source)) == (0, "", b""), source
+        assert w.marcas() == []
+        escribir(w.raiz, "workspace.config.json", "{rota")
+        assert w.correr(inicio("startup"))[1], "control positivo: rota avisa"
+
+
+def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando():
+    with Mundo() as w:
+        escribir(w.raiz, "workspace.config.json", "{rota")
+        assert w.correr(inicio("startup"))[1], "control positivo"
+        for source in ("compact", "clear", None, "otro", ""):
+            assert w.correr(inicio(source)) == (0, "", b""), source
+        for e in (evento(w.raiz / "a.cs", "Read"), evento(w.raiz / "a.cs", nombre="PreToolUse"), evento(w.raiz / "a.cs", nombre="SubagentStop"),
+                  evento(w.raiz / "a.cs", nombre="PreToolUse", source="startup"), evento(w.raiz / "a.cs", nombre="PostToolUse", source="resume")):
+            assert w.correr(e) == (0, "", b""), e
+
+
+def test_inicio_sin_instancia_calla_en_todos_los_origenes():
+    with Mundo() as w:
+        assert w.correr(inicio("startup"))[0] == 0
+        os.remove(w.raiz / "workspace.config.json")
+        for source in ("startup", "resume", "compact", "clear", None):
+            assert w.correr(inicio(source)) == (0, "", b""), source
+
+
+def test_main_en_startup_avisa_por_stdout_con_la_config_rota_y_calla_sin_instancia():
+    with Mundo() as w:
+        entrada = json.dumps(inicio("startup")).encode("utf-8")
+        sana = subprocess.run([sys.executable, str(_RUTA), "--plazo", "8"], input=entrada, capture_output=True, timeout=60,
+                              env=entorno_de_sesion(w.raiz))
+        assert (sana.returncode, sana.stdout, sana.stderr) == (0, b"", b""), sana
+        escribir(w.raiz, "workspace.config.json", "{rota")
+        rota = subprocess.run([sys.executable, str(_RUTA), "--plazo", "8"], input=entrada, capture_output=True, timeout=60,
+                              env=entorno_de_sesion(w.raiz))
+        assert rota.returncode == 0 and rota.stderr == b"", rota
+        assert "/odd-ws:doctor" in aviso_de(rota.stdout.decode("utf-8"))
+        vacia = w.base / "vacia"
+        vacia.mkdir()
+        sin = subprocess.run([sys.executable, str(_RUTA), "--plazo", "8"], input=entrada, capture_output=True, timeout=60,
+                             env=entorno_de_sesion(vacia))
+        assert (sin.returncode, sin.stdout, sin.stderr) == (0, b"", b""), sin
+
+
 def test_sin_skill_sin_bloque_o_sin_marca_falla_abierto_y_nunca_bloquea():
     casos = {
         "sin skill": None,
@@ -1044,11 +1136,13 @@ def test_cada_evento_del_primer_toque_esta_cableado():
             for parte in m.split("|"):
                 cableados[(e, parte)] = (h["timeout"], M.plazo_de(h["args"][1:]))
     for clave in (("PostToolUse", "Edit"), ("PostToolUse", "Write"), ("PostToolUse", "Read"), ("PreToolUse", "Edit"),
-                  ("PreToolUse", "Write"), ("SessionStart", "compact"), ("SessionStart", "clear")):
+                  ("PreToolUse", "Write"), ("SessionStart", "compact"), ("SessionStart", "clear"), ("SessionStart", "startup"),
+                  ("SessionStart", "resume")):
         assert clave in cableados, (clave, cableados)
-    for clave in (("PostToolUse", "Read"), ("PreToolUse", "Edit"), ("PreToolUse", "Write"), ("SessionStart", "compact")):
+    for clave in (("PostToolUse", "Read"), ("PreToolUse", "Edit"), ("PreToolUse", "Write"), ("SessionStart", "compact"),
+                  ("SessionStart", "clear"), ("SessionStart", "startup"), ("SessionStart", "resume")):
         assert cableados[clave] == (10, 8), (clave, cableados[clave])
-    assert ("SessionStart", "startup") not in cableados and ("SessionStart", "resume") not in cableados
+    assert {p for (e, p) in cableados if e == "SessionStart"} == {"startup", "resume", "compact", "clear"}
 
 
 def main():

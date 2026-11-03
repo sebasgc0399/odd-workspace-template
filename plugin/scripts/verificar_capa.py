@@ -19,6 +19,8 @@ TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
 DIAS_PODA = 7
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
+ORIGENES_DEL_AVISO = ("startup", "resume")
+TOPE_DEL_MOTIVO = 200
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 _LIMITE = None
@@ -390,6 +392,18 @@ def _post_tool_use_o_read(evento, config):
     return _post_tool_use(evento, config)
 
 
+def _aviso_de_config_rota(evento, razon):
+    if evento.get("hook_event_name") != "SessionStart" or evento.get("source") not in ORIGENES_DEL_AVISO:
+        return SILENCIO
+    motivo = " ".join(str(razon).split())
+    if len(motivo) > TOPE_DEL_MOTIVO:
+        motivo = motivo[:TOPE_DEL_MOTIVO] + "..."
+    texto = ("odd-ws: la configuración de esta instancia está rota y los hooks no verifican nada hasta arreglarla (%s). "
+             "Correr /odd-ws:doctor." % motivo)
+    contexto = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": texto}}
+    return 0, json.dumps(contexto), b""
+
+
 MANEJADORES = {
     "PostToolUse": _post_tool_use_o_read,
     "PreToolUse": _pre_tool_use,
@@ -413,6 +427,8 @@ def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         if raiz is None:
             return SILENCIO
         estado = config_loader.estado(raiz)
+        if estado.tipo == "rota":
+            return _aviso_de_config_rota(evento, estado.razon)
         if estado.tipo != "ok":
             return SILENCIO
         return manejador(evento, estado.config)

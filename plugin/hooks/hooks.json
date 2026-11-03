@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "compact|clear",
+        "matcher": "startup|resume|compact|clear",
         "hooks": [
           { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], "timeout": 10 }
         ]
