@@ -429,6 +429,35 @@ Orquesta la revisión de un cambio de un ticket antes del commit, con los agente
 - **El recibo** se escribe con `recibo.py --write`, con la lista explícita de archivos y la base completa del triaje. `--check`, sobre la carpeta de la revisión, se corre antes de cualquier «listo».
 - **El modo sombra** sigue siendo de `/odd-ws:eval-reviewers`. Esta skill no congela nada.
 
+### Cerrar (`skills/cerrar`, T9)
+
+Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: lo aprendido sale de la carpeta del ticket. Solo lo invoca el usuario.
+
+- **El triaje** decide adónde va cada aprendizaje:
+  - lo que es del ticket se queda;
+  - lo de dominio va al doc de `knowledge.docs` que le toca;
+  - la metodología, al `CLAUDE.md` raíz;
+  - un criterio de revisión, a una fila de la matriz con su regla escrita en el destino;
+  - una medición, a `evidencia.md`.
+
+  Solo se gradúa a lo que ya existe. Lo que habla del plugin (motor) se anota en la bitácora como `→ motor`.
+- **Antes de escribir nada**, muestra la propuesta y pide el sí.
+- **Si hay un caso del modo sombra sin puntuar**, primero se puntúa en `/odd-ws:eval-reviewers` y después se gradúa.
+- **La fila de la matriz:**
+  - el siguiente ID libre con el `rule_prefix`, que calcula un script dentro de la skill con el módulo `csv`;
+  - el origen fijado a un commit (`ruta@hash:ini-fin`) y un solo destino;
+  - al terminar, `matriz.py --destinos` y `--severidad`, con 0 fallas.
+- **Los dos relojes:**
+  - Conocimiento pasa a `graduado` (con los candidatos vacíos) o `descartado`;
+  - Estado no se toca, salvo que cambie la entrega;
+  - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado».
+- **Después de editar los docs**, corre `conocimiento.py`.
+- **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado, un `git add` explícito anclado con `:/` (nunca `-A`) y el sí. El worktree lo desarma el usuario, y la rama no se borra.
+- **Fuera de la T9:**
+  - el chequeo mecánico de «graduado ⇒ candidatos vacíos», que la skill pide en prosa;
+  - el buzón de `.claude/registro/`;
+  - un `matriz.py --agregar` probado.
+
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
 Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLICO["tsql"]`.

@@ -40,7 +40,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | R1 | S1, S2, S5 | Skill `/odd-ws:revisar` | delegado (writer, en paralelo con R2; L3) | **6**, porque ninguna prueba atrapa la prosa. Verificador: cada comando de la skill contra la CLI real, y una corrida a mano en la instancia de prueba | hecho (L4); verificación al final de la feature (L5) |
 | A2 | S1, S4 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada | después de S0 | ninguno: reusa el motor que no pisa | pendiente |
 | A1 | S1, S2, S5 | Skill de apertura | después de A2 | **6**, como R1 | pendiente |
-| C1 | S1, S2, S5 | Skill de cierre | después de A1 | **6**, como R1 | pendiente |
+| C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
 | T1 | S1 | Textos: `CLAUDE.md`, `ticket.md` y la prueba de `bootstrap_textos` | al final | ninguno | pendiente |
 
 ## Log
@@ -100,4 +100,34 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **Desvío del writer:** la constante de `capas` se escribió antes de su prueba.
   - **Decisión del padre:** una capa llamada `diseno` choca con este revisor, y el plan sale con «ruta repetida». Hoy es un fallo explícito, así que queda como nombre reservado, documentado en `diseno.md` y en la entrevista de `/odd-ws:bootstrap`, sin código nuevo.
   - **El commit:** R1 y R2 van en un solo commit. Están acoplados (`/revisar` usa `revisor-diseno`) y sus docs comparten `diseno.md`.
+  - **Commit:** `2c46547`.
+- **L6 (2026-11-03): nombres y orden.**
+  - **Nombres (decisión técnica del padre):** las skills son `abrir` y `cerrar` (`/odd-ws:abrir` y `/odd-ws:cerrar`), como los pasos 1 y 7 del ciclo en la plantilla de `CLAUDE.md`, y verbos como `revisar`.
+  - **Registro:** el voseo de `doctor` y de `bootstrap`. `revisar` se pasa a voseo en T1.
+  - **C1 se adelanta:** no depende de S0, así que se delegó a un writer (Sonnet) mientras el usuario corre el spike. A2 y A1 siguen esperando a S0.
+- **L7 (2026-11-03): C1 hecho por el writer (Sonnet).**
+  - `plugin/skills/cerrar/SKILL.md`, de 160 líneas, en voseo, con `disable-model-invocation`. Tiene reglas duras y 9 pasos:
+    1. leer el ticket y sus `Fuente:`;
+    2. el triaje, con la clasificación dominio o motor;
+    3. la propuesta y el sí;
+    4. el modo sombra primero;
+    5. promover, con la fila de la matriz y su validación;
+    6. los dos relojes y la foto de la entrega;
+    7. el worktree;
+    8. `conocimiento.py`;
+    9. el commit de cierre.
+  - **Cada comando se corrió sobre una instancia sintética, con git aislado:**
+    - el glob del ticket, que encuentra también el archivado;
+    - el script de agregar fila, que dio `EJ-01` y después `EJ-02`, en LF y sin BOM;
+    - `matriz.py --destinos` y `--severidad`, con su control positivo: exit 1 con la regla sin escribir o sin severidad, y 0 al corregirla;
+    - `conocimiento.py`: 1 con un link roto y 3 con solo deuda;
+    - `git status`, y `git add` y `git reset` anclados con `:/` desde dentro del ticket;
+    - el commit, que corrió el pre-commit;
+    - la foto de la entrega y el worktree.
+  - **El hallazgo del writer:** la herramienta Glob lista archivos, no carpetas, así que el glob del ticket termina en `/CLAUDE.md`. El padre lo propagó a `/odd-ws:revisar`.
+  - **Decisiones del writer:**
+    - `→ motor` va en la última entrada de la bitácora;
+    - el `tipo` de la matriz se copia de una fila vecina o se confirma con el usuario;
+    - el script de agregar fila va dentro de la skill. Pasarlo a un `matriz.py --agregar` probado queda como sugerencia, fuera de la T9.
+  - **Corrección del padre:** el registro estaba mezclado. Cuatro verbos en «tú» pasaron a voseo.
   - **Verificación (decisión del padre):** R1, A1 y C1 son prosa, de riesgo 6. Van con un solo verificador independiente al final de la feature, más una corrida a mano del ciclo completo (apertura → revisar → cierre) en la instancia de prueba, en lugar de un verificador por skill.
