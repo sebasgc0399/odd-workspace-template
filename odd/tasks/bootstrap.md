@@ -45,7 +45,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 | B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | delegado (writer Sonnet, en paralelo con B4/B6 y B7, L4) | ninguno | hecho (L9): `d4c15f9` |
 | B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | hecho (L9): `d4c15f9` |
 | B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | delegado (writer Sonnet, con B6, en paralelo, L4) | ninguno | hecho (L9): `0a629a5` |
-| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | `bc3b95b` (L13) y la corrección de L14 (L15); revisión limitada pendiente |
+| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | hecho (L16): `bc3b95b` y la corrección `8ceaeb3` |
 | B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
 | B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
 | B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | inline o writer, tras B1–B7 | ninguno, si no cambia el motor de aplicación de B1; si lo cambia, **1** | pendiente |
@@ -263,3 +263,22 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
     - Dos heredocs vacíos por descuido, otra vez. Uno dejó una corrida colgada, que el writer frenó con `TaskStop`.
   - **Config real:** sin cambios antes y después (el md5 del global, los dos `--get` con código 1 y el mtime del sistema).
   - **Docs:** `diseno.md` (las acciones de git, los permisos, el «No ve» y el ítem `instancia-hooks`) y la skill del doctor.
+  - **Commit:** `8ceaeb3`.
+- **L16 (2026-11-03): la revisión limitada del verificador sobre `8ceaeb3`.**
+  - **Sin bloqueantes nuevos.** Los 6 puntos dan ok y tienen control positivo en `bc3b95b`:
+    - con hooks propios, los hooks siguen corriendo, aplicando y con `--ensayo`, también con un `hooksPath` global;
+    - un worktree enlazado no se toca;
+    - el doctor queda en falta sin arreglo en esos dos casos, y en el normal sigue configurando;
+    - el valor de un `include.path` y el valor vacío se respetan;
+    - los permisos 555 y 444 dan error de plan;
+    - los mutantes MU1, MU2 y MU12 mueren.
+  - El diferencial de la CLI contra `bc3b95b` no tiene ninguna diferencia en 36 escenarios.
+  - La config real quedó igual antes y después.
+  - **Advertencia cosmética:** el arnés de mutación del writer, que restaura reemplazando texto, quitó el espacio después del `=` en cuatro líneas.
+    - Tres son de esta tanda (`MARKETPLACE` y `AYUDA_PRE_COMMIT` en `doctor.py`, e `ID_RE` en `comun.py`).
+    - Una es de antes (`DESCRIPCION_RARA` en `plantilla_writer.tests.py`, entre `718bd32` y `6b5c5d8`).
+    - El padre las restauró. Un `grep` de `= ` sin espacio en `plugin/` solo encuentra datos de prueba intencionales.
+  - **Notas sin acción:**
+    - el `ejecutar` del doctor junta stdout y stderr, así que un aviso de git deja la guarda sin las tres líneas y falla hacia no escribir;
+    - desde el checkout principal, `--local` también alcanza a los worktrees enlazados de la misma instancia.
+  - **B5 queda cerrado.**

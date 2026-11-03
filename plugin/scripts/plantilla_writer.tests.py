@@ -28,7 +28,7 @@ GOLDEN_DEL_WRITER = {
     "x-y-1": "47037bbb6d1551bfb32a1ff146a373182210aaed3dc328f63670c989aa30f4da",
     "capa-larga-con-guiones": "c69a18b7f68c7bab730555f05ec7b8d6235e522b9e8bcae775648fdfd491ff63",
 }
-DESCRIPCION_RARA ='Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
+DESCRIPCION_RARA = 'Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
 
 
 def p():

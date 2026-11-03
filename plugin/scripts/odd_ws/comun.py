@@ -8,7 +8,7 @@ from collections import namedtuple
 COMANDO_RUTAS_DE_HOOKS = ("rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir")
 DecisionDeHooks = namedtuple("DecisionDeHooks", "puede motivo")
 
-ID_RE =re.compile(r"[A-Za-z0-9_-]{1,128}")
+ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 SILENCIO = (0, "", b"")
 PLAZO_POR_DEFECTO = 8
 
