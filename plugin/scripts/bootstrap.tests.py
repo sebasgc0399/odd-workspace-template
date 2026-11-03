@@ -237,9 +237,10 @@ def test_salida_en_lf_sin_bom_y_con_salto_final():
 def test_archivos_existentes_quedan_intactos_byte_a_byte():
     with Escenario() as e:
         raiz = e.crear_raiz()
+        spec = e.spec()
         previos = {
-            "workspace.config.json": b"\xef\xbb\xbf{ \"otro\": 1 }\r\n\r\n",
-            "workspace.local.json": b"\x00\x01 no es json \xff",
+            "workspace.config.json": b"\xef\xbb\xbf" + json.dumps(spec["config"], indent=4).replace("\n", "\r\n").encode("utf-8") + b"\r\n\r\n",
+            "workspace.local.json": json.dumps(spec["local"]).encode("utf-8"),
             ".gitignore": b"# mio\r\n*.log\r\nworkspace.local.json\r\n",
         }
         for nombre, datos in previos.items():
@@ -257,10 +258,11 @@ def test_archivos_existentes_quedan_intactos_byte_a_byte():
 def test_instancia_parcial_solo_completa_lo_que_falta():
     with Escenario() as e:
         raiz = e.crear_raiz()
-        (raiz / "workspace.config.json").write_bytes(b"{}")
+        previo = json.dumps(e.spec()["config"]).encode("utf-8")
+        (raiz / "workspace.config.json").write_bytes(previo)
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         assert codigo == 0 and errores == ""
-        assert (raiz / "workspace.config.json").read_bytes() == b"{}"
+        assert (raiz / "workspace.config.json").read_bytes() == previo
         assert "ya existía workspace.config.json" in salida
         assert "creado workspace.local.json" in salida and "creado .gitignore" in salida
         assert "2 creados" in salida and "1 ya existían" in salida
@@ -402,6 +404,7 @@ def test_carrera_un_archivo_que_aparece_tras_el_plan_queda_intacto():
         ]
         assert (raiz / "workspace.config.json").read_bytes() == b"llego despues"
         assert (raiz / ".gitignore").read_bytes() == b"solo-mio\n"
+        assert sorted(os.listdir(raiz)) == [".gitignore", "workspace.config.json", "workspace.local.json"]
         informe = "\n".join(b().informe(plan, resultados, raiz, ensayo=False))
         assert "ya existía workspace.config.json" in informe
         assert "falta en .gitignore: workspace.local.json" in informe
@@ -720,6 +723,488 @@ def test_cli_real_usa_el_cwd_sin_raiz():
 def test_cli_real_con_bandera_desconocida_sale_dos():
     resultado = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--nada"], capture_output=True)
     assert resultado.returncode == 2 and resultado.stdout == b"" and b"uso: bootstrap.py" in resultado.stderr
+
+
+def foto(base):
+    vista = {}
+    for actual, carpetas, archivos in os.walk(base):
+        for nombre in list(carpetas):
+            ruta = os.path.join(actual, nombre)
+            if os.path.islink(ruta) or (hasattr(os.path, "isjunction") and os.path.isjunction(ruta)):
+                carpetas.remove(nombre)
+                vista[os.path.relpath(ruta, base)] = ("enlace", os.readlink(ruta))
+            else:
+                vista[os.path.relpath(ruta, base)] = ("carpeta",)
+        for nombre in archivos:
+            ruta = os.path.join(actual, nombre)
+            if os.path.islink(ruta):
+                vista[os.path.relpath(ruta, base)] = ("enlace", os.readlink(ruta))
+            else:
+                estado = os.lstat(ruta)
+                vista[os.path.relpath(ruta, base)] = ("archivo", Path(ruta).read_bytes(), estado.st_mtime_ns)
+    return vista
+
+
+def enlace_de_archivo(destino, origen):
+    try:
+        os.symlink(origen, destino)
+        return True
+    except (OSError, NotImplementedError):
+        return False
+
+
+def con_aplicar_previo(previo):
+    original = b().aplicar
+
+    def envoltura(plan, raiz):
+        previo(raiz)
+        return original(plan, raiz)
+
+    b().aplicar = envoltura
+    return original
+
+
+def test_carrera_enlace_roto_que_aparece_no_se_sigue():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        creado = {}
+
+        def poner(r):
+            creado["ok"] = enlace_de_archivo(Path(r) / "workspace.config.json", fuera / "por-la-carrera.json")
+
+        original = con_aplicar_previo(poner)
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            b().aplicar = original
+        if not creado["ok"]:
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert list(fuera.iterdir()) == []
+        assert codigo == 0 and "ya existía workspace.config.json" in salida, (salida, errores)
+        assert sorted(os.listdir(raiz)) == [".gitignore", "workspace.config.json", "workspace.local.json"]
+
+
+def test_carrera_enlace_en_un_ancestro_no_escribe_fuera():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        with generadores_temporales(("extra", generador_de(("sub/deep/x.txt", "x")))):
+            plan = b().planificar(e.spec(), raiz)
+        if not crear_enlace(raiz / "sub", fuera):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        try:
+            b().aplicar(plan, raiz)
+        except b().ErrorDeAplicacion as error:
+            assert "sub" in str(error)
+        else:
+            raise AssertionError("escribió a través del enlace")
+        assert list(fuera.iterdir()) == []
+
+
+def test_el_ancestro_se_revisa_otra_vez_tras_crear_las_carpetas():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        with generadores_temporales(("extra", generador_de(("sub/x.txt", "x")))):
+            plan = b().planificar(e.spec(), raiz)
+        makedirs, abrir = os.makedirs, open
+        escritos = []
+        estado = {"enlace": None}
+
+        def con_carrera(ruta, *a, **k):
+            resultado = makedirs(ruta, *a, **k)
+            if str(ruta).endswith("sub") and estado["enlace"] is None:
+                os.rmdir(ruta)
+                estado["enlace"] = crear_enlace(Path(ruta), fuera)
+            return resultado
+
+        def espia(ruta, modo="r", *a, **k):
+            if modo == "xb":
+                escritos.append(os.path.realpath(ruta))
+            return abrir(ruta, modo, *a, **k)
+
+        os.makedirs, b().open = con_carrera, espia
+        try:
+            try:
+                b().aplicar(plan, raiz)
+            except b().ErrorDeAplicacion as error:
+                assert "sale de la raíz" in str(error), str(error)
+            else:
+                raise AssertionError("escribió a través del enlace")
+        finally:
+            os.makedirs = makedirs
+            del b().open
+        if not estado["enlace"]:
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert list(fuera.iterdir()) == []
+        assert not any(os.path.normcase(ruta).startswith(os.path.normcase(os.path.realpath(fuera))) for ruta in escritos), escritos
+
+
+def test_el_ancestro_se_revisa_otra_vez_antes_del_link():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        with generadores_temporales(("extra", generador_de(("sub/x.txt", "x")))):
+            plan = b().planificar(e.spec(), raiz)
+        abrir = open
+        estado = {"enlace": None}
+
+        class Proxy:
+            def __init__(self, f):
+                self.f = f
+
+            def __enter__(self):
+                return self
+
+            def write(self, datos):
+                return self.f.write(datos)
+
+            def __exit__(self, *a):
+                self.f.close()
+                if estado["enlace"] is None and "x.txt" in self.f.name:
+                    os.rename(raiz / "sub", raiz / "sub_real")
+                    estado["enlace"] = crear_enlace(raiz / "sub", fuera)
+
+        def falso(ruta, modo="r", *a, **k):
+            f = abrir(ruta, modo, *a, **k)
+            return Proxy(f) if modo == "xb" else f
+
+        b().open = falso
+        try:
+            try:
+                b().aplicar(plan, raiz)
+            except b().ErrorDeAplicacion as error:
+                assert "sale de la raíz" in str(error), str(error)
+            else:
+                raise AssertionError("publicó a través del enlace")
+        finally:
+            del b().open
+        if not estado["enlace"]:
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert list(fuera.iterdir()) == []
+
+
+def test_carrera_la_raiz_pasa_a_ser_un_enlace():
+    with Escenario() as e:
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        plan = b().planificar(e.spec(), e.raiz)
+        if not crear_enlace(e.raiz, fuera):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        try:
+            b().aplicar(plan, e.raiz)
+        except b().ErrorDeAplicacion as error:
+            assert "raíz" in str(error)
+        else:
+            raise AssertionError("escribió a través de la raíz enlazada")
+        assert list(fuera.iterdir()) == []
+
+
+def test_enlace_roto_en_el_destino_no_se_sigue():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        if not enlace_de_archivo(raiz / "workspace.config.json", fuera / "no-existe.json"):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 2 and salida == "" and "workspace.config.json" in errores, (salida, errores)
+        assert list(fuera.iterdir()) == []
+        assert os.listdir(raiz) == ["workspace.config.json"]
+
+
+def test_carrera_carpeta_en_el_destino_no_pisa_nada():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        original = con_aplicar_previo(lambda r: (Path(r) / "workspace.config.json").mkdir())
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            b().aplicar = original
+        assert (raiz / "workspace.config.json").is_dir() and list((raiz / "workspace.config.json").iterdir()) == []
+        assert codigo == 0 and "ya existía workspace.config.json" in salida, (salida, errores)
+        assert sorted(os.listdir(raiz)) == [".gitignore", "workspace.config.json", "workspace.local.json"]
+
+
+def test_escritura_que_falla_no_deja_un_archivo_a_medias():
+    with Escenario() as e:
+        abrir = open
+
+        class Rota:
+            def __init__(self, f):
+                self.f = f
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.f.close()
+
+            def write(self, datos):
+                self.f.write(datos[:7])
+                raise OSError(28, "No space left on device")
+
+        def falso(ruta, modo="r", *a, **k):
+            f = abrir(ruta, modo, *a, **k)
+            return Rota(f) if modo == "xb" and "workspace.local.json" in str(ruta) else f
+
+        b().open = falso
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])
+        finally:
+            del b().open
+        assert codigo == 2 and "workspace.local.json" in errores
+        assert "creado workspace.config.json" in salida
+        assert sorted(os.listdir(e.raiz)) == ["workspace.config.json"]
+        codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])
+        assert codigo == 0 and "creado workspace.local.json" in salida and "ya existía workspace.config.json" in salida
+        assert (e.raiz / "workspace.local.json").read_bytes() == esperado_json(e.spec()["local"])
+
+
+def test_si_el_link_falla_no_queda_ni_destino_ni_temporal():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        original = os.link
+
+        def sin_links(origen, destino, **k):
+            raise OSError(95, "link no soportado")
+
+        os.link = sin_links
+        try:
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            os.link = original
+        assert codigo == 2 and "workspace.config.json" in errores and salida == ""
+        assert os.listdir(raiz) == []
+
+
+def test_publica_con_link_y_no_con_rename_ni_replace():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        llamadas = []
+        link, rename, replace = os.link, os.rename, os.replace
+
+        def espia(nombre, funcion):
+            def envuelta(*a, **k):
+                llamadas.append(nombre)
+                return funcion(*a, **k)
+            return envuelta
+
+        def prohibida(*a, **k):
+            raise AssertionError("publicó con rename/replace")
+
+        os.link, os.rename, os.replace = espia("link", link), prohibida, prohibida
+        try:
+            codigo, _, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        finally:
+            os.link, os.rename, os.replace = link, rename, replace
+        assert codigo == 0, errores
+        assert llamadas == ["link"] * 3
+
+
+def combinacion_rechazada(e, preparar, fragmento, extra=()):
+    raiz = e.crear_raiz()
+    preparar(raiz)
+    spec = e.archivo_spec()
+    antes = foto(e.base)
+    codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(raiz), *extra])
+    assert codigo == 2 and salida == "", (codigo, salida, errores)
+    assert "la config no es válida" in errores and fragmento in errores, errores
+    assert foto(e.base) == antes
+
+
+def test_config_existente_incompatible_con_la_spec_sale_dos_sin_escribir():
+    otra = {"schema_version": 1, "repos": {"otro": {}}, "layers": {"capa-b": {"extensions": [".b"], "repos": ["otro"]}}}
+    with Escenario() as e:
+        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").write_bytes(json.dumps(otra).encode("utf-8")), "falta la ruta del repo 'otro'")
+    with Escenario() as e:
+        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").write_bytes(json.dumps(otra).encode("utf-8")), "falta la ruta del repo 'otro'", ["--ensayo"])
+
+
+def test_local_existente_sin_la_ruta_de_la_spec_sale_dos_sin_escribir():
+    with Escenario() as e:
+        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.local.json").write_bytes(b"{}"), "falta la ruta del repo 'repo-a'")
+
+
+def test_config_existente_ilegible_sale_dos_sin_escribir():
+    with Escenario() as e:
+        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").write_bytes(b"\xff\x00 no es json"), "workspace.config.json")
+    with Escenario() as e:
+        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").mkdir(), "workspace.config.json")
+
+
+def test_config_existente_igual_a_la_spec_no_cambia_nada():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_bytes(esperado_json(e.spec()["config"]))
+        antes = foto(e.base)
+        codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "ya existía workspace.config.json" in salida
+        assert {k: v for k, v in foto(e.base).items() if k.endswith("workspace.config.json")} == {k: v for k, v in antes.items() if k.endswith("workspace.config.json")}
+
+
+def crear_instancia(e):
+    assert correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])[0] == 0
+    return e.raiz
+
+
+def test_cli_real_sin_raiz_desde_una_subcarpeta_usa_la_instancia():
+    with Escenario() as e:
+        raiz = crear_instancia(e)
+        sub = raiz / "tickets" / "T-1"
+        sub.mkdir(parents=True)
+        spec = e.archivo_spec()
+        antes = foto(e.base)
+        resultado = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--spec", str(spec)], capture_output=True, cwd=sub, timeout=120)
+        salida = resultado.stdout.decode("utf-8")
+        assert resultado.returncode == 0, resultado.stderr
+        assert "ya existía workspace.config.json" in salida and "creado" not in salida.replace("0 creados", "")
+        assert foto(e.base) == antes
+        assert not (sub / "workspace.config.json").exists()
+
+
+def test_raiz_explicita_dentro_de_otra_instancia_sale_dos():
+    with Escenario() as e:
+        raiz = crear_instancia(e)
+        spec = e.archivo_spec()
+        antes = foto(e.base)
+        for destino in (raiz / "anidada", raiz / "tickets" / "T-1" / "mas"):
+            for extra in ([], ["--ensayo"]):
+                codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(destino), *extra])
+                assert codigo == 2 and salida == "", (codigo, salida)
+                assert "dentro de la instancia" in errores, errores
+        assert foto(e.base) == antes
+
+
+def test_raiz_explicita_igual_a_la_instancia_se_acepta():
+    with Escenario() as e:
+        raiz = crear_instancia(e)
+        codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "3 ya existían" in salida
+
+
+def test_gitignore_con_bom_se_lee_bien():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        original = b"\xef\xbb\xbf" + GITIGNORE_ESPERADO.encode("utf-8")
+        (raiz / ".gitignore").write_bytes(original)
+        _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert "falta en .gitignore" not in salida, salida
+        assert (raiz / ".gitignore").read_bytes() == original
+
+
+def test_gitignore_con_una_carpeta_que_cubre_la_linea_cuenta_como_presente():
+    for patron in (b".claude/\n", b".claude\n", b"/.claude/\r\n"):
+        with Escenario() as e:
+            raiz = e.crear_raiz()
+            (raiz / ".gitignore").write_bytes(patron + b"workspace.local.json\n")
+            _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+            assert "falta en .gitignore" not in salida, (patron, salida)
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / ".gitignore").write_bytes(b".claude-otro/\nclaude/\n.clau/\nworkspace.local.json\n")
+        _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert "falta en .gitignore: .claude/estado/" in salida
+
+
+def test_gitignore_que_es_una_carpeta_se_dice_en_el_informe():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / ".gitignore").mkdir()
+        codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "ya existía .gitignore" in salida
+        assert "no se pudo leer .gitignore: es una carpeta" in salida, salida
+        assert "workspace.local.json" in salida.split("revisá a mano que ignore:")[1], salida
+        assert (raiz / ".gitignore").is_dir()
+
+
+def test_nombres_reservados_y_caracteres_invalidos_se_rechazan_en_el_plan():
+    malas = ["CON", "aux/x.txt", "nul.txt", "COM1", "CONOUT$", "conin$", "LPT9.log", "Con.tar.gz", "nul .txt", "x/PRN", "com¹", "lpt².txt",
+             "a<b", "a>b", 'a"b', "a|b", "a?b", "a*b", "a\x01b", "a\x1fb", "a\tb"]
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        for ruta in malas:
+            with generadores_temporales(("extra", generador_de((ruta, "x")))):
+                try:
+                    b().planificar(e.spec(), raiz)
+                except b().ErrorDePlan:
+                    pass
+                else:
+                    raise AssertionError(f"se aceptó {ruta!r}")
+        assert arbol(raiz) == {}
+
+
+def test_nombres_parecidos_a_los_reservados_se_aceptan():
+    buenas = ["console.txt", "auxiliar/x", "com10", "nulo", "lpt", "conin", "capa-con/x.md", "con-x", "a.b/c.d"]
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        for ruta in buenas:
+            with generadores_temporales(("extra", generador_de((ruta, "x")))):
+                plan = b().planificar(e.spec(), raiz)
+                assert ruta in [a.ruta for a in plan]
+
+
+def test_nombre_reservado_por_cli_sale_dos_sin_crear_la_raiz():
+    for ruta in ("CON", "aux/x.txt", "nul.txt", "COM1", "CONOUT$"):
+        with Escenario() as e:
+            with generadores_temporales(("extra", generador_de((ruta, "x")))):
+                codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(e.raiz)])
+            assert codigo == 2 and salida == "" and "el plan no es válido" in errores, (ruta, errores)
+            assert not e.raiz.exists(), ruta
+
+
+def test_raiz_que_termina_en_punto_o_espacio_se_rechaza():
+    with Escenario() as e:
+        for texto in (str(e.raiz) + ".", str(e.raiz) + " ", str(e.base / "a.") + os.sep + "instancia", str(e.base / "a ") + os.sep + "instancia"):
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", texto])
+            assert codigo == 2 and salida == "" and "punto o espacio" in errores, (texto, errores)
+        assert os.listdir(e.base) == ["repo-a", "spec.json"]
+
+
+def test_raiz_con_punto_como_componente_se_acepta():
+    with Escenario() as e:
+        texto = str(e.base) + os.sep + "." + os.sep + "instancia"
+        codigo, _, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", texto])
+        assert codigo == 0, errores
+        assert (e.raiz / "workspace.config.json").is_file()
+
+
+def test_nan_o_infinito_en_la_spec_se_rechazan_sin_escribir():
+    for valor in (float("nan"), float("inf"), float("-inf")):
+        for donde in ("config", "local"):
+            with Escenario() as e:
+                spec = e.spec()
+                spec[donde]["extra"] = {"x": valor}
+                raiz = e.crear_raiz()
+                codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+                assert codigo == 2 and salida == "" and "no se puede escribir como JSON" in errores, (valor, donde, errores)
+                assert arbol(raiz) == {}
+
+
+def test_rutas_de_repos_relativas_o_mal_formadas_invalidan_la_spec():
+    with Escenario() as e:
+        casos = [
+            ("repo-a", "absoluta"), ("./repo-a", "absoluta"), ("..\\repo-a", "absoluta"), ("", "absoluta"), (5, "texto"), (None, "texto"), ({"x": 1}, "texto"),
+        ]
+        for ruta, fragmento in casos:
+            spec = e.spec()
+            spec["local"]["repos"]["repo-a"]["path"] = ruta
+            rechazada(e, spec, fragmento)
+        for local, fragmento in (({"repos": []}, "local.repos"), ({"repos": {"repo-a": 3}}, "local.repos.repo-a")):
+            spec = e.spec()
+            spec["local"] = local
+            rechazada(e, spec, fragmento)
 
 
 def main():

@@ -1,7 +1,10 @@
+import contextlib
 import json
 import os
+import re
 import sys
 import tempfile
+import uuid
 from collections import namedtuple
 from pathlib import Path
 
@@ -14,6 +17,14 @@ CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 CLAVES_BASE = ("spec_version",)
 LINEAS_DE_GITIGNORE = (config_loader.NOMBRE_LOCAL, convencion.ESTADO + "/")
+CARACTERES_INVALIDOS = frozenset('<>:"|?*')
+SUFIJOS_DE_PUERTO = "123456789¹²³"
+RESERVADOS = frozenset(
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    | {"com" + n for n in SUFIJOS_DE_PUERTO}
+    | {"lpt" + n for n in SUFIJOS_DE_PUERTO}
+)
+SEPARADORES = re.compile(r"[\\/]+")
 
 Accion = namedtuple("Accion", "ruta contenido modo")
 Resultado = namedtuple("Resultado", "ruta estado")
@@ -21,6 +32,10 @@ Generador = namedtuple("Generador", "nombre funcion claves validar")
 Opciones = namedtuple("Opciones", "spec raiz ensayo")
 
 GENERADORES = []
+
+
+class Plan(list):
+    raiz_real = None
 
 
 class SpecInvalida(Exception):
@@ -55,9 +70,9 @@ def claves_conocidas():
 
 def serializar(objeto):
     try:
-        return (json.dumps(objeto, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    except UnicodeEncodeError as error:
-        raise SpecInvalida(f"la spec trae un texto que no se puede escribir en UTF-8: {error}")
+        return (json.dumps(objeto, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    except ValueError as error:
+        raise SpecInvalida(f"la spec trae un valor que no se puede escribir como JSON válido en UTF-8: {error}")
 
 
 def leer_spec(ruta):
@@ -67,19 +82,57 @@ def leer_spec(ruta):
         raise SpecInvalida(f"no se puede leer la spec {ruta} como JSON: {error}")
 
 
-def _validar_config(spec):
+def _cargar_en_temporal(contenidos, prefijo):
     with tempfile.TemporaryDirectory(prefix="bootstrap-") as carpeta:
         copia = Path(carpeta)
-        (copia / config_loader.NOMBRE).write_bytes(serializar(spec["config"]))
-        (copia / config_loader.NOMBRE_LOCAL).write_bytes(serializar(spec.get("local", {})))
+        for nombre, datos in contenidos.items():
+            (copia / nombre).write_bytes(datos)
         try:
             config_loader.cargar(copia)
             config_loader.conocimiento(copia)
         except config_loader.ConfigRota as error:
-            raise SpecInvalida(f"la config no es válida: {error}")
+            raise SpecInvalida(f"{prefijo}: {error}")
 
 
-def validar_spec(spec):
+def _validar_config(spec, raiz):
+    contenidos = {
+        config_loader.NOMBRE: serializar(spec["config"]),
+        config_loader.NOMBRE_LOCAL: serializar(spec.get("local", {})),
+    }
+    _cargar_en_temporal(contenidos, "la config no es válida")
+    if raiz is None:
+        return
+    previos = {}
+    for nombre in contenidos:
+        destino = Path(raiz) / nombre
+        if os.path.lexists(destino):
+            try:
+                previos[nombre] = destino.read_bytes()
+            except OSError as error:
+                raise SpecInvalida(f"la config no es válida: {nombre} ya existe en la instancia y no se puede leer: {error.strerror or error}")
+    if previos:
+        _cargar_en_temporal({**contenidos, **previos}, "la config no es válida (combinada con lo que ya existe en la instancia)")
+
+
+def _validar_local(local):
+    repos = local.get("repos")
+    if repos is None:
+        return
+    if not isinstance(repos, dict):
+        raise SpecInvalida("local.repos debe ser un objeto con un repo por clave")
+    for clave, valores in repos.items():
+        if not isinstance(valores, dict):
+            raise SpecInvalida(f"local.repos.{clave} debe ser un objeto con path")
+        if "path" not in valores:
+            continue
+        ruta = valores["path"]
+        if not isinstance(ruta, str):
+            raise SpecInvalida(f"local.repos.{clave}.path debe ser un texto con una ruta absoluta, no {ruta!r}")
+        if not os.path.isabs(ruta):
+            raise SpecInvalida(f"local.repos.{clave}.path debe ser una ruta absoluta, no {ruta!r}")
+
+
+def validar_spec(spec, raiz=None):
     if not isinstance(spec, dict):
         raise SpecInvalida("la spec debe ser un objeto JSON")
     version = spec.get("spec_version")
@@ -96,10 +149,11 @@ def validar_spec(spec):
         raise SpecInvalida(f"local debe ser un objeto: el contenido de {config_loader.NOMBRE_LOCAL} sin plugin_root")
     if "plugin_root" in local:
         raise SpecInvalida("local.plugin_root no va en la spec: lo anota el doctor")
+    _validar_local(local)
     for generador in GENERADORES:
         if generador.validar is not None:
             generador.validar(spec)
-    _validar_config(spec)
+    _validar_config(spec, raiz)
 
 
 def _generar_config(spec):
@@ -111,11 +165,15 @@ def _generar_config(spec):
 
 
 def _ruta_relativa(ruta):
-    if not isinstance(ruta, str) or "\x00" in ruta or "\\" in ruta or ":" in ruta:
+    if not isinstance(ruta, str) or "\\" in ruta:
         raise ErrorDePlan(f"la ruta {ruta!r} debe ser un texto relativo a la raíz, con /")
     for segmento in ruta.split("/"):
         if segmento in ("", ".", "..") or segmento != segmento.rstrip(" ."):
             raise ErrorDePlan(f"la ruta {ruta!r} debe ser relativa a la raíz, sin '.', '..', segmentos vacíos ni segmentos que terminen en punto o espacio")
+        if any(c in CARACTERES_INVALIDOS or ord(c) < 32 for c in segmento):
+            raise ErrorDePlan(f"la ruta {ruta!r} trae caracteres que Windows no admite en un nombre (<>:\"|?* o de control)")
+        if segmento.split(".", 1)[0].rstrip(" ").casefold() in RESERVADOS:
+            raise ErrorDePlan(f"la ruta {ruta!r} usa un nombre reservado de Windows ({segmento})")
     return ruta
 
 
@@ -183,12 +241,38 @@ def planificar(spec, raiz):
             _revisar_destino(raiz, ruta)
             acciones.append((ruta, contenido))
     _revisar_choques(vistas)
-    return [Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR) for ruta, contenido in acciones]
+    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR) for ruta, contenido in acciones)
+    plan.raiz_real = os.path.realpath(raiz)
+    return plan
+
+
+def _publicar(raiz, accion):
+    destino = raiz / accion.ruta
+    _revisar_destino(raiz, accion.ruta)
+    os.makedirs(destino.parent, exist_ok=True)
+    _revisar_destino(raiz, accion.ruta)
+    temporal = destino.parent / f".{destino.name}.{uuid.uuid4().hex}.tmp"
+    archivo = open(temporal, "xb")
+    try:
+        with archivo:
+            archivo.write(accion.contenido)
+        _revisar_destino(raiz, accion.ruta)
+        try:
+            os.link(temporal, destino)
+        except FileExistsError:
+            return YA_EXISTIA
+        return CREADO
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(temporal)
 
 
 def aplicar(plan, raiz):
     raiz = Path(raiz)
     resultados = []
+    esperada = getattr(plan, "raiz_real", None)
+    if esperada is not None and os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(esperada):
+        raise ErrorDeAplicacion(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan", resultados)
     try:
         os.makedirs(raiz, exist_ok=True)
     except OSError as error:
@@ -197,20 +281,13 @@ def aplicar(plan, raiz):
         if accion.modo != CREAR:
             resultados.append(Resultado(accion.ruta, YA_EXISTIA))
             continue
-        destino = raiz / accion.ruta
         try:
-            os.makedirs(destino.parent, exist_ok=True)
-        except OSError as error:
-            raise ErrorDeAplicacion(f"no se pudo crear la carpeta de {accion.ruta}: {error}", resultados)
-        try:
-            with open(destino, "xb") as archivo:
-                archivo.write(accion.contenido)
-        except FileExistsError:
-            resultados.append(Resultado(accion.ruta, YA_EXISTIA))
+            estado = _publicar(raiz, accion)
+        except ErrorDePlan as error:
+            raise ErrorDeAplicacion(str(error), resultados)
         except OSError as error:
             raise ErrorDeAplicacion(f"no se pudo escribir {accion.ruta}: {error}", resultados)
-        else:
-            resultados.append(Resultado(accion.ruta, CREADO))
+        resultados.append(Resultado(accion.ruta, estado))
     return resultados
 
 
@@ -218,14 +295,18 @@ def _normal(linea):
     return linea.rstrip().strip("/")
 
 
-def _lineas_que_faltan(contenido, destino):
-    try:
-        existentes = destino.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    presentes = {_normal(l) for l in existentes if l.strip()}
-    pedidas = [l for l in contenido.decode("utf-8").splitlines() if l.strip()]
-    return [l for l in pedidas if _normal(l) not in presentes]
+def _pedidas(contenido):
+    return [l for l in contenido.decode("utf-8").splitlines() if l.strip()]
+
+
+def _lineas_que_faltan(pedidas, destino):
+    existentes = destino.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    presentes = {_normal(l) for l in existentes if _normal(l)}
+    return [l for l in pedidas if not any(_normal(l) == p or _normal(l).startswith(p + "/") for p in presentes)]
+
+
+def _motivo(error, destino):
+    return "es una carpeta" if destino.is_dir() else (error.strerror or str(error))
 
 
 def informe(plan, resultados, raiz, ensayo, con_resumen=True):
@@ -240,7 +321,14 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     for ruta, existe in hechos:
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
         if existe and ruta == convencion.GITIGNORE:
-            for linea in _lineas_que_faltan(contenidos[ruta], Path(raiz) / ruta):
+            destino = Path(raiz) / ruta
+            pedidas = _pedidas(contenidos[ruta])
+            try:
+                faltan = _lineas_que_faltan(pedidas, destino)
+            except OSError as error:
+                lineas.append(f"no se pudo leer {convencion.GITIGNORE}: {_motivo(error, destino)}; revisá a mano que ignore: {', '.join(pedidas)}")
+                continue
+            for linea in faltan:
                 lineas.append(f"falta en {convencion.GITIGNORE}: {linea}")
     if con_resumen:
         nuevos = sum(1 for _, existe in hechos if not existe)
@@ -271,6 +359,19 @@ def _argumentos(argv):
     return Opciones(valores["--spec"], valores.get("--raiz"), ensayo)
 
 
+def resolver_raiz(texto, cwd):
+    if texto is None:
+        return Path(config_loader.encontrar_raiz(cwd) or cwd)
+    for componente in SEPARADORES.split(texto):
+        if componente not in ("", ".", "..") and componente != componente.rstrip(" ."):
+            raise ErrorDePlan(f"la raíz {texto!r} tiene un componente que termina en punto o espacio, que Windows recorta")
+    raiz = Path(texto)
+    instancia = config_loader.encontrar_raiz(raiz)
+    if instancia is not None and config_loader.canonica(instancia) != config_loader.canonica(raiz):
+        raise ErrorDePlan(f"la raíz {raiz} está dentro de la instancia {instancia}: usá esa carpeta como raíz o una fuera de ella")
+    return raiz
+
+
 def _error(mensaje):
     print("error: " + mensaje, file=sys.stderr)
     return 2
@@ -285,10 +386,11 @@ def principal(argv):
         print(USO, file=sys.stderr)
         return 2
     plan = []
-    raiz = Path(opciones.raiz) if opciones.raiz else Path(os.getcwd())
+    raiz = None
     try:
+        raiz = resolver_raiz(opciones.raiz, Path(os.getcwd()))
         spec = leer_spec(opciones.spec)
-        validar_spec(spec)
+        validar_spec(spec, raiz)
         plan = planificar(spec, raiz)
         if opciones.ensayo:
             print("\n".join(informe(plan, None, raiz, True)))
