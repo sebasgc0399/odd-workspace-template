@@ -93,6 +93,18 @@ def test_rutas_de_la_instancia_para_el_bootstrap():
     assert m().ESTADO_WRITERS.startswith(m().ESTADO + "/")
 
 
+def test_rutas_de_los_textos_del_bootstrap():
+    import config_loader
+
+    assert m().TICKETS == "tickets"
+    assert m().INDICE == "CLAUDE.md"
+    assert m().TICKET_PLANTILLA == "tickets/_plantilla/CLAUDE.md"
+    assert m().INDICE == config_loader.INDICE_POR_DEFECTO
+    assert m().TICKET_PLANTILLA.startswith(m().TICKETS + "/")
+    for ruta in (m().TICKETS, m().INDICE, m().TICKET_PLANTILLA):
+        assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
