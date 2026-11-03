@@ -41,13 +41,13 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 
 | ID | Unidad | S# | Ruta | Riesgo | Estado |
 |---|---|---|---|---|---|
-| B1 | Formato de la spec (JSON) y motor de generación (plan, aplicación sin pisar, informe, `--ensayo` y registro de generadores), más el núcleo de config: `workspace.config.json`, `workspace.local.json` y `.gitignore`, validados con `config_loader.cargar` sobre una copia en un temporal | S3, S4 | delegado (writer Sonnet, respaldo de contexto del padre, L2) | **1** (la garantía de no pisar archivos del usuario vive acá) → commit propio y verificador independiente | hecho (L3); verificador pendiente |
-| B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | a decidir tras B1 (candidata a writer en paralelo) | ninguno | pendiente |
-| B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | pendiente |
-| B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | a decidir tras B1 | ninguno | pendiente |
-| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | a decidir tras B1 | ninguno | pendiente |
-| B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | a decidir tras B1 | ninguno | pendiente |
-| B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | a decidir tras B1 | ninguno | pendiente |
+| B1 | Formato de la spec (JSON) y motor de generación (plan, aplicación sin pisar, informe, `--ensayo` y registro de generadores), más el núcleo de config: `workspace.config.json`, `workspace.local.json` y `.gitignore`, validados con `config_loader.cargar` sobre una copia en un temporal | S3, S4 | delegado (writer Sonnet, respaldo de contexto del padre, L2) | **1** (la garantía de no pisar archivos del usuario vive acá) → commit propio y verificador independiente | hecho (L3): `bbd2164`, sin bloqueantes (L5); correcciones W1–W9 en `10a328a` (L8), con la revisión limitada hecha (L10) y una última tanda chica pendiente |
+| B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | delegado (writer Sonnet, en paralelo con B4/B6 y B7, L4) | ninguno | hecho (L9): `d4c15f9` |
+| B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | hecho (L9): `d4c15f9` |
+| B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | delegado (writer Sonnet, con B6, en paralelo, L4) | ninguno | hecho (L9): `0a629a5` |
+| B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | después del veredicto de B1, porque extiende su motor con acciones que no son archivos | a evaluar (toca la config de git del usuario) | pendiente |
+| B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
+| B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
 | B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | inline o writer, tras B1–B7 | ninguno, si no cambia el motor de aplicación de B1; si lo cambia, **1** | pendiente |
 | B9 | Prueba de punta a punta: una instancia sintética en un temporal y completar la instancia de prueba | S1, S4 | inline | ninguno | pendiente |
 
@@ -89,3 +89,95 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
     - `local.plugin_root` se rechaza.
   - **Desvío:** el writer armó un script con heredoc de Bash, contra la regla.
   - **Docs:** la sección «Bootstrap» de `Doc/diseno.md` y el README.
+  - **Commit:** `bbd2164`. El verificador independiente está en curso.
+- **L4 (2026-10-30): tres writers en paralelo mientras el verificador revisa B1.**
+  - **Por qué se puede (disparador (a)):** son unidades independientes, con superficies disjuntas y varios cientos de líneas cada una.
+  - **Interfaz común:** los generadores viven en módulos propios (`bootstrap_agentes.py`, `bootstrap_reglas.py` y `bootstrap_textos.py`) y exponen `CLAVES`, un `validar(spec)` opcional y `generar(spec)`. No tocan `bootstrap.py`: el registro lo hace B8.
+  - **Los writers:**
+    - B2 y B3: agentes y skills, y la generalización de `plantilla_writer`, con la salida del writer idéntica byte a byte;
+    - B4 y B6: reglas vacías y textos (B6 suma la clave `proyecto.nombre`, y es el único que toca `capas.py`);
+    - B7: los huecos del doctor y el aviso de config rota al arrancar.
+  - **B5 espera el veredicto de B1:** extiende el motor con acciones que no son archivos (`git init`, `core.hooksPath` y `plugin_root`).
+- **L5 (2026-10-30): el verificador independiente sobre `bbd2164` no encontró bloqueantes; dejó 9 advertencias, que se corrigen todas.**
+  - **Lo probado:** unos 190 escenarios, sobre una copia extraída con `git archive`.
+    - Ninguno modificó un archivo existente: hash, tamaño, `mtime_ns`, modo y atributos quedan iguales.
+    - Pasan las mayúsculas, los nombres 8.3, las ADS, los enlaces, las junctions y los `.gitignore` raros.
+    - Las 23 rutas malas y los 8 ancestros enlazados se rechazan antes de escribir.
+    - Las 61 validaciones fallidas no escriben nada.
+    - Los controles positivos detectan cada clase (`wb`, sin la revisión de rutas y escribir antes de validar).
+  - **Las advertencias:**
+    - **W1 (alta):** en Windows, `open(…, "xb")` sigue un symlink roto. Un enlace que aparece entre el plan y la aplicación lleva la escritura fuera de la raíz, y eso hace falsa una frase del diseño.
+    - **W2:** completar una instancia con otra config la deja rota, con salida 0.
+    - **W3:** sin `--raiz`, desde una subcarpeta, crea una instancia anidada.
+    - **W4:** una escritura que falla deja un archivo a medias para siempre.
+    - **W5:** el informe del `.gitignore` falla con BOM, con patrones de carpeta y con un `.gitignore` ilegible.
+    - **W6:** acepta nombres reservados de Windows y caracteres inválidos.
+    - **W7:** una raíz con espacio final.
+    - **W8:** `NaN`.
+    - **W9:** rutas de repo relativas.
+  - **Decisión del padre: corregirlas todas en una tanda.** Son baratas y tocan la garantía central.
+    - W1 y W4: un temporal hermano y la publicación con `os.link`, que el verificador probó que rechaza un symlink roto sin crear el destino.
+    - W2: validar la combinación de lo que hay en el disco con lo que se crearía.
+    - W3: sin `--raiz`, usar la raíz de la instancia que haya arriba.
+  - **Después:** el verificador revisa solo la nueva publicación.
+- **L6 (2026-11-03): interrupción.** Los cuatro agentes en curso (las correcciones de B1, B4/B6 y B7) se colgaron el 30/10 cerca de las 16:15, cuando la máquina se suspendió: el runtime los dio por caídos («stalled 600 s»).
+  - El 03/11, el padre detuvo con `TaskStop` el que seguía figurando como «running» y retomó los tres desde su transcripción.
+  - Los archivos ya escritos seguían en el árbol. Se rehicieron las tandas de mutaciones que habían quedado cortadas.
+- **L7 (2026-11-03): incidente en la máquina del usuario.**
+  - **Qué pasó:** en la primera tanda de mutaciones de B7, el mutante `d12` cambió el arreglo del doctor a `git config --global`, y la suite lo ejecutó de verdad. Eso escribió `core.hooksPath=.githooks` en el `~/.gitconfig` global (el 30/10 a las 16:20).
+  - **Efecto:** todo repo sin `hooksPath` propio buscaba sus hooks en `.githooks`. Los tres repos del equipo no tenían hooks activos, así que no se rompió nada visible.
+  - **Cómo se deshizo:** el clasificador le negó deshacerlo al writer, y el padre no lo hizo en su lugar, porque eso sería saltear la negación. El usuario corrió `git config --global --unset core.hooksPath`, y el padre lo verificó.
+  - **Prevención:** las pruebas del doctor ahora aíslan la config global (`GIT_CONFIG_GLOBAL=os.devnull` y `GIT_CONFIG_NOSYSTEM=1`), y quedó como regla para los próximos briefs.
+- **L8 (2026-11-03): las correcciones de B1 (W1 a W9), hechas por el mismo writer.**
+  - **RED:** 55/75, con las 20 pruebas nuevas en rojo, cada una por su regla. **GREEN:** 77/77.
+  - **Publicación:**
+    - un temporal hermano con `xb`, que se publica con `os.link` (no reemplaza nada, tampoco un symlink roto) y se borra siempre;
+    - los ancestros se revisan antes de `makedirs`, después y antes del `link`;
+    - la raíz tiene que resolver igual que al planificar.
+  - **Las demás advertencias:**
+    - **W2:** validar la combinación del disco con lo nuevo.
+    - **W3:** `resolver_raiz`; sin `--raiz`, se usa la instancia de arriba, y con un `--raiz` dentro de otra instancia sale con 2.
+    - **W5:** el `.gitignore` se lee con `utf-8-sig`, con los patrones de carpeta, y se informa si no se puede leer.
+    - **W6:** nombres reservados y caracteres inválidos.
+    - **W7:** la raíz con un punto o un espacio final.
+    - **W8:** `allow_nan=False`.
+    - **W9:** las rutas locales absolutas.
+  - **Mutaciones:**
+    - De las 13 de la publicación murieron 12; la otra se descartó por ser un error de sintaxis.
+    - Murieron todas las de validación combinada, raíz, `.gitignore`, spec y nombres.
+    - Las 2 vivas son las equivalentes de antes.
+  - **Límite:** sin enlaces duros (FAT o exFAT), sale con 2 sin escribir nada.
+  - **Cambios de comportamiento pedidos:** un `workspace.config.json` que es un enlace roto o ilegible ahora sale con 2 (W2), y una carpeta que aparece en el destino cuenta como «ya existía».
+  - **Desvío:** el writer usó heredocs en la primera tanda.
+- **L9 (2026-11-03): B2/B3, B4/B6 y B7 hechos.**
+  - **B2 y B3** (`bootstrap_agentes.py` y `plantilla_writer.armar`):
+    - RED por regla: 22/26 y 3/24. GREEN: 26/26 y 24/24.
+    - La salida del writer es idéntica byte a byte (diferencial sobre 7 capas y sha256 fijados).
+    - Mutaciones: 48 de 49; la viva es equivalente.
+    - El doctor da OK sobre lo generado, con control positivo.
+  - **B4 y B6** (`bootstrap_reglas.py` y `bootstrap_textos.py`):
+    - RED solo por módulo inexistente. GREEN: 22/22 y 19/19.
+    - Lo generado pasa `reglas.py --test` y `matriz.py`. El `CLAUDE.md` tiene 116 líneas.
+    - Mutaciones: 59 de 61; las 2 vivas son equivalentes.
+    - `capas.py` suma `TICKETS`, `INDICE` y `TICKET_PLANTILLA`.
+    - Una prueba usa la lista negra del usuario en memoria, con el propio cargador del barrido, sin guardar ni mostrar términos. Sin la lista no verifica nada y pasa igual, pero en ese caso el pre-commit ya bloquea.
+  - **B7** (`doctor.py`, `verificar_capa.py` y `hooks.json`):
+    - RED: 54/71 y 53/59. GREEN: 72/72 y 60/60.
+    - Ítems nuevos: `config`, `instancia-hooks` e `instancia-plugin`.
+    - `SessionStart` también corre en `startup|resume`: con la config rota, avisa en una línea y pide correr `/odd-ws:doctor`; con la config sana, calla.
+    - El diferencial contra HEAD: `compact` y `clear` dan idéntico, y en el doctor solo cambian los ítems nuevos.
+    - Mutaciones: 46 de 46, con el git global aislado.
+  - **Docs:**
+    - `Doc/diseno.md` (P3, «Bootstrap» y §6), la skill del doctor y el README.
+    - La frase falsa sobre la carrera se reemplazó por la publicación con `os.link`.
+- **L10 (2026-11-03): revisión limitada del verificador sobre `10a328a`.**
+  - **Cerradas: W2 a W9, y de W1, las 6 carreras de antes y W4.** Todas con control positivo contra `bbd2164`. La foto queda sin diferencias en las 219 bases.
+  - **Restos:**
+    - **R1 (baja):** la raíz pasa a ser una junction entre dos publicaciones. Hoy se compara solo al entrar a `aplicar`.
+    - **R2 (baja):** un ancestro movido afuera y reemplazado por una junction justo antes del `link`. Es inherente a trabajar con rutas en lugar de handles.
+    - **N1 (media):** un temporal que no se puede borrar queda sin aviso. Es un hardlink del archivo publicado, y el de `workspace.local.json` no lo cubre el `.gitignore`.
+    - **N2 (teórica):** el temporal choca con un symlink roto.
+    - **N3 (baja):** `workspace.local.json/` cuenta como presente en el `.gitignore`, pero la barra final solo cubre carpetas.
+  - **Decisión del padre:** una última tanda, chica y sin otra revisión, porque son advertencias.
+    - Se corrigen R1 (comparar la raíz real antes de cada `link`), N1 (avisar en el informe), N2 (un temporal nunca reutiliza un nombre que ya exista, ni siquiera como enlace) y N3.
+    - R2 queda documentada en «No ve».
