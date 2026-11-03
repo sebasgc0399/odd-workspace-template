@@ -649,5 +649,19 @@ def principal(argv):
 registrar_generador("config", _generar_config, claves=("config", "local"))
 
 
+def registrar_estandar():
+    import bootstrap_agentes
+    import bootstrap_instalacion
+    import bootstrap_reglas
+    import bootstrap_textos
+
+    registrar_generador("agentes", bootstrap_agentes.generar, claves=bootstrap_agentes.CLAVES)
+    registrar_generador("reglas", bootstrap_reglas.generar, claves=bootstrap_reglas.CLAVES, validar=bootstrap_reglas.validar)
+    registrar_generador("textos", bootstrap_textos.generar, claves=bootstrap_textos.CLAVES, validar=bootstrap_textos.validar)
+    registrar_generador("instalacion", bootstrap_instalacion.generar, claves=bootstrap_instalacion.CLAVES)
+
+
 if __name__ == "__main__":
+    sys.modules.setdefault("bootstrap", sys.modules[__name__])
+    registrar_estandar()
     sys.exit(principal(sys.argv[1:]))

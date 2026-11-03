@@ -644,18 +644,23 @@ def test_argumentos_invalidos_salen_dos_con_el_uso():
 def test_el_ejemplo_se_valida_y_se_genera():
     datos = json.loads(EJEMPLO.read_text(encoding="utf-8"))
     assert datos["spec_version"] == 1
-    assert set(datos) <= set(b().claves_conocidas())
-    with Escenario() as e:
-        for clave in datos["local"]["repos"]:
-            datos["local"]["repos"][clave]["path"] = str(e.repo)
-        spec = e.archivo_spec(datos, "ejemplo.json")
-        codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(e.raiz), "--ensayo"])
-        assert codigo == 0 and errores == "", (salida, errores)
-        assert not e.raiz.exists()
-        codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(e.raiz)])
-        assert codigo == 0 and errores == "", (salida, errores)
-        assert importlib.import_module("config_loader").cargar(e.raiz)["layers"]
-        assert (e.raiz / ".gitignore").read_bytes() == GITIGNORE_ESPERADO.encode("utf-8")
+    copia = list(b().GENERADORES)
+    try:
+        b().registrar_estandar()
+        assert set(datos) <= set(b().claves_conocidas())
+        with Escenario() as e:
+            for clave in datos["local"]["repos"]:
+                datos["local"]["repos"][clave]["path"] = str(e.repo)
+            spec = e.archivo_spec(datos, "ejemplo.json")
+            codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(e.raiz), "--ensayo"])
+            assert codigo == 0 and errores == "", (salida, errores)
+            assert not e.raiz.exists()
+            codigo, salida, errores = correr(["--spec", str(spec), "--raiz", str(e.raiz)])
+            assert codigo == 0 and errores == "", (salida, errores)
+            assert importlib.import_module("config_loader").cargar(e.raiz)["layers"]
+            assert (e.raiz / ".gitignore").read_bytes() == GITIGNORE_ESPERADO.encode("utf-8")
+    finally:
+        b().GENERADORES[:] = copia
 
 
 def test_el_ejemplo_esta_en_lf_sin_bom_y_con_salto_final():
@@ -715,16 +720,23 @@ def test_un_error_interno_sale_dos_sin_escribir():
             assert arbol(raiz) == {}
 
 
+def spec_estandar(e):
+    spec = e.spec()
+    spec["config"]["layers"] = {"capa-a": {"extensions": [".ext"], "repos": ["repo-a"], "rule_prefix": "CA"}}
+    spec["proyecto"] = {"nombre": "Proyecto Sintetico"}
+    return spec
+
+
 def test_cli_real_exito_y_error_en_utf8():
     with Escenario() as e:
         script = str(AQUI / "bootstrap.py")
-        spec = str(e.archivo_spec())
+        spec = str(e.archivo_spec(spec_estandar(e)))
         ok = subprocess.run([sys.executable, "-W", "error", script, "--spec", spec, "--raiz", str(e.raiz)], capture_output=True)
         assert ok.returncode == 0 and ok.stderr == b"", ok.stderr
         assert "creado workspace.config.json".encode("utf-8") in ok.stdout
         repetida = subprocess.run([sys.executable, "-W", "error", script, "--spec", spec, "--raiz", str(e.raiz)], capture_output=True)
         assert repetida.returncode == 0 and "ya existía workspace.config.json".encode("utf-8") in repetida.stdout
-        mala = e.spec()
+        mala = spec_estandar(e)
         mala["config"]["schema_version"] = 9
         roja = subprocess.run([sys.executable, "-W", "error", script, "--spec", str(e.archivo_spec(mala, "mala.json")), "--raiz", str(e.base / "otra")], capture_output=True)
         assert roja.returncode == 2 and roja.stdout == b"" and "la config no es válida".encode("utf-8") in roja.stderr
@@ -734,7 +746,7 @@ def test_cli_real_exito_y_error_en_utf8():
 def test_cli_real_usa_el_cwd_sin_raiz():
     with Escenario() as e:
         e.crear_raiz()
-        resultado = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--spec", str(e.archivo_spec())], capture_output=True, cwd=e.raiz)
+        resultado = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--spec", str(e.archivo_spec(spec_estandar(e)))], capture_output=True, cwd=e.raiz)
         assert resultado.returncode == 0, resultado.stderr
         assert (e.raiz / "workspace.config.json").is_file() and (e.raiz / ".gitignore").is_file()
 
@@ -1080,10 +1092,12 @@ def crear_instancia(e):
 
 def test_cli_real_sin_raiz_desde_una_subcarpeta_usa_la_instancia():
     with Escenario() as e:
-        raiz = crear_instancia(e)
+        raiz = e.crear_raiz()
+        spec = e.archivo_spec(spec_estandar(e))
+        primera = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--spec", str(spec), "--raiz", str(raiz)], capture_output=True, timeout=120)
+        assert primera.returncode == 0, primera.stderr
         sub = raiz / "tickets" / "T-1"
         sub.mkdir(parents=True)
-        spec = e.archivo_spec()
         antes = foto(e.base)
         resultado = subprocess.run([sys.executable, "-W", "error", str(AQUI / "bootstrap.py"), "--spec", str(spec)], capture_output=True, cwd=sub, timeout=120)
         salida = resultado.stdout.decode("utf-8")

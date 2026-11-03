@@ -316,6 +316,15 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
 
 Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con una entrevista (B8). **Nunca pisa un archivo del usuario.**
 
+- **La skill** (`skills/bootstrap`, que solo invoca el usuario):
+  - entrevista de a una pregunta, cada una con una propuesta: el nombre del proyecto, los repos con su ruta, las capas con su `rule_prefix` derivado y confirmado, y `mold_source`;
+  - si la raíz ya es una instancia, usa su config tal cual y solo pregunta lo que falta;
+  - escribe la spec fuera de la instancia;
+  - corre `--ensayo` y, con un sí, aplica;
+  - cierra con el doctor.
+
+  No edita lo generado ni lo existente, y no commitea.
+
 - **La spec** es JSON: `{"spec_version": 1, "config": <workspace.config.json exacto>, "local": <workspace.local.json sin plugin_root>, …}`. Hay un ejemplo en `plugin/plantillas/bootstrap.ejemplo.json`.
   - No hay un segundo esquema: las capas, los repos y `knowledge` salen de `config`.
   - Cada generador registra las claves de nivel superior que suma. Una clave desconocida, otra versión o `local.plugin_root` (que anota el doctor) rechazan la spec.
@@ -366,7 +375,10 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - `--ensayo` muestra el plan (`crearía …`, `ya existe …` y lo que haría git, como `git init: se haría (la raíz no está en ningún repo)`) sin escribir nada. Solo ejecuta git de lectura.
   - En Windows, debajo de un archivo creado con bit de ejecución, el informe agrega `al commitear, marcalo ejecutable: git add --chmod=+x <ruta>`, porque git ahí no registra el bit.
   - Sale con 0 aunque haya archivos que ya existían, y con 2 ante una spec, una config o un plan inválidos, un error de aplicación (con el informe parcial de lo creado) o un error interno.
-- **Generadores.** Cada uno es un módulo con `CLAVES`, un `validar(spec)` opcional y `generar(spec)`, y B8 lo registra con `registrar_generador`.
+- **Generadores.** Cada uno es un módulo con `CLAVES`, un `validar(spec)` opcional y `generar(spec)`, que se registra con `registrar_generador`.
+  - Al importar `bootstrap`, solo se registra `config`.
+  - La CLI (`__main__`) primero hace `sys.modules.setdefault("bootstrap", …)`, para que el `from bootstrap import …` de los generadores reciba las mismas clases (`SpecInvalida`, `AccionDeGit`), y después `registrar_estandar()` agrega `agentes`, `reglas`, `textos` e `instalacion` (B8, L17).
+  - `plantillas/bootstrap.ejemplo.json` es una spec completa para la CLI.
   - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM. `workspace.local.json` se crea con el `plugin_root` del plugin que está corriendo; si ya existía, lo cubre `--arreglar plugin-root` del doctor.
   - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins`, y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
   - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
