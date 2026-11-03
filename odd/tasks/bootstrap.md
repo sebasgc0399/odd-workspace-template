@@ -48,7 +48,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 | B5 | Instalación: `settings.json` con `enabledPlugins`, el pre-commit con el bit de ejecución, `core.hooksPath`, `git init` y `plugin_root` | S1, S6 | delegado (el writer de B1, que conoce el motor, L12) | **1** (extiende el motor de aplicación con acciones de git sobre el repo del usuario) → commit propio y verificador | hecho (L16): `bc3b95b` y la corrección `8ceaeb3` |
 | B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
 | B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
-| B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | inline o writer, tras B1–B7 | ninguno, si no cambia el motor de aplicación de B1; si lo cambia, **1** | pendiente |
+| B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | el cableado, delegado al writer de B1 (por el respaldo de contexto); la skill y los docs, en línea (L17) | ninguno: no cambia el motor de aplicación (L17) | hecho (L18) |
 | B9 | Prueba de punta a punta: una instancia sintética en un temporal y completar la instancia de prueba | S1, S4 | inline | ninguno | pendiente |
 
 ## Log
@@ -282,3 +282,41 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
     - el `ejecutar` del doctor junta stdout y stderr, así que un aviso de git deja la guarda sin las tres líneas y falla hacia no escribir;
     - desde el checkout principal, `--local` también alcanza a los worktrees enlazados de la misma instancia.
   - **B5 queda cerrado.**
+  - **Commit:** `658608a`.
+- **L17 (2026-11-03): el diseño de B8, decisión técnica del padre.**
+  - **El cableado** vive en el `__main__` de `bootstrap.py`, no al importarlo:
+    - `sys.modules.setdefault("bootstrap", sys.modules[__name__])`, para que el `from bootstrap import …` de los generadores reciba las mismas clases (A-6);
+    - después, `registrar_estandar()` registra `agentes`, `reglas`, `textos` e `instalacion` detrás de `config`.
+
+    Al importarlo sigue registrando solo `config`, así que las suites que arman su propio registro no cambian. Las pruebas del cableado corren la CLI como subproceso, que es el camino real de `__main__`.
+  - **El ejemplo** (`plantillas/bootstrap.ejemplo.json`) pasa a ser una spec completa para la CLI, con `proyecto.nombre` y el `rule_prefix` de la capa, y sigue con datos sintéticos.
+  - **La skill** `/odd-ws:bootstrap`:
+    - entrevista de a una pregunta, con una propuesta en cada una;
+    - si ya hay una instancia, parte de su config y no la reescribe;
+    - escribe la spec fuera de la instancia;
+    - corre `--ensayo` y pide el sí;
+    - aplica;
+    - cierra con el doctor.
+  - **Rutas:** el cableado lo hace el writer de B1 y B5, que conoce el motor (fuera de las tareas en paralelo, por el respaldo de contexto del padre). La skill y los docs los escribe el padre en línea, sobre superficies disjuntas.
+  - **Riesgo:** ninguno. No cambia el motor de aplicación: conecta generadores ya verificados, y B9 los prueba de punta a punta.
+- **L18 (2026-11-03): B8 hecho.**
+  - **El cableado (writer):**
+    - `registrar_estandar()` registra, en orden, `agentes`, `reglas` (con `validar`), `textos` (con `validar`) e `instalacion`, y todos reutilizan `registrar_generador`. Si se llama dos veces, falla en voz alta.
+    - El `__main__` hace primero el `setdefault`.
+    - Las 11 pruebas nuevas están en `bootstrap_cli.tests.py` y corren la CLI como subproceso. Cubren:
+      - los 15 archivos y las líneas de git;
+      - el orden del informe;
+      - el ensayo sin escritura;
+      - la segunda corrida, byte a byte igual;
+      - los mensajes propios de `textos` y `reglas`;
+      - que al importar solo se registra `config`;
+      - el ejemplo como spec completa.
+  - **ROJO → VERDE:** el esqueleto vacío daba 1/11.
+  - **Mutantes:** 16 de 16 muertos. Sin el `setdefault`, el error de una spec sin `proyecto` sale como `error interno: SpecInvalida`, y la prueba de ese mensaje mata al mutante.
+  - **Suites:** `bootstrap` 132/132, `bootstrap_cli` 11/11, `agentes` 26/26, `reglas` 22/22, `textos` 19/19, `instalacion` 11/11, `doctor` 76/76 y `config_loader` 73/73.
+  - **Desvío:** tres pruebas de `bootstrap.tests.py` pasan a una spec completa, porque la CLI real ahora registra los cinco generadores.
+  - **El padre:**
+    - escribió `skills/bootstrap/SKILL.md`, que solo invoca el usuario, con la entrevista, la spec fuera de la instancia, el ensayo, el sí, la aplicación y el doctor;
+    - actualizó la sección «Bootstrap» de `diseno.md` y el README;
+    - revisó el diff del cableado: son las 14 líneas pedidas, sin espacios perdidos;
+    - verificó la config real antes y después, sin cambios.

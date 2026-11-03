@@ -12,7 +12,8 @@
         ],
         "repos": [
           "repo-a"
-        ]
+        ],
+        "rule_prefix": "EJ"
       }
     }
   },
@@ -22,5 +23,8 @@
         "path": "C:/ejemplo/repo-a"
       }
     }
+  },
+  "proyecto": {
+    "nombre": "Proyecto de ejemplo"
   }
 }
