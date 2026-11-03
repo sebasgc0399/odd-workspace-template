@@ -3,8 +3,12 @@ import math
 import os
 import re
 import sys
+from collections import namedtuple
 
-ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+COMANDO_RUTAS_DE_HOOKS = ("rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir")
+DecisionDeHooks = namedtuple("DecisionDeHooks", "puede motivo")
+
+ID_RE =re.compile(r"[A-Za-z0-9_-]{1,128}")
 SILENCIO = (0, "", b"")
 PLAZO_POR_DEFECTO = 8
 
@@ -24,6 +28,34 @@ def entorno_git(base=None):
     env["GIT_CONFIG_KEY_0"] = "diff.autoRefreshIndex"
     env["GIT_CONFIG_VALUE_0"] = "false"
     return env
+
+
+def _ruta_de_git(texto, raiz):
+    ruta = texto.strip()
+    return os.path.normpath(ruta if os.path.isabs(ruta) else os.path.join(str(raiz), ruta))
+
+
+def _misma_carpeta(a, b):
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def decidir_hooks(raiz, salida):
+    lineas = [linea for linea in (salida or "").splitlines() if linea.strip()]
+    if len(lineas) != 3:
+        return DecisionDeHooks(False, "git no dijo dónde están los hooks del repo")
+    carpeta, git_dir, git_comun = (_ruta_de_git(linea, raiz) for linea in lineas)
+    if not _misma_carpeta(git_dir, git_comun):
+        return DecisionDeHooks(False, "la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts")
+    try:
+        with os.scandir(carpeta) as entradas:
+            propios = sorted(entrada.name for entrada in entradas if not entrada.name.endswith(".sample"))
+    except FileNotFoundError:
+        propios = []
+    except OSError as error:
+        return DecisionDeHooks(False, f"no se puede leer la carpeta de hooks {carpeta} ({error.strerror or error})")
+    if propios:
+        return DecisionDeHooks(False, f"hay hooks propios en {carpeta} ({', '.join(propios)}), que dejarían de correr")
+    return DecisionDeHooks(True, "")
 
 
 def plazo_de(argv):

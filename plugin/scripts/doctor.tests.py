@@ -36,7 +36,7 @@ def d():
 
 def entorno_sin_git():
     return {**{clave: valor for clave, valor in os.environ.items() if not clave.startswith("GIT_")},
-            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 
 def _forzar_borrado(funcion, ruta, _error):
@@ -805,9 +805,74 @@ def test_instancia_hooks_si_git_falla_al_leer_el_valor_no_toma_el_error_por_valo
         ctx = Falso(e.base, cwd=raiz, respuestas={
             ("git", "-C", str(raiz), "rev-parse", "--show-toplevel"): (0, str(raiz) + "\n"),
             ("git", "-C", str(raiz), "config", "--get", "core.hooksPath"): (128, "fatal: bad config line 1\n"),
+            ("git", "-C", str(raiz), "rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir"): (0, f"{raiz}/.git/hooks\n{raiz}/.git\n{raiz}/.git\n"),
         })
         r = por_id(ctx)["instancia-hooks"]
         assert r.estado == "FALTA" and "sin configurar" in r.detalle and "fatal" not in r.detalle and r.comando is not None, r
+
+
+def test_instancia_hooks_sin_poder_leer_los_hooks_del_repo_no_ofrece_arreglo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz, respuestas={
+            ("git", "-C", str(raiz), "rev-parse", "--show-toplevel"): (0, str(raiz) + "\n"),
+            ("git", "-C", str(raiz), "config", "--get", "core.hooksPath"): (1, ""),
+            ("git", "-C", str(raiz), "rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir"): (128, "fatal: algo\n"),
+        })
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and r.comando is None and r.arreglo is None and "git no dijo dónde están los hooks del repo" in r.detalle, r
+
+
+def hook_propio(raiz, nombre="pre-commit"):
+    (raiz / ".git" / "hooks" / nombre).write_bytes(b"#!/bin/sh\nexit 0\n")
+
+
+def test_instancia_hooks_con_hooks_propios_es_falta_sin_arreglo_y_no_toca_nada():
+    for precommit in (True, False):
+        with Escenario() as e:
+            raiz = instancia_git(e, precommit=precommit)
+            hook_propio(raiz, "pre-commit")
+            hook_propio(raiz, "commit-msg")
+            ctx = Falso(e.base, cwd=raiz, git_real=True)
+            r = por_id(ctx)["instancia-hooks"]
+            carpeta = os.path.normpath(str(raiz / ".git" / "hooks"))
+            assert r.estado == "FALTA" and r.comando is None and r.arreglo is None, r
+            assert f"hay hooks propios en {carpeta} (commit-msg, pre-commit), que dejarían de correr" in r.detalle, r.detalle
+            assert "sin configurar" in r.detalle and r.ayuda and "integrá" in r.ayuda.lower(), r
+            assert ("falta .githooks/pre-commit" in r.detalle) == (not precommit), r.detalle
+            codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
+            assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+            assert hooks_path(raiz) == ""
+
+
+def test_instancia_hooks_en_un_worktree_enlazado_es_falta_sin_arreglo_y_no_toca_el_principal():
+    with Escenario() as e:
+        principal = e.base / "principal"
+        principal.mkdir()
+        git_en(principal, "init", "-q")
+        (principal / "x.txt").write_text("x\n", encoding="utf-8")
+        git_en(principal, "add", "x.txt")
+        git_en(principal, "-c", "user.name=p", "-c", "user.email=p@p", "commit", "-q", "-m", "x")
+        raiz = e.base / "wt"
+        git_en(principal, "worktree", "add", "-q", str(raiz))
+        poner(raiz, ".githooks/pre-commit", "#!/bin/sh\n")
+        (raiz / "workspace.config.json").write_text(json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}}}), encoding="utf-8")
+        antes = (principal / ".git" / "config").read_bytes()
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["instancia-hooks"]
+        assert r.estado == "FALTA" and r.comando is None and r.arreglo is None and r.ayuda, r
+        assert "la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts" in r.detalle, r.detalle
+        codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert (principal / ".git" / "config").read_bytes() == antes
+
+
+def test_instancia_hooks_con_solo_hooks_de_ejemplo_sigue_ofreciendo_el_arreglo():
+    with Escenario() as e:
+        raiz = instancia_git(e)
+        assert any(n.endswith(".sample") for n in os.listdir(raiz / ".git" / "hooks"))
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-hooks"]
+        assert r.estado == "FALTA" and r.comando is not None, r
 
 
 def test_instancia_hooks_con_hookspath_y_pre_commit_es_ok():

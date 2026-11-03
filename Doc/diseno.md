@@ -324,7 +324,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
 - **La raíz:** sin `--raiz`, es la instancia que haya arriba del cwd (`config_loader.encontrar_raiz`) o, si no hay ninguna, el cwd. Así nunca se crea una instancia anidada.
   - Un `--raiz` dentro de otra instancia sale con 2.
   - También sale con 2 un `--raiz` con un componente que termina en punto o espacio, que Windows recortaría.
-- **El plan** (`planificar`) junta las acciones `(ruta, contenido[, permisos])` y las `AccionDeGit` de los generadores registrados (`registrar_generador`), y marca cada archivo como `crear` o `ya_existe`. Los permisos son un entero entre 0 y `0o777`. Antes de escribir nada, rechaza:
+- **El plan** (`planificar`) junta las acciones `(ruta, contenido[, permisos])` y las `AccionDeGit` de los generadores registrados (`registrar_generador`), y marca cada archivo como `crear` o `ya_existe`. Los permisos son un entero entre 0 y `0o777`, y tienen que incluir la escritura del dueño (`0o200`): en Windows, sin ella, el `chmod` deja el archivo de solo lectura, el enlace duro comparte el atributo y el temporal ya no se puede borrar (L14, A-3). Antes de escribir nada, rechaza:
   - las rutas absolutas;
   - las que tienen `..`, `\` o `:`;
   - los segmentos vacíos o que terminan en punto o espacio;
@@ -342,13 +342,17 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Con permisos, hace `chmod` sobre el temporal antes del `link`, así que el archivo nunca aparece sin ellos.
   - Nunca modifica, trunca ni borra un archivo.
   - **Límite:** en FAT o exFAT, sin enlaces duros, sale con 2 sin escribir nada, en lugar de degradar a una escritura insegura.
-  - **No ve:** que otro proceso mueva afuera una carpeta del usuario, con el temporal adentro, y la reemplace por una junction justo antes del `link` (L10, R2). Es inherente a trabajar con rutas en lugar de handles, y exige un proceso que modifique la instancia a mitad de la corrida.
+  - **No ve:** que otro proceso mueva afuera una carpeta del usuario, con el temporal adentro, y la reemplace por una junction justo antes del `link` (L10, R2). Es inherente a trabajar con rutas en lugar de handles, y exige un proceso que modifique la instancia a mitad de la corrida. Lo mismo vale para el `chmod`, que también va por ruta (L14, A-7).
 - **Las acciones de git** (`AccionDeGit`, B5) son dos: `init` y `hooks_path`. Corren después de los archivos, y solo si no falló ninguno.
   - **Solo si hace falta:**
     - `git init` corre únicamente si la raíz no está en ningún repo. No se anida un repo.
     - `core.hooksPath` se configura solo si la raíz es el toplevel de su repo, porque un valor relativo se interpreta desde ahí, y si no tiene valor propio.
-    - Un valor ajeno se informa (`core.hooksPath = <valor>: no se tocó; el pre-commit no va a correr`) y no se toca.
-  - **Solo la config del repo:** los comandos son `git -C <raíz> …`, con `config --local` para escribir y `config --local --get` para leer. Leer sin `--local` mezclaría el valor global y el del sistema. Nunca usa `--global` ni `--system`.
+    - Un valor ajeno se informa (`core.hooksPath = <valor>: no se tocó; el pre-commit no va a correr`) y no se toca. También cuenta como propio un valor vacío (`= (vacío)`) o uno que llega por un `include.path`.
+    - **Sin valor no siempre es «hace falta»** (L14, B-1). Configurarlo apagaría lo que corre hoy, así que tampoco se toca en dos casos:
+      - si la carpeta de hooks que da `git rev-parse --git-path hooks` tiene algún archivo que no sea `.sample` (husky, pre-commit o lefthook): `core.hooksPath: no se tocó; hay hooks propios en <carpeta> (<nombres>), que dejarían de correr`. Esa carpeta es la efectiva, así que respeta también un `hooksPath` global;
+      - si la raíz es un worktree enlazado (`--git-dir` distinto de `--git-common-dir`, comparados con `realpath`), porque ahí `--local` escribe la config compartida: `core.hooksPath: no se tocó; la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts`.
+    - La regla es una sola función pura, `odd_ws.comun.decidir_hooks(raiz, salida)`, que recibe la salida de `rev-parse --git-path hooks --git-dir --git-common-dir`. La usan bootstrap y el arreglo del doctor, y cada uno corre git con su propio ejecutor. Si git no da las tres rutas, o la carpeta no se puede leer, no se toca.
+  - **Solo la config del repo:** los comandos son `git -C <raíz> …`, con `config --local` para escribir y `config --local --includes --get` para leer. Leer sin `--local` mezclaría el valor global y el del sistema. Nunca usa `--global` ni `--system`.
   - **Decide al aplicar:** vuelve a mirar el estado del repo justo antes de cada acción, sin copiar la decisión del plan, y antes de cada una compara la raíz real con la del plan.
   - Si `rev-parse` falla pero hay un `.git` en algún ancestro (por ejemplo, con «dubious ownership»), no hace `git init` ni toca el `hooksPath`.
   - **Salida 0 y aviso** si git no está, si falla un comando o si se pasa el plazo de 60 s. El informe lleva una línea por acción, antes del resumen.
@@ -412,7 +416,7 @@ Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLIC
 - **Capa 0, `/odd-ws:doctor`** (`plugin/scripts/doctor.py`): solo lee por defecto y arregla de a un ítem con `--arreglar <id>`. La v1 revisa los hooks y la lista negra del clon (cierra el riesgo B2b), Python por comportamiento y por latencia (S1.6), las credenciales de git, Claude Code ≥ 2.1.284, el marketplace, gentle-ai ≥ 4.2.0 con su RDD y su telemetría, engram ≥ 3.5.0 y `jq`. En una instancia suma `plugin-root`, los tres ítems de la instancia (T8 B7), un `writer-<capa>` por capa y los dos ítems de sus agentes (U9, L85), detallados abajo. Quedaron afuera: `diff.autoRefreshIndex`, que el motor fija por proceso y viaja con él; `core.longpaths`, sin incidente que lo justifique; y MCPs, secretos, proxy corporativo, perfil de modelos y exportación de memoria, que entran cuando un caso real los pida.
   - **Ítems de la instancia (T8 B7):**
     - **`config`:** corre `config_loader.cargar(raiz)`. Si falla, es FALTA con el motivo, por ejemplo la ruta de un repo que falta en `workspace.local.json`, que antes dejaba los hooks mudos sin que el doctor lo viera.
-    - **`instancia-hooks`:** `core.hooksPath` apunta a `.githooks` y existe `.githooks/pre-commit`.
+    - **`instancia-hooks`:** `core.hooksPath` apunta a `.githooks` y existe `.githooks/pre-commit`. Sin valor, `--arreglar` lo configura, salvo que `decidir_hooks` diga que no (hooks propios o un worktree enlazado). En ese caso, el ítem queda en falta, sin arreglo y con el motivo.
       - Si no tiene valor, `--arreglar` lo configura.
       - Si tiene otro valor, es FALTA sin arreglo.
       - Si la raíz no es la raíz de un repo git, es NO APLICA.
