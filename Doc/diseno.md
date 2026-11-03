@@ -26,7 +26,7 @@ Llevar un motor de trabajo con agentes de un proyecto a otro. Al llegar a un equ
 |---|---|---|
 | P1 | **Tres niveles:** motor (dispatcher de eventos, primer toque, deadline, filtro de preexistentes, writers, triaje, recibo) y **biblioteca por lenguaje** en el plugin; **reglas de dominio** en la instancia, cargadas por el contrato `verificar(ctx) -> [hallazgos]`. La instancia **importa** la biblioteca del plugin | Las reglas de dominio necesitan lógica (no caben en una fila de regex), y un arreglo en una primitiva se hace una sola vez. La biblioteca pasa a ser API pública: chica y versionada. **Cómo se importa (R-2):** paquete `odd_ws` en `plugin/scripts/`; el hook corre desde esa carpeta, así que `import odd_ws` funciona sin tocar `sys.path`, y los módulos de la instancia los carga el dispatcher, que ya tiene el paquete a mano (ningún archivo de la instancia busca el plugin). La versión de la API es `schema_version`; `odd_ws.PUBLICO` declara la superficie y una prueba la congela |
 | P2 | Habilitado **por proyecto**, con scope **local** como respaldo dentro de repos de un equipo; **nunca a nivel usuario**. El marketplace sí se registra a nivel usuario (lo hace `/doctor`) | Los hooks de un plugin disparan en toda sesión donde está habilitado. A nivel usuario se pagaría su costo en cada Read/Edit/Write de todos los proyectos |
-| P3 | Raíz de la instancia: subir desde `CLAUDE_PROJECT_DIR` hasta el primer `workspace.config.json`; rutas de la máquina en `workspace.local.json` (ignorado por git); clasificar el archivo editado con rutas canónicas `normcase(realpath(…))`; los globs del taller (`workshop`) y del filtro por repo (`match`) son por segmentos (`**` cruza carpetas; `*` no) y los worktrees de cada repo salen del registro de git, no de la config; **configuración rota ≠ ausente** (ausente: no-op en silencio; rota: los hooks no bloquean, pero `SessionStart` lo dice fuerte; la excepción es la Capa 2 del guard de comandos, que con la config rota pregunta, L49); `schema_version` en el config | El archivo editado suele estar fuera del árbol; una carpeta puede llegar con dos nombres (junctions, `c:` vs `C:`); un no-op silencioso por una configuración rota es un instrumento mudo |
+| P3 | Raíz de la instancia: subir desde `CLAUDE_PROJECT_DIR` hasta el primer `workspace.config.json`; rutas de la máquina en `workspace.local.json` (ignorado por git); clasificar el archivo editado con rutas canónicas `normcase(realpath(…))`; los globs del taller (`workshop`) y del filtro por repo (`match`) son por segmentos (`**` cruza carpetas; `*` no) y los worktrees de cada repo salen del registro de git, no de la config; **configuración rota ≠ ausente** (ausente: no-op en silencio; rota: los hooks no bloquean, pero `SessionStart` lo avisa al arrancar o retomar la sesión, con el motivo y que se corra `/odd-ws:doctor` (`startup|resume`, T8 B7); la excepción es la Capa 2 del guard de comandos, que con la config rota pregunta, L49); `schema_version` en el config | El archivo editado suele estar fuera del árbol; una carpeta puede llegar con dos nombres (junctions, `c:` vs `C:`); un no-op silencioso por una configuración rota es un instrumento mudo |
 | P4 | **Semver único** en `plugin.json` (sube la mayor si se rompe el config, el contrato de módulos o la API de la biblioteca); `schema_version` = versión mayor; canales `odd-ws` (GitHub, rama `stable`) y desarrollo desde una ruta local, solo en un sandbox; release con tag `odd-ws--vX.Y.Z`; **sin auto-update en máquinas de trabajo** (se actualiza a mano entre tickets); una mayor solo después de migrar las instancias | Con P1(a), una versión nueva cambia los chequeos de todas las instancias. Un marketplace de ruta local carga el código en sitio en cada sesión |
 | P5 | Estado **por tipo:** efímero de sesión en `.claude/estado/` de la raíz de la instancia (ignorado, poda a 7 días); **decisiones con autoridad** en `.claude/registro/` (versionado); evidencia (recibos) en la carpeta del ticket; en `CLAUDE_PLUGIN_DATA` solo lo reconstruible | Desinstalar el plugin borra `CLAUDE_PLUGIN_DATA`; una decisión con autoridad es evidencia, no estado |
 | P6 | El **plazo** de cada hook viaja como argumento junto a su **timeout**, en la misma entrada de `hooks/hooks.json`, en forma exec; sin `--plazo`, 8 s; la suite valida plazo ≤ timeout − 2 s | Claude Code descarta toda la salida de un hook que llega a su timeout. La forma exec no depende del shell |
@@ -319,7 +319,11 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
 - **La spec** es JSON: `{"spec_version": 1, "config": <workspace.config.json exacto>, "local": <workspace.local.json sin plugin_root>, …}`. Hay un ejemplo en `plugin/plantillas/bootstrap.ejemplo.json`.
   - No hay un segundo esquema: las capas, los repos y `knowledge` salen de `config`.
   - Cada generador registra las claves de nivel superior que suma. Una clave desconocida, otra versión o `local.plugin_root` (que anota el doctor) rechazan la spec.
-- **Antes de escribir**, valida `config` y `local` en una copia dentro de un temporal, con `config_loader.cargar` y `config_loader.conocimiento`. Si alguno lanza `ConfigRota`, no se escribe nada, ni siquiera la raíz.
+- **Antes de escribir**, valida en una copia dentro de un temporal, con `config_loader.cargar` y `config_loader.conocimiento`, **la combinación final**: lo que ya está en la instancia, más lo que se crearía. Si da `ConfigRota`, no se escribe nada, ni siquiera la raíz.
+  - En la spec, `NaN` e `Infinity` se rechazan, y las rutas de los repos en `local` tienen que ser absolutas.
+- **La raíz:** sin `--raiz`, es la instancia que haya arriba del cwd (`config_loader.encontrar_raiz`) o, si no hay ninguna, el cwd. Así nunca se crea una instancia anidada.
+  - Un `--raiz` dentro de otra instancia sale con 2.
+  - También sale con 2 un `--raiz` con un componente que termina en punto o espacio, que Windows recortaría.
 - **El plan** (`planificar`) junta las acciones `(ruta, contenido)` de los generadores registrados (`registrar_generador`) y marca cada una como `crear` o `ya_existe`. Antes de escribir nada, rechaza:
   - las rutas absolutas;
   - las que tienen `..`, `\` o `:`;
@@ -327,13 +331,36 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - las rutas repetidas;
   - un choque entre archivo y carpeta;
   - un ancestro que es archivo;
-  - un enlace que sale de la raíz.
-- **La aplicación** (`aplicar`) crea solo las acciones `crear`, con `open(…, "xb")`. Un archivo que apareció entre el plan y la aplicación queda como «ya existía». Nunca modifica, trunca ni borra nada.
-- **El `.gitignore`:** si ya existe, no se toca, y el informe dice `falta en .gitignore: <línea>` por cada línea que falta (`workspace.local.json` y `.claude/estado/`).
+  - un enlace que sale de la raíz;
+  - los nombres reservados de Windows (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1-9` y `LPT1-9`, con o sin extensión, también como carpeta) y los caracteres `<>:"|?*` y de control.
+- **La aplicación** (`aplicar`) nunca escribe directo al destino (L5, T8):
+  - Escribe el contenido completo en un temporal hermano oculto y lo publica con `os.link(temporal, destino)`. Un enlace duro no reemplaza nada: un archivo existente, un symlink roto o una carpeta en el destino nunca se siguen ni se pisan, y quedan como «ya existía». En Windows, `open(…, "xb")` sí seguiría un symlink roto.
+  - Después borra siempre el temporal, así que una escritura que falla (por ejemplo, un disco lleno) no deja un archivo a medias.
+  - Antes de crear carpetas, de escribir y de publicar, vuelve a revisar que ningún ancestro sea un enlace que salga de la raíz, y que la raíz resuelva igual que al planificar.
+  - Nunca modifica, trunca ni borra nada.
+  - **Límite:** en FAT o exFAT, sin enlaces duros, sale con 2 sin escribir nada, en lugar de degradar a una escritura insegura.
+- **El `.gitignore`** nunca se modifica.
+  - Se lee tolerando el BOM. Una línea cuenta como presente si coincide, o si la cubre un patrón de carpeta (`.claude/` cubre `.claude/estado/`).
+  - El informe dice `falta en .gitignore: <línea>` por cada línea que falta.
+  - Si no se puede leer (por ejemplo, porque es una carpeta), el informe lo dice y lista qué revisar a mano.
 - **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo]`.
   - `--ensayo` muestra el plan (`crearía …` y `ya existe …`) sin escribir nada.
   - Sale con 0 aunque haya archivos que ya existían, y con 2 ante una spec, una config o un plan inválidos, un error de aplicación (con el informe parcial de lo creado) o un error interno.
-- **Generadores:** B1 registra el de config, que escribe `workspace.config.json`, `workspace.local.json` y `.gitignore` en UTF-8, LF y sin BOM. B2 a B6 suman los suyos.
+- **Generadores.** Cada uno es un módulo con `CLAVES`, un `validar(spec)` opcional y `generar(spec)`, y B8 lo registra con `registrar_generador`.
+  - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM.
+  - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
+    - `writer-<capa>`, con `plantilla_writer.generar`, cuya salida no cambió;
+    - `revisor-<capa>`, desde `plantillas/revisor.md`, con el mismo mecanismo de versión, huella y bloques `<!-- instancia:... -->`, que ahora es `plantilla_writer.armar` y recibe la plantilla. El revisor es de solo lectura y reporta con severidad y `ruta:línea`;
+    - `capa-<capa>`, con `CENTINELA` y el bloque no-negociables, sin `paths:` ni `disable-model-invocation`.
+
+    Además genera, una sola vez, `criterios`: el Paso 0, el alcance mínimo, la evidencia y el contrato de reporte. Lo generado pasa los ítems `writer-<capa>` y `agentes-skills` del doctor.
+  - **Reglas vacías** (`bootstrap_reglas.py`, principio 2).
+    - Genera la matriz, solo con el encabezado de `matriz.ENCABEZADO`, y `evidencia.md`.
+    - Por cada capa, un stub `verificar_<capa>.py` (`REGLAS = ()`, y `verificar(ctx)` devuelve `[]`) y su suite, que cumple el contrato P1 y pasa `reglas.py --test <capa>`.
+    - `validar` exige el `rule_prefix` de cada capa.
+  - **Textos** (`bootstrap_textos.py`, clave `proyecto.nombre`):
+    - un `CLAUDE.md` liviano (116 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets y las skills del plugin;
+    - la plantilla del ticket en `tickets/_plantilla/CLAUDE.md`, con los dos relojes (Estado y Conocimiento), alcance y no-goals, Paso 0, bitácora y candidatos a graduar. No lleva tracker.
 
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 
@@ -365,7 +392,16 @@ Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLIC
 
 ## 6. Fuera del plugin
 
-- **Capa 0, `/odd-ws:doctor`** (`plugin/scripts/doctor.py`): solo lee por defecto y arregla de a un ítem con `--arreglar <id>`. La v1 revisa los hooks y la lista negra del clon (cierra el riesgo B2b), Python por comportamiento y por latencia (S1.6), las credenciales de git, Claude Code ≥ 2.1.284, el marketplace, gentle-ai ≥ 4.2.0 con su RDD y su telemetría, engram ≥ 3.5.0 y `jq`. En una instancia suma `plugin-root`, un `writer-<capa>` por capa y los dos ítems de sus agentes (U9, L85), detallados abajo. Quedaron afuera: `diff.autoRefreshIndex`, que el motor fija por proceso y viaja con él; `core.longpaths`, sin incidente que lo justifique; y MCPs, secretos, proxy corporativo, perfil de modelos y exportación de memoria, que entran cuando un caso real los pida.
+- **Capa 0, `/odd-ws:doctor`** (`plugin/scripts/doctor.py`): solo lee por defecto y arregla de a un ítem con `--arreglar <id>`. La v1 revisa los hooks y la lista negra del clon (cierra el riesgo B2b), Python por comportamiento y por latencia (S1.6), las credenciales de git, Claude Code ≥ 2.1.284, el marketplace, gentle-ai ≥ 4.2.0 con su RDD y su telemetría, engram ≥ 3.5.0 y `jq`. En una instancia suma `plugin-root`, los tres ítems de la instancia (T8 B7), un `writer-<capa>` por capa y los dos ítems de sus agentes (U9, L85), detallados abajo. Quedaron afuera: `diff.autoRefreshIndex`, que el motor fija por proceso y viaja con él; `core.longpaths`, sin incidente que lo justifique; y MCPs, secretos, proxy corporativo, perfil de modelos y exportación de memoria, que entran cuando un caso real los pida.
+  - **Ítems de la instancia (T8 B7):**
+    - **`config`:** corre `config_loader.cargar(raiz)`. Si falla, es FALTA con el motivo, por ejemplo la ruta de un repo que falta en `workspace.local.json`, que antes dejaba los hooks mudos sin que el doctor lo viera.
+    - **`instancia-hooks`:** `core.hooksPath` apunta a `.githooks` y existe `.githooks/pre-commit`.
+      - Si no tiene valor, `--arreglar` lo configura.
+      - Si tiene otro valor, es FALTA sin arreglo.
+      - Si la raíz no es la raíz de un repo git, es NO APLICA.
+    - **`instancia-plugin`:** `.claude/settings.json` habilita `odd-ws@odd-workspace-template` en `enabledPlugins`.
+      - Si no, es AVISO, sin arreglo, porque `settings.json` es del usuario. Sale aunque el plugin esté habilitado a nivel de usuario.
+      - Un JSON roto es FALTA.
   - **`agentes-skills`:** cada skill que un agente de `.claude/agents/*.md` precarga con `skills:` (leído con `verificar_capa.skills_del_frontmatter`) existe en la instancia o en `~/.claude/skills/`, y Claude Code la precarga de verdad. Una que falta, o que lleva `paths:` (spike (e) del origen, con control) o `disable-model-invocation: true` (documentado), se saltea en silencio: FALTA. Si a `criterios` o a `capa-<capa>` les falta su línea suelta `CENTINELA <skill>`, es AVISO: el writer la vuelve a leer del disco y lo avisa en cada corrida. Las skills de un plugin (`plugin:skill`) no se verifican. Sin arreglo automático.
   - **`agentes-hooks`:** un agente que declara `hooks:` en el frontmatter es AVISO. En un agente de proyecto, Claude Code los saltea en silencio mientras la carpeta no aceptó el diálogo de confianza, y siempre en una sesión `-p` (documentado). Van en el `settings.json` de la instancia, filtrando por `agent_type`. Sin arreglo automático.
   - **No ve:** una skill cuyo `name` difiere de su carpeta (sale como faltante), la precedencia entre una skill del usuario y otra del proyecto con el mismo nombre, y los agentes en subcarpetas de `.claude/agents/`. Del chequeo de salud del origen quedó solo esto: el resto era paridad de `settings.json` entre carpetas de ticket y cableado de hooks, que el plugin resuelve con su `hooks.json`.
