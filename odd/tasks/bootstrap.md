@@ -49,7 +49,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 | B6 | Textos: la plantilla de `CLAUDE.md` (menos de 200 líneas, solo metodología genérica) y la del ticket en `tickets/<T>/` | S1 | con B4 | ninguno | hecho (L9): `0a629a5` |
 | B7 | Huecos de lo entregado: ítems de instancia del doctor (rutas locales, `hooksPath`, `enabledPlugins`) y el aviso de config rota al arrancar | S7 | delegado (writer Sonnet, en paralelo, L4) | ninguno | hecho (L9): `3118192` |
 | B8 | La skill `/odd-ws:bootstrap` (entrevista, spec, script y doctor al final) y el cableado de los generadores de B2 a B6 en el registro de B1 | S3, S4 | el cableado, delegado al writer de B1 (por el respaldo de contexto); la skill y los docs, en línea (L17) | ninguno: no cambia el motor de aplicación (L17) | hecho (L18) |
-| B9 | Prueba de punta a punta: una instancia sintética en un temporal y completar la instancia de prueba | S1, S4 | inline | ninguno | pendiente |
+| B9 | Prueba de punta a punta: una instancia sintética en un temporal y completar la instancia de prueba | S1, S4 | la instancia de prueba en línea (L21); la prueba de punta a punta delegada al writer de B1, por el respaldo de contexto (L22) | ninguno; la corrección del motor que salió de acá, **1**, con su verificador (L19, L20, L23) | hecho (L23) |
 
 ## Log
 
@@ -353,3 +353,32 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
   - **Límite observado:** `matriz.py` valida las filas que tiene, no la cobertura del módulo. Una matriz vacía no choca con las 6 reglas que declara `verificar_sql.py`. Queda como observación, fuera del alcance de T8.
   - **El commit en la instancia:** el padre lo hizo por orden explícita del usuario, que es dueño de ese repo (`e799c27`). Lleva la config, lo generado y el `writer-sql`, que estaba sin commitear desde T7. `.atl/`, que genera gentle-ai, quedó afuera. Su pre-commit pasó.
   - **Observación:** el `core.autocrlf=true` del sistema convierte a CRLF lo generado al hacer checkout, y la instancia no tiene un `.gitattributes` como el de la plantilla (`* text=auto eol=lf`). El impacto es bajo: el índice guarda LF, `plantilla_writer` normaliza `\r\n` y el `sh` de Git for Windows corre un script con CRLF (probado). Un `.gitattributes` generado queda como sugerencia.
+- **L22 (2026-11-03): B9, la prueba de punta a punta (el writer de B1).**
+  - **`bootstrap_e2e.tests.py`:** 10 pruebas, por subproceso, con la config de git aislada en cada caja. Tarda unos 10 s.
+    - **Instancia nueva:**
+      - la CLI crea los 15 archivos, hace `git init` y configura el hooksPath;
+      - el doctor da OK en `plugin-root`, `config`, `instancia-hooks`, `instancia-plugin`, `writer-capa-a`, `agentes-skills` y `agentes-hooks`. Se lo llama por su API, en un subproceso y sin los ítems de la máquina;
+      - el pre-commit generado sale con 0 y muestra `suites: 1, todas en verde`;
+      - el primer commit corre el pre-commit, y uno que falla frena el commit.
+    - **Segunda corrida:** todo «ya existía» y el árbol queda igual byte a byte.
+    - **Completar a mano:** una config con BOM, CRLF e indentación de 4 queda intacta, y el doctor da OK.
+    - **Anterior a T8:** sin `rule_prefix` sale con 2 y no escribe nada. Con el prefijo agregado a mano, se completa.
+  - **Mutantes:** 12 de 12 muertos. Entre ellos: sin `registrar_estandar`, el pre-commit roto, pisar lo existente, sin el `validar` de reglas, sin el hooksPath o con otro, `settings.json` sin el plugin, sin `plugin_root`, sin `git init`, sin generadores y reescribir la config.
+  - **Defectos del motor:** ninguno.
+  - **Suites:** `bootstrap_cli` 14/14 y `doctor` 76/76.
+  - **Desvío:** si no encuentra `sh`, la prueba del pre-commit se omite con un aviso. En esta máquina corrió.
+- **L23 (2026-11-03): el verificador independiente sobre `a9fe52e`, y el cierre de B9 y de la T8.**
+  - **Sin bloqueantes.** S4 queda más fuerte y S8 está ok.
+    - Reprodujo L19 en la base. En el candidato, la spec distinta sale con 2 sin escribir nada, también con `--ensayo`.
+    - Completar con la config igual sigue andando, en dos corridas seguidas.
+    - Las siete suites, en verde.
+    - El diferencial cubre 52 escenarios por copia, y solo cambian los de config o local distintos.
+    - Mutantes: 11 de 12 muertos.
+    - La config real quedó igual antes y después.
+  - **Advertencias bajas, que quedan como sugerencias sin cambio en la T8:**
+    - **A-1:** la ruta del mensaje mezcla separadores en Windows (`f"{raiz}/…"`). `Path(raiz) / NOMBRE` lo unificaría.
+    - **A-2:** el mensaje no dice qué difiere. Además, con un local sin la ruta del repo (el hueco de S7), la falta concreta recién aparece cuando el local se copia tal cual.
+    - **A-3:** la comparación es literal a propósito. Una ruta con `\` contra una con `/`, o NFC contra NFD, se rechazan. Por el camino de la skill, que copia tal cual, no se alcanza.
+    - **A-4:** queda vivo el mutante K12 (también ignorar `plugin_root` en la config), que solo se distingue con una entrada fuera de dominio.
+  - **B9 queda cerrado y, con él, la T8:** B1 a B9 están hechos.
+  - **Pendiente del usuario:** el push de `feat/bootstrap` y el fast-forward de `main`. Los dos esperan su autorización.
