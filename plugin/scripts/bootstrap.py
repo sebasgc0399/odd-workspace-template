@@ -150,6 +150,33 @@ def _validar_local(local):
             raise SpecInvalida(f"local.repos.{clave}.path debe ser una ruta absoluta, no {ruta!r}")
 
 
+def _canonico(valor):
+    return json.dumps(valor, sort_keys=True, ensure_ascii=False)
+
+
+def _objeto_existente(ruta):
+    try:
+        datos = json.loads(Path(ruta).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    return datos if isinstance(datos, dict) else None
+
+
+def _coincidir_con_lo_existente(spec, raiz):
+    if raiz is None:
+        return
+    config = _objeto_existente(Path(raiz) / config_loader.NOMBRE)
+    if config is not None and _canonico(config) != _canonico(spec["config"]):
+        raise SpecInvalida(
+            f"la config de la spec no es la de {raiz}/{config_loader.NOMBRE}, que ya existe: el bootstrap no la reescribe, "
+            "así que la spec tiene que traerla tal cual (o cambiala a mano antes)")
+    local = _objeto_existente(Path(raiz) / config_loader.NOMBRE_LOCAL)
+    if local is not None and _canonico({k: v for k, v in local.items() if k != "plugin_root"}) != _canonico(spec.get("local", {})):
+        raise SpecInvalida(
+            f"el local de la spec no es el de {raiz}/{config_loader.NOMBRE_LOCAL} (sin plugin_root), que ya existe: "
+            "el bootstrap no lo reescribe, así que la spec tiene que traerlo tal cual")
+
+
 def validar_spec(spec, raiz=None):
     if not isinstance(spec, dict):
         raise SpecInvalida("la spec debe ser un objeto JSON")
@@ -168,6 +195,7 @@ def validar_spec(spec, raiz=None):
     if "plugin_root" in local:
         raise SpecInvalida("local.plugin_root no va en la spec: lo anota el doctor")
     _validar_local(local)
+    _coincidir_con_lo_existente(spec, raiz)
     for generador in GENERADORES:
         if generador.validar is not None:
             generador.validar(spec)

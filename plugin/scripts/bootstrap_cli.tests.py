@@ -168,6 +168,65 @@ def test_una_capa_sin_rule_prefix_sale_dos_con_el_mensaje_de_las_reglas():
         assert not e.raiz.exists()
 
 
+def instancia_a_medias(e, spec_en_disco):
+    raiz = e.crear_raiz()
+    (raiz / "workspace.config.json").write_bytes((json.dumps(spec_en_disco["config"], indent=2) + "\n").encode("utf-8"))
+    (raiz / "workspace.local.json").write_bytes((json.dumps(spec_en_disco["local"], indent=2) + "\n").encode("utf-8"))
+    return raiz
+
+
+def mensaje_de_config_distinta(raiz):
+    return (
+        f"error: la config de la spec no es la de {raiz}/workspace.config.json, que ya existe: el bootstrap no la reescribe, "
+        "así que la spec tiene que traerla tal cual (o cambiala a mano antes)\n"
+    )
+
+
+def test_un_rule_prefix_que_solo_trae_la_spec_se_rechaza_en_vez_de_ignorarse():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        en_disco = spec_completa(e)
+        del en_disco["config"]["layers"]["capa-a"]["rule_prefix"]
+        raiz = instancia_a_medias(e, en_disco)
+        spec = spec_completa(e)
+        e.archivo_spec(spec)
+        antes = arbol(e.base)
+        for extra in ([], ["--ensayo"]):
+            codigo, salida, errores = cli(e, spec, raiz, *extra)
+            assert codigo == 2 and salida == "", (codigo, salida, errores)
+            assert errores == mensaje_de_config_distinta(raiz), errores
+        assert arbol(e.base) == antes
+
+
+def test_la_comparacion_con_lo_existente_va_antes_de_los_validar_de_los_generadores():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        raiz = instancia_a_medias(e, spec_completa(e))
+        sin_prefijo = spec_completa(e)
+        del sin_prefijo["config"]["layers"]["capa-a"]["rule_prefix"]
+        codigo, salida, errores = cli(e, sin_prefijo, raiz)
+        assert codigo == 2 and errores == mensaje_de_config_distinta(raiz), errores
+        sin_proyecto = spec_completa(e)
+        del sin_proyecto["proyecto"]
+        sin_proyecto["config"]["nota"] = 1
+        codigo, salida, errores = cli(e, sin_proyecto, raiz)
+        assert codigo == 2 and errores == mensaje_de_config_distinta(raiz), errores
+
+
+def test_una_instancia_con_la_config_igual_sigue_aceptandose_por_la_cli():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        raiz = instancia_a_medias(e, spec_completa(e))
+        codigo, salida, errores = cli(e, spec_completa(e), raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        assert "ya existía workspace.config.json" in lineas and "ya existía workspace.local.json" in lineas
+        assert "creado .claude/reglas/matriz.csv" in lineas
+
+
 def test_una_clave_que_nadie_registra_sigue_rechazandose():
     with Escenario() as e:
         spec = spec_completa(e)
