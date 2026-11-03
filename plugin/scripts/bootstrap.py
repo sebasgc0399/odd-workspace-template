@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 import re
@@ -24,6 +23,7 @@ RESERVADOS = frozenset(
     | {"com" + n for n in SUFIJOS_DE_PUERTO}
     | {"lpt" + n for n in SUFIJOS_DE_PUERTO}
 )
+INTENTOS_DE_TEMPORAL = 5
 SEPARADORES = re.compile(r"[\\/]+")
 
 Accion = namedtuple("Accion", "ruta contenido modo")
@@ -36,6 +36,12 @@ GENERADORES = []
 
 class Plan(list):
     raiz_real = None
+
+
+class Resultados(list):
+    def __init__(self, *argumentos):
+        super().__init__(*argumentos)
+        self.sobrantes = []
 
 
 class SpecInvalida(Exception):
@@ -200,8 +206,8 @@ def _dentro(ruta, carpeta):
         return False
 
 
-def _revisar_destino(raiz, ruta):
-    real = os.path.realpath(raiz)
+def _revisar_destino(raiz, ruta, real=None):
+    real = real or os.path.realpath(raiz)
     actual = raiz
     previas = []
     for segmento in ruta.split("/")[:-1]:
@@ -246,33 +252,55 @@ def planificar(spec, raiz):
     return plan
 
 
-def _publicar(raiz, accion):
+def _confirmar(raiz, ruta, referencia):
+    if os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(referencia):
+        raise ErrorDePlan(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan")
+    _revisar_destino(raiz, ruta, referencia)
+
+
+def _temporal_libre(destino):
+    for _ in range(INTENTOS_DE_TEMPORAL):
+        candidato = destino.parent / f".{destino.name}.{uuid.uuid4().hex}.tmp"
+        if not os.path.lexists(candidato):
+            return candidato
+    raise OSError(f"no se encontró un nombre libre para el temporal de {destino.name}")
+
+
+def _publicar(raiz, accion, raiz_real=None, sobrantes=None):
+    referencia = raiz_real or os.path.realpath(raiz)
     destino = raiz / accion.ruta
-    _revisar_destino(raiz, accion.ruta)
+    _confirmar(raiz, accion.ruta, referencia)
     os.makedirs(destino.parent, exist_ok=True)
-    _revisar_destino(raiz, accion.ruta)
-    temporal = destino.parent / f".{destino.name}.{uuid.uuid4().hex}.tmp"
+    _confirmar(raiz, accion.ruta, referencia)
+    temporal = _temporal_libre(destino)
     archivo = open(temporal, "xb")
     try:
         with archivo:
             archivo.write(accion.contenido)
-        _revisar_destino(raiz, accion.ruta)
+        _confirmar(raiz, accion.ruta, referencia)
         try:
             os.link(temporal, destino)
         except FileExistsError:
             return YA_EXISTIA
         return CREADO
     finally:
-        with contextlib.suppress(OSError):
+        try:
             os.unlink(temporal)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            if sobrantes is not None:
+                sobrantes.append((temporal.relative_to(raiz).as_posix(), accion.ruta))
 
 
 def aplicar(plan, raiz):
     raiz = Path(raiz)
-    resultados = []
-    esperada = getattr(plan, "raiz_real", None)
-    if esperada is not None and os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(esperada):
+    resultados = Resultados()
+    declarada = getattr(plan, "raiz_real", None)
+    actual = os.path.realpath(raiz)
+    if declarada is not None and os.path.normcase(actual) != os.path.normcase(declarada):
         raise ErrorDeAplicacion(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan", resultados)
+    referencia = declarada or actual
     try:
         os.makedirs(raiz, exist_ok=True)
     except OSError as error:
@@ -282,7 +310,7 @@ def aplicar(plan, raiz):
             resultados.append(Resultado(accion.ruta, YA_EXISTIA))
             continue
         try:
-            estado = _publicar(raiz, accion)
+            estado = _publicar(raiz, accion, referencia, resultados.sobrantes)
         except ErrorDePlan as error:
             raise ErrorDeAplicacion(str(error), resultados)
         except OSError as error:
@@ -299,10 +327,22 @@ def _pedidas(contenido):
     return [l for l in contenido.decode("utf-8").splitlines() if l.strip()]
 
 
+def _cubre(existentes, pedida):
+    nombre = _normal(pedida)
+    es_carpeta = pedida.rstrip().endswith("/")
+    for linea in existentes:
+        patron = _normal(linea)
+        if not patron:
+            continue
+        solo_carpeta = linea.rstrip().endswith("/")
+        if nombre.startswith(patron + "/") or (nombre == patron and (es_carpeta or not solo_carpeta)):
+            return True
+    return False
+
+
 def _lineas_que_faltan(pedidas, destino):
     existentes = destino.read_text(encoding="utf-8-sig", errors="replace").splitlines()
-    presentes = {_normal(l) for l in existentes if _normal(l)}
-    return [l for l in pedidas if not any(_normal(l) == p or _normal(l).startswith(p + "/") for p in presentes)]
+    return [l for l in pedidas if not _cubre(existentes, l)]
 
 
 def _motivo(error, destino):
@@ -330,6 +370,8 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
                 continue
             for linea in faltan:
                 lineas.append(f"falta en {convencion.GITIGNORE}: {linea}")
+    for temporal, destino in getattr(resultados, "sobrantes", ()):
+        lineas.append(f"no se pudo borrar {temporal}: borralo a mano (es una copia de {destino})")
     if con_resumen:
         nuevos = sum(1 for _, existe in hechos if not existe)
         previos = len(hechos) - nuevos
@@ -401,7 +443,7 @@ def principal(argv):
     except ErrorDePlan as error:
         return _error(f"el plan no es válido: {error}")
     except ErrorDeAplicacion as error:
-        if error.resultados:
+        if error.resultados or getattr(error.resultados, "sobrantes", ()):
             print("\n".join(informe(plan, error.resultados, raiz, False, con_resumen=False)))
         return _error(str(error))
     except Exception as error:

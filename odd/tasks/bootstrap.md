@@ -41,7 +41,7 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
 
 | ID | Unidad | S# | Ruta | Riesgo | Estado |
 |---|---|---|---|---|---|
-| B1 | Formato de la spec (JSON) y motor de generación (plan, aplicación sin pisar, informe, `--ensayo` y registro de generadores), más el núcleo de config: `workspace.config.json`, `workspace.local.json` y `.gitignore`, validados con `config_loader.cargar` sobre una copia en un temporal | S3, S4 | delegado (writer Sonnet, respaldo de contexto del padre, L2) | **1** (la garantía de no pisar archivos del usuario vive acá) → commit propio y verificador independiente | hecho (L3): `bbd2164`, sin bloqueantes (L5); correcciones W1–W9 en `10a328a` (L8), con la revisión limitada hecha (L10) y una última tanda chica pendiente |
+| B1 | Formato de la spec (JSON) y motor de generación (plan, aplicación sin pisar, informe, `--ensayo` y registro de generadores), más el núcleo de config: `workspace.config.json`, `workspace.local.json` y `.gitignore`, validados con `config_loader.cargar` sobre una copia en un temporal | S3, S4 | delegado (writer Sonnet, respaldo de contexto del padre, L2) | **1** (la garantía de no pisar archivos del usuario vive acá) → commit propio y verificador independiente | hecho (L3): `bbd2164`, sin bloqueantes (L5); correcciones W1–W9 en `10a328a` (L8), con la revisión limitada hecha (L10) y la última tanda (L11). **Cerrado** |
 | B2 | Generador de plantillas genérico (bloques de instancia y huella, a partir de `plantilla_writer`), y las plantillas de `criterios` y `capa-<capa>`: con CENTINELA y el bloque no-negociables, sin `paths:` ni `disable-model-invocation` | S1, S4 | delegado (writer Sonnet, en paralelo con B4/B6 y B7, L4) | ninguno | hecho (L9): `d4c15f9` |
 | B3 | Plantilla de `revisor-<capa>` con el generador de B2 | S1 | con B2 | ninguno | hecho (L9): `d4c15f9` |
 | B4 | Reglas vacías: `matriz.csv` con el encabezado, `evidencia.md`, el stub `verificar_<capa>.py` con su suite y el `rule_prefix` | S1, S5 | delegado (writer Sonnet, con B6, en paralelo, L4) | ninguno | hecho (L9): `0a629a5` |
@@ -181,3 +181,13 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
   - **Decisión del padre:** una última tanda, chica y sin otra revisión, porque son advertencias.
     - Se corrigen R1 (comparar la raíz real antes de cada `link`), N1 (avisar en el informe), N2 (un temporal nunca reutiliza un nombre que ya exista, ni siquiera como enlace) y N3.
     - R2 queda documentada en «No ve».
+- **L11 (2026-11-03): la última tanda de B1, hecha por el mismo writer.**
+  - **RED:** una prueba por resto. **GREEN:** 87/87. El chequeo puntual del padre, con la config de git aislada, da 87, 26, 22 y 19 en las cuatro suites de `bootstrap`.
+  - **Los arreglos:**
+    - **R1:** `plan.raiz_real` se compara antes de cada `link`.
+    - **N1:** el informe avisa `no se pudo borrar <temporal>: borralo a mano (es una copia de <destino>)`, con salida 0.
+    - **N2:** el temporal nunca reutiliza un nombre que ya exista; prueba hasta 5 y, si ninguno está libre, sale con 2.
+    - **N3:** una barra final solo cubre carpetas, verificado contra `git check-ignore` con la config aislada.
+  - **Mutaciones:** 30, con 27 muertas. Las 3 vivas son el chequeo de raíz repetido en tres puntos, que es redundante.
+  - **Verificación:** el `~/.gitconfig` sigue igual (md5).
+  - **B1 queda cerrado.**
