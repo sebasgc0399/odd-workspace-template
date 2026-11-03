@@ -320,3 +320,36 @@ Objetivo: que una instancia del plugin `odd-ws` se genere con `/odd-ws:bootstrap
     - actualizó la sección «Bootstrap» de `diseno.md` y el README;
     - revisó el diff del cableado: son las 14 líneas pedidas, sin espacios perdidos;
     - verificó la config real antes y después, sin cambios.
+  - **Commit:** `a0e03ca`.
+- **L19 (2026-11-03): B9, el ensayo sobre la instancia de prueba (sin escribir nada).**
+  - La spec sale de su config y su local tal cual, sin `plugin_root`. El ensayo sale con 2: `layers.sql.rule_prefix falta`. La instancia es de antes de T8, y su capa `sql` no tiene `rule_prefix`.
+  - **Hallazgo en el motor (B1):**
+    - Con el `rule_prefix` puesto solo en la spec, el ensayo sale con 0. Los generadores trabajan con la config de la spec, mientras la del disco queda como «ya existe» y sin el prefijo.
+    - O sea: una spec cuya `config` difiere de la `workspace.config.json` existente se acepta y se ignora en silencio. Además, `reglas.validar` valida la config equivocada.
+    - **Decisión técnica del padre:** si `workspace.config.json` existe, la `config` de la spec tiene que ser igual a ella, comparadas como JSON. Si no, la spec es inválida y el mensaje dice que el bootstrap no reescribe la config. Es un cambio del motor de B1, así que es **riesgo 1**: commit propio y verificador.
+  - **Lo demás del ensayo, con el prefijo:**
+    - crearía 8 archivos: el revisor, `capa-sql`, `criterios`, la matriz, `evidencia.md`, `CLAUDE.md`, la plantilla del ticket y `settings.json`;
+    - quedan 7 que ya existen, entre ellos el `writer-sql` y el `verificar_sql.py`, que trae 6 reglas;
+    - git: `no hace falta` y `ya estaba`.
+  - **A revisar en la prueba de punta a punta:** una matriz que se crea solo con el encabezado, junto a un `verificar_<capa>.py` existente que declara reglas.
+- **L20 (2026-11-03): la corrección de L19, hecha por el writer de B1.**
+  - **La regla:** `_coincidir_con_lo_existente` corre en `validar_spec`, después de `_validar_local` y antes de los `validar` de los generadores. Compara por serialización canónica, y `local` va sin el `plugin_root` del disco. Un archivo ilegible, o que no es un objeto, sigue el camino de `ConfigRota`, con su mensaje intacto.
+  - **ROJO:** 7 pruebas que salían con 0. **VERDE:** `bootstrap` 146/146, `bootstrap_cli` 14/14, `reglas` 22/22, `textos` 19/19, `agentes` 26/26, `instalacion` 11/11 y `doctor` 76/76.
+  - **Diferencial contra `a0e03ca`:** 11 escenarios. Solo cambian los dos nuevos (la config y el local distintos pasan de 0 a 2).
+  - **Mutantes:** 17 de 17 muertos. Dos sobrevivieron al principio y murieron con pruebas nuevas: quitar el BOM y el orden respecto de `_validar_local`.
+  - **Desvíos:**
+    - una spec sin `local`, contra un disco que tiene repos, se rechaza;
+    - tres pruebas viejas pasan al escenario nuevo.
+  - **Riesgo 1:** commit propio y verificador.
+- **L21 (2026-11-03): B9, la instancia de prueba completada.**
+  - El usuario eligió la recomendación del padre: agregar a mano `"rule_prefix": "SQL"` a la capa `sql` de su `workspace.config.json`. Es el camino de toda instancia anterior a T8, y sus reglas ya se llaman `SQL-NN`.
+  - **Ensayo y aplicación** con la spec armada desde su config y su local, sin `plugin_root`:
+    - 8 creados: el revisor, `capa-sql`, `criterios`, la matriz, `evidencia.md`, `CLAUDE.md`, la plantilla del ticket y `settings.json`;
+    - 7 que ya existían;
+    - git `no hace falta` y `ya estaba`;
+    - salida 0.
+  - **El doctor de la instancia:** 0 FALTA. Dan OK `plugin-root`, `config`, `instancia-hooks`, `instancia-plugin`, `writer-sql`, `agentes-skills` y `agentes-hooks`. Hay 1 AVISO de la máquina: el alias de python de WindowsApps.
+  - **Su pre-commit** (`reglas.py --test`): 28/28 y salida 0. `matriz.py --destinos` y `--severidad`: 0 filas y 0 fallas.
+  - **Límite observado:** `matriz.py` valida las filas que tiene, no la cobertura del módulo. Una matriz vacía no choca con las 6 reglas que declara `verificar_sql.py`. Queda como observación, fuera del alcance de T8.
+  - **El commit en la instancia:** el padre lo hizo por orden explícita del usuario, que es dueño de ese repo (`e799c27`). Lleva la config, lo generado y el `writer-sql`, que estaba sin commitear desde T7. `.atl/`, que genera gentle-ai, quedó afuera. Su pre-commit pasó.
+  - **Observación:** el `core.autocrlf=true` del sistema convierte a CRLF lo generado al hacer checkout, y la instancia no tiene un `.gitattributes` como el de la plantilla (`* text=auto eol=lf`). El impacto es bajo: el índice guarda LF, `plantilla_writer` normaliza `\r\n` y el `sh` de Git for Windows corre un script con CRLF (probado). Un `.gitattributes` generado queda como sugerencia.

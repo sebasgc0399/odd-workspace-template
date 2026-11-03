@@ -330,6 +330,10 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Cada generador registra las claves de nivel superior que suma. Una clave desconocida, otra versión o `local.plugin_root` (que anota el doctor) rechazan la spec.
 - **Antes de escribir**, valida en una copia dentro de un temporal, con `config_loader.cargar` y `config_loader.conocimiento`, **la combinación final**: lo que ya está en la instancia, más lo que se crearía. Si da `ConfigRota`, no se escribe nada, ni siquiera la raíz.
   - En la spec, `NaN` e `Infinity` se rechazan, y las rutas de los repos en `local` tienen que ser absolutas.
+  - **Si `workspace.config.json` ya existe, la `config` de la spec tiene que ser esa, tal cual.** Lo mismo pasa con `local` y `workspace.local.json`, sin contar el `plugin_root` del disco. Si no coinciden, la spec es inválida (`la config de la spec no es la de <raíz>/workspace.config.json, que ya existe: …`).
+    - Se compara la serialización canónica (`sort_keys`): el orden, el formato y el BOM no cuentan, pero `true` no es `1` ni `1` es `1.0`.
+    - Corre antes de los `validar` de los generadores. Sin esto, los generadores trabajaban con una config que no es la de la instancia (L19).
+    - Un archivo existente ilegible sigue el camino de la validación de la combinación.
 - **La raíz:** sin `--raiz`, es la instancia que haya arriba del cwd (`config_loader.encontrar_raiz`) o, si no hay ninguna, el cwd. Así nunca se crea una instancia anidada.
   - Un `--raiz` dentro de otra instancia sale con 2.
   - También sale con 2 un `--raiz` con un componente que termina en punto o espacio, que Windows recortaría.

@@ -206,11 +206,11 @@ def test_config_invalida_no_crea_ni_la_raiz():
 def test_config_invalida_deja_intacta_una_instancia_con_contenido():
     with Escenario() as e:
         raiz = e.crear_raiz()
-        (raiz / "propio.txt").write_bytes(b"mio\r\n")
-        (raiz / "workspace.config.json").write_bytes(b"\xef\xbb\xbf{}\r\n")
-        antes = arbol(raiz)
         mala = e.spec()
         mala["config"]["layers"] = []
+        (raiz / "propio.txt").write_bytes(b"mio\r\n")
+        (raiz / "workspace.config.json").write_bytes(b"\xef\xbb\xbf" + json.dumps(mala["config"]).encode("utf-8") + b"\r\n")
+        antes = arbol(raiz)
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec(mala)), "--raiz", str(raiz)])
         assert codigo == 2 and "layers" in errores and salida == ""
         assert arbol(raiz) == antes
@@ -1058,14 +1058,14 @@ def combinacion_rechazada(e, preparar, fragmento, extra=()):
 def test_config_existente_incompatible_con_la_spec_sale_dos_sin_escribir():
     otra = {"schema_version": 1, "repos": {"otro": {}}, "layers": {"capa-b": {"extensions": [".b"], "repos": ["otro"]}}}
     with Escenario() as e:
-        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").write_bytes(json.dumps(otra).encode("utf-8")), "falta la ruta del repo 'otro'")
+        rechazo_por_distinta(e, e.spec(), {"workspace.config.json": json.dumps(otra).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA)
     with Escenario() as e:
-        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.config.json").write_bytes(json.dumps(otra).encode("utf-8")), "falta la ruta del repo 'otro'", ["--ensayo"])
+        rechazo_por_distinta(e, e.spec(), {"workspace.config.json": json.dumps(otra).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA, ["--ensayo"])
 
 
 def test_local_existente_sin_la_ruta_de_la_spec_sale_dos_sin_escribir():
     with Escenario() as e:
-        combinacion_rechazada(e, lambda raiz: (raiz / "workspace.local.json").write_bytes(b"{}"), "falta la ruta del repo 'repo-a'")
+        rechazo_por_distinta(e, e.spec(), {"workspace.local.json": b"{}"}, MENSAJE_LOCAL_DISTINTO)
 
 
 def test_config_existente_ilegible_sale_dos_sin_escribir():
@@ -2178,6 +2178,206 @@ def test_una_raiz_que_es_un_enlace_a_un_repo_se_configura_en_el_repo_real():
         assert codigo == 0 and errores == "", (codigo, errores)
         assert "git init: no hace falta, la raíz ya es un repo git" in salida.splitlines(), salida
         assert esta_configurado(real)
+
+
+MENSAJE_CONFIG_DISTINTA = (
+    "la config de la spec no es la de {}/workspace.config.json, que ya existe: el bootstrap no la reescribe, "
+    "así que la spec tiene que traerla tal cual (o cambiala a mano antes)"
+)
+MENSAJE_LOCAL_DISTINTO = (
+    "el local de la spec no es el de {}/workspace.local.json (sin plugin_root), que ya existe: el bootstrap no lo reescribe, "
+    "así que la spec tiene que traerlo tal cual"
+)
+
+
+def con_nota(e, valor):
+    spec = e.spec()
+    spec["config"]["nota"] = valor
+    return spec
+
+
+def rechazo_por_distinta(e, spec, previos, mensaje, extra=()):
+    raiz = e.crear_raiz()
+    for nombre, datos in previos.items():
+        (raiz / nombre).write_bytes(datos)
+    ruta = e.archivo_spec(spec)
+    antes = foto(e.base)
+    codigo, salida, errores = correr(["--spec", str(ruta), "--raiz", str(raiz), *extra])
+    assert codigo == 2 and salida == "", (codigo, salida, errores)
+    assert errores == "error: " + mensaje.format(raiz) + "\n", errores
+    assert foto(e.base) == antes
+
+
+def test_una_config_distinta_por_una_clave_se_rechaza_sin_escribir_nada():
+    with Escenario() as e:
+        en_disco = e.spec()["config"]
+        sobra_en_la_spec = e.spec()
+        sobra_en_la_spec["config"]["defaults"] = {"mold_source": "repo"}
+        rechazo_por_distinta(e, sobra_en_la_spec, {"workspace.config.json": json.dumps(en_disco).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA)
+    with Escenario() as e:
+        con_de_mas = dict(e.spec()["config"], defaults={"mold_source": "repo"})
+        rechazo_por_distinta(e, e.spec(), {"workspace.config.json": json.dumps(con_de_mas).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA, ["--ensayo"])
+
+
+def test_una_config_distinta_por_un_valor_se_rechaza_sin_escribir_nada():
+    with Escenario() as e:
+        en_disco = e.spec()["config"]
+        en_disco["layers"]["capa-ñ"]["extensions"] = [".otra"]
+        rechazo_por_distinta(e, e.spec(), {"workspace.config.json": json.dumps(en_disco).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA)
+
+
+def test_lo_distinto_se_rechaza_tambien_cuando_el_archivo_trae_bom():
+    with Escenario() as e:
+        en_disco = e.spec()["config"]
+        en_disco["layers"]["capa-ñ"]["extensions"] = [".otra"]
+        rechazo_por_distinta(e, e.spec(), {"workspace.config.json": b"\xef\xbb\xbf" + json.dumps(en_disco).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA)
+    with Escenario() as e:
+        en_disco = dict(e.spec()["local"], nota="x")
+        rechazo_por_distinta(e, e.spec(), {"workspace.local.json": b"\xef\xbb\xbf" + json.dumps(en_disco).encode("utf-8")}, MENSAJE_LOCAL_DISTINTO)
+
+
+def test_una_ruta_de_repo_relativa_en_la_spec_se_rechaza_antes_de_compararla_con_lo_existente():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_bytes(json.dumps(dict(e.spec()["config"], nota="otra")).encode("utf-8"))
+        spec = e.spec()
+        spec["local"]["repos"]["repo-a"]["path"] = "relativa/al/cwd"
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 2 and salida == "", (codigo, errores)
+        assert errores == "error: local.repos.repo-a.path debe ser una ruta absoluta, no 'relativa/al/cwd'\n", errores
+
+
+def test_una_config_distinta_por_el_tipo_se_rechaza_aunque_python_las_iguale():
+    casos = [(1, True), (True, 1), (0, False), (False, 0), (1, 1.0), (1.0, 1), ([1], [True]), ({"a": 0}, {"a": False})]
+    for en_disco, en_la_spec in casos:
+        with Escenario() as e:
+            disco = e.spec()
+            disco["config"]["nota"] = en_disco
+            assert (en_disco == en_la_spec) is True
+            rechazo_por_distinta(e, con_nota(e, en_la_spec), {"workspace.config.json": json.dumps(disco["config"]).encode("utf-8")}, MENSAJE_CONFIG_DISTINTA)
+
+
+def test_una_config_igual_con_otro_orden_de_claves_otro_formato_y_bom_se_acepta():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        config = e.spec()["config"]
+        al_reves = json.dumps(dict(reversed(list(config.items()))), indent=4, sort_keys=False, ensure_ascii=True)
+        datos = b"\xef\xbb\xbf" + al_reves.replace("\n", "\r\n").encode("utf-8")
+        (raiz / "workspace.config.json").write_bytes(datos)
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert "ya existía workspace.config.json" in salida.splitlines()
+        assert (raiz / "workspace.config.json").read_bytes() == datos
+
+
+def test_una_config_igual_con_claves_anidadas_en_otro_orden_se_acepta():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        spec = e.spec()
+        spec["config"]["nota"] = {"b": [1, {"y": 2, "x": 1}], "a": None}
+        disco = {"nota": {"a": None, "b": [1, {"x": 1, "y": 2}]}, **{k: v for k, v in spec["config"].items() if k != "nota"}}
+        (raiz / "workspace.config.json").write_bytes(json.dumps(disco).encode("utf-8"))
+        codigo, _, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", errores
+
+
+def test_un_local_distinto_se_rechaza_sin_escribir_nada():
+    with Escenario() as e:
+        otro = e.base / "otro-repo"
+        otro.mkdir()
+        en_disco = {"repos": {"repo-a": {"path": str(otro)}}}
+        rechazo_por_distinta(e, e.spec(), {"workspace.local.json": json.dumps(en_disco).encode("utf-8")}, MENSAJE_LOCAL_DISTINTO)
+    with Escenario() as e:
+        en_disco = dict(e.spec()["local"], nota="x")
+        rechazo_por_distinta(e, e.spec(), {"workspace.local.json": json.dumps(en_disco).encode("utf-8")}, MENSAJE_LOCAL_DISTINTO, ["--ensayo"])
+    with Escenario() as e:
+        spec = e.spec()
+        del spec["local"]
+        en_disco = e.spec()["local"]
+        rechazo_por_distinta(e, spec, {"workspace.local.json": json.dumps(en_disco).encode("utf-8")}, MENSAJE_LOCAL_DISTINTO)
+
+
+def test_un_local_distinto_por_el_tipo_se_rechaza_aunque_python_lo_iguale():
+    for en_disco, en_la_spec in [(1, True), (True, 1), (0, False), (1, 1.0)]:
+        with Escenario() as e:
+            spec = e.spec()
+            spec["local"]["nota"] = en_la_spec
+            disco = dict(e.spec()["local"], nota=en_disco)
+            rechazo_por_distinta(e, spec, {"workspace.local.json": json.dumps(disco).encode("utf-8")}, MENSAJE_LOCAL_DISTINTO)
+
+
+def test_un_local_igual_sin_plugin_root_se_acepta_y_el_plugin_root_del_disco_no_cuenta():
+    for disco in (lambda local: local, lambda local: dict(local, plugin_root="C:/otro/plugin"), lambda local: {"plugin_root": "x", **local}):
+        with Escenario() as e:
+            raiz = e.crear_raiz()
+            datos = ("\n".join(json.dumps(disco(e.spec()["local"]), indent=2, sort_keys=True).splitlines()) + "\r\n").encode("utf-8")
+            (raiz / "workspace.local.json").write_bytes(datos)
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+            assert codigo == 0 and errores == "", (codigo, errores)
+            assert "ya existía workspace.local.json" in salida.splitlines()
+            assert (raiz / "workspace.local.json").read_bytes() == datos
+
+
+def test_un_local_en_disco_solo_con_plugin_root_iguala_a_una_spec_sin_local():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        spec = e.spec()
+        spec["config"]["repos"] = {}
+        spec["config"]["layers"] = {"capa-ñ": {"extensions": [".ext"]}}
+        del spec["local"]
+        (raiz / "workspace.local.json").write_bytes(json.dumps({"plugin_root": "x"}).encode("utf-8"))
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert "ya existía workspace.local.json" in salida.splitlines()
+
+
+def test_la_config_se_compara_aunque_el_local_no_exista_y_al_reves():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_bytes(json.dumps(e.spec()["config"]).encode("utf-8"))
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "creado workspace.local.json" in salida.splitlines(), (salida, errores)
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.local.json").write_bytes(json.dumps(e.spec()["local"]).encode("utf-8"))
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and "creado workspace.config.json" in salida.splitlines(), (salida, errores)
+
+
+def test_una_raiz_sin_config_ni_local_se_comporta_como_antes():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "propio.txt").write_bytes(b"mio")
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == ""
+        assert salida.splitlines()[:3] == ["creado workspace.config.json", "creado workspace.local.json", "creado .gitignore"]
+        assert salida.splitlines()[-1] == "resumen: 3 creados, 0 ya existían"
+
+
+def test_un_archivo_existente_que_no_se_puede_leer_como_json_mantiene_el_mensaje_de_antes():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_bytes(b"\xff\x00 no es json")
+        ruta = e.archivo_spec()
+        codigo, salida, errores = correr(["--spec", str(ruta), "--raiz", str(raiz)])
+        assert codigo == 2 and salida == ""
+        assert errores.startswith("error: la config no es válida (combinada con lo que ya existe en la instancia): workspace.config.json no se puede leer como JSON: "), errores
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.local.json").write_bytes(b"{no es json")
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 2 and salida == ""
+        assert errores.startswith("error: la config no es válida (combinada con lo que ya existe en la instancia): workspace.local.json no se puede leer como JSON: "), errores
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_bytes(b"[]")
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 2 and errores == "error: la config no es válida (combinada con lo que ya existe en la instancia): workspace.config.json debe ser un objeto JSON\n", errores
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").mkdir()
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
+        assert codigo == 2 and errores.startswith("error: la config no es válida: workspace.config.json ya existe en la instancia y no se puede leer: "), errores
 
 
 def test_si_git_desaparece_entre_la_consulta_y_la_escritura_se_informa_sin_romper():
