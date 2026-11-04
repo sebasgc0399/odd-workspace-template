@@ -97,7 +97,7 @@ Preguntale al usuario si el trabajo va en un **worktree** o en el **árbol princ
 - **Árbol principal** (cambia la rama del árbol del usuario, por eso se confirma):
 
   ```bash
-  git -C <repo> switch -c <rama> <base>
+  git -C <repo> switch --no-track -c <rama> <base>
   ```
 
 La ruta de `<repo>` sale de `workspace.local.json` (`repos.<repo>.path`). Proponé la rama (por ejemplo, `feat/<id>-<slug>`), y preguntá por la `<base>`: la rama de integración del repo. Si el `origin` puede estar atrasado, proponé el `git fetch` de ese repo, que corre el usuario porque habla con el remoto. Si la rama ya existe, el comando falla y no pisa nada: se elige otro nombre o se retoma esa rama.

@@ -432,7 +432,7 @@ Es el ritual de apertura de un ticket: que el trabajo arranque con el alcance en
 - **El ticket** se llena desde el pedido: Objetivo (con su `Fuente:`), criterios, alcance y no-goals. Cada «X o Y» del pedido queda como pregunta por fijar con el líder antes de codear, y nada se asume.
 - **Los docs de dominio** se mapean por el índice de `knowledge` (`docs` e `index`), sin leerlos todos, con la razón de cada uno.
 - **Los candidatos de los tickets hermanos** se buscan en sus secciones «Candidatos a graduar» y se listan en «Contexto técnico» con su ticket de origen. No se copian a la sección propia, porque siguen siendo del ticket que los anotó y `graduado` exige esa sección vacía.
-- **El worktree:** pregunta si va en un worktree o en el árbol principal y da el comando exacto (`git -C <repo> worktree add …` o `git switch -c …`). Los comandos en los repos del equipo los corre el usuario.
+- **El worktree:** pregunta si va en un worktree o en el árbol principal y da el comando exacto (`git -C <repo> worktree add --no-track …` o `git -C <repo> switch --no-track -c …`). Con `--no-track`, una base remota no queda como upstream de la rama nueva. Los comandos en los repos del equipo los corre el usuario.
 - **El Paso 0** (hermano vigente y consumidor de cada dato nuevo) se recuerda y queda escrito en el ticket antes de cualquier código; si todavía no se sabe, queda pendiente.
 - **Mostrar antes de escribir:** el contenido del ticket se muestra junto y se escribe solo con el sí. Cierra con los pasos que siguen: `/odd-ws:revisar` antes de cada commit y `/odd-ws:cerrar` al terminar.
 
