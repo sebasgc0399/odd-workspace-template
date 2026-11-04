@@ -63,7 +63,7 @@ def archivos_esperados():
         c.writer("capa-a"), c.revisor("capa-a"), c.skill("capa-a"), c.REVISOR_DISENO, c.CRITERIOS_SKILL,
         c.MATRIZ, c.EVIDENCIA, c.chequeo("capa-a"), c.prueba("capa-a"),
         c.INDICE, c.TICKET_PLANTILLA,
-        ".githooks/pre-commit", ".claude/settings.json",
+        ".githooks/pre-commit", ".claude/settings.json", c.TICKET_SETTINGS,
     ]
 
 

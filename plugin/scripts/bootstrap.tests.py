@@ -599,6 +599,83 @@ def test_un_enlace_que_sale_de_la_raiz_se_rechaza():
         assert list(fuera.iterdir()) == []
 
 
+def test_planificar_archivos_arma_el_plan_de_pares_sin_git_y_en_orden():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "d").mkdir()
+        (raiz / "d" / "b.bin").write_bytes(b"previo")
+        plan = b().planificar_archivos(raiz, [("d/a.txt", b"\x00\r\n\xff"), ("d/b.bin", b"nuevo"), ("d/sub/c.txt", "ñ\n")])
+        assert isinstance(plan, b().Plan)
+        assert [(a.ruta, a.contenido, a.modo, a.permisos) for a in plan] == [
+            ("d/a.txt", b"\x00\r\n\xff", "crear", None),
+            ("d/b.bin", b"nuevo", "ya_existe", None),
+            ("d/sub/c.txt", "ñ\n".encode("utf-8"), "crear", None),
+        ]
+        assert plan.raiz_real == os.path.realpath(raiz) and not plan.acciones_git and not plan.pasos_git
+        assert arbol(raiz) == {"d": None, "d/b.bin": b"previo"}
+
+
+def test_planificar_archivos_aplicado_escribe_los_bytes_y_no_pisa_lo_que_existe():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "d").mkdir()
+        (raiz / "d" / "b.bin").write_bytes(b"previo")
+        resultados = b().aplicar(b().planificar_archivos(raiz, [("d/a.txt", b"\x00\r\n\xff"), ("d/b.bin", b"nuevo")]), raiz)
+        assert [(r.ruta, r.estado) for r in resultados] == [("d/a.txt", "creado"), ("d/b.bin", "ya_existia")]
+        assert arbol(raiz) == {"d": None, "d/a.txt": b"\x00\r\n\xff", "d/b.bin": b"previo"}
+        assert b().informe(b().planificar_archivos(raiz, [("d/a.txt", b"x")]), None, raiz, True) == [
+            "ya existe d/a.txt", "ensayo: 0 se crearían, 1 ya existen, no se escribió nada"]
+
+
+def test_planificar_archivos_rechaza_lo_mismo_que_el_plan_de_los_generadores():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "archivo").write_bytes(b"x")
+        casos = [
+            ([("../fuera.txt", b"x")], "relativa a la raíz"),
+            ([("a\\b.txt", b"x")], "con /"),
+            ([("con/x.txt", b"x")], "reservado"),
+            ([("d/a.txt", b"x"), ("D/A.TXT", b"y")], "repetida"),
+            ([("d", b"x"), ("d/a.txt", b"y")], "lo usa como carpeta"),
+            ([("archivo/x.txt", b"x")], "no es una carpeta"),
+            ([("d/a.txt", 5)], "texto o bytes"),
+            ([("d/a.txt",)], "(ruta, contenido"),
+        ]
+        for pares, fragmento in casos:
+            try:
+                b().planificar_archivos(raiz, pares)
+            except b().ErrorDePlan as error:
+                assert fragmento in str(error), (pares, str(error))
+            else:
+                raise AssertionError(f"se aceptó {pares}")
+        assert arbol(raiz) == {"archivo": b"x"}
+        otra = e.base / "es-un-archivo"
+        otra.write_bytes(b"x")
+        try:
+            b().planificar_archivos(otra, [("d/a.txt", b"x")])
+        except b().ErrorDePlan as error:
+            assert "carpeta" in str(error)
+        else:
+            raise AssertionError("se aceptó una raíz que es un archivo")
+
+
+def test_planificar_archivos_rechaza_un_enlace_que_sale_de_la_raiz():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        fuera = e.base / "fuera"
+        fuera.mkdir()
+        if not crear_enlace(raiz / "salida", fuera):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        try:
+            b().planificar_archivos(raiz, [("salida/x.txt", b"x")])
+        except b().ErrorDePlan as error:
+            assert "salida" in str(error) and "sale de la raíz" in str(error)
+        else:
+            raise AssertionError("se aceptó una ruta que sale de la raíz")
+        assert list(fuera.iterdir()) == []
+
+
 def test_ensayo_no_escribe_nada():
     with Escenario() as e:
         raiz = e.crear_raiz()

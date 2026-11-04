@@ -107,6 +107,16 @@ def test_rutas_de_los_textos_del_bootstrap():
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
+def test_rutas_de_la_plantilla_del_ticket():
+    assert m().TICKET_PLANTILLA_DIR == "tickets/_plantilla"
+    assert m().TICKET_SETTINGS == "tickets/_plantilla/.claude/settings.json"
+    assert m().TICKET_PLANTILLA_DIR.startswith(m().TICKETS + "/")
+    assert m().TICKET_PLANTILLA == m().TICKET_PLANTILLA_DIR + "/CLAUDE.md"
+    assert m().TICKET_SETTINGS.startswith(m().TICKET_PLANTILLA_DIR + "/")
+    for ruta in (m().TICKET_PLANTILLA_DIR, m().TICKET_SETTINGS):
+        assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

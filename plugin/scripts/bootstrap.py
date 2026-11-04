@@ -294,10 +294,32 @@ def _revisar_choques(rutas):
                 raise ErrorDePlan(f"{rutas[padre][0]} es un archivo y {ruta} lo usa como carpeta (generadores {rutas[padre][1]} y {generador})")
 
 
-def planificar(spec, raiz):
+def _revisar_raiz(raiz):
     raiz = Path(raiz)
     if os.path.lexists(raiz) and not os.path.isdir(raiz):
         raise ErrorDePlan(f"la raíz {raiz} existe y no es una carpeta")
+    return raiz
+
+
+def _sumar_accion(raiz, valor, generador, vistas, acciones):
+    ruta, contenido, permisos = _accion(valor, generador)
+    clave = ruta.casefold()
+    if clave in vistas:
+        raise ErrorDePlan(f"la ruta {ruta} está repetida (generadores {vistas[clave][1]} y {generador})")
+    vistas[clave] = (ruta, generador)
+    _revisar_destino(raiz, ruta)
+    acciones.append((ruta, contenido, permisos))
+
+
+def _armar_plan(raiz, acciones, vistas):
+    _revisar_choques(vistas)
+    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR, permisos) for ruta, contenido, permisos in acciones)
+    plan.raiz_real = os.path.realpath(raiz)
+    return plan
+
+
+def planificar(spec, raiz):
+    raiz = _revisar_raiz(raiz)
     vistas = {}
     acciones = []
     acciones_git = []
@@ -308,19 +330,20 @@ def planificar(spec, raiz):
                     raise ErrorDePlan(f"la acción de git {valor.tipo} está repetida")
                 acciones_git.append(_paso_de_git(valor, generador.nombre))
                 continue
-            ruta, contenido, permisos = _accion(valor, generador.nombre)
-            clave = ruta.casefold()
-            if clave in vistas:
-                raise ErrorDePlan(f"la ruta {ruta} está repetida (generadores {vistas[clave][1]} y {generador.nombre})")
-            vistas[clave] = (ruta, generador.nombre)
-            _revisar_destino(raiz, ruta)
-            acciones.append((ruta, contenido, permisos))
-    _revisar_choques(vistas)
-    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR, permisos) for ruta, contenido, permisos in acciones)
-    plan.raiz_real = os.path.realpath(raiz)
+            _sumar_accion(raiz, valor, generador.nombre, vistas, acciones)
+    plan = _armar_plan(raiz, acciones, vistas)
     plan.acciones_git = acciones_git
     plan.pasos_git = _planificar_git(raiz, acciones_git)
     return plan
+
+
+def planificar_archivos(raiz, archivos, generador="archivos"):
+    raiz = _revisar_raiz(raiz)
+    vistas = {}
+    acciones = []
+    for valor in archivos:
+        _sumar_accion(raiz, valor, generador, vistas, acciones)
+    return _armar_plan(raiz, acciones, vistas)
 
 
 EstadoGit = namedtuple("EstadoGit", "disponible toplevel ilegible detalle")

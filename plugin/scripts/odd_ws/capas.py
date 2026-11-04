@@ -20,7 +20,9 @@ ESTADO = ".claude/estado"
 GITIGNORE = ".gitignore"
 TICKETS = "tickets"
 INDICE = "CLAUDE.md"
-TICKET_PLANTILLA = TICKETS + "/_plantilla/CLAUDE.md"
+TICKET_PLANTILLA_DIR = TICKETS + "/_plantilla"
+TICKET_PLANTILLA = TICKET_PLANTILLA_DIR + "/CLAUDE.md"
+TICKET_SETTINGS = TICKET_PLANTILLA_DIR + "/.claude/settings.json"
 
 
 def es_writer(nombre):

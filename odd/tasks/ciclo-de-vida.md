@@ -46,7 +46,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | S0 | S1 | Spike: ¿una sesión abierta dentro de un ticket carga el plugin de la raíz? | el usuario, a mano (2 minutos), con control positivo en la raíz | ninguno | hecho por la documentación (L8); la prueba en la máquina pasa a H1 |
 | R2 | S1, S4 | Plantilla `revisor-diseno` y su generador en `bootstrap_agentes.py` | delegado (writer, en paralelo con R1, por el respaldo de contexto del padre; L3) | ninguno: suma un archivo generado | hecho (L5) |
 | R1 | S1, S2, S5 | Skill `/odd-ws:revisar` | delegado (writer, en paralelo con R2; L3) | **6**, porque ninguna prueba atrapa la prosa. Verificador: cada comando de la skill contra la CLI real, y una corrida a mano en la instancia de prueba | hecho (L4); verificación al final de la feature (L5) |
-| A2 | S1, S4, S6 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada, y el `settings.json` de la plantilla | delegado (writer, en paralelo con P1; L8) | ninguno: suma un archivo generado y reusa el motor que no pisa | pendiente |
+| A2 | S1, S4, S6 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada, y el `settings.json` de la plantilla | delegado (writer, en paralelo con P1; L8) | **3**: el writer refactorizó `bootstrap.planificar`, que usa `/bootstrap`. Entra al verificador del final | hecho (L10); verificación al final de la feature |
 | P1 | S1, S4, S6 | Chequeo de la entrega en el pre-push | delegado (writer, en paralelo con A2; L8) | **5**: toca la entrega. Commit propio y entra al verificador del final | hecho (L9); verificación al final de la feature |
 | A1 | S1, S2, S5 | Skill de apertura | después de A2 | **6**, como R1 | pendiente |
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
@@ -174,3 +174,22 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - la fila P4 de `diseno.md`: el canal es `main`, y el porqué de la versión fijada;
     - `diseno.md` §8: el chequeo;
     - el README: `tools/entrega.py` y el pre-push.
+  - **Commit:** `ad9e063`.
+- **L10 (2026-11-04): A2 hecho por el writer (Sonnet).**
+  - **`ticket.py` y `ticket.tests.py` (26/26).**
+    - Copia `tickets/_plantilla/` entera, con los bytes tal cual, usando el motor del bootstrap. Nada se pisa, y volver a correrlo completa lo que falta.
+    - Rechaza un id con otra carpeta (las archivadas incluidas) y la plantilla ausente, que manda a `/odd-ws:bootstrap`. También lo que escape de la raíz o de la plantilla.
+    - Una prueba recorre el AST y confirma que no hay rutas de la instancia escritas a mano (R-8).
+  - **Bootstrap:** `bootstrap_instalacion` emite `tickets/_plantilla/.claude/settings.json` con los mismos bytes que el de la raíz.
+    - `capas.TICKET_PLANTILLA_DIR` y `capas.TICKET_SETTINGS`.
+    - `bootstrap.planificar_archivos`: para compartirlo, el writer extrajo `_revisar_raiz`, `_sumar_accion` y `_armar_plan` de `planificar`, con el mismo orden de revisiones.
+  - **Pruebas:** `bootstrap.tests.py` 150/150 (146 previas), `bootstrap_instalacion` 13/13, `bootstrap_cli` 14/14, `bootstrap_e2e` 10/10, `capas` 13/13 y `doctor` 76/76. En `bootstrap_cli` y `bootstrap_e2e`, la lista fijada suma el archivo nuevo.
+  - **Mutantes:** 25 de 25 muertos.
+  - **Diferencial contra `c66cf0e`, con una spec sintética:** la única diferencia es el archivo nuevo (de 16 a 17), en la corrida real, en el ensayo y en la segunda corrida.
+  - **Decisiones del padre sobre las preguntas del writer:**
+    - **El límite de los ids con guion queda documentado** en `diseno.md`. Con ids que llevan guion, la carpeta de un ticket puede aparecer también en el glob de otro id. Por eso, cuando el glob encuentra más de una carpeta, las skills tienen que listarlas y preguntar. Eso lo suma T1 a `revisar` y `cerrar`, y A1 lo trae de entrada.
+    - **`_dentro` y `_revisar_destino` siguen privados:** solo los usan scripts del plugin y no están en `odd_ws.PUBLICO`.
+  - **La corrección de `diseno.md:503` pasó de T1 a A2,** porque es el mismo comportamiento.
+  - **Docs del padre:**
+    - `diseno.md`: la instalación, la sección «Tickets» y la línea 503;
+    - el README: `ticket.py`.
