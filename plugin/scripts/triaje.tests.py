@@ -317,6 +317,46 @@ def test_consumidores_repo_sin_origin_head_invalida_y_lo_informa():
         assert nivel(r, "consumidores") == "invalida", r["senales"]["consumidores"]
         assert "repo(s) sin origin/HEAD o inexistentes" in detalle(r, "consumidores") and str(w.web) in detalle(r, "consumidores")
         assert r["origin_head"][str(w.web)] is None and r["origin_head"][str(w.db)]
+        assert "si no tiene remoto, pasa su base con --repo RUTA#BASE" in detalle(r, "consumidores")
+
+
+def _sin_remoto(repo):
+    git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+
+
+def test_consumidores_repo_sin_remoto_cuenta_en_su_base_explicita():
+    with Mundo() as w:
+        _sin_remoto(w.db)
+        base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = M.analizar([(str(w.db), base)], taller=[], raiz=str(w.raiz))
+        d = detalle(r, "consumidores")
+        assert nivel(r, "consumidores") == "negativa" and r["modo"] == "rapido", d
+        assert "Proc_Alfa: ≥ 1, " in d and "%s: sin remoto, conté en la base %s" % (w.db, base[:10]) in d, d
+        assert r["origin_head"][str(w.db)] is None
+
+
+def test_consumidores_en_la_base_explicita_ven_sus_commits_y_no_el_working_tree():
+    with Mundo() as w:
+        _sin_remoto(w.db)
+        base = commitear(w.db, {"src/ventas/Proc_Delta.sql": BETA.replace("Proc_Beta", "Proc_Delta")})
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3"),
+                        "src/ventas/Proc_Eps.sql": BETA.replace("Proc_Beta", "Proc_Eps")})
+        r = M.analizar([(str(w.db), base)], taller=[], raiz=str(w.raiz))
+        d = detalle(r, "consumidores")
+        assert nivel(r, "consumidores") == "positiva" and "Proc_Delta.sql" in d and "Proc_Eps.sql" not in d, d
+
+
+def test_consumidores_repo_con_remoto_sin_origin_head_sigue_invalida_aunque_tenga_base():
+    with Mundo() as w:
+        _sin_remoto(w.db)
+        git(w.db, "remote", "add", "origin", str(w.web))
+        base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = M.analizar([(str(w.db), base)], taller=[], raiz=str(w.raiz))
+        d = detalle(r, "consumidores")
+        assert nivel(r, "consumidores") == "invalida" and "repo(s) sin origin/HEAD o inexistentes" in d and "conté en la base" not in d, d
 
 
 def test_consumidores_origin_head_hacia_una_rama_que_no_existe_invalida():

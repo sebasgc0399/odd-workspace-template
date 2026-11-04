@@ -54,6 +54,9 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | M1 | S1, S6 | Correcciones de la corrida manual: F1, F3, F4 y F5 | inline (texto y un script chico, sin razón de writer) | **6**: prosa de skills que ninguna prueba atrapa, salvo la fijación de F1 y la prueba del script de F4 | hecho (L16) |
 | V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | hecho: `a41e026`, etiqueta y push (L17) |
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | hecho (L18) |
+| M2 | S1, S6 | F6: el triaje cuenta consumidores en la base explícita de un repo sin remoto | inline | **3**: cambia la salida del triaje que consume `revisar`. Commit propio | hecho (L20) |
+| M3 | S1, S6 | F2 y `--no-track` en el árbol principal de `abrir` | inline | **6**: prosa | pendiente |
+| V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | pendiente |
 
 ## Log
 
@@ -318,3 +321,21 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - el marketplace figura actualizado el 4/11/2026, con 1 plugin instalado, y la pestaña Errors quedó vacía;
     - `/odd-ws:` lista las skills (el usuario confirmó las 7).
   - **S0, confirmado en la máquina:** una sesión abierta dentro de un ticket carga el plugin a través del `settings.json` del propio ticket. Ese archivo lo copia `ticket.py` desde la plantilla.
+- **L19 (2026-11-04): la cola de la T9, aprobada por el usuario («Si»).** Son F6, F2 y `--no-track` en el árbol principal de `abrir`, más la entrega `0.2.1`. Los avisos de L13 quedan sin tocar.
+  - **`.gitattributes`, descartado con evidencia:** `autocrlf=true` viene de la config del sistema de Git for Windows, o sea que es el default.
+    - Un clon con esa config deja el `pre-commit` en CRLF (`w/crlf`), pero el `sh` de Git for Windows lo corre igual: llega a la misma rama y da el mismo mensaje que el control en LF. La prueba usó la config aislada.
+    - El doctor tampoco se confunde, porque `plantilla_writer.revisar` normaliza el CRLF.
+    - Solo serviría para sacar el aviso LF→CRLF, y un archivo generado más en cada instancia no se justifica por eso.
+- **L20 (2026-11-04): F6 (M2).**
+  - **El cambio:** `triaje.py` cuenta los consumidores en la base explícita (`--repo RUTA#BASE`) de un repo **sin ningún remoto**. El repo se identifica por su `--git-common-dir`, así que también vale desde un worktree.
+    - La salida lo dice: «<repo>: sin remoto, conté en la base <hash>».
+    - Un repo con remoto pero sin `origin/HEAD` sigue invalidando, porque una base vieja perdería consumidores nuevos de la rama de integración.
+    - El mensaje del inválido ahora dice «si no tiene remoto, pasa su base con --repo RUTA#BASE».
+  - **Pruebas:**
+    - RED 75/78 y GREEN 78/78, con 3 pruebas nuevas, más una aserción en la prueba existente del repo sin `origin/HEAD`.
+    - La prueba del repo con remoto ya pasaba antes del cambio: fija el comportamiento previo.
+    - 3 mutantes, los tres muertos: sin la condición de no tener remoto, sin que la base habilite el conteo y sin la línea de dónde se contó.
+  - **El diferencial** contra el `triaje.py` de `HEAD`, con la config aislada:
+    - el caso de la corrida (sin remoto, base `a5d79a8`) pasa de `COMPLETO`, con consumidores inválidos, a `RAPIDO`;
+    - sin remoto y sin base, con remoto y base por defecto, y con remoto y base explícita, la salida es idéntica byte a byte.
+  - **Docs:** `diseno.md` (Consumidores) y `revisar` (La base).
