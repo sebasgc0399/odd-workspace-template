@@ -31,9 +31,9 @@ solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve hasta t
 5. **Escribir.** Un ajuste mínimo se hace en la sesión. Más que eso en una capa ⇒ el agente
    `writer-<capa>` (`.claude/agents/`), con el brief completo: archivos autorizados, Paso 0 y comandos de
    verificación.
-6. **Revisar antes del commit** con `/odd-ws:revisar`: el agente `revisor-<capa>` de cada capa tocada lee
-   el diff. Lo que se aplica a un ambiente compartido o se muestra a un líder queda ese mismo día en la
-   rama del ticket.
+6. **Revisar antes del commit** con `/odd-ws:revisar`: el agente `revisor-<capa>` de cada capa tocada y
+   `revisor-diseno` (el diseño entre capas, siempre) leen el diff. Lo que se aplica a un ambiente
+   compartido o se muestra a un líder queda ese mismo día en la rama del ticket.
 7. **Cerrar** con `/odd-ws:cerrar`. Triaje de aprendizajes: lo verificado y general sube a la capa durable
    (los docs del proyecto o este archivo); lo de un solo ticket se queda en su carpeta. Los
    candidatos a graduar se anotan en el ticket apenas aparecen, no al final.

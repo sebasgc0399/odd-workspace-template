@@ -261,6 +261,30 @@ def test_sin_plantilla_se_rechaza_y_manda_a_correr_el_bootstrap():
         assert not carpeta(e).exists()
 
 
+def test_una_plantilla_sin_settings_avisa_por_stderr_y_no_cambia_ni_la_salida_ni_el_codigo():
+    aviso = "ticket: aviso: la plantilla no tiene tickets/_plantilla/.claude/settings.json, así que una sesión abierta dentro del ticket no carga el plugin: completá la instancia con /odd-ws:bootstrap y volvé a correr ticket.py"
+    with Escenario() as e:
+        (e.raiz / "tickets" / "_plantilla" / ".claude" / "settings.json").unlink()
+        completos = {r: d for r, d in CREADOS.items() if r != ".claude/settings.json"}
+        codigo, salida, errores = e.correr("12", "mi-ticket", "--raiz", str(e.raiz))
+        assert codigo == 0, (codigo, errores)
+        assert errores == aviso + "\n", errores
+        assert salida == "\n".join([
+            *lineas_creadas(archivos=completos),
+            "resumen: 2 creados, 0 ya existían",
+            f"ticket: {(e.raiz / 'tickets' / '12-mi-ticket').as_posix()}",
+        ]) + "\n", salida
+        codigo, salida, errores = e.correr("13", "otro", "--raiz", str(e.raiz), "--ensayo")
+        assert codigo == 0 and errores == aviso + "\n" and salida.startswith("crearía tickets/13-otro/"), (codigo, salida, errores)
+
+
+def test_una_plantilla_completa_no_avisa_nada():
+    with Escenario() as e:
+        for extra in ((), ("--ensayo",)):
+            codigo, salida, errores = e.correr("12", "mi-ticket", "--raiz", str(e.raiz), *extra)
+            assert codigo == 0 and errores == "", (extra, codigo, errores)
+
+
 def test_un_id_o_un_slug_invalido_se_rechaza_con_uno_sin_escribir():
     with Escenario() as e:
         for id in ("a/b", "a b", "ñ", "x" * 129, "..", "a.b", "a\\b", ""):

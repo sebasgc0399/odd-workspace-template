@@ -10,7 +10,7 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 
 ## Reglas duras
 
-1. **Nada se escribe antes del sí** a la propuesta del paso 3. Mostrar primero, escribir después.
+1. **Nada se escribe antes del sí** a la propuesta del paso 4. Mostrar primero, escribir después.
 2. **Se gradúa solo a lo que ya existe:** los docs de `knowledge.docs`, el `CLAUDE.md` raíz, la matriz (`.claude/reglas/matriz.csv`) y `.claude/reglas/evidencia.md`. No crees destinos nuevos por tu cuenta. Engram, si esta sesión lo tiene, es opcional: guardá lo relevante, pero nunca reemplaza a ninguno de los destinos de arriba.
 3. **Los repos del equipo son de solo lectura** para esta skill: ni `git add` ni `git commit` ahí. El único commit es el de la raíz de la instancia (paso 9).
 4. **`Estado` y `Conocimiento` son dos relojes distintos.** Esta skill mueve el de `Conocimiento`; `Estado` solo cambia si la entrega cambió de verdad.
@@ -29,7 +29,7 @@ Por cada decisión, gotcha, hallazgo y candidato del ticket, decidí a dónde va
 | Lo aprendido | Destino |
 |---|---|
 | Aplica solo a este ticket | **Se queda** en su carpeta. No se promueve. |
-| Conocimiento de dominio (cómo funciona algo del proyecto) | El doc de `knowledge.docs` que corresponde. Para elegirlo, mirá el índice: la sección «Dominio» del `CLAUDE.md` raíz (o el archivo de `knowledge.index`) lista los docs. |
+| Conocimiento de dominio (cómo funciona algo del proyecto) | El doc de `knowledge.docs` que corresponde. Para elegirlo, listá la carpeta de `knowledge.docs` y mirá qué dice de cada doc el índice de `knowledge.index` (por defecto, el `CLAUDE.md` raíz), como en `/odd-ws:abrir`. |
 | Metodología o convención de trabajo | El `CLAUDE.md` raíz, en la sección que corresponda. Se mantiene corto (lo mide `conocimiento.py`): si crece, el detalle va a un doc y la raíz solo lo indexa. |
 | **Criterio de revisión** o convención de una capa | Una **fila de la matriz**, más la regla escrita en su destino (paso 5). |
 | Una medición (cuánto tarda, cuánto pesa, cuántos consumidores) | `.claude/reglas/evidencia.md`. |
@@ -39,13 +39,20 @@ Por cada decisión, gotcha, hallazgo y candidato del ticket, decidí a dónde va
 
 Si hay una **sección «Candidatos a graduar»** con ítems, cada uno ya viene marcado como general y con su destino: promovelo ahí o descartalo con razón. Al graduar, la sección **queda vacía**, para que la apertura de un ticket hermano no vuelva a ver lo ya promovido.
 
-## 3. La propuesta y el sí
+## 3. El modo sombra va primero
 
-Mostrá, **antes de escribir nada**, una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Para cada fila de la matriz mostrá todos sus campos (paso 5). Después pedí un sí explícito. Sin sí, no se escribe nada. Si el usuario corrige un destino, ajustá la tabla y volvé a mostrarla.
+Si el ticket tiene un caso congelado del modo sombra (`<ticket>/revision/<fecha>-sombra/`) que todavía no se puntuó ni se ratificó, **primero se puntúa y después se gradúa**, con `/odd-ws:eval-reviewers`. La regla nueva es justo la respuesta que ese caso mide: graduarla antes vuelve inútil la medición. Si hay uno pendiente, frená acá, antes de proponer nada, y mandá al usuario a puntuarlo; los criterios de ese ticket se gradúan cuando termine.
 
-## 4. El modo sombra va primero
+## 4. La propuesta y el sí
 
-Si el ticket tiene un caso congelado del modo sombra (`<ticket>/revision/<fecha>-sombra/`) que todavía no se puntuó ni se ratificó, **primero se puntúa y después se gradúa**, con `/odd-ws:eval-reviewers`. La regla nueva es justo la respuesta que ese caso mide: graduarla antes vuelve inútil la medición. Si hay uno pendiente, frená acá y mandá al usuario a puntuarlo; los criterios de ese ticket se gradúan cuando termine.
+Mostrá, **antes de escribir nada**, todo lo que este cierre va a escribir, ya con el modo sombra resuelto (paso 3):
+
+1. **Los aprendizajes:** una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Para cada fila de la matriz mostrá todos sus campos (paso 5).
+2. **Los dos relojes** del `CLAUDE.md` del ticket (paso 6): el valor y la fecha exactos de `Conocimiento`, y `Estado`, sin cambio o con su valor nuevo y por qué.
+3. **La entrada de la bitácora** (paso 6), con su texto: lo graduado y a dónde, lo pendiente, lo de motor y la foto de la entrega por repo, que mirás antes con git de solo lectura.
+4. **El commit de cierre** (paso 9): los archivos que irían al `git add` y el mensaje.
+
+Después pedí un sí explícito. Sin sí, no se escribe nada. Si el usuario corrige un destino o cualquier otra línea, ajustá la propuesta y volvé a mostrarla.
 
 ## 5. Promover (con el sí)
 
@@ -95,7 +102,7 @@ Salen con 0 si todo cuadra, con 1 si hay `FALLA` o `ESQUEMA` (muestra el mensaje
 
 ## 6. Los dos relojes
 
-En el `CLAUDE.md` del ticket:
+En el `CLAUDE.md` del ticket, lo que mostró la propuesta (paso 4):
 
 - **`Conocimiento`:** `graduado (AAAA-MM-DD)`, o `descartado (AAAA-MM-DD, motivo)` si el ciclo se cierra sin cosechar nada (un ticket reasignado, por ejemplo). Con `graduado`, **«Candidatos a graduar» tiene que quedar vacía**: `graduado` es un recibo, no una declaración. Esta skill no lo chequea con ningún script: lo pide, y lo mirás vos antes de escribir la fecha.
 - **`Estado` no se toca**, salvo que la entrega haya cambiado de verdad. El conocimiento gradúa cuando está verificado y es general, no cuando el código sale: un ticket puede quedar `en revisión` y `graduado`, y eso es correcto.

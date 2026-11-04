@@ -11,6 +11,10 @@ from odd_ws.comun import id_valido, raiz_de_instancia
 USO = "uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]"
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 PLANTILLA_FALTANTE = "falta {}: corré /odd-ws:bootstrap para generarla"
+AVISO_SIN_SETTINGS = (
+    "ticket: aviso: la plantilla no tiene {}, así que una sesión abierta dentro del ticket no carga el plugin: "
+    "completá la instancia con /odd-ws:bootstrap y volvé a correr ticket.py"
+)
 
 
 class Rechazo(Exception):
@@ -149,6 +153,8 @@ def principal(argv):
     try:
         raiz = _raiz(texto_de_raiz)
         plan = planificar(raiz, id, slug)
+        if not (raiz / capas.TICKET_SETTINGS).is_file():
+            print(AVISO_SIN_SETTINGS.format(capas.TICKET_SETTINGS), file=sys.stderr)
         if ensayo:
             lineas = bootstrap.informe(plan, None, raiz, True)
         else:
