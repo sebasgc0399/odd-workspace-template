@@ -52,7 +52,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
 | T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | delegado (writer, en paralelo con A1; L12); el README, el padre | ninguno | hecho (L12) |
 | M1 | S1, S6 | Correcciones de la corrida manual: F1, F3, F4 y F5 | inline (texto y un script chico, sin razón de writer) | **6**: prosa de skills que ninguna prueba atrapa, salvo la fijación de F1 y la prueba del script de F4 | hecho (L16) |
-| V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | pendiente |
+| V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | versión y etiqueta locales hechas (L17); falta el push autorizado |
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | pendiente |
 
 ## Log
@@ -297,3 +297,8 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - en los tres casos la matriz queda intacta más una línea.
   - **F5:** `revisar` define los tres estados del recibo y dice que, cuando se resuelven los hallazgos de un `pendiente`, el recibo se vuelve a escribir con `con-hallazgos`.
   - **F2 y F6:** sin cambios, por lo que dice L15.
+  - **Commit:** `27330d2`. El pre-commit pasó y la config real de git sigue limpia.
+- **L17 (2026-11-04): la entrega `0.2.0` (V1).**
+  - **Versión:** `plugin.json` pasa de `0.1.0` a `0.2.0`. La mayor sigue en 0, como exige `comun.tests.py` (API 1). El marketplace no declara versión propia, así que manda `plugin.json`. No había ninguna etiqueta `odd-ws--v*` antes.
+  - **Etiqueta:** la etiqueta anotada `odd-ws--v0.2.0`, creada con `claude plugin tag ./plugin` sobre el commit de esta entrada, primero con `--dry-run`.
+  - **El push** de la rama, `main` y la etiqueta va junto, con autorización del usuario, porque el pre-push exige la etiqueta en el sha de `main`. Después, H1.
