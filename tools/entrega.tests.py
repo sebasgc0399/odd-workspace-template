@@ -175,6 +175,39 @@ def test_una_etiqueta_ajena_no_cuenta_como_entrega():
         asegurar(e.correr([a_main(sha)]), 1, "", "desde el inicio")
 
 
+def test_una_etiqueta_a_mano_con_otro_nombre_que_la_version_bloquea_y_dice_como_arreglarlo():
+    with Escenario() as e:
+        e.entrega_inicial("0.3.0")
+        sha = e.commit({"plugin/x.txt": "x\n"})
+        for nombre in ("0.4.0", "9.9.9"):
+            e.etiquetar(nombre)
+            asegurar(
+                e.correr([a_main(sha)]), 1, "",
+                "ENTREGA BLOQUEADA", f"odd-ws--v{nombre}", "dice 0.3.0", "debería ser odd-ws--v0.3.0", "claude plugin tag ./plugin", "Subí «version»",
+            )
+            e.git("tag", "-d", f"odd-ws--v{nombre}")
+
+
+def test_el_hook_frena_el_push_a_main_con_una_etiqueta_a_mano_que_no_es_la_version():
+    with Escenario() as e:
+        repo = RepoConHook(e)
+        e.entrega_inicial("0.3.0")
+        e.commit({"plugin/x.txt": "x\n"})
+        e.etiquetar("0.4.0")
+        codigo, salida = repo.empujar("main", "refs/tags/odd-ws--v0.4.0")
+        assert codigo != 0, salida
+        assert "ENTREGA BLOQUEADA" in salida and "odd-ws--v0.4.0" in salida, salida
+        assert repo.en_el_remoto("refs/heads/main") is None
+
+
+def test_una_etiqueta_a_mano_vieja_con_nombre_distinto_de_su_version_bloquea_aunque_no_haya_cambios_despues():
+    with Escenario() as e:
+        e.commit({PLUGIN_JSON: plugin_json("0.3.0"), "plugin/skills/uno.md": "uno\n"}, "base")
+        e.etiquetar("0.5.0")
+        sha = e.commit({"README.md": "otro\n"})
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "odd-ws--v0.5.0", "dice 0.3.0", "debería ser odd-ws--v0.3.0")
+
+
 def test_con_varias_lineas_basta_una_de_main_que_falle_para_bloquear():
     with Escenario() as e:
         e.entrega_inicial()

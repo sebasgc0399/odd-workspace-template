@@ -572,6 +572,7 @@ La lista negra vive fuera del repo, en `~/.odd-ws/denylist.txt` (o donde diga `O
 Después del barrido, el pre-push revisa cada push a `refs/heads/main`:
 
 - **Pasa** si `plugin/` no cambió desde la última etiqueta `odd-ws--v*` alcanzable, o si el commit tiene la etiqueta `odd-ws--v<versión>` de su propio `plugin.json`.
+- **Una etiqueta cuenta como entrega** solo si su nombre es `odd-ws--v<versión del plugin.json de su commit>`. Una etiqueta a mano con otro número frena con exit 1 (el bloqueante B1 del verificador de la T9).
 - **Frena** con exit 1 en cualquier otro caso y dice qué falta: subir `version`, etiquetar con `claude plugin tag ./plugin` y empujar la etiqueta junto con la rama.
 - **Falla cerrado** con exit 2 si no puede verificar: un error de git, un `plugin.json` ilegible o sin `version` X.Y.Z, o una línea de entrada ilegible.
 - Las otras ramas, las etiquetas y el borrado de `main` pasan sin revisar.
