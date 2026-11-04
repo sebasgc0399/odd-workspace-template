@@ -229,3 +229,45 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **`revisar` y `cerrar`** suman la regla de las varias carpetas.
   - **El README, del padre:** la instalación con `--scope project` y cómo actualizar. Los comandos se verificaron con `--help`: `install` usa `user` por defecto y `update` detecta el alcance solo.
   - **Verificación:** `bootstrap_cli` 14/14, `bootstrap_e2e` 10/10 y `doctor` 76/76. La corrida completa del writer dio 23 suites en verde y ninguna en rojo.
+  - **Commit:** `9996ef1`.
+- **L13 (2026-11-04): el verificador independiente de la feature, sobre `9996ef1` contra `8b497d3`.**
+  - **En verde:**
+    - las 34 suites;
+    - cada comando de las tres skills, contra las CLIs reales y sobre una instancia sintética;
+    - `ticket.py`: cada rechazo deja el árbol idéntico byte a byte;
+    - el diferencial del bootstrap: en `ad9e063` → `ec318f3` y en `8b497d3` → `9996ef1`, la única diferencia es lo pedido;
+    - el diferencial del pre-push en un push a una rama de feature, que da salida idéntica;
+    - la config real de git, que sigue limpia.
+    - También cerró el pendiente de L4: el layout real de las transcripciones de los subagentes es el que espera `rescatar.py`.
+  - **Bloqueante B1 (P1, S6 no cumplido):** el pre-push acepta cualquier etiqueta `odd-ws--v*` en el commit empujado, aunque su nombre no sea la versión de su `plugin.json`. Con `git tag odd-ws--v0.4.0` a mano y la versión en `0.3.0`, el push a `main` pasa con «entrega limpia».
+  - **Un punto de la spec que `cerrar` incumple (S1, C1, «mostrar antes de escribir»):** los relojes y la bitácora se escriben sin mostrarse, y el chequeo del modo sombra corre después del sí.
+  - **Avisos que entran en la misma tanda de corrección, porque son baratos:**
+    - `cerrar` §2 apunta a una sección «Dominio» que no se genera; la del índice es «Dónde vive el conocimiento»;
+    - `ticket.py` no avisa cuando la plantilla no trae `.claude/settings.json` (una instancia anterior a T9);
+    - el paso 6 de la plantilla de `CLAUDE.md` no nombra a `revisor-diseno`;
+    - el `worktree add` de `abrir` sin `--no-track`.
+  - **Avisos que quedan registrados, sin corregir:**
+    - la etiqueta solo se exige en local;
+    - mover a mano una etiqueta existente pasa;
+    - un mensaje elige «la versión sigue en V» cuando también aplica «apunta a otro commit»;
+    - `ticket.py` repite la capitalización que se pidió;
+    - `CEROS` y el glob con ids con guion (L9, L10).
+  - **Declaración del verificador:** en un primer `git push` sintético, antes de exportar `ODD_WS_DENYLIST`, el barrido leyó la lista negra real una vez. Solo imprimió la cantidad de términos y el contenido barrido era sintético. Los pushes que siguieron usaron la lista sintética.
+  - **La corrección:** un writer (Sonnet), en una sola tanda, con un solo rechequeo limitado a B1 y a `cerrar`.
+- **L14 (2026-11-04): la corrección y el rechequeo.**
+  - **B1:** la etiqueta más cercana cuenta como entrega solo si su nombre es `odd-ws--v<versión del plugin.json de su commit>`; si no, frena con exit 1 y dice el nombre que esperaba. `entrega.tests.py` pasa 23/23.
+    - **RED:** 20/23. Las tres nuevas daban «entrega limpia»; una de ellas hace un `git push` real.
+    - **`diseno.md` §8**, del padre.
+    - **Commit:** `f143a17`.
+  - **`cerrar`:** el chequeo del modo sombra pasa a §3, antes de proponer nada. La propuesta (§4) muestra antes del sí:
+    - la tabla de aprendizajes;
+    - los dos relojes, con sus valores exactos;
+    - la entrada de bitácora completa, con la foto de la entrega;
+    - el commit de cierre.
+    - **El índice, corregido por el padre:** el writer apuntó a «Dónde vive el conocimiento», pero esa sección no lista los docs. Ahora `cerrar` lista la carpeta de `knowledge.docs` y lee el índice de `knowledge.index`, igual que `/odd-ws:abrir`.
+  - **`ticket.py`:** avisa por stderr si la plantilla no trae su `settings.json`; stdout y el código de salida no cambian. `ticket.tests.py` pasa 28/28. `abrir` dice qué hacer con ese aviso y suma `--no-track` al worktree. El paso 6 de la plantilla nombra a `revisor-diseno`, con su fijación en `bootstrap_textos` (21/21).
+  - **Rechequeo del verificador, limitado a los dos puntos: los dos están corregidos.**
+    - B1, con pushes reales a un remoto sintético: las dos etiquetas a mano frenan y `main` del remoto no cambia. Los casos que pasaban siguen pasando.
+    - `cerrar`: se cumple «mostrar antes de escribir».
+    - La lista negra sintética se exportó antes del primer push, y la config real de git sigue limpia.
+  - **Quedan registrados, sin corregir:** `switch -c` con una base remota también la sigue como upstream (aviso del writer), y los avisos que ya listaba L13.

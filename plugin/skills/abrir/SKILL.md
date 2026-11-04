@@ -35,7 +35,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
    python "<S>/ticket.py" <id> <slug> --ensayo
    ```
 
-   Lista lo que crearía (`crearía …`), el resumen (`ensayo: N se crearían, M ya existen, no se escribió nada`) y, al final, la línea `ticket: <ruta>`. Si dice `0 se crearían`, la carpeta ya está completa: pasá al caso «Una» de arriba.
+   Lista lo que crearía (`crearía …`), el resumen (`ensayo: N se crearían, M ya existen, no se escribió nada`) y, al final, la línea `ticket: <ruta>`. Si dice `0 se crearían`, la carpeta ya está completa: pasá al caso «Una» de arriba. Si por stderr sale un aviso de que la plantilla no tiene `tickets/_plantilla/.claude/settings.json` (una instancia generada antes de que el ticket llevara su `settings.json`), una sesión abierta dentro del ticket no cargaría el plugin: completá la instancia con `/odd-ws:bootstrap` y volvé a correr `ticket.py` (en el ensayo y, después, en la corrida real).
 4. **Pedí el sí** a la carpeta y su nombre. Con el sí, el mismo comando sin `--ensayo`:
 
    ```bash
@@ -91,7 +91,7 @@ Preguntale al usuario si el trabajo va en un **worktree** o en el **árbol princ
 - **Worktree** (el árbol principal queda como está):
 
   ```bash
-  git -C <repo> worktree add <ruta del worktree> -b <rama> <base>
+  git -C <repo> worktree add --no-track <ruta del worktree> -b <rama> <base>
   ```
 
 - **Árbol principal** (cambia la rama del árbol del usuario, por eso se confirma):

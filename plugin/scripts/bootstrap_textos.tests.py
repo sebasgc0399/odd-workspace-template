@@ -159,6 +159,7 @@ def test_el_indice_trae_la_metodologia_generica():
         "Paso 0",
         "writer-<capa>",
         "revisor-<capa>",
+        "revisor-diseno",
         "criterios",
         "capa-<capa>",
         "commit",
