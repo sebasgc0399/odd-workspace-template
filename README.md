@@ -11,9 +11,10 @@ Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una meto
 | `.claude-plugin/marketplace.json` | El catálogo: un solo plugin, `odd-ws` |
 | `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py`, `writer_guard.py`, `writer_stop.py`, `plantilla_writer.py`, `triaje.py`, `guard_comandos.py`, `rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, `conocimiento.py`, `bootstrap.py` con sus generadores (`bootstrap_agentes.py`, `bootstrap_reglas.py`, `bootstrap_textos.py` y `bootstrap_instalacion.py`) y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor`, `skills/eval-reviewers`, `skills/conocimiento`, `skills/bootstrap`, `skills/revisar`, `skills/cerrar` y `plantillas/` (`pre-commit`, el pre-commit de una instancia, y `writer.md`, la plantilla de los writers de la instancia) |
 | `tools/barrido.py` | Barrido de confidencialidad |
+| `tools/entrega.py` | Chequeo de la entrega: un push a `main` que cambia `plugin/` necesita la etiqueta `odd-ws--v<versión>` en ese commit |
 | `.githooks/pre-commit` | Autoprueba del barrido, barrido de lo stageado y suites `*.tests.py` |
 | `.githooks/commit-msg` | Barrido del mensaje del commit |
-| `.githooks/pre-push` | Barrido de todo lo que se empuja: contenido, rutas y mensajes. Cubre los commits que saltan el pre-commit (`rebase --continue`, `git am`) |
+| `.githooks/pre-push` | Barrido de todo lo que se empuja: contenido, rutas y mensajes. Cubre los commits que saltan el pre-commit (`rebase --continue`, `git am`). Después, el chequeo de la entrega |
 
 ## Puesta en marcha en una máquina
 
