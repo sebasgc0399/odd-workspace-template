@@ -421,6 +421,21 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
 - **Rechaza (exit 1):** un id o un slug inválido, la plantilla ausente (manda a `/odd-ws:bootstrap`) y lo que escape de la raíz o de la plantilla.
 - **Exit 2:** el uso mal formado, sin instancia, la config rota o un error al escribir.
 
+### Abrir (`skills/abrir`, T9)
+
+Es el ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido. Solo lo invoca el usuario.
+
+- **El pedido** se lee con la herramienta (MCP) del tracker del usuario, si la sesión la tiene, y si no, el usuario lo pega. No hay contrato con el tracker.
+- **La carpeta** se crea con `ticket.py`: el slug lo propone la skill (kebab-case), muestra el ensayo (`--ensayo`) y espera el sí antes de correrlo de verdad.
+  - Antes busca el id con el glob `tickets/**/<id>-*/CLAUDE.md`. Con una carpeta, el ticket ya existe y se pregunta si se retoma; con más de una, las lista y pregunta, sin elegir nunca (el límite de los ids con guion de «Tickets»).
+  - Exit 1 (conflicto, id o slug inválido, plantilla ausente) manda a corregir o a `/odd-ws:bootstrap`; exit 2 (sin instancia o config rota), a `/odd-ws:doctor`.
+- **El ticket** se llena desde el pedido: Objetivo (con su `Fuente:`), criterios, alcance y no-goals. Cada «X o Y» del pedido queda como pregunta por fijar con el líder antes de codear, y nada se asume.
+- **Los docs de dominio** se mapean por el índice de `knowledge` (`docs` e `index`), sin leerlos todos, con la razón de cada uno.
+- **Los candidatos de los tickets hermanos** se buscan en sus secciones «Candidatos a graduar» y se listan en «Contexto técnico» con su ticket de origen. No se copian a la sección propia, porque siguen siendo del ticket que los anotó y `graduado` exige esa sección vacía.
+- **El worktree:** pregunta si va en un worktree o en el árbol principal y da el comando exacto (`git -C <repo> worktree add …` o `git switch -c …`). Los comandos en los repos del equipo los corre el usuario.
+- **El Paso 0** (hermano vigente y consumidor de cada dato nuevo) se recuerda y queda escrito en el ticket antes de cualquier código; si todavía no se sabe, queda pendiente.
+- **Mostrar antes de escribir:** el contenido del ticket se muestra junto y se escribe solo con el sí. Cierra con los pasos que siguen: `/odd-ws:revisar` antes de cada commit y `/odd-ws:cerrar` al terminar.
+
 ### Revisar (`skills/revisar`, T9)
 
 Orquesta la revisión de un cambio de un ticket antes del commit, con los agentes que genera `/bootstrap`: `revisor-diseno` (entre capas) y el `revisor-<capa>` de cada capa tocada. Los revisores solo leen. La skill arma la entrada, lanza, rescata, consolida y escribe el recibo, y no commitea.
