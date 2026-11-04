@@ -34,6 +34,7 @@ claude plugin install odd-ws@odd-workspace-template --scope project
 
 - **`--scope project` es obligatorio.** Sin él, `claude plugin install` instala a nivel usuario, y los hooks del plugin correrían en todos tus proyectos (P2 de `Doc/diseno.md`). En `/plugin install`, dentro de una sesión, elegí la opción de instalar para todos los colaboradores del repositorio.
 - **Cada ticket lleva su propio `.claude/settings.json`,** porque Claude Code lee ese archivo solo de la carpeta donde arranca la sesión. El bootstrap pone el `enabledPlugins` en la raíz y en la plantilla, y `ticket.py` lo copia a cada ticket.
+- **La sesión de un ticket se abre desde su carpeta, con cada repo de código agregado:** `claude --add-dir <ruta>`, una vez por cada repo o worktree de «Worktree y rama» en el `CLAUDE.md` del ticket. Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket.
 
 ## Actualizar el plugin
 

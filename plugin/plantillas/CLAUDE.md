@@ -14,6 +14,10 @@ ticket, ábrelo por dentro (su carpeta en `{{tickets}}/`): cargan la raíz **y**
 reinyectan tras `/compact`. Abrir la raíz sirve para orquestar o mirar varios tickets: el contexto de uno
 solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve hasta tocarlo de nuevo.
 
+Si el ticket toca repos de código, abre su sesión con esos repos agregados: `claude --add-dir <ruta>`,
+una vez por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o
+editar fuera de la carpeta del ticket.
+
 ## Ciclo de un ticket
 
 1. **Abrir** con `/odd-ws:abrir`: crea `{{tickets}}/<id>-<slug>/` desde la plantilla

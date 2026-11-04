@@ -118,6 +118,7 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 2. **Pedí el sí.** Sin sí, no se escribe nada. Si el usuario corrige algo, ajustá y volvé a mostrar.
 3. **Con el sí**, editá `<ticket>/CLAUDE.md` con Edit, sección por sección, sin tocar las demás (Decisiones, Gotchas, Candidatos a graduar y Cierre quedan como los trae la plantilla). Agregá una primera entrada de bitácora: `<fecha> — ticket abierto desde <fuente>; preguntas por fijar: <n>`.
 4. **Decí qué quedó escrito** y qué sigue:
+   - cómo abrir la sesión del ticket: desde su carpeta, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama» (dale el comando con las rutas reales). Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
    - las preguntas por fijar con el líder, que van primero;
    - el Paso 0, antes de cualquier código;
    - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder;

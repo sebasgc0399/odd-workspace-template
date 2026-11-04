@@ -94,7 +94,7 @@ Revisá <el diseño | el código de la capa <capa>> del ticket <id> (<título>) 
 Entrada:
 - Diff de <repo>: <ruta de <repo>.diff> (base <commit>, rama <rama>). El código completo está en <ruta del repo o worktree>: leé ahí el código, sus hermanos y sus consumidores.
 - (una línea por cada repo tocado)
-- Carpeta del ticket: <ruta>. No leas su carpeta revision/: trae reportes de otras revisiones.
+- Carpeta del ticket: <ruta>. Leé su CLAUDE.md del disco, aunque ya tengas uno cargado: el que cargaste al arrancar puede ser anterior al Paso 0. No leas su carpeta revision/: trae reportes de otras revisiones.
 - <solo capa> Archivos de tu capa: <lista>.
 - <solo diseño, modo completo> Orden de lectura sugerido: <lista>.
 
@@ -148,7 +148,7 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 
    - `--fecha` es la misma de la carpeta de la revisión: sin ella toma el día de hoy, y puede no coincidir.
    - `<base>` es la base completa del triaje, para que el recibo cubra el mismo diff que se revisó.
-   - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` sin hallazgos, `con-hallazgos` con hallazgos, o `pendiente` si el usuario todavía no los resolvió. `--verificacion` anota lo que se corrió de verdad y su resultado.
+   - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente`, volvé a escribirlo con `con-hallazgos`. `--verificacion` anota lo que se corrió de verdad y su resultado.
    - Escribe `revision/<fecha>-<modo>/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
    - Si el recibo ya existía, se pisa entero: pasá todos los `--repo` en una sola llamada.
 3. **Antes de decir «listo» o «listo para commit», corré `--check`:**

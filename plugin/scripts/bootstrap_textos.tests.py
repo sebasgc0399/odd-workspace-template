@@ -196,6 +196,13 @@ def test_el_ticket_apunta_a_abrir_y_a_cerrar():
     assert "/odd-ws:cerrar" in ticket.split("## Cierre")[1]
 
 
+def test_la_raiz_dice_como_sumar_los_repos_a_la_sesion_del_ticket():
+    texto = textos()["CLAUDE.md"]
+    contexto = texto.split("## Cómo se carga el contexto")[1].split("## Ciclo de un ticket")[0]
+    assert "claude --add-dir" in contexto
+    assert "«Worktree y rama»" in contexto
+
+
 def test_el_indice_declara_la_carpeta_de_tickets_con_el_glob_recursivo():
     texto = textos()["CLAUDE.md"]
     assert "tickets/**/" in texto
