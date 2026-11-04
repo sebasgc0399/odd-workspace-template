@@ -50,7 +50,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | P1 | S1, S4, S6 | Chequeo de la entrega en el pre-push | delegado (writer, en paralelo con A2; L8) | **5**: toca la entrega. Commit propio y entra al verificador del final | hecho (L9); verificación al final de la feature |
 | A1 | S1, S2, S5 | Skill de apertura (`/odd-ws:abrir`) | delegado (writer, por el respaldo de contexto del padre, en paralelo con T1; L11) | **6**, como R1 | hecho (L11); verificación al final de la feature |
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
-| T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | al final | ninguno | pendiente |
+| T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | delegado (writer, en paralelo con A1; L12); el README, el padre | ninguno | hecho (L12) |
 | V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | pendiente |
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | pendiente |
 
@@ -218,3 +218,14 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - La base del worktree se pregunta. El `git fetch` se propone y lo corre el usuario.
   - **Docs del writer:** `diseno.md`, con la sección «Abrir», y el README, con `skills/abrir`.
   - **Queda para la corrida manual:** la herramienta del tracker en una sesión real.
+  - **Commit:** `0d98973`.
+- **L12 (2026-11-04): T1 hecho por el writer (Sonnet) y el README por el padre.**
+  - **`plantillas/CLAUDE.md`** (122 líneas): los pasos 1, 6 y 7 del ciclo y la lista de skills apuntan a `/odd-ws:abrir`, `/odd-ws:revisar` y `/odd-ws:cerrar`.
+  - **`ticket.md`:** dice que el ticket se abre con `/odd-ws:abrir` y se cierra con `/odd-ws:cerrar`.
+  - **`bootstrap_textos.tests.py`** (21/21) fija las dos cosas.
+    - **RED:** la prueba vieja solo chequeaba presencia, así que primero se escribieron las fijaciones nuevas, que dieron 18/21 por la razón correcta.
+    - Las que se rompieron al reescribir la plantilla se arreglaron en el texto, no en las pruebas.
+  - **`revisar`** pasa a voseo. El word-diff muestra que solo cambió el registro, también dentro del bloque del prompt del revisor. Las negaciones («no pases») quedan como en `cerrar`.
+  - **`revisar` y `cerrar`** suman la regla de las varias carpetas.
+  - **El README, del padre:** la instalación con `--scope project` y cómo actualizar. Los comandos se verificaron con `--help`: `install` usa `user` por defecto y `update` detecta el alcance solo.
+  - **Verificación:** `bootstrap_cli` 14/14, `bootstrap_e2e` 10/10 y `doctor` 76/76. La corrida completa del writer dio 23 suites en verde y ninguna en rojo.

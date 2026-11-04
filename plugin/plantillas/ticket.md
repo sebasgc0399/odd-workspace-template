@@ -2,6 +2,7 @@
 
 > **Contexto y metodología:** ver `../../CLAUDE.md` (la raíz de la instancia).
 > Si abriste este ticket suelto y la raíz no cargó, léela desde esa ruta.
+> Un ticket se abre con `/odd-ws:abrir`.
 
 - **Estado:** nuevo | en progreso | en revisión | listo | standby | sin desarrollo
 - **Conocimiento:** pendiente | graduado (YYYY-MM-DD) | descartado (YYYY-MM-DD, motivo)
@@ -58,5 +59,6 @@ a mitad de camino sin esperar el cierre.
 
 ## Cierre
 
-Al terminar el ticket: triaje de los aprendizajes, graduación de los candidatos a la capa durable
-(docs del proyecto o raíz) y commit de cierre. Después, `Estado` y `Conocimiento` se actualizan.
+Al terminar el ticket, `/odd-ws:cerrar`: triaje de los aprendizajes, graduación de los candidatos a la
+capa durable (docs del proyecto o raíz) y commit de cierre. Después, `Estado` y `Conocimiento` se
+actualizan.
