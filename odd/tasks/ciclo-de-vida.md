@@ -48,7 +48,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | R1 | S1, S2, S5 | Skill `/odd-ws:revisar` | delegado (writer, en paralelo con R2; L3) | **6**, porque ninguna prueba atrapa la prosa. Verificador: cada comando de la skill contra la CLI real, y una corrida a mano en la instancia de prueba | hecho (L4); verificación al final de la feature (L5) |
 | A2 | S1, S4, S6 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada, y el `settings.json` de la plantilla | delegado (writer, en paralelo con P1; L8) | **3**: el writer refactorizó `bootstrap.planificar`, que usa `/bootstrap`. Entra al verificador del final | hecho (L10); verificación al final de la feature |
 | P1 | S1, S4, S6 | Chequeo de la entrega en el pre-push | delegado (writer, en paralelo con A2; L8) | **5**: toca la entrega. Commit propio y entra al verificador del final | hecho (L9); verificación al final de la feature |
-| A1 | S1, S2, S5 | Skill de apertura | después de A2 | **6**, como R1 | pendiente |
+| A1 | S1, S2, S5 | Skill de apertura (`/odd-ws:abrir`) | delegado (writer, por el respaldo de contexto del padre, en paralelo con T1; L11) | **6**, como R1 | hecho (L11); verificación al final de la feature |
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
 | T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | al final | ninguno | pendiente |
 | V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | pendiente |
@@ -193,3 +193,28 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **Docs del padre:**
     - `diseno.md`: la instalación, la sección «Tickets» y la línea 503;
     - el README: `ticket.py`.
+  - **Commit:** `ec318f3`.
+- **L11 (2026-11-04): A1 hecho por el writer (Sonnet).**
+  - `plugin/skills/abrir/SKILL.md`, de 130 líneas, en voseo, con `disable-model-invocation` y 5 reglas duras. La última es la de las varias carpetas (L10). Tiene 8 pasos:
+    1. el pedido, por la herramienta (MCP) del tracker o pegado;
+    2. el id, el slug y la carpeta: primero el glob, después `ticket.py --ensayo`, el sí y la corrida;
+    3. el borrador del ticket, donde cada «X o Y» queda «por fijar con el líder»;
+    4. los docs de dominio por el índice de `knowledge`;
+    5. los candidatos de los tickets hermanos;
+    6. el worktree, con el comando exacto, que corre el usuario;
+    7. el Paso 0;
+    8. mostrar, escribir con el sí y los pasos que siguen.
+  - **Cada comando se corrió sobre una instancia sintética hecha con el bootstrap real, con git aislado:**
+    - `ticket.py`: el ensayo, la creación y el ensayo sobre un ticket existente;
+    - el control positivo de cada salida: 1 por un conflicto de id, un id o slug inválido y la plantilla ausente; 2 sin instancia, con la config rota y con un uso mal formado;
+    - la corrida desde dentro de un ticket;
+    - el glob con varias carpetas (`AB-CD-dos` y `archivo/AB-uno`);
+    - el Grep de candidatos;
+    - `worktree add`, que con la rama existente sale con 255 sin pisarla, y `switch -c`.
+  - **Decisiones del writer, aceptadas por el padre:**
+    - Los candidatos de los hermanos y los docs de dominio van a «Contexto técnico» y no a «Candidatos a graduar», que tiene que quedar vacía al graduar.
+    - Hay dos sí: uno para crear la carpeta y otro para escribir el contenido.
+    - Si el ticket ya existe, la skill pregunta si se retoma.
+    - La base del worktree se pregunta. El `git fetch` se propone y lo corre el usuario.
+  - **Docs del writer:** `diseno.md`, con la sección «Abrir», y el README, con `skills/abrir`.
+  - **Queda para la corrida manual:** la herramienta del tracker en una sesión real.
