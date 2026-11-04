@@ -52,8 +52,8 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
 | T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | delegado (writer, en paralelo con A1; L12); el README, el padre | ninguno | hecho (L12) |
 | M1 | S1, S6 | Correcciones de la corrida manual: F1, F3, F4 y F5 | inline (texto y un script chico, sin razón de writer) | **6**: prosa de skills que ninguna prueba atrapa, salvo la fijación de F1 y la prueba del script de F4 | hecho (L16) |
-| V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | versión y etiqueta locales hechas (L17); falta el push autorizado |
-| H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | pendiente |
+| V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | hecho: `a41e026`, etiqueta y push (L17) |
+| H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | hecho (L18) |
 
 ## Log
 
@@ -302,3 +302,19 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **Versión:** `plugin.json` pasa de `0.1.0` a `0.2.0`. La mayor sigue en 0, como exige `comun.tests.py` (API 1). El marketplace no declara versión propia, así que manda `plugin.json`. No había ninguna etiqueta `odd-ws--v*` antes.
   - **Etiqueta:** la etiqueta anotada `odd-ws--v0.2.0`, creada con `claude plugin tag ./plugin` sobre el commit de esta entrada, primero con `--dry-run`.
   - **El push** de la rama, `main` y la etiqueta va junto, con autorización del usuario, porque el pre-push exige la etiqueta en el sha de `main`. Después, H1.
+  - **Resultado (autorizado por el usuario):**
+    - commit `a41e026`; `claude plugin tag` creó `odd-ws--v0.2.0`, que apunta a `a41e026`;
+    - `git fetch`: `origin/main` seguía en `8b497d3`, ancestro de `HEAD`, y el remoto no tenía etiquetas;
+    - `git push -u origin feat/ciclo-de-vida`: barrido limpio;
+    - `git push origin a41e026:refs/heads/main refs/tags/odd-ws--v0.2.0`: barrido limpio y «entrega limpia», `8b497d3..a41e026`;
+    - el `main` local se adelantó con `update-ref`, chequeando el valor viejo;
+    - `ls-remote`: `main` y la etiqueta despelada en `a41e026`;
+    - la config real de git sigue limpia.
+    - Este cierre del documento queda sin commitear hasta H1.
+- **L18 (2026-11-04): H1, la prueba de humo por el camino real. Pasó. La T9 queda cerrada.**
+  - **Instalación:** el usuario corrió, desde la raíz de la instancia, `claude plugin marketplace update odd-workspace-template` y `claude plugin install odd-ws@odd-workspace-template --scope project`.
+  - **Sesión abierta dentro de `tickets/T-200-getitems-stock-o-fecha-alta`, sin `--plugin-dir`:**
+    - `/plugin` muestra `ODD Workspace` en el scope **Project**, desde `odd-workspace-template`, con 7 skills;
+    - el marketplace figura actualizado el 4/11/2026, con 1 plugin instalado, y la pestaña Errors quedó vacía;
+    - `/odd-ws:` lista las skills (el usuario confirmó las 7).
+  - **S0, confirmado en la máquina:** una sesión abierta dentro de un ticket carga el plugin a través del `settings.json` del propio ticket. Ese archivo lo copia `ticket.py` desde la plantilla.
