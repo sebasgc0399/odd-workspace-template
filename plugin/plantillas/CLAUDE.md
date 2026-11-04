@@ -16,8 +16,9 @@ solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve hasta t
 
 ## Ciclo de un ticket
 
-1. **Abrir.** Copia `{{tickets}}/_plantilla/CLAUDE.md` a `{{tickets}}/<id>-<slug>/CLAUDE.md` y llénala:
-   estado, objetivo, criterios de aceptación y alcance. Un ticket es una carpeta.
+1. **Abrir** con `/odd-ws:abrir`: crea `{{tickets}}/<id>-<slug>/` desde la plantilla
+   (`{{tickets}}/_plantilla/CLAUDE.md`) y llena estado, objetivo, criterios de aceptación y alcance. Un
+   ticket es una carpeta.
 2. **Entender, antes de codear.** Criterios de aceptación, alcance y no-goals escritos en el ticket. Si
    el pedido trae un «X **o** Y», pina con quien lo pide qué casos entran desde el arranque.
 3. **Planear con ODD.** Explorar → Implementar → Revisar, anunciando la etapa en una línea. La exploración
@@ -30,11 +31,12 @@ solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve hasta t
 5. **Escribir.** Un ajuste mínimo se hace en la sesión. Más que eso en una capa ⇒ el agente
    `writer-<capa>` (`.claude/agents/`), con el brief completo: archivos autorizados, Paso 0 y comandos de
    verificación.
-6. **Revisar antes del commit.** El agente `revisor-<capa>` de cada capa tocada lee el diff. Lo que se
-   aplica a un ambiente compartido o se muestra a un líder queda ese mismo día en la rama del ticket.
-7. **Cerrar.** Triaje de aprendizajes: lo verificado y general sube a la capa durable (los docs del
-   proyecto o este archivo); lo de un solo ticket se queda en su carpeta. Los candidatos a graduar se
-   anotan en el ticket apenas aparecen, no al final.
+6. **Revisar antes del commit** con `/odd-ws:revisar`: el agente `revisor-<capa>` de cada capa tocada lee
+   el diff. Lo que se aplica a un ambiente compartido o se muestra a un líder queda ese mismo día en la
+   rama del ticket.
+7. **Cerrar** con `/odd-ws:cerrar`. Triaje de aprendizajes: lo verificado y general sube a la capa durable
+   (los docs del proyecto o este archivo); lo de un solo ticket se queda en su carpeta. Los
+   candidatos a graduar se anotan en el ticket apenas aparecen, no al final.
 
 ## Repos del equipo (leer sin pisar el working tree)
 
@@ -114,3 +116,7 @@ queda el índice.
   contradicen.
 - `/odd-ws:eval-reviewers` — mide un revisor contra la revisión real de un líder, a ciegas y repetible.
 - `/odd-ws:bootstrap` — genera o completa esta instancia desde una entrevista, sin pisar nada.
+- `/odd-ws:abrir` — abre un ticket: carpeta desde la plantilla, alcance y no-goals, y los docs de dominio
+  que toca.
+- `/odd-ws:revisar` — revisión antes del commit: triaje, revisores por capa y recibo atado al diff.
+- `/odd-ws:cerrar` — cierra un ticket: triaje de aprendizajes, graduación y commit de cierre.

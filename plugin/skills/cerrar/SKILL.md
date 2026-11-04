@@ -18,7 +18,7 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 
 ## 1. Leer el ticket
 
-- La carpeta se encuentra con el glob recursivo `tickets/**/<id>-*`: un ticket archivado puede estar en una subcarpeta. La herramienta Glob lista archivos, no carpetas: usá `tickets/**/<id>-*/CLAUDE.md`.
+- La carpeta se encuentra con el glob recursivo `tickets/**/<id>-*`: un ticket archivado puede estar en una subcarpeta. La herramienta Glob lista archivos, no carpetas: usá `tickets/**/<id>-*/CLAUDE.md`. Si el glob encuentra más de una carpeta, listalas y preguntale al usuario cuál es; nunca elijas una por tu cuenta, porque con ids que llevan guion la carpeta de un ticket puede coincidir también con el glob de otro id.
 - Leé su `CLAUDE.md`: Decisiones, Gotchas, **Candidatos a graduar** y Bitácora. Confirmá que los criterios de aceptación están marcados; si falta alguno, decilo antes de seguir.
 - **Comprobá cada `Fuente:` externa** (una transcripción, un documento, una ruta fuera de la instancia): tiene que seguir resolviendo. Si una ruta ya no existe, se corrige o se anota **antes** de promover: lo destilado no vale si su fuente dejó de ser localizable.
 

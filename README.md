@@ -9,7 +9,7 @@ Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una meto
 | Ruta | Qué es |
 |---|---|
 | `.claude-plugin/marketplace.json` | El catálogo: un solo plugin, `odd-ws` |
-| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py`, `writer_guard.py`, `writer_stop.py`, `plantilla_writer.py`, `triaje.py`, `guard_comandos.py`, `rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, `conocimiento.py`, `bootstrap.py` con sus generadores (`bootstrap_agentes.py`, `bootstrap_reglas.py`, `bootstrap_textos.py` y `bootstrap_instalacion.py`), `ticket.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor`, `skills/eval-reviewers`, `skills/conocimiento`, `skills/bootstrap`, `skills/revisar`, `skills/cerrar` y `plantillas/` (`pre-commit`, el pre-commit de una instancia, y `writer.md`, la plantilla de los writers de la instancia) |
+| `plugin/` | El plugin: `plugin.json`, `scripts/` (`config_loader.py`, `doctor.py`, `recibo.py`, `matriz.py`, `verificar_capa.py`, `reglas.py`, `normalizar_sql.py`, `writer_guard.py`, `writer_stop.py`, `plantilla_writer.py`, `triaje.py`, `guard_comandos.py`, `rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, `conocimiento.py`, `bootstrap.py` con sus generadores (`bootstrap_agentes.py`, `bootstrap_reglas.py`, `bootstrap_textos.py` y `bootstrap_instalacion.py`), `ticket.py` y el paquete `odd_ws`, la biblioteca que importan los hooks y la instancia), `hooks/hooks.json`, `skills/doctor`, `skills/eval-reviewers`, `skills/conocimiento`, `skills/bootstrap`, `skills/abrir`, `skills/revisar`, `skills/cerrar` y `plantillas/` (`pre-commit`, el pre-commit de una instancia, y `writer.md`, la plantilla de los writers de la instancia) |
 | `tools/barrido.py` | Barrido de confidencialidad |
 | `tools/entrega.py` | Chequeo de la entrega: un push a `main` que cambia `plugin/` necesita la etiqueta `odd-ws--v<versión>` en ese commit |
 | `.githooks/pre-commit` | Autoprueba del barrido, barrido de lo stageado y suites `*.tests.py` |
@@ -25,7 +25,23 @@ Marketplace personal de Claude Code con el plugin `odd-ws`: el motor de una meto
 
 ## Instalar el plugin
 
+El marketplace se registra una vez por máquina. El plugin se instala por proyecto, desde la carpeta de la instancia (o la carpeta vacía donde vas a correr `/odd-ws:bootstrap`):
+
 ```text
-/plugin marketplace add sebasgc0399/odd-workspace-template
-/plugin install odd-ws@odd-workspace-template
+claude plugin marketplace add sebasgc0399/odd-workspace-template
+claude plugin install odd-ws@odd-workspace-template --scope project
 ```
+
+- **`--scope project` es obligatorio.** Sin él, `claude plugin install` instala a nivel usuario, y los hooks del plugin correrían en todos tus proyectos (P2 de `Doc/diseno.md`). En `/plugin install`, dentro de una sesión, elegí la opción de instalar para todos los colaboradores del repositorio.
+- **Cada ticket lleva su propio `.claude/settings.json`,** porque Claude Code lee ese archivo solo de la carpeta donde arranca la sesión. El bootstrap pone el `enabledPlugins` en la raíz y en la plantilla, y `ticket.py` lo copia a cada ticket.
+
+## Actualizar el plugin
+
+La versión está fijada en `plugin.json` y la actualización automática viene apagada, así que se actualiza a mano, entre tickets:
+
+```text
+claude plugin marketplace update odd-workspace-template
+claude plugin update odd-ws@odd-workspace-template
+```
+
+Cada entrega sube la versión y lleva la etiqueta `odd-ws--v<versión>`. El pre-push frena un push a `main` que cambie `plugin/` sin las dos cosas.

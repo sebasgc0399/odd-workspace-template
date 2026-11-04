@@ -175,8 +175,24 @@ def test_el_indice_trae_la_metodologia_generica():
         "/odd-ws:conocimiento",
         "/odd-ws:eval-reviewers",
         "/odd-ws:bootstrap",
+        "/odd-ws:abrir",
+        "/odd-ws:revisar",
+        "/odd-ws:cerrar",
     ):
         assert pedazo in texto, pedazo
+
+
+def test_los_pasos_del_ciclo_apuntan_a_las_skills_de_ciclo_de_vida():
+    texto = textos()["CLAUDE.md"]
+    ciclo = texto.split("## Ciclo de un ticket")[1].split("## Repos del equipo")[0]
+    for skill in ("/odd-ws:abrir", "/odd-ws:revisar", "/odd-ws:cerrar"):
+        assert skill in ciclo, skill
+
+
+def test_el_ticket_apunta_a_abrir_y_a_cerrar():
+    ticket = textos()["tickets/_plantilla/CLAUDE.md"]
+    assert "/odd-ws:abrir" in ticket.split("## Objetivo")[0]
+    assert "/odd-ws:cerrar" in ticket.split("## Cierre")[1]
 
 
 def test_el_indice_declara_la_carpeta_de_tickets_con_el_glob_recursivo():
