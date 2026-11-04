@@ -51,6 +51,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | A1 | S1, S2, S5 | Skill de apertura (`/odd-ws:abrir`) | delegado (writer, por el respaldo de contexto del padre, en paralelo con T1; L11) | **6**, como R1 | hecho (L11); verificación al final de la feature |
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
 | T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | delegado (writer, en paralelo con A1; L12); el README, el padre | ninguno | hecho (L12) |
+| M1 | S1, S6 | Correcciones de la corrida manual: F1, F3, F4 y F5 | inline (texto y un script chico, sin razón de writer) | **6**: prosa de skills que ninguna prueba atrapa, salvo la fijación de F1 y la prueba del script de F4 | hecho (L16) |
 | V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | pendiente |
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | pendiente |
 
@@ -271,3 +272,28 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - `cerrar`: se cumple «mostrar antes de escribir».
     - La lista negra sintética se exportó antes del primer push, y la config real de git sigue limpia.
   - **Quedan registrados, sin corregir:** `switch -c` con una base remota también la sigue como upstream (aviso del writer), y los avisos que ya listaba L13.
+- **L15 (2026-11-04): la corrida manual del ciclo, hecha por el usuario con `--plugin-dir` en la instancia de prueba.**
+  - **El recorrido completo funcionó:**
+    - `/odd-ws:bootstrap` completó la instancia: 2 archivos creados, 15 que ya existían, y el doctor con 0 FALTA. Commit `528c5c0` en la instancia.
+    - `/odd-ws:abrir` T-200: hizo el ensayo antes de crear (con el `settings.json` de la plantilla), dejó la «o» por fijar con el líder y el Paso 0 como pendiente.
+    - El cambio en el repo sintético `db`: commit del usuario `96ffb2f`, en la rama del ticket.
+    - `/odd-ws:revisar` en modo completo, con 4 corridas. El contrato del resultado (`INSERT … EXEC`, un consumidor sin nombre) lo marcaron `revisor-sql` (WARNING) y diseño (1/3), aunque la sesión había anotado `Risk: none`. El recibo quedó `pendiente` y, cuando el líder respondió, `con-hallazgos`; `--check` dio 0.
+    - `/odd-ws:cerrar` mostró todo antes del sí. Hizo dos commits: `dfea5b9`, la fuente de las filas, y `941a6c1`, el cierre. Graduó SQL-01..03 a `capa-sql` con su evidencia. El Conocimiento quedó `graduado` y el Estado `en revisión`.
+  - **Hallazgos (la sesión del ticket anotó 6 en su bitácora, marcados `→ motor:`; se suman los del padre):**
+    - **F1:** la sesión del ticket no tiene los repos de código como carpetas de trabajo, y nada le dice al usuario que use `--add-dir`.
+    - **F2:** con un solo archivo, las 3 corridas de diseño leen en el mismo orden. No se corrige: siguen siendo muestras independientes, y la r2 encontró una SUGGESTION que la r1 y la r3 solo anotaron como límite. El padre lo había llamado «costo para nada», y la corrida lo desmiente.
+    - **F3:** los revisores reciben el `CLAUDE.md` del ticket tal como estaba al arrancar la sesión, sin el Paso 0 escrito después. 3 de 4 lo notaron y releyeron el del disco.
+    - **F4:** el script de ids de `cerrar` mira solo la matriz. Una instancia que trae un `verificar_<capa>.py` con ids propios, como la de aceptación de P1(a), choca en la fila 9 con SQL-09.
+    - **F5:** `revisar` no dice qué estado lleva el recibo cuando hubo hallazgos y ya se resolvieron.
+    - **F6 (aviso):** sin remoto, el triaje siempre manda al modo completo, y la salida `--clon` tampoco sirve. Un repo del equipo siempre tiene `origin`.
+    - **Solo registrados:** la sesión escribió primero un Estado inválido («en curso») y lo corrigió sola. El molde del origen en SQL-82 y la exigencia de CRLF vienen de la copia de aceptación de la instancia, no de la plantilla (`git grep` en la plantilla: nada). El aviso LF→CRLF al commitear repite la sugerencia ya anotada de un `.gitattributes` generado.
+  - **Evidencia para H1:** en la sesión del ticket, `/plugin` mostró `odd-ws @ odd-workspace-template (project)` con el error «not cached at …/odd-ws/0.1.0». O sea, la sesión abierta dentro del ticket **leyó el `settings.json` del ticket**. El error es esperable: el plugin no está instalado para la instancia y el marketplace sigue en una versión vieja. Se resuelve en H1 con `marketplace update` y `install --scope project`. No hay que «resolverlo» desde `/plugin`, porque instalaría la versión vieja.
+- **L16 (2026-11-04): la corrección de la corrida manual (M1), inline.**
+  - **F1:** la plantilla de `CLAUDE.md` («Cómo se carga el contexto»), el paso 8 de `abrir` y el README dicen cómo abrir la sesión del ticket: `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama». `bootstrap_textos` lo fija: RED 21/22, GREEN 22/22. Se descartó generar un `settings.local.json` por ticket con `additionalDirectories`, porque es más maquinaria y la ruta del worktree recién se conoce en `abrir`.
+  - **F3:** en el prompt de `revisar`, los revisores leen el `CLAUDE.md` del ticket del disco, aunque ya tengan uno cargado.
+  - **F4:** el script de ids de `cerrar` toma el mayor entre la matriz y los ids de `.claude/reglas/verificar_<capa>.py`, y si ese archivo no existe sigue igual. La prueba extrae el bloque de la skill y lo corre sobre una copia de la instancia:
+    - el script nuevo da `SQL-83` con el archivo de reglas y `SQL-04` sin él;
+    - el viejo de `HEAD` da `SQL-04` con el archivo de reglas, o sea que reproduce el choque;
+    - en los tres casos la matriz queda intacta más una línea.
+  - **F5:** `revisar` define los tres estados del recibo y dice que, cuando se resuelven los hallazgos de un `pendiente`, el recibo se vuelve a escribir con `con-hallazgos`.
+  - **F2 y F6:** sin cambios, por lo que dice L15.

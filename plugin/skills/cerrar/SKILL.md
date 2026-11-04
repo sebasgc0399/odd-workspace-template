@@ -60,7 +60,7 @@ Escribí lo aprobado en su destino, uno por uno:
 
 - **Un doc de dominio o el `CLAUDE.md` raíz:** editá la sección que corresponde. Si el doc es nuevo, tiene que quedar enlazado desde el índice. Si cambia una cifra o un dato que ya vivía en otro doc, buscá sus copias antes de seguir.
 - **Una fila de la matriz.** Las columnas, en este orden, son `id, origen, tipo, destino, severidad, numeros, resumen, motivo`:
-  - `id`: el siguiente libre de la capa, `<rule_prefix>-NN` (por ejemplo `EJ-01`, `EJ-02`). El script de abajo lo calcula.
+  - `id`: el siguiente libre de la capa, `<rule_prefix>-NN` (por ejemplo `EJ-01`, `EJ-02`). El script de abajo lo calcula con la matriz y con los ids que ya usa `.claude/reglas/verificar_<capa>.py`, porque una instancia puede traer reglas propias sin fila en la matriz.
   - `origen`: fijado a un commit que ya existe, `<ruta>@<hash>:<ini>-<fin>` (el rango es de líneas, base 1), normalmente la decisión del ticket o su bitácora. **Si la fuente todavía no está commiteada, hay que commitearla antes** (con el sí del usuario): comprobalo con `git status --short -- <ruta>`, que tiene que salir vacío, y sacá el hash con `git log -1 --format=%h -- <ruta>`. Una memoria va como `memoria:<slug>` y no lleva hash.
   - `tipo`: uno de `CE`, `CC`, `PR`, `CR`, `MT`, `META`. La plantilla no los define: copiá el de una fila vecina de la matriz con el mismo destino, y si la matriz está vacía proponé uno y confirmalo con el usuario.
   - `destino`: **uno solo**: `chequeo`, `pasiva`, `skill`, `reviewer-PR`, `criterios`, `evidencia` o `descarte`. Son archivos de la instancia: `chequeo` es `.claude/reglas/verificar_<capa>.py`; `pasiva` es el bloque `no-negociables` de `.claude/skills/capa-<capa>/SKILL.md`; `skill` es ese mismo archivo, fuera del bloque; `reviewer-PR` es `.claude/agents/revisor-<capa>.md`; `criterios` es `.claude/skills/criterios/SKILL.md` (o su `references/`); `evidencia` es `.claude/reglas/evidencia.md`.
@@ -73,15 +73,23 @@ Escribí lo aprobado en su destino, uno por uno:
   import csv, re
 
   RUTA = ".claude/reglas/matriz.csv"
+  REGLAS = ".claude/reglas/verificar_<capa>.py"
   PREFIJO = "<rule_prefix>"
   FILA = ["", "<ruta>@<hash>:<ini>-<fin>", "<tipo>", "<destino>", "<severidad>", "<numeros>", "<resumen>", "<motivo>"]
 
+  ID = re.escape(PREFIJO) + r"-([0-9]{2,})"
+  ultimo = 0
   with open(RUTA, encoding="utf-8", newline="") as f:
-      ultimo = 0
       for reg in csv.reader(f):
-          m = re.fullmatch(re.escape(PREFIJO) + r"-([0-9]{2,})", reg[0]) if reg else None
+          m = re.fullmatch(ID, reg[0]) if reg else None
           if m:
               ultimo = max(ultimo, int(m.group(1)))
+  try:
+      with open(REGLAS, encoding="utf-8", errors="replace") as f:
+          for m in re.finditer(r"\b" + ID + r"\b", f.read()):
+              ultimo = max(ultimo, int(m.group(1)))
+  except FileNotFoundError:
+      pass
   FILA[0] = "%s-%02d" % (PREFIJO, ultimo + 1)
   with open(RUTA, "a", encoding="utf-8", newline="") as f:
       csv.writer(f, lineterminator="\n").writerow(FILA)
