@@ -55,7 +55,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | hecho: `a41e026`, etiqueta y push (L17) |
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | hecho (L18) |
 | M2 | S1, S6 | F6: el triaje cuenta consumidores en la base explícita de un repo sin remoto | inline | **3**: cambia la salida del triaje que consume `revisar`. Commit propio | hecho (L20) |
-| M3 | S1, S6 | F2 y `--no-track` en el árbol principal de `abrir` | inline | **6**: prosa | pendiente |
+| M3 | S1, S6 | F2 y `--no-track` en el árbol principal de `abrir` | inline | **6**: prosa | hecho (L21) |
 | V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | pendiente |
 
 ## Log
@@ -339,3 +339,8 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - el caso de la corrida (sin remoto, base `a5d79a8`) pasa de `COMPLETO`, con consumidores inválidos, a `RAPIDO`;
     - sin remoto y sin base, con remoto y base por defecto, y con remoto y base explícita, la salida es idéntica byte a byte.
   - **Docs:** `diseno.md` (Consumidores) y `revisar` (La base).
+  - **Commit:** `70c20dc`.
+- **L21 (2026-11-04): F2 y `--no-track` (M3).**
+  - **F2:** la tabla de modos de `revisar` dice que, con un solo archivo, las 3 corridas de diseño leen en el mismo orden y son muestras independientes, y que no se anuncian como «en otro orden». El costo no baja.
+  - **`--no-track`:** el comando del árbol principal en `abrir` pasa a `git -C <repo> switch --no-track -c <rama> <base>`, y `diseno.md` §Abrir nombra los dos comandos con `--no-track`.
+    - Lo verifiqué en un clon scratch, con la config aislada: sin la opción, la rama nueva queda con upstream `origin/feat/T-200-…`; con ella, sin upstream.

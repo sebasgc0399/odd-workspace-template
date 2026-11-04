@@ -82,7 +82,7 @@ Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el *
 |---|---|
 | `0` | ninguna: lectura estructural (paso 5) |
 | `rapido` | `revisor-diseno` ×1, más `revisor-<capa>` ×1 por cada capa tocada |
-| `completo` | `revisor-diseno` ×3, con los archivos en un orden distinto en cada corrida, más `revisor-<capa>` ×1 por cada capa tocada |
+| `completo` | `revisor-diseno` ×3, con los archivos en un orden distinto en cada corrida (con un solo archivo el orden es el mismo y las 3 son muestras independientes: no lo anuncies como «en otro orden»), más `revisor-<capa>` ×1 por cada capa tocada |
 
 **Orden barajado (modo `completo`).** La primera corrida de diseño recibe los archivos en el orden del triaje; la segunda, en el orden inverso; la tercera, en un orden barajado. El orden va escrito en el prompt como lectura sugerida.
 
