@@ -393,7 +393,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - **una instancia con solo la config y el local escritos a mano:** se completa, y esos dos archivos quedan iguales byte a byte;
   - **una anterior a T8 sin `rule_prefix`:** sale con 2 sin escribir nada, y se completa después de agregar el prefijo a mano.
   - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM. `workspace.local.json` se crea con el `plugin_root` del plugin que está corriendo; si ya existía, lo cubre `--arreglar plugin-root` del doctor.
-  - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins`, y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
+  - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins` y el mismo archivo en `tickets/_plantilla/.claude/settings.json` (T9: Claude Code lee `settings.json` solo de la carpeta donde arranca la sesión), y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
   - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
     - `writer-<capa>`, con `plantilla_writer.generar`, cuya salida no cambió;
     - `revisor-<capa>`, desde `plantillas/revisor.md`, con el mismo mecanismo de versión, huella y bloques `<!-- instancia:... -->`, que ahora es `plantilla_writer.armar` y recibe la plantilla. El revisor es de solo lectura y reporta con severidad y `ruta:línea`;
@@ -409,6 +409,17 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - **Textos** (`bootstrap_textos.py`, clave `proyecto.nombre`):
     - un `CLAUDE.md` liviano (116 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets y las skills del plugin;
     - la plantilla del ticket en `tickets/_plantilla/CLAUDE.md`, con los dos relojes (Estado y Conocimiento), alcance y no-goals, Paso 0, bitácora y candidatos a graduar. No lleva tracker.
+
+### Tickets (`ticket.py`, T9)
+
+`python ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]` crea `tickets/<id>-<slug>/` copiando `tickets/_plantilla/` entera, con los bytes tal cual.
+
+- **Escribe con el motor del bootstrap:** `bootstrap.planificar_archivos` arma el plan desde pares `(ruta, bytes)`, con las mismas revisiones que `planificar`, y `aplicar` no pisa nada. Volver a correrlo sobre un ticket viejo agrega solo lo que le falta, por ejemplo su `.claude/settings.json`.
+- **Un id, una carpeta:** si alguna carpeta bajo `tickets/` (las archivadas incluidas) empieza con `<id>-` y no es el destino, rechaza y la nombra.
+  - **Límite conocido:** con ids que llevan guion, `AB-CD-s` también aparece en el glob del id `AB`. Por eso las skills listan las carpetas y preguntan cuando el glob encuentra más de una.
+- **La raíz:** sale de `CLAUDE_PROJECT_DIR` o del cwd (R-1). Con `--raiz`, esa carpeta tiene que tener `workspace.config.json`.
+- **Rechaza (exit 1):** un id o un slug inválido, la plantilla ausente (manda a `/odd-ws:bootstrap`) y lo que escape de la raíz o de la plantilla.
+- **Exit 2:** el uso mal formado, sin instancia, la config rota o un error al escribir.
 
 ### Revisar (`skills/revisar`, T9)
 
@@ -500,7 +511,7 @@ Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLIC
       - Un JSON roto es FALTA.
   - **`agentes-skills`:** cada skill que un agente de `.claude/agents/*.md` precarga con `skills:` (leído con `verificar_capa.skills_del_frontmatter`) existe en la instancia o en `~/.claude/skills/`, y Claude Code la precarga de verdad. Una que falta, o que lleva `paths:` (spike (e) del origen, con control) o `disable-model-invocation: true` (documentado), se saltea en silencio: FALTA. Si a `criterios` o a `capa-<capa>` les falta su línea suelta `CENTINELA <skill>`, es AVISO: el writer la vuelve a leer del disco y lo avisa en cada corrida. Las skills de un plugin (`plugin:skill`) no se verifican. Sin arreglo automático.
   - **`agentes-hooks`:** un agente que declara `hooks:` en el frontmatter es AVISO. En un agente de proyecto, Claude Code los saltea en silencio mientras la carpeta no aceptó el diálogo de confianza, y siempre en una sesión `-p` (documentado). Van en el `settings.json` de la instancia, filtrando por `agent_type`. Sin arreglo automático.
-  - **No ve:** una skill cuyo `name` difiere de su carpeta (sale como faltante), la precedencia entre una skill del usuario y otra del proyecto con el mismo nombre, y los agentes en subcarpetas de `.claude/agents/`. Del chequeo de salud del origen quedó solo esto: el resto era paridad de `settings.json` entre carpetas de ticket y cableado de hooks, que el plugin resuelve con su `hooks.json`.
+  - **No ve:** una skill cuyo `name` difiere de su carpeta (sale como faltante), la precedencia entre una skill del usuario y otra del proyecto con el mismo nombre, y los agentes en subcarpetas de `.claude/agents/`. Del chequeo de salud del origen quedó solo esto. El cableado de hooks lo resuelve el plugin con su `hooks.json`. La paridad de `settings.json` entre carpetas de ticket sigue haciendo falta, porque Claude Code lo lee solo de la carpeta donde arranca la sesión: la cubre la plantilla del ticket, que lleva el `enabledPlugins` y que `ticket.py` copia (T9).
 - **Perfil de modelos:** `rol → (alias, effort)`, nunca IDs; umbral del modo ahorro; medición de costo real (los tokens que se reportan de un subagente son su contexto final, no su costo).
 - **Memoria partida:** la de metodología y lo personal se puede exportar; la de dominio se queda con su proyecto.
 

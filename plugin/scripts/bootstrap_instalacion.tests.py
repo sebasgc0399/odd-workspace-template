@@ -30,6 +30,10 @@ def d():
     return importlib.import_module("doctor")
 
 
+def c():
+    return importlib.import_module("odd_ws.capas")
+
+
 @contextlib.contextmanager
 def instalacion_registrada():
     copia = list(b().GENERADORES)
@@ -60,13 +64,24 @@ def test_genera_el_pre_commit_de_la_plantilla_y_el_settings_del_plugin():
     with Escenario() as e:
         acciones = g().generar(e.spec())
         archivos = [a for a in acciones if isinstance(a, tuple) and not isinstance(a, b().AccionDeGit)]
-        assert [a[0] for a in archivos] == [".githooks/pre-commit", ".claude/settings.json"]
-        pre_commit, settings = archivos
+        assert [a[0] for a in archivos] == [".githooks/pre-commit", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json"]
+        pre_commit, settings, _ = archivos
         assert pre_commit[1] == PLANTILLA.read_bytes() and pre_commit[2] == 0o755
         assert len(settings) == 2
         assert json.loads(settings[1].decode("utf-8")) == {"enabledPlugins": {d().CLAVE_PLUGIN: True}}
         assert settings[1] == b().serializar({"enabledPlugins": {d().CLAVE_PLUGIN: True}})
         assert d().CLAVE_PLUGIN == "odd-ws@odd-workspace-template"
+
+
+def test_genera_el_settings_de_la_plantilla_del_ticket_igual_al_de_la_raiz():
+    with Escenario() as e:
+        acciones = g().generar(e.spec())
+        porruta = {a[0]: a for a in acciones if isinstance(a, tuple) and not isinstance(a, b().AccionDeGit)}
+        raiz, ticket = porruta[".claude/settings.json"], porruta[c().TICKET_SETTINGS]
+        assert len(ticket) == 2 and ticket[1] == raiz[1]
+        assert ticket[1] == b().serializar({"enabledPlugins": {d().CLAVE_PLUGIN: True}})
+        assert ticket[1].endswith(b"}" + bytes([10])) and bytes([13]) not in ticket[1] and not ticket[1].startswith(bytes([0xEF, 0xBB, 0xBF]))
+        assert c().TICKET_SETTINGS == "tickets/_plantilla/.claude/settings.json"
 
 
 def test_pide_git_init_y_el_hookspath_en_ese_orden_y_despues_de_los_archivos():
@@ -88,6 +103,8 @@ def test_la_instancia_generada_trae_los_archivos_de_instalacion():
         assert json.loads((e.raiz / ".claude" / "settings.json").read_text(encoding="utf-8")) == {"enabledPlugins": {d().CLAVE_PLUGIN: True}}
         lineas = salida.splitlines()
         assert "creado .githooks/pre-commit" in lineas and "creado .claude/settings.json" in lineas
+        assert f"creado {c().TICKET_SETTINGS}" in lineas
+        assert (e.raiz / c().TICKET_SETTINGS).read_bytes() == (e.raiz / ".claude" / "settings.json").read_bytes()
         assert "git init: repo creado" in lineas and "core.hooksPath = .githooks: configurado (--local)" in lineas
 
 
@@ -138,6 +155,22 @@ def test_un_pre_commit_y_un_settings_existentes_no_se_tocan():
             assert (raiz / nombre).stat().st_mtime_ns == antes[nombre]
             assert f"ya existía {nombre}" in salida.splitlines()
         assert "marcalo ejecutable" not in salida
+
+
+def test_completar_una_instancia_anterior_agrega_solo_el_settings_de_la_plantilla_del_ticket():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        assert generar_instancia(e, e.raiz)[0] == 0
+        (e.raiz / c().TICKET_SETTINGS).unlink()
+        antes = {k: v for k, v in arbol(e.raiz).items() if not k.startswith(".git") and k != c().TICKET_SETTINGS}
+        codigo, salida, errores = generar_instancia(e, e.raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        assert [l for l in lineas if l.startswith("creado ")] == [f"creado {c().TICKET_SETTINGS}"]
+        assert "ya existía .githooks/pre-commit" in lineas and "ya existía .claude/settings.json" in lineas
+        assert {k: v for k, v in arbol(e.raiz).items() if not k.startswith(".git") and k != c().TICKET_SETTINGS} == antes
+        assert (e.raiz / c().TICKET_SETTINGS).read_bytes() == (e.raiz / ".claude" / "settings.json").read_bytes()
 
 
 def test_el_doctor_da_ok_sobre_una_instancia_generada():

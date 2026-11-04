@@ -163,7 +163,7 @@ def archivos_esperados():
         f".claude/agents/writer-{CAPA}.md", f".claude/agents/revisor-{CAPA}.md", f".claude/skills/capa-{CAPA}/SKILL.md", ".claude/agents/revisor-diseno.md", ".claude/skills/criterios/SKILL.md",
         ".claude/reglas/matriz.csv", ".claude/reglas/evidencia.md", f".claude/reglas/verificar_{CAPA}.py", f".claude/reglas/verificar_{CAPA}.tests.py",
         "CLAUDE.md", "tickets/_plantilla/CLAUDE.md",
-        ".githooks/pre-commit", ".claude/settings.json",
+        ".githooks/pre-commit", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json",
     ]
 
 
