@@ -305,17 +305,46 @@ def grep_archivos(clon, rama, patron, fijo=False, ci=False):
             for l in r.stdout.decode("utf-8", errors="replace").splitlines() if l}
 
 
+def _repo_comun(ruta):
+    try:
+        r = _git(ruta, "rev-parse", "--git-common-dir")
+    except ErrorEntorno:
+        return None
+    if r.returncode != 0:
+        return None
+    comun = r.stdout.decode("utf-8", errors="replace").strip()
+    return os.path.normcase(os.path.realpath(os.path.join(ruta, comun)))
+
+
+def _sin_remoto(repo):
+    try:
+        r = _git(repo, "remote")
+    except ErrorEntorno:
+        return False
+    return r.returncode == 0 and not r.stdout.strip()
+
+
 class Clones:
-    def __init__(self, rutas):
+    def __init__(self, rutas, bases=None):
         self.rutas = list(rutas)
         self.ramas = {c: _rama_y_hash(c) for c in self.rutas}
-        self.ok = [c for c in self.rutas if self.ramas[c][0]]
+        self.en_base = {}
+        for c in self.rutas:
+            if not self.ramas[c][0] and bases:
+                comun = _repo_comun(c)
+                base = bases.get(comun) if comun else None
+                if base and _sin_remoto(c):
+                    self.en_base[c] = base
+        self.ok = [c for c in self.rutas if self.ramas[c][0] or c in self.en_base]
+
+    def rama(self, clon):
+        return self.ramas[clon][0] or self.en_base[clon]
 
     def hashes(self):
         return {c: self.ramas[c][1] for c in self.rutas}
 
     def faltantes(self):
-        return [c for c in self.rutas if not self.ramas[c][0]]
+        return [c for c in self.rutas if c not in self.ok]
 
 
 def evaluar_consumidores(cambios, clones, cota):
@@ -339,8 +368,11 @@ def evaluar_consumidores(cambios, clones, cota):
     if len(objetos) > TOPE_OBJETOS:
         return "invalida", detalle + ["%d objetos (más de %d): el conteo sería parcial, revisar a mano" % (len(objetos), TOPE_OBJETOS)]
     if clones.faltantes():
-        return "invalida", detalle + ["repo(s) sin origin/HEAD o inexistentes (haz el fetch y `git remote set-head origin -a`, "
-                                      "o pasa --clon): %s" % ", ".join(clones.faltantes())]
+        return "invalida", detalle + ["repo(s) sin origin/HEAD o inexistentes (haz el fetch y `git remote set-head origin -a`; "
+                                      "si no tiene remoto, pasa su base con --repo RUTA#BASE, o pasa --clon): %s"
+                                      % ", ".join(clones.faltantes())]
+    detalle += ["%s: sin remoto, conté en la base %s" % (clon, clones.en_base[clon][:10])
+                for clon in clones.ok if clon in clones.en_base]
     for c, o in objetos:
         if o["nuevo"] and not (c["taller"] and c["base_texto"] is None):
             detalle.append("%s: objeto nuevo, sin consumidores previos" % o["nombre"])
@@ -348,7 +380,7 @@ def evaluar_consumidores(cambios, clones, cota):
         defs, refs = set(), set()
         try:
             for clon in clones.ok:
-                rama = clones.ramas[clon][0]
+                rama = clones.rama(clon)
                 defs |= {(clon, p) for p in grep_archivos(clon, rama, o["ere_def"], False, o["ci"])}
                 refs |= {(clon, p) for p in grep_archivos(clon, rama, o["ref"], o["fijo"], o["ci"])}
         except ErrorEntorno as exc:
@@ -386,8 +418,9 @@ def _cargar_config(raiz):
 def analizar(repos, taller=(), raiz=None, clones=None):
     raiz, config = _cargar_config(raiz)
     instancia = cargar_senales(raiz)
-    clones_ = Clones(clones if clones is not None else [repo["path"] for repo in config["repos"].values()])
     recolectados = [recolectar_repo(ruta, base, config) for ruta, base in repos]
+    bases = {comun: r["base"] for r in recolectados for comun in [_repo_comun(r["ruta"])] if comun}
+    clones_ = Clones(clones if clones is not None else [repo["path"] for repo in config["repos"].values()], bases)
     del_taller = [recolectar_taller(t, config) for t in taller]
     todos = [c for r in recolectados for c in r["cambios"]] + del_taller
     activos = [c for c in todos if not es_doc(c["ruta"])]

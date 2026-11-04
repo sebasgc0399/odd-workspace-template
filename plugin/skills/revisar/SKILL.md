@@ -30,7 +30,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
   - la ruta de cada repo sale de `workspace.local.json` (`repos.<repo>.path`);
   - el worktree y la rama del ticket están en su `CLAUDE.md`, en «Worktree y rama». Si el ticket trabaja en un worktree, ese es el `--repo`, no el árbol principal;
   - si no está claro qué repos toca el cambio, preguntá.
-- **La base** de cada repo es el merge-base con `origin/HEAD`, y es la misma que usan el triaje y el recibo. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario, porque habla con el remoto. Si un repo no tiene `origin/HEAD`, los scripts salen con 2 y piden `git remote set-head origin -a` o la base explícita con `--repo <ruta>#<base>`.
+- **La base** de cada repo es el merge-base con `origin/HEAD`, y es la misma que usan el triaje y el recibo. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario, porque habla con el remoto. Si un repo no tiene `origin/HEAD`, los scripts salen con 2 y piden `git remote set-head origin -a` o la base explícita con `--repo <ruta>#<base>`. Un repo sin ningún remoto, con la base explícita, cuenta sus consumidores en esa base; con remoto y sin `origin/HEAD`, la señal de consumidores queda inválida.
 - **Los archivos del ticket.** El triaje lista todo lo que cambió contra la base. Si entre esos archivos hay algunos que no son del ticket (por ejemplo, archivos del ambiente local que están modificados a propósito), separalos con el usuario: no entran a la entrada ni al recibo.
 
 ## 2. El triaje y el sí
