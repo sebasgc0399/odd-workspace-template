@@ -56,7 +56,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | hecho (L18) |
 | M2 | S1, S6 | F6: el triaje cuenta consumidores en la base explícita de un repo sin remoto | inline | **3**: cambia la salida del triaje que consume `revisar`. Commit propio | hecho (L20) |
 | M3 | S1, S6 | F2 y `--no-track` en el árbol principal de `abrir` | inline | **6**: prosa | hecho (L21) |
-| V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | pendiente |
+| V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | versión y etiqueta locales (L22); falta el push autorizado |
 
 ## Log
 
@@ -344,3 +344,8 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **F2:** la tabla de modos de `revisar` dice que, con un solo archivo, las 3 corridas de diseño leen en el mismo orden y son muestras independientes, y que no se anuncian como «en otro orden». El costo no baja.
   - **`--no-track`:** el comando del árbol principal en `abrir` pasa a `git -C <repo> switch --no-track -c <rama> <base>`, y `diseno.md` §Abrir nombra los dos comandos con `--no-track`.
     - Lo verifiqué en un clon scratch, con la config aislada: sin la opción, la rama nueva queda con upstream `origin/feat/T-200-…`; con ella, sin upstream.
+  - **Commit:** `bd0e78d`.
+- **L22 (2026-11-04): la entrega `0.2.1` (V2).**
+  - **Qué es:** `plugin.json` pasa de `0.2.0` a `0.2.1`. Es una corrección, sin cambios de config ni de API: el triaje cuenta en la base explícita de un repo sin remoto, y hay texto nuevo en `revisar` y `abrir`.
+  - **La etiqueta:** `odd-ws--v0.2.1` va sobre el commit de esta entrada, creada con `claude plugin tag ./plugin`, primero con `--dry-run`.
+  - **El push** de la rama, `main` y la etiqueta, juntos, espera la autorización del usuario.
