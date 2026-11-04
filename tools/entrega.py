@@ -73,10 +73,28 @@ def commit_de_la_etiqueta(raiz, etiqueta):
     raise NoSePuedeVerificar(f"git no pudo resolver la etiqueta {etiqueta}: " + error_de(resultado))
 
 
+def etiqueta_ajena_a_su_version(raiz, etiqueta):
+    commit = commit_de_la_etiqueta(raiz, etiqueta)
+    if commit is None:
+        raise NoSePuedeVerificar(f"git no pudo resolver la etiqueta {etiqueta}")
+    version = version_del_plugin(raiz, commit)
+    if etiqueta == PREFIJO_ETIQUETA + version:
+        return None
+    return (
+        f"la última etiqueta, {etiqueta}, no es una entrega: el plugin.json de su commit {commit[:7]} dice {version} "
+        f"y su nombre debería ser {PREFIJO_ETIQUETA}{version}. "
+        f"Subí «version» en {PLUGIN_JSON} y etiquetá con «claude plugin tag ./plugin», que crea el nombre que corresponde"
+    )
+
+
 def revisar_push_a_main(raiz, sha):
     ultima = ultima_etiqueta(raiz, sha)
-    if ultima is not None and not plugin_cambio(raiz, ultima, sha):
-        return None
+    if ultima is not None:
+        ajena = etiqueta_ajena_a_su_version(raiz, ultima)
+        if ajena:
+            return ajena
+        if not plugin_cambio(raiz, ultima, sha):
+            return None
     version = version_del_plugin(raiz, sha)
     etiqueta = PREFIJO_ETIQUETA + version
     apunta_a = commit_de_la_etiqueta(raiz, etiqueta)
