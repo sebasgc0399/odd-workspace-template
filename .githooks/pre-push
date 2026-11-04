@@ -2,3 +2,4 @@
 entrada=$(cat)
 python tools/barrido.py --autoprueba || exit 1
 printf '%s\n' "$entrada" | python tools/barrido.py --pre-push || exit 1
+printf '%s\n' "$entrada" | python tools/entrega.py || exit 1

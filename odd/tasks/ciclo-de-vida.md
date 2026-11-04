@@ -5,13 +5,16 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 ## Specs
 
 - **S1. Alcance aprobado (L2).** Unidades:
-  - **S0, spike:** abrir Claude Code dentro de un ticket de la instancia de prueba y ver si aparecen las skills `/odd-ws:*`. Si no aparecen, los settings no se heredan y cada ticket necesita su `settings.json`.
+  - **S0, spike:** abrir Claude Code dentro de un ticket de la instancia de prueba y ver si aparecen las skills `/odd-ws:*`. Si no aparecen, los settings no se heredan y cada ticket necesita su `settings.json`. **Resuelto por la documentación (L8):** no se heredan, así que cada ticket lleva el suyo. La prueba en la máquina pasa a H1.
   - **R2:** la plantilla `revisor-diseno` y su generador en `/bootstrap`. Revisa entre capas: el hermano vigente y el consumidor de cada dato.
   - **R1:** la skill `/odd-ws:revisar`. Sigue este orden: triaje, anuncio del modo y su costo, el sí, las corridas, el rescate, la consolidación y el recibo. Corre `--check` antes de cualquier «listo» y pregunta si el cambio va a un líder.
   - **A2:** el script `ticket.py`, que crea `tickets/<id>-<slug>/` desde la plantilla sin pisar nada y reusa el motor de `/bootstrap`.
   - **A1:** la skill de apertura: alcance y no-goals, avisos de los «X o Y», docs de dominio por índice y candidatos de los tickets hermanos.
   - **C1:** la skill de cierre: triaje de aprendizajes, fila de la matriz con origen, los dos relojes, mostrar antes de escribir y un commit con `git add` explícito, con el sí del usuario.
   - **T1:** los textos. `CLAUDE.md` y `ticket.md` apuntan a las skills nuevas.
+  - **P1 (L8):** «Chequeo en el pre-push: frena un push a main que cambia `plugin/` desde la última etiqueta sin subir la versión.»
+  - **V1 (L8):** la entrega: `plugin.json` a `0.2.0`, la etiqueta con `claude plugin tag` y el push de la rama, de main y de la etiqueta, solo con la autorización del usuario.
+  - **H1 (L8):** la prueba de humo después del push: actualizar el marketplace, abrir `claude` en un ticket sin `--plugin-dir` y ver `/odd-ws:`.
 - **S2. Decisiones técnicas del padre, aprobadas con el alcance (L2).**
   - **Tracker sin contrato:** si la sesión tiene una herramienta (MCP) del tracker del usuario, la apertura la usa; si no, el usuario pega el pedido.
   - **El cierre gradúa solo a lo que ya existe:** `knowledge.docs`, el `CLAUDE.md` raíz, la matriz y `evidencia.md`. Engram es opcional.
@@ -30,18 +33,26 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **La invocación:** el modelo puede invocar `/revisar` antes de un commit, pero la skill siempre pide el sí por el costo. La apertura y el cierre los invoca solo el usuario.
   - **El worktree:** la apertura pregunta si va en un worktree o en el árbol principal y da el comando; los comandos en los repos del equipo los corre el usuario.
   - **El commit de cierre:** lo propone la skill, con `git status` mostrado antes y `git add` explícito, y lo hace solo con el sí.
+- **S6. El plan de la entrega, aprobado por el usuario (L8).**
+  - **Se mantiene P4:** la versión fijada en `plugin.json` y la etiqueta `odd-ws--vX.Y.Z`. El canal es `main` y no una rama `stable`: `main` solo avanza al cerrar una feature, y cada cierre es una entrega. P1 lo hace cumplir.
+  - **A2:** el bootstrap genera también `tickets/_plantilla/.claude/settings.json`, con el mismo `enabledPlugins` de la raíz, y `ticket.py` copia la plantilla entera sin pisar nada.
+  - **T1** suma el README: la instalación con `--scope project`, porque `claude plugin install` instala a nivel usuario por defecto y eso va contra P2, y cómo actualizar. También corrige `Doc/diseno.md:503`: el ticket necesita su `enabledPlugins` aunque el plugin traiga sus hooks.
+  - **La corrida manual del ciclo** va con `claude --plugin-dir <clon>/plugin`, abierta dentro de un ticket de la instancia de prueba. Antes, el repo `db` de esa instancia pasa a un repo sintético, para que la corrida no toque ningún repo del equipo.
 
 ## Tasks
 
 | ID | S# | Qué | Ruta | Riesgo | Estado |
 |---|---|---|---|---|---|
-| S0 | S1 | Spike: ¿una sesión abierta dentro de un ticket carga el plugin de la raíz? | el usuario, a mano (2 minutos), con control positivo en la raíz | ninguno | pendiente |
+| S0 | S1 | Spike: ¿una sesión abierta dentro de un ticket carga el plugin de la raíz? | el usuario, a mano (2 minutos), con control positivo en la raíz | ninguno | hecho por la documentación (L8); la prueba en la máquina pasa a H1 |
 | R2 | S1, S4 | Plantilla `revisor-diseno` y su generador en `bootstrap_agentes.py` | delegado (writer, en paralelo con R1, por el respaldo de contexto del padre; L3) | ninguno: suma un archivo generado | hecho (L5) |
 | R1 | S1, S2, S5 | Skill `/odd-ws:revisar` | delegado (writer, en paralelo con R2; L3) | **6**, porque ninguna prueba atrapa la prosa. Verificador: cada comando de la skill contra la CLI real, y una corrida a mano en la instancia de prueba | hecho (L4); verificación al final de la feature (L5) |
-| A2 | S1, S4 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada | después de S0 | ninguno: reusa el motor que no pisa | pendiente |
+| A2 | S1, S4, S6 | `ticket.py`: crear el ticket desde la plantilla sin pisar nada, y el `settings.json` de la plantilla | delegado (writer, en paralelo con P1; L8) | ninguno: suma un archivo generado y reusa el motor que no pisa | pendiente |
+| P1 | S1, S4, S6 | Chequeo de la entrega en el pre-push | delegado (writer, en paralelo con A2; L8) | **5**: toca la entrega. Commit propio y entra al verificador del final | hecho (L9); verificación al final de la feature |
 | A1 | S1, S2, S5 | Skill de apertura | después de A2 | **6**, como R1 | pendiente |
 | C1 | S1, S2, S5 | Skill de cierre (`/odd-ws:cerrar`) | delegado (writer, adelantado porque no depende de S0; L6) | **6**, como R1 | hecho (L7); verificación al final de la feature |
-| T1 | S1 | Textos: `CLAUDE.md`, `ticket.md` y la prueba de `bootstrap_textos` | al final | ninguno | pendiente |
+| T1 | S1, S6 | Textos: `CLAUDE.md`, `ticket.md`, la prueba de `bootstrap_textos`, el README, P4 y `diseno.md:503` | al final | ninguno | pendiente |
+| V1 | S1, S6 | La entrega `0.2.0` y su etiqueta | inline, después del verificador y la corrida manual | **5**: toca la entrega. Commit propio | pendiente |
+| H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | pendiente |
 
 ## Log
 
@@ -131,3 +142,35 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
     - el script de agregar fila va dentro de la skill. Pasarlo a un `matriz.py --agregar` probado queda como sugerencia, fuera de la T9.
   - **Corrección del padre:** el registro estaba mezclado. Cuatro verbos en «tú» pasaron a voseo.
   - **Verificación (decisión del padre):** R1, A1 y C1 son prosa, de riesgo 6. Van con un solo verificador independiente al final de la feature, más una corrida a mano del ciclo completo (apertura → revisar → cierre) en la instancia de prueba, en lugar de un verificador por skill.
+- **L8 (2026-11-04): S0, la versión del plugin y el plan de la entrega.**
+  - **S0:** el control positivo falló: tampoco en la raíz aparecía `/odd-ws:` («No commands match "/odd-ws"»).
+    - **Causa:** `plugin.json` fija `0.1.0` desde el esqueleto, y Claude Code nombra su copia y detecta las actualizaciones por esa versión. La copia `0.1.0` de la máquina es la del spike del 25/10: trae `scripts/` y ninguna skill.
+    - **P4 nunca se ejecutó:** no hay etiquetas `odd-ws--v*` ni rama `stable`.
+  - **El padre propuso sacar la versión, con un dato equivocado.** Dijo que nada la leía, y el usuario respondió «Si me parece bien». La búsqueda se había cortado a los 30 resultados: `comun.tests.py:296` ata la mayor a la API, y P4 decide la versión fijada. El padre lo corrigió antes de escribir nada.
+  - **El usuario, verbatim:** «Vale, tomate tu tiempo e investiga y analiza bien que vamos hacer».
+  - **La documentación oficial** (`code.claude.com/docs`; un agente la investigó y el padre verificó tres citas con `curl`):
+    - `settings.json` se lee solo de la carpeta de arranque;
+    - la confianza se guarda por la raíz del repo git;
+    - los agentes y las skills de proyecto se buscan subiendo hasta la raíz del repo, y las del plugin no;
+    - `claude plugin tag` crea `<name>--v<version>`;
+    - `owner/repo#ref` fija un canal;
+    - en un marketplace de terceros la actualización automática viene apagada;
+    - `claude plugin install` instala a nivel usuario por defecto.
+  - **El plan aprobado (S6).** El usuario, verbatim: «Si vamos con ese plan». Con eso aceptó `main` como canal y el chequeo P1.
+  - **Rutas:** A2 y P1 son independientes y tocan archivos distintos, así que van con dos writers en paralelo. Los docs compartidos (`diseno.md`, `README.md` y este archivo) los edita el padre al final.
+- **L9 (2026-11-04): P1 hecho por el writer (Sonnet).**
+  - `tools/entrega.py` y `tools/entrega.tests.py`, más una línea al final de `.githooks/pre-push`. Las dos líneas del barrido siguen primero y sin cambios.
+  - **Pruebas:** 20/20. Tres de ellas hacen un `git push` real a un remoto sintético con una copia del hook y una lista negra sintética. Fijan que el barrido sigue frenando y corre antes. La suite tarda unos 40 s en el pre-commit.
+  - **RED:** 0/20 sin el script y 5/20 con un stub que sale 0.
+  - **Mutantes:** 16 de 17 muertos. El vivo (sacar `|| exit 1` de la última línea del hook) es equivalente, porque el hook sale con el código de su último comando.
+  - **Diferencial contra el hook de `c66cf0e`:** el push a una rama de feature da salida idéntica. El push a `main` con su etiqueta solo suma la línea pedida `entrega limpia`.
+  - **Decisiones del writer:**
+    - el bloqueo por regla sale con 1, y no poder verificar sale con 2, como el barrido;
+    - una línea ilegible bloquea siempre;
+    - si `describe` falla, confirma con `git tag --merged` en vez de leer el texto del error.
+  - **Aviso del padre (fuera de alcance):** `CEROS` cubre solo SHA-1, así que en un repo SHA-256 el borrado de `main` se bloquearía.
+  - La config real de git siguió limpia (`~/.gitconfig` igual; `core.hooksPath` sin valor en `--system` ni en `--global`).
+  - **Docs del padre:**
+    - la fila P4 de `diseno.md`: el canal es `main`, y el porqué de la versión fijada;
+    - `diseno.md` §8: el chequeo;
+    - el README: `tools/entrega.py` y el pre-push.
