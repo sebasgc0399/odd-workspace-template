@@ -56,7 +56,7 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
 | H1 | S1, S6 | Prueba de humo por el camino real | el usuario, después del push autorizado | ninguno | hecho (L18) |
 | M2 | S1, S6 | F6: el triaje cuenta consumidores en la base explícita de un repo sin remoto | inline | **3**: cambia la salida del triaje que consume `revisar`. Commit propio | hecho (L20) |
 | M3 | S1, S6 | F2 y `--no-track` en el árbol principal de `abrir` | inline | **6**: prosa | hecho (L21) |
-| V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | versión y etiqueta locales (L22); falta el push autorizado |
+| V2 | S1, S6 | La entrega `0.2.1` y su etiqueta | inline | **5**: toca la entrega. Commit propio | hecho: `37bc217`, etiqueta y push (L22) |
 
 ## Log
 
@@ -349,3 +349,12 @@ Objetivo: que el ciclo de un ticket de la instancia (abrir, revisar antes del co
   - **Qué es:** `plugin.json` pasa de `0.2.0` a `0.2.1`. Es una corrección, sin cambios de config ni de API: el triaje cuenta en la base explícita de un repo sin remoto, y hay texto nuevo en `revisar` y `abrir`.
   - **La etiqueta:** `odd-ws--v0.2.1` va sobre el commit de esta entrada, creada con `claude plugin tag ./plugin`, primero con `--dry-run`.
   - **El push** de la rama, `main` y la etiqueta, juntos, espera la autorización del usuario.
+  - **Resultado (autorizado por el usuario: «Si haz el push»):**
+    - `git fetch`: `origin/main` seguía en `a41e026`, ancestro de `HEAD`;
+    - la rama: `5efb109..37bc217`, con barrido limpio;
+    - `git push origin 37bc217:refs/heads/main refs/tags/odd-ws--v0.2.1`: barrido limpio, «entrega limpia», `a41e026..37bc217`;
+    - el `main` local se adelantó con `update-ref`, chequeando el valor viejo;
+    - `ls-remote`: `main` y la etiqueta despelada en `37bc217`;
+    - la config real de git sigue limpia.
+    - Este cierre queda sin commitear y viaja con el próximo commit de la plantilla.
+  - **La instancia (2026-11-05):** el usuario corrió `marketplace update` y `plugin update` en la instancia de prueba. `/plugin` muestra `0.2.1`, scope `project`, Enabled, las 7 skills y los 4 hooks; la pestaña de errores está vacía.
