@@ -4,11 +4,14 @@ import re
 import subprocess
 import sys
 
+import notas
+
 CEROS = "0" * 40
 REF_MAIN = "refs/heads/main"
 PATRON_ETIQUETA = "odd-ws--v*"
 PREFIJO_ETIQUETA = "odd-ws--v"
 PLUGIN_JSON = "plugin/.claude-plugin/plugin.json"
+WORKFLOW = ".github/workflows/release.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 VERSION = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
 USO = "uso: entrega.py   (lee de stdin las líneas del pre-push)"
@@ -87,6 +90,24 @@ def etiqueta_ajena_a_su_version(raiz, etiqueta):
     )
 
 
+def faltan_las_notas(raiz, sha, version):
+    listado = git(raiz, "ls-tree", "--name-only", sha, "--", notas.CHANGELOG)
+    if listado.returncode != 0:
+        raise NoSePuedeVerificar(f"git no pudo listar {notas.CHANGELOG} en {sha[:7]}: " + error_de(listado))
+    texto = ""
+    if listado.stdout.strip():
+        resultado = git(raiz, "show", f"{sha}:{notas.CHANGELOG}")
+        if resultado.returncode != 0:
+            raise NoSePuedeVerificar(f"git no pudo leer {notas.CHANGELOG} en {sha[:7]}: " + error_de(resultado))
+        texto = resultado.stdout.decode("utf-8-sig", "replace")
+    if notas.seccion(texto, version) is not None:
+        return None
+    return (
+        f"el push a main entrega {PREFIJO_ETIQUETA}{version}, pero {notas.CHANGELOG} en {sha[:7]} no tiene notas para {version}. "
+        f"Escribí la sección «## {version}» en {notas.CHANGELOG}: es el cuerpo del release que publica {WORKFLOW}"
+    )
+
+
 def revisar_push_a_main(raiz, sha):
     ultima = ultima_etiqueta(raiz, sha)
     if ultima is not None:
@@ -94,12 +115,14 @@ def revisar_push_a_main(raiz, sha):
         if ajena:
             return ajena
         if not plugin_cambio(raiz, ultima, sha):
+            if commit_de_la_etiqueta(raiz, ultima) == sha:
+                return faltan_las_notas(raiz, sha, version_del_plugin(raiz, sha))
             return None
     version = version_del_plugin(raiz, sha)
     etiqueta = PREFIJO_ETIQUETA + version
     apunta_a = commit_de_la_etiqueta(raiz, etiqueta)
     if apunta_a == sha:
-        return None
+        return faltan_las_notas(raiz, sha, version)
     desde = ultima if ultima is not None else "el inicio"
     if etiqueta == ultima:
         faltante = f"{sha[:7]} no tiene la etiqueta {etiqueta}: la versión sigue en {version}, la de la última etiqueta"

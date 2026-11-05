@@ -574,8 +574,11 @@ Después del barrido, el pre-push revisa cada push a `refs/heads/main`:
 - **Pasa** si `plugin/` no cambió desde la última etiqueta `odd-ws--v*` alcanzable, o si el commit tiene la etiqueta `odd-ws--v<versión>` de su propio `plugin.json`.
 - **Una etiqueta cuenta como entrega** solo si su nombre es `odd-ws--v<versión del plugin.json de su commit>`. Una etiqueta a mano con otro número frena con exit 1 (el bloqueante B1 del verificador de la T9).
 - **Frena** con exit 1 en cualquier otro caso y dice qué falta: subir `version`, etiquetar con `claude plugin tag ./plugin` y empujar la etiqueta junto con la rama.
+- **Una entrega trae sus notas:** si el commit empujado lleva su etiqueta, `CHANGELOG.md` de ese commit tiene que tener una sección `## <versión>` con contenido. Si falta, frena con exit 1 y dice qué sección escribir. La sección la lee `tools/notas.py`, el único que sabe leer el CHANGELOG, y la usan tanto este chequeo como el workflow.
 - **Falla cerrado** con exit 2 si no puede verificar: un error de git, un `plugin.json` ilegible o sin `version` X.Y.Z, o una línea de entrada ilegible.
 - Las otras ramas, las etiquetas y el borrado de `main` pasan sin revisar.
+
+**El release en GitHub** (`.github/workflows/release.yml`) corre al llegar una etiqueta `odd-ws--v*`. Comprueba que la etiqueta sea la versión del `plugin.json` de su commit, no toca un release que ya existe, y publica con `gh release create --verify-tag`, con la sección de esa versión como cuerpo. El pre-push garantiza que las notas existan antes de que la etiqueta salga; el workflow vuelve a chequear la versión porque una etiqueta creada desde la web de GitHub no pasa por el pre-push.
 
 ## 9. Propuestas abiertas
 
