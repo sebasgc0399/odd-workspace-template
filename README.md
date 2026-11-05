@@ -30,18 +30,17 @@ Marketplace de Claude Code con un solo plugin, **`odd-ws`**. El plugin convierte
 
 ## Camino rápido
 
-1. **Pide acceso.** El repo es privado: el mantenedor te suma como colaborador en GitHub. Tu git necesita un `credential.helper` (en Windows, Git Credential Manager) para autenticarse cuando Claude Code clona el marketplace.
-2. **Revisa los [requisitos de la máquina](#requisitos-de-la-máquina).**
-3. **Registra el marketplace e instala el plugin** desde la carpeta del proyecto (puede estar vacía):
+1. **Revisa los [requisitos de la máquina](#requisitos-de-la-máquina).**
+2. **Registra el marketplace e instala el plugin** desde la carpeta del proyecto (puede estar vacía):
 
    ```text
    claude plugin marketplace add sebasgc0399/odd-workspace-template
    claude plugin install odd-ws@odd-workspace-template --scope project
    ```
 
-4. **Abre `claude` en esa carpeta y corre `/odd-ws:bootstrap`.** Te entrevista (proyecto, repos y capas), te muestra el plan y solo escribe después de tu sí.
-5. **Corre `/odd-ws:doctor`** y arregla lo que marque FALTA.
-6. **Abre tu primer ticket** con `/odd-ws:abrir`.
+3. **Abre `claude` en esa carpeta y corre `/odd-ws:bootstrap`.** Te entrevista (proyecto, repos y capas), te muestra el plan y solo escribe después de tu sí.
+4. **Corre `/odd-ws:doctor`** y arregla lo que marque FALTA.
+5. **Abre tu primer ticket** con `/odd-ws:abrir`.
 
 Tres reglas de la instalación:
 
@@ -57,11 +56,12 @@ Se desarrolla y se prueba en Windows.
 |---|---|---|
 | Claude Code ≥ 2.1.284 | El plugin, sus skills y sus hooks | Sí |
 | Python 3, invocable como `python` | Todos los hooks y scripts del plugin | Sí |
-| Git con `credential.helper` | Los repos, los worktrees y el acceso al repo privado. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
+| Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
+| Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
 | gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún script del plugin los invoca | No |
 
-> **El doctor y las herramientas opcionales.** Hoy `/odd-ws:doctor` marca FALTA si no encuentra gentle-ai, engram o jq, y sale con código 1. Si no los usas, esas tres filas quedan en FALTA y el resto funciona igual. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
+> **El doctor y las herramientas opcionales.** Hoy `/odd-ws:doctor` marca FALTA si no encuentra gentle-ai, engram, jq o un `credential.helper`, y sale con código 1. Si no los usas, esas filas quedan en FALTA y el resto funciona igual. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
 
 ## El ciclo de un ticket
 
@@ -214,7 +214,7 @@ Después, `/plugin` dentro de una sesión debe mostrar la versión nueva, con la
 
 ### Puesta en marcha del clon
 
-1. Clona el repo y, desde el clon, corre `python plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
+1. Clona el repo (si no eres colaborador, trabaja en un fork y propón el cambio con un pull request) y, desde el clon, corre `python plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
 2. `python plugin/scripts/doctor.py --arreglar repo-hooks` (o `git config core.hooksPath .githooks`). **Obligatorio:** git no instala hooks solo, y un clon sin este paso no corre ningún barrido.
 3. Crea la lista negra en `~/.odd-ws/denylist.txt` (o apunta `ODD_WS_DENYLIST` a otra ruta). Va **fuera** del repo y no viaja con él. Sin ella, el barrido bloquea todos los commits: falla cerrado.
 4. Vuelve a correr el doctor hasta que solo queden en FALTA las [herramientas opcionales](#requisitos-de-la-máquina).
