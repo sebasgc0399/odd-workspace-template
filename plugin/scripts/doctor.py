@@ -22,6 +22,8 @@ OK, FALTA, AVISO, NO_APLICA = "OK", "FALTA", "AVISO", "NO APLICA"
 VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 USO = "uso: doctor.py [--arreglar <id>]"
 COMANDO_RDD = ["gentle-ai", "review", "mode", "disable", "--scope", "global"]
+OPCIONAL = "opcional: ningún script del plugin lo invoca"
+OPCIONAL_CREDENCIALES = "opcional: solo hace falta para empujar a GitHub"
 
 AYUDA_LISTA = "Creá ~/.odd-ws/denylist.txt en UTF-8, un término por línea (o apuntá ODD_WS_DENYLIST a otra ruta). Sin ella, el barrido bloquea todos los commits."
 AYUDA_PYTHON = ("Desactivá el alias de ejecución de python.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
@@ -403,18 +405,20 @@ def chequear_credenciales(ctx):
         return resultado("git-credenciales", FALTA, "git no está instalado", None, "Instalá Git for Windows.")
     if codigo == 0 and primera_linea(salida):
         return resultado("git-credenciales", OK, f"credential.helper = {primera_linea(salida)}")
-    return resultado("git-credenciales", FALTA, "sin credential.helper: git no puede guardar la credencial de GitHub", None, AYUDA_CREDENCIALES)
+    return resultado("git-credenciales", AVISO, f"sin credential.helper: git no puede guardar la credencial de GitHub ({OPCIONAL_CREDENCIALES})",
+                     None, AYUDA_CREDENCIALES)
 
 
-def chequear_version(ctx, id, args, minimo, ayuda):
+def chequear_version(ctx, id, args, minimo, ayuda, opcional=False):
+    falta, sufijo = (AVISO, f" ({OPCIONAL})") if opcional else (FALTA, "")
     codigo, salida = ctx.ejecutar(args)
     if codigo is None:
-        return resultado(id, FALTA, f"{args[0]} no está instalado", None, ayuda), False
+        return resultado(id, falta, f"{args[0]} no está instalado{sufijo}", None, ayuda), False
     version = leer_version(salida)
     if version is None:
         return resultado(id, AVISO, f"no se pudo leer la versión: {primera_linea(salida)[:80] or '(vacío)'}", None, ayuda), True
     if minimo and version < minimo:
-        return resultado(id, FALTA, f"{texto_version(version)} es menor que {texto_version(minimo)}", None, ayuda), True
+        return resultado(id, falta, f"{texto_version(version)} es menor que {texto_version(minimo)}{sufijo}", None, ayuda), True
     return resultado(id, OK, texto_version(version)), True
 
 
@@ -453,9 +457,9 @@ def chequear_telemetria(ctx, hay_gentle):
 def diagnosticar(ctx):
     raiz = raiz_del_clon(ctx)
     claude, _ = chequear_version(ctx, "claude", ["claude", "--version"], (2, 1, 284), AYUDA_CLAUDE)
-    gentle, hay_gentle = chequear_version(ctx, "gentle-ai", ["gentle-ai", "version"], (4, 2, 0), AYUDA_GENTLE)
-    engram, _ = chequear_version(ctx, "engram", ["engram", "version"], (3, 5, 0), AYUDA_ENGRAM)
-    jq, _ = chequear_version(ctx, "jq", ["jq", "--version"], None, AYUDA_JQ)
+    gentle, hay_gentle = chequear_version(ctx, "gentle-ai", ["gentle-ai", "version"], (4, 2, 0), AYUDA_GENTLE, opcional=True)
+    engram, _ = chequear_version(ctx, "engram", ["engram", "version"], (3, 5, 0), AYUDA_ENGRAM, opcional=True)
+    jq, _ = chequear_version(ctx, "jq", ["jq", "--version"], None, AYUDA_JQ, opcional=True)
     return [
         chequear_repo_hooks(ctx, raiz),
         chequear_lista_negra(ctx, raiz),

@@ -567,10 +567,13 @@ def test_python_ausente_es_falta():
         assert por_id(Falso(e.base, which={"python": None}))["python"].estado == "FALTA"
 
 
-def test_sin_credential_helper_es_falta():
+def test_sin_credential_helper_es_aviso_opcional_y_sin_git_es_falta():
     with Escenario() as e:
         ctx = Falso(e.base, respuestas={("git", "config", "--get", "credential.helper"): (1, "")})
-        assert por_id(ctx)["git-credenciales"].estado == "FALTA"
+        r = por_id(ctx)["git-credenciales"]
+        assert r.estado == "AVISO" and "opcional" in r.detalle and "empujar" in r.detalle, r
+        sin_git = Falso(e.base / "b", respuestas={("git", "config", "--get", "credential.helper"): None})
+        assert por_id(sin_git)["git-credenciales"].estado == "FALTA"
 
 
 def test_claude_viejo_es_falta_y_version_ilegible_es_aviso():
@@ -586,10 +589,10 @@ def test_marketplace_no_registrado_es_falta_con_arreglo_automatico():
         assert por_id(Falso(e.base / "b", marketplace=None))["marketplace"].estado == "FALTA"
 
 
-def test_gentle_ai_ausente_es_falta_y_rdd_y_telemetria_no_aplican():
+def test_gentle_ai_ausente_es_aviso_opcional_y_rdd_y_telemetria_no_aplican():
     with Escenario() as e:
         r = por_id(Falso(e.base, respuestas={("gentle-ai",): None}))
-        assert r["gentle-ai"].estado == "FALTA", r
+        assert r["gentle-ai"].estado == "AVISO" and "opcional" in r["gentle-ai"].detalle, r
         assert r["rdd"].estado == "NO APLICA" and r["telemetria"].estado == "NO APLICA", r
 
 
@@ -606,14 +609,29 @@ def test_telemetria_activa_es_aviso():
         assert por_id(ctx)["telemetria"].estado == "AVISO"
 
 
-def test_engram_viejo_es_falta():
+def test_engram_viejo_es_aviso_opcional():
     with Escenario() as e:
-        assert por_id(Falso(e.base, respuestas={("engram", "version"): (0, "engram 3.4.9\n")}))["engram"].estado == "FALTA"
+        r = por_id(Falso(e.base, respuestas={("engram", "version"): (0, "engram 3.4.9\n")}))["engram"]
+        assert r.estado == "AVISO" and "3.4.9" in r.detalle and "opcional" in r.detalle, r
 
 
-def test_jq_ausente_es_falta():
+def test_jq_ausente_es_aviso_opcional():
     with Escenario() as e:
-        assert por_id(Falso(e.base, respuestas={("jq",): None}))["jq"].estado == "FALTA"
+        r = por_id(Falso(e.base, respuestas={("jq",): None}))["jq"]
+        assert r.estado == "AVISO" and "opcional" in r.detalle, r
+
+
+def test_las_herramientas_opcionales_ausentes_no_hacen_fallar_la_salida():
+    with Escenario() as e:
+        ctx = Falso(e.base, respuestas={
+            ("gentle-ai",): None,
+            ("engram",): None,
+            ("jq",): None,
+            ("git", "config", "--get", "credential.helper"): (1, ""),
+        })
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+        assert "0 FALTA" in salida, salida
 
 
 def test_nunca_pide_help_ni_upgrade_a_gentle_ai():
@@ -659,7 +677,7 @@ def test_los_avisos_no_hacen_fallar_la_salida():
 
 def test_una_falta_hace_fallar_la_salida():
     with Escenario() as e:
-        codigo, salida = correr([], Falso(e.base, respuestas={("jq",): None}))
+        codigo, salida = correr([], Falso(e.base, respuestas={("claude", "--version"): (0, "2.1.200 (Claude Code)\n")}))
         assert codigo == 1, salida
 
 
