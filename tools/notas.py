@@ -7,9 +7,11 @@ USO = "uso: notas.py <versión>   (imprime la sección «## <versión>» de CHAN
 
 def seccion(texto, version):
     encabezado = re.compile("## " + re.escape(version) + r"(\s.*)?")
-    cuerpo, dentro = [], False
+    cuerpo, dentro, en_bloque = [], False, False
     for linea in texto.splitlines():
-        if linea.startswith("## "):
+        if linea.lstrip().startswith(("```", "~~~")):
+            en_bloque = not en_bloque
+        elif not en_bloque and linea.startswith("## "):
             if dentro:
                 break
             dentro = encabezado.fullmatch(linea.rstrip()) is not None

@@ -246,7 +246,7 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
    git push origin <sha>:refs/heads/main refs/tags/odd-ws--v<versión>
    ```
 
-   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`, o si `CHANGELOG.md` no tiene las notas de esa versión.
+   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`. También frena cualquier etiqueta `odd-ws--v*` empujada cuyo commit no tenga sus notas en `CHANGELOG.md`.
 4. **El release se publica solo.** Al llegar la etiqueta, `.github/workflows/release.yml` comprueba que coincida con `plugin.json` y publica el release en GitHub con la sección del CHANGELOG como cuerpo. Si el release ya existe, no lo toca.
 
 ### Dónde está el porqué
