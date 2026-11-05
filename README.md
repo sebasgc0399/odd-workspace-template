@@ -225,7 +225,7 @@ Después, `/plugin` dentro de una sesión debe mostrar la versión nueva, con la
 |---|---|
 | `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado y todas las suites `*.tests.py` (unos 4 minutos) |
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
-| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`) |
+| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión y sus notas en `CHANGELOG.md` |
 
 ### Las pruebas
 
@@ -238,7 +238,7 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
 
 ### Una entrega
 
-1. Sube `version` en `plugin/.claude-plugin/plugin.json` y commitea.
+1. Sube `version` en `plugin/.claude-plugin/plugin.json`, escribe sus notas en una sección `## <versión>` de `CHANGELOG.md` y commitea las dos cosas juntas.
 2. Etiqueta con `claude plugin tag ./plugin --dry-run` y después sin `--dry-run`. Crea `odd-ws--v<versión>` y exige el árbol limpio.
 3. Empuja `main` y la etiqueta juntas:
 
@@ -246,7 +246,8 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
    git push origin <sha>:refs/heads/main refs/tags/odd-ws--v<versión>
    ```
 
-   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`.
+   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`, o si `CHANGELOG.md` no tiene las notas de esa versión.
+4. **El release se publica solo.** Al llegar la etiqueta, `.github/workflows/release.yml` comprueba que coincida con `plugin.json` y publica el release en GitHub con la sección del CHANGELOG como cuerpo. Si el release ya existe, no lo toca.
 
 ### Dónde está el porqué
 
@@ -265,8 +266,10 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
 | `plugin/hooks/hooks.json` | Los hooks del plugin |
 | `plugin/scripts/` | Los scripts de las skills y los hooks, cada uno con su `*.tests.py`. `odd_ws/` es la biblioteca que importan los hooks y las reglas de la instancia |
 | `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md`, `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
-| `tools/` | `barrido.py` (el barrido de confidencialidad) y `entrega.py` (el chequeo de la entrega). Son del repo, no viajan con el plugin |
+| `tools/` | `barrido.py` (el barrido de confidencialidad), `entrega.py` (el chequeo de la entrega) y `notas.py` (saca del CHANGELOG las notas de una versión). Son del repo, no viajan con el plugin |
 | `.githooks/` | Los hooks de git del repo |
+| `.github/workflows/release.yml` | Publica el release de cada etiqueta `odd-ws--v*` |
+| `CHANGELOG.md` | Las notas de cada versión, una sección `## <versión>` por entrega |
 
 ## Licencia
 

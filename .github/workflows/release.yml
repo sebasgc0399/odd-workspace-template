@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "odd-ws--v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publicar el release de la etiqueta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETA: ${{ github.ref_name }}
+        run: |
+          version="${ETIQUETA#odd-ws--v}"
+          manifiesto="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8-sig"))["version"])' plugin/.claude-plugin/plugin.json)"
+          if [ "$manifiesto" != "$version" ]; then
+            echo "::error::la etiqueta $ETIQUETA no es la versión de plugin.json ($manifiesto)"
+            exit 1
+          fi
+          if gh release view "$ETIQUETA" > /dev/null 2>&1; then
+            echo "el release $ETIQUETA ya existe: no se toca"
+            exit 0
+          fi
+          python3 tools/notas.py "$version" > "$RUNNER_TEMP/notas.md"
+          gh release create "$ETIQUETA" --title "odd-ws $version" --notes-file "$RUNNER_TEMP/notas.md" --verify-tag

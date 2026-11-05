@@ -10,6 +10,7 @@ from pathlib import Path
 AQUI = Path(__file__).resolve().parent
 SCRIPT = AQUI / "entrega.py"
 BARRIDO = AQUI / "barrido.py"
+NOTAS = AQUI / "notas.py"
 HOOKS = AQUI.parent / ".githooks"
 CEROS = "0" * 40
 PLUGIN_JSON = "plugin/.claude-plugin/plugin.json"
@@ -23,6 +24,10 @@ def _forzar_borrado(funcion, ruta, _error):
 
 def plugin_json(version):
     return json.dumps({"name": "odd-ws", "version": version}) + "\n"
+
+
+def notas_de(*versiones):
+    return "# Changelog\n" + "".join(f"\n## {version}\n\n- cambios de la {version}\n" for version in versiones)
 
 
 class Escenario:
@@ -155,14 +160,43 @@ def test_etiqueta_de_la_version_en_otro_commit_bloquea():
 def test_version_subida_y_etiqueta_en_el_commit_pasa():
     with Escenario() as e:
         e.entrega_inicial()
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0", "0.1.0")})
+        e.etiquetar("0.2.0")
+        asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
+
+
+def test_una_entrega_sin_changelog_bloquea_y_dice_que_escribir():
+    with Escenario() as e:
+        e.entrega_inicial()
         sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n"})
         e.etiquetar("0.2.0")
+        asegurar(
+            e.correr([a_main(sha)]), 1, "",
+            "ENTREGA BLOQUEADA", "entrega odd-ws--v0.2.0", f"CHANGELOG.md en {sha[:7]} no tiene notas para 0.2.0",
+            "«## 0.2.0»", ".github/workflows/release.yml",
+        )
+
+
+def test_una_entrega_con_changelog_sin_la_seccion_de_su_version_o_vacia_bloquea():
+    with Escenario() as e:
+        e.entrega_inicial()
+        for changelog in (notas_de("0.1.0"), "# Changelog\n\n## 0.2.0\n\n## 0.1.0\n\n- algo\n"):
+            sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": changelog, "CHANGELOG.md": changelog})
+            e.etiquetar("0.2.0")
+            asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "no tiene notas para 0.2.0")
+            e.git("tag", "-d", "odd-ws--v0.2.0")
+
+
+def test_un_push_a_main_que_no_entrega_no_pide_notas():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({"README.md": "otro\n", "CHANGELOG.md": "# Changelog\n"})
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
 
 
 def test_sin_ninguna_etiqueta_y_con_plugin_bloquea_y_pasa_al_etiquetar():
     with Escenario() as e:
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0")})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0")})
         asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "desde el inicio", f"{sha[:7]} no tiene la etiqueta odd-ws--v0.1.0")
         e.etiquetar("0.1.0")
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
@@ -219,7 +253,7 @@ def test_con_varias_lineas_basta_una_de_main_que_falle_para_bloquear():
 def test_con_varias_lineas_todas_en_regla_pasan():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({"plugin/skills/uno.md": "dos\n", PLUGIN_JSON: plugin_json("0.2.0")})
+        sha = e.commit({"plugin/skills/uno.md": "dos\n", PLUGIN_JSON: plugin_json("0.2.0"), "CHANGELOG.md": notas_de("0.2.0")})
         e.etiquetar("0.2.0")
         lineas = [f"refs/heads/feature {sha} refs/heads/feature {CEROS}", a_main(sha)]
         asegurar(e.correr(lineas), 0, "entrega limpia\n")
@@ -282,6 +316,7 @@ class RepoConHook:
         (e.obra / "tools").mkdir()
         shutil.copy(BARRIDO, e.obra / "tools" / "barrido.py")
         shutil.copy(SCRIPT, e.obra / "tools" / "entrega.py")
+        shutil.copy(NOTAS, e.obra / "tools" / "notas.py")
         shutil.copytree(HOOKS, e.obra / ".githooks")
         e.git("config", "core.hooksPath", ".githooks")
 
@@ -311,7 +346,7 @@ def test_el_hook_sigue_frenando_contenido_con_la_lista_negra_y_deja_pasar_lo_lim
 def test_el_hook_frena_el_push_a_main_con_plugin_sin_etiqueta_y_lo_deja_pasar_con_ella():
     with Escenario() as e:
         repo = RepoConHook(e)
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0")}, "base")
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0")}, "base")
         codigo, salida = repo.empujar("main")
         assert codigo != 0, salida
         assert "ENTREGA BLOQUEADA" in salida and "odd-ws--v0.1.0" in salida, salida
