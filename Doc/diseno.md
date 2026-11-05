@@ -574,7 +574,9 @@ Después del barrido, el pre-push revisa cada push a `refs/heads/main`:
 - **Pasa** si `plugin/` no cambió desde la última etiqueta `odd-ws--v*` alcanzable, o si el commit tiene la etiqueta `odd-ws--v<versión>` de su propio `plugin.json`.
 - **Una etiqueta cuenta como entrega** solo si su nombre es `odd-ws--v<versión del plugin.json de su commit>`. Una etiqueta a mano con otro número frena con exit 1 (el bloqueante B1 del verificador de la T9).
 - **Frena** con exit 1 en cualquier otro caso y dice qué falta: subir `version`, etiquetar con `claude plugin tag ./plugin` y empujar la etiqueta junto con la rama.
-- **Una entrega trae sus notas:** si el commit empujado lleva su etiqueta, `CHANGELOG.md` de ese commit tiene que tener una sección `## <versión>` con contenido. Si falta, frena con exit 1 y dice qué sección escribir. La sección la lee `tools/notas.py`, el único que sabe leer el CHANGELOG, y la usan tanto este chequeo como el workflow.
+- **Una entrega trae sus notas:** si el commit empujado lleva su etiqueta, `CHANGELOG.md` de ese commit tiene que tener una sección `## <versión>` con contenido. Si falta, frena con exit 1 y dice qué sección escribir. La sección la lee `tools/notas.py`, el único que sabe leer el CHANGELOG (ignora los `## ` dentro de un bloque de código), y la usan tanto este chequeo como el workflow.
+- **Cada etiqueta `odd-ws--v*` que se empuja** pasa por lo mismo, aunque `main` vaya más adelante o la etiqueta viaje sola: su nombre tiene que ser la versión del `plugin.json` de su commit, y ese commit tiene que traer sus notas.
+- **Las notas se exigen solo si el commit trae `.github/workflows/release.yml`.** GitHub corre el workflow del commit etiquetado, así que una entrega anterior al workflow no publica nada y no necesita notas; sus etiquetas y sus commits pasan como antes.
 - **Falla cerrado** con exit 2 si no puede verificar: un error de git, un `plugin.json` ilegible o sin `version` X.Y.Z, o una línea de entrada ilegible.
 - Las otras ramas, las etiquetas y el borrado de `main` pasan sin revisar.
 

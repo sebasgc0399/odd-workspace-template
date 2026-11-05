@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import re
@@ -8,6 +9,7 @@ import notas
 
 CEROS = "0" * 40
 REF_MAIN = "refs/heads/main"
+REF_ETIQUETAS = "refs/tags/"
 PATRON_ETIQUETA = "odd-ws--v*"
 PREFIJO_ETIQUETA = "odd-ws--v"
 PLUGIN_JSON = "plugin/.claude-plugin/plugin.json"
@@ -76,6 +78,14 @@ def commit_de_la_etiqueta(raiz, etiqueta):
     raise NoSePuedeVerificar(f"git no pudo resolver la etiqueta {etiqueta}: " + error_de(resultado))
 
 
+def no_es_entrega(cual, commit, version):
+    return (
+        f"{cual} no es una entrega: el plugin.json de su commit {commit[:7]} dice {version} "
+        f"y su nombre debería ser {PREFIJO_ETIQUETA}{version}. "
+        f"Subí «version» en {PLUGIN_JSON} y etiquetá con «claude plugin tag ./plugin», que crea el nombre que corresponde"
+    )
+
+
 def etiqueta_ajena_a_su_version(raiz, etiqueta):
     commit = commit_de_la_etiqueta(raiz, etiqueta)
     if commit is None:
@@ -83,19 +93,28 @@ def etiqueta_ajena_a_su_version(raiz, etiqueta):
     version = version_del_plugin(raiz, commit)
     if etiqueta == PREFIJO_ETIQUETA + version:
         return None
-    return (
-        f"la última etiqueta, {etiqueta}, no es una entrega: el plugin.json de su commit {commit[:7]} dice {version} "
-        f"y su nombre debería ser {PREFIJO_ETIQUETA}{version}. "
-        f"Subí «version» en {PLUGIN_JSON} y etiquetá con «claude plugin tag ./plugin», que crea el nombre que corresponde"
-    )
+    return no_es_entrega(f"la última etiqueta, {etiqueta},", commit, version)
+
+
+def commit_del_objeto(raiz, objeto):
+    resultado = git(raiz, "rev-parse", "--verify", "-q", f"{objeto}^{{commit}}")
+    if resultado.returncode != 0:
+        raise NoSePuedeVerificar(f"git no pudo resolver el commit de {objeto[:7]}: " + error_de(resultado))
+    return resultado.stdout.decode("utf-8").strip()
+
+
+def existe_en(raiz, sha, ruta):
+    listado = git(raiz, "ls-tree", "--name-only", sha, "--", ruta)
+    if listado.returncode != 0:
+        raise NoSePuedeVerificar(f"git no pudo listar {ruta} en {sha[:7]}: " + error_de(listado))
+    return bool(listado.stdout.strip())
 
 
 def faltan_las_notas(raiz, sha, version):
-    listado = git(raiz, "ls-tree", "--name-only", sha, "--", notas.CHANGELOG)
-    if listado.returncode != 0:
-        raise NoSePuedeVerificar(f"git no pudo listar {notas.CHANGELOG} en {sha[:7]}: " + error_de(listado))
+    if not existe_en(raiz, sha, WORKFLOW):
+        return None
     texto = ""
-    if listado.stdout.strip():
+    if existe_en(raiz, sha, notas.CHANGELOG):
         resultado = git(raiz, "show", f"{sha}:{notas.CHANGELOG}")
         if resultado.returncode != 0:
             raise NoSePuedeVerificar(f"git no pudo leer {notas.CHANGELOG} en {sha[:7]}: " + error_de(resultado))
@@ -103,9 +122,16 @@ def faltan_las_notas(raiz, sha, version):
     if notas.seccion(texto, version) is not None:
         return None
     return (
-        f"el push a main entrega {PREFIJO_ETIQUETA}{version}, pero {notas.CHANGELOG} en {sha[:7]} no tiene notas para {version}. "
+        f"el push entrega {PREFIJO_ETIQUETA}{version}, pero {notas.CHANGELOG} en {sha[:7]} no tiene notas para {version}. "
         f"Escribí la sección «## {version}» en {notas.CHANGELOG}: es el cuerpo del release que publica {WORKFLOW}"
     )
+
+
+def revisar_etiqueta_empujada(raiz, etiqueta, commit):
+    version = version_del_plugin(raiz, commit)
+    if etiqueta != PREFIJO_ETIQUETA + version:
+        return no_es_entrega(f"la etiqueta {etiqueta}", commit, version)
+    return faltan_las_notas(raiz, commit, version)
 
 
 def revisar_push_a_main(raiz, sha):
@@ -145,12 +171,20 @@ def revisar(entrada):
         partes = linea.split()
         if len(partes) != 4 or not SHA.match(partes[1]) or not SHA.match(partes[3]):
             raise NoSePuedeVerificar(f"línea ilegible en la entrada del pre-push: {linea!r}")
-        if partes[2] != REF_MAIN or partes[1] == CEROS:
+        es_etiqueta = fnmatch.fnmatchcase(partes[2], REF_ETIQUETAS + PATRON_ETIQUETA)
+        if partes[2] != REF_MAIN and not es_etiqueta or partes[1] == CEROS:
             continue
         if raiz is None:
             raiz = raiz_del_repo()
-        revisadas += 1
-        problema = revisar_push_a_main(raiz, partes[1])
+        if es_etiqueta:
+            commit = commit_del_objeto(raiz, partes[1])
+            if not existe_en(raiz, commit, WORKFLOW):
+                continue
+            revisadas += 1
+            problema = revisar_etiqueta_empujada(raiz, partes[2][len(REF_ETIQUETAS):], commit)
+        else:
+            revisadas += 1
+            problema = revisar_push_a_main(raiz, partes[1])
         if problema:
             return revisadas, problema
     return revisadas, None

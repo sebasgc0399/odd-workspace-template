@@ -76,6 +76,13 @@ def test_una_seccion_vacia_o_ausente_no_tiene_notas():
     assert notas().seccion("", "0.1.0") is None
 
 
+def test_un_encabezado_dentro_de_un_bloque_de_codigo_no_corta_ni_abre_una_seccion():
+    texto = "## 0.2.1\n\n- uno\n\n```md\n## ejemplo\n```\n\n- dos\n\n~~~\n## 0.2.0\n~~~\n\n## 0.1.0\n\n- tres\n"
+    assert notas().seccion(texto, "0.2.1") == "- uno\n\n```md\n## ejemplo\n```\n\n- dos\n\n~~~\n## 0.2.0\n~~~\n"
+    assert notas().seccion(texto, "0.2.0") is None
+    assert notas().seccion(texto, "0.1.0") == "- tres\n"
+
+
 def test_tolera_crlf():
     assert notas().seccion(CHANGELOG.replace("\n", "\r\n"), "0.1.0") == "- de la 0.1.0\n"
 

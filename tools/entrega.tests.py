@@ -30,6 +30,14 @@ def notas_de(*versiones):
     return "# Changelog\n" + "".join(f"\n## {version}\n\n- cambios de la {version}\n" for version in versiones)
 
 
+WORKFLOW = ".github/workflows/release.yml"
+CON_WORKFLOW = {WORKFLOW: "name: release\n"}
+
+
+def a_etiqueta(version, objeto, remoto=CEROS):
+    return f"refs/tags/odd-ws--v{version} {objeto} refs/tags/odd-ws--v{version} {remoto}"
+
+
 class Escenario:
     def __enter__(self):
         self.dir = Path(tempfile.mkdtemp(prefix="entrega-"))
@@ -168,7 +176,7 @@ def test_version_subida_y_etiqueta_en_el_commit_pasa():
 def test_una_entrega_sin_changelog_bloquea_y_dice_que_escribir():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n"})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", **CON_WORKFLOW})
         e.etiquetar("0.2.0")
         asegurar(
             e.correr([a_main(sha)]), 1, "",
@@ -181,10 +189,50 @@ def test_una_entrega_con_changelog_sin_la_seccion_de_su_version_o_vacia_bloquea(
     with Escenario() as e:
         e.entrega_inicial()
         for changelog in (notas_de("0.1.0"), "# Changelog\n\n## 0.2.0\n\n## 0.1.0\n\n- algo\n"):
-            sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": changelog, "CHANGELOG.md": changelog})
+            sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": changelog, "CHANGELOG.md": changelog, **CON_WORKFLOW})
             e.etiquetar("0.2.0")
             asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "no tiene notas para 0.2.0")
             e.git("tag", "-d", "odd-ws--v0.2.0")
+
+
+def test_una_entrega_de_un_commit_sin_el_workflow_no_pide_notas():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n"})
+        e.etiquetar("0.2.0")
+        asegurar(e.correr([a_main(sha), a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
+
+
+def test_una_etiqueta_empujada_detras_de_main_tambien_exige_sus_notas():
+    with Escenario() as e:
+        e.entrega_inicial()
+        e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", **CON_WORKFLOW})
+        e.etiquetar("0.2.0")
+        punta = e.commit({"README.md": "otro\n"})
+        objeto = e.git_salida("rev-parse", "odd-ws--v0.2.0")
+        asegurar(e.correr([a_main(punta), a_etiqueta("0.2.0", objeto)]), 1, "", "ENTREGA BLOQUEADA", "entrega odd-ws--v0.2.0", "no tiene notas para 0.2.0")
+        asegurar(e.correr([a_etiqueta("0.2.0", objeto)]), 1, "", "ENTREGA BLOQUEADA", "no tiene notas para 0.2.0")
+
+
+def test_una_etiqueta_empujada_con_sus_notas_pasa_y_una_ajena_a_su_version_bloquea():
+    with Escenario() as e:
+        e.entrega_inicial()
+        e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0"), **CON_WORKFLOW})
+        e.etiquetar("0.2.0")
+        e.etiquetar("0.9.0")
+        asegurar(e.correr([a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
+        asegurar(
+            e.correr([a_etiqueta("0.9.0", e.git_salida("rev-parse", "odd-ws--v0.9.0"))]), 1, "",
+            "ENTREGA BLOQUEADA", "odd-ws--v0.9.0", "dice 0.2.0", "debería ser odd-ws--v0.2.0",
+        )
+
+
+def test_el_borrado_de_una_etiqueta_se_ignora():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", **CON_WORKFLOW})
+        e.etiquetar("0.2.0")
+        asegurar(e.correr([f"(delete) {CEROS} refs/tags/odd-ws--v0.2.0 {sha}"]), 0, "")
 
 
 def test_un_push_a_main_que_no_entrega_no_pide_notas():
