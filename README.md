@@ -61,7 +61,7 @@ Se desarrolla y se prueba en Windows.
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
 | gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún script del plugin los invoca | No |
 
-> **El doctor y las herramientas opcionales.** Hoy `/odd-ws:doctor` marca FALTA si no encuentra gentle-ai, engram, jq o un `credential.helper`, y sale con código 1. Si no los usas, esas filas quedan en FALTA y el resto funciona igual. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
+> **El doctor y las herramientas opcionales.** Si no encuentra gentle-ai, engram, jq o un `credential.helper`, `/odd-ws:doctor` lo marca como AVISO con «opcional» en el detalle, y no falla por eso. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
 
 ## El ciclo de un ticket
 
@@ -217,7 +217,7 @@ Después, `/plugin` dentro de una sesión debe mostrar la versión nueva, con la
 1. Clona el repo (si no eres colaborador, trabaja en un fork y propón el cambio con un pull request) y, desde el clon, corre `python plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
 2. `python plugin/scripts/doctor.py --arreglar repo-hooks` (o `git config core.hooksPath .githooks`). **Obligatorio:** git no instala hooks solo, y un clon sin este paso no corre ningún barrido.
 3. Crea la lista negra en `~/.odd-ws/denylist.txt` (o apunta `ODD_WS_DENYLIST` a otra ruta). Va **fuera** del repo y no viaja con él. Sin ella, el barrido bloquea todos los commits: falla cerrado.
-4. Vuelve a correr el doctor hasta que solo queden en FALTA las [herramientas opcionales](#requisitos-de-la-máquina).
+4. Vuelve a correr el doctor hasta que no quede ninguna FALTA.
 
 ### Los hooks del repo
 

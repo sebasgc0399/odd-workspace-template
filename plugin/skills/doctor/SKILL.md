@@ -11,12 +11,12 @@ Corre el diagnóstico desde el directorio del proyecto (si es un clon de `odd-wo
 python "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
-Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fallar.
+Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fallar. gentle-ai, engram, `jq` y el `credential.helper` de git son opcionales: si faltan o están atrasados, salen como AVISO con «opcional» en el detalle.
 
 ## Cómo presentarlo
 
 1. Mostrá la tabla tal cual sale.
-2. Para cada FALTA y cada AVISO, explicá en una línea qué rompe si no se arregla.
+2. Para cada FALTA y cada AVISO, explicá en una línea qué rompe si no se arregla. Un AVISO opcional no rompe el plugin: decilo así y no lo presentes como pendiente.
 3. **Ofrecé los arreglos de a uno.** Si el ítem tiene arreglo automático (la línea `arreglo: --arreglar <id>`), preguntá si lo aplicás. Corré `--arreglar <id>` **solo** después de un sí explícito para **ese** ítem:
 
    ```bash
