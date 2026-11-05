@@ -203,6 +203,14 @@ def test_la_raiz_dice_como_sumar_los_repos_a_la_sesion_del_ticket():
     assert "«Worktree y rama»" in contexto
 
 
+def test_la_raiz_dice_que_ajusta_del_odd_de_gentle_ai():
+    texto = textos()["CLAUDE.md"]
+    seccion = " ".join(texto.split("## Si también usas gentle-ai")[1].split("\n## ")[0].split())
+    assert "odd/tasks/" in seccion and "su carpeta" in seccion
+    assert "autorizan puntualmente" in seccion
+    assert "/odd-ws:revisar" in seccion and "RDD" in seccion
+
+
 def test_el_indice_declara_la_carpeta_de_tickets_con_el_glob_recursivo():
     texto = textos()["CLAUDE.md"]
     assert "tickets/**/" in texto

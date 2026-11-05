@@ -112,6 +112,17 @@ queda el índice.
 - Estado y conocimiento miden relojes distintos: `Estado` es la entrega; `Conocimiento` es si lo
   aprendido ya subió a la capa durable.
 
+## Si también usas gentle-ai
+
+Su ODD sigue siendo el método (tamaño de la tarea, test-first, cuándo delegar), con tres ajustes aquí:
+
+- **El trabajo de un ticket se anota en su carpeta:** su `CLAUDE.md` cumple el papel del documento de
+  feature, así que no se crea `odd/tasks/` para un ticket.
+- **En los repos del equipo, los commits siguen la autoridad de «Repos del equipo»:** se autorizan
+  puntualmente, no por unidad de trabajo como pide el ODD global.
+- **La revisión es `/odd-ws:revisar`.** El RDD nativo va apagado (`/odd-ws:doctor` lo avisa): su revisor
+  corre sin herramientas, así que no puede abrir el hermano vigente ni contar consumidores.
+
 ## Skills del plugin
 
 - `/odd-ws:doctor` — chequeo de la máquina y de la instancia (OK / FALTA / AVISO); arregla de a un ítem,
