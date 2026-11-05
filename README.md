@@ -2,7 +2,7 @@
 
 Marketplace de Claude Code con un solo plugin, **`odd-ws`**. El plugin convierte la carpeta de un proyecto en una **instancia**: un espacio de trabajo con agentes donde cada ticket tiene su carpeta y los hooks chequean cada edición contra las reglas de su capa. Los cambios grandes los escriben agentes con compuerta, y los revisores dejan un recibo atado al diff. Lo aprendido en un ticket sube a reglas y docs verificables. El principio es *Mecanismo > Memoria*: lo que se aprende se vuelve un chequeo, no un recordatorio.
 
-**Versión actual:** `0.2.1`. Quedan en espera, hasta que haya un consumidor real, las bibliotecas de reglas para C# y Java, el fixture ciego de `eval-reviewers` y el juicio de las afirmaciones SQL.
+**Versión actual:** `0.2.2`. Quedan en espera, hasta que haya un consumidor real, las bibliotecas de reglas para C# y Java, el fixture ciego de `eval-reviewers` y el juicio de las afirmaciones SQL.
 
 | Si quieres… | Ve a |
 |---|---|
