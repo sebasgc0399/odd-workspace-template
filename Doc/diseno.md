@@ -407,7 +407,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
     - Por cada capa, un stub `verificar_<capa>.py` (`REGLAS = ()`, y `verificar(ctx)` devuelve `[]`) y su suite, que cumple el contrato P1 y pasa `reglas.py --test <capa>`.
     - `validar` exige el `rule_prefix` de cada capa.
   - **Textos** (`bootstrap_textos.py`, clave `proyecto.nombre`):
-    - un `CLAUDE.md` liviano (116 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets y las skills del plugin;
+    - un `CLAUDE.md` liviano (137 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets, qué ajusta del ODD de gentle-ai si también se usa (el ticket en vez de `odd/tasks/`, la autoridad de commit y la revisión propia) y las skills del plugin;
     - la plantilla del ticket en `tickets/_plantilla/CLAUDE.md`, con los dos relojes (Estado y Conocimiento), alcance y no-goals, Paso 0, bitácora y candidatos a graduar. No lleva tracker.
 
 ### Tickets (`ticket.py`, T9)
