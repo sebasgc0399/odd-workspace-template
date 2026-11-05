@@ -267,3 +267,7 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
 | `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md`, `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
 | `tools/` | `barrido.py` (el barrido de confidencialidad) y `entrega.py` (el chequeo de la entrega). Son del repo, no viajan con el plugin |
 | `.githooks/` | Los hooks de git del repo |
+
+## Licencia
+
+[MIT](LICENSE).
