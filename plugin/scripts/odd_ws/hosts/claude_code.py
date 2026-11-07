@@ -1,9 +1,23 @@
 import json
 
 from odd_ws import transcripcion
+from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
 
+EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
+MANIFIESTO = {
+    "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, compact y clear"),
+    "P2": (SOPORTADO, "PreToolUse de Edit y Write: exit 2 con el motivo en stderr"),
+    "P3": (SOPORTADO, "PreToolUse de Bash y PowerShell: exit 2, o permissionDecision ask"),
+    "P4": (SOPORTADO, "PostToolUse de Edit, Write y Read: exit 2 o additionalContext"),
+    "P5": (SOPORTADO, "SubagentStop con matcher por agent_type y decision block"),
+    "P6": (SOPORTADO, "agent_type y agent_id dentro de un subagente"),
+    "P7": (SOPORTADO, ".claude/agents con tools y skills precargadas"),
+    "P8": (SOPORTADO, "skills del plugin con el namespace /odd-ws:"),
+    "P9": (SOPORTADO, "marketplace y CLAUDE_PLUGIN_ROOT"),
+    "P10": (SOPORTADO, "CLAUDE.md que se apilan por carpeta"),
+}
 FASES = {"PreToolUse": "pre", "PostToolUse": "post"}
 NOMBRES = {fase: nombre for nombre, fase in FASES.items()}
 TIPOS = {"Edit": "edicion", "Write": "edicion", "MultiEdit": "edicion", "Read": "lectura", "Bash": "shell",

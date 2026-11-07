@@ -21,10 +21,12 @@ import time
 import config_loader
 from odd_ws import capas as convencion
 from odd_ws import rutas
+from odd_ws.capacidades import PRE
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia, temporal
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir
 from odd_ws.hosts import claude_code as anfitrion
 
+EMITE = {PRE: (Bloquear,)}
 MAX_FOTO = 8 * 1024 * 1024
 PROFUNDIDAD_MAX = 6
 MAX_SUBS = 50

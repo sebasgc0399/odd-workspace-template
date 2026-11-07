@@ -11,11 +11,13 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws.capacidades import INICIO, POST, PRE
 from odd_ws.comun import (PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas,
                           plazo_de, raiz_de_instancia)
 from odd_ws.eventos import Bloquear, Contexto, Herramienta, InicioSesion, Permitir
 from odd_ws.hosts import claude_code as anfitrion
 
+EMITE = {PRE: (Bloquear,), POST: (Bloquear, Contexto), INICIO: (Contexto,)}
 TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
 DIAS_PODA = 7

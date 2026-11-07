@@ -11,11 +11,13 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws.capacidades import FIN_SUBAGENTE
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, id_valido, plazo_de, raiz_de_instancia
 from odd_ws.eventos import FinSubagente, Permitir, Seguir
 from odd_ws.hosts import claude_code as anfitrion
 from odd_ws.hosts.claude_code import archivos_tocados
 
+EMITE = {FIN_SUBAGENTE: (Seguir,)}
 ESTADOS = ("ok", "partial", "blocked")
 CAMPOS = ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion")
 SIN_PLACEHOLDER = ("regla", "intento", "presupuesto", "arbol")

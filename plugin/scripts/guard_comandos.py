@@ -9,10 +9,12 @@ import time
 
 import config_loader
 from odd_ws import rutas
+from odd_ws.capacidades import PRE
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, plazo_de, raiz_de_instancia, temporal
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir, Preguntar
 from odd_ws.hosts import claude_code as anfitrion
 
+EMITE = {PRE: (Bloquear, Preguntar)}
 HEREDOC_ABRE = re.compile(r"(?s)^(.*?)<<-?\s*['\"]?\w+['\"]?\r?\n")
 ALIMENTA_SHELL = re.compile(r"(?i)\b(bash|sh|zsh|pwsh|powershell|python|node)\b[^\n]*$")
 HEREDOC = re.compile(r"(?si)<<-?\s*['\"]?(\w+)['\"]?\r?\n.*?\r?\n\s*\1")

@@ -60,6 +60,18 @@ Los cuatro hooks separan su lógica del protocolo del CLI que los llama, para su
   - **Responde** como antes, byte a byte: bloquear es exit 2 con el motivo en stderr (en UTF-8; un carácter que no se puede codificar pasa a `?`, para que un bloqueo nunca se vuelva silencio), en pre y en post; preguntar, `permissionDecision: "ask"` con un salto de línea final; contexto, `additionalContext` en `PostToolUse` o en `SessionStart`; seguir, `{"decision": "block", "reason": …}`. Una combinación que el protocolo no tiene (preguntar en post, contexto en pre, bloquear un cierre) calla.
   - **El transcript del writer** también vive aquí, porque es el JSONL de Claude Code (L8): `archivos_tocados` y `comandos_de_shell`, que da cada comando con su dialecto. `analizar` y `destinos` de los guards reciben ese dialecto en `herramienta`, y siguen aceptando el nombre `PowerShell`.
 - **Sin cambio en Claude Code:** no cambian `hooks/hooks.json`, la raíz de la instancia (`raiz_de_instancia`), la marca del primer toque ni el `MultiEdit` de X1 (`writer_guard` y `writer_stop` lo cuentan como escritura; `verificar_capa`, no). Lo comprobó un diferencial contra `main` con 255 payloads de los cuatro hooks: la misma salida, el mismo exit code y los mismos archivos en la instancia. Un verificador independiente lo repitió con unas 3.400 entradas propias y dio lo mismo. La única diferencia es un bloqueo con texto que no se puede codificar (un surrogate suelto): antes callaba o preguntaba, y ahora bloquea.
+- **Manifiesto de capacidades** (`odd_ws.capacidades`, F0b; S3 de `odd/tasks/multi-host.md`). Cada adaptador declara tres cosas, y `odd_ws/capacidades.tests.py` las cruza para cada adaptador de `odd_ws.hosts.ADAPTADORES`:
+  - `MANIFIESTO`: los puntos P1 a P10 como `soportado`, `degradado` o `no disponible`, con su nota. Lo que no está soportado tiene que escribir su fallback.
+  - `EXPRESABLES`: qué decisiones puede expresar en cada punto (`pre`, `post`, `inicio`, `fin_subagente`).
+  - Cada hook declara también su `EMITE`: qué decisiones puede emitir en cada punto.
+
+  Los tests fallan en cuatro casos:
+  - si `responder` contesta algo distinto de lo que dice `EXPRESABLES`;
+  - si un hook emite algo que algún adaptador no puede expresar. Ese caso se resuelve degradándolo en el adaptador, de forma que falle cerrado, y declarándolo en su manifiesto;
+  - si P1 a P5 figuran como `soportado` y el adaptador no expresa lo que piden (`REQUISITOS`);
+  - si `EMITE` no nombra cada tipo de decisión que el hook construye. Esto se chequea leyendo el código con `ast`.
+
+  El límite es que ese chequeo estático ve los tipos y no los puntos: una decisión que ya existe y se emite en otro punto no la atrapa.
 
 ### Writers: el guard (`writer_guard.py`, L25–L28)
 

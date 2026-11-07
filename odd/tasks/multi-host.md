@@ -52,8 +52,8 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
-| F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | delegado: un writer, por el respaldo de contexto de una sesión larga (L8); después, un verificador independiente (S5) | verificado (L9); commit en curso |
-| F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | pendiente |
+| F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | delegado: un writer, por el respaldo de contexto de una sesión larga (L8); después, un verificador independiente (S5) | hecho (`dcad0d9`, L9) |
+| F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | hecho (L10); commit en curso |
 | F0c | S2, S6 | Generación por host: bootstrap y doctor parametrizados, con `.claude/` como fuente de verdad | inline | pendiente |
 | F1 | S2–S4 | Codex: adaptador, manifiesto, `ask` → bloqueo, rutas de `apply_patch`, agentes TOML y el trust de hooks en el doctor. Además: inyectar el adaptador según el host y sacar del núcleo los nombres de Claude Code (`MultiEdit`, `PowerShell`), que son los avisos 3 y 4 de L9 | por decidir | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
@@ -144,4 +144,20 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
   - **El padre.** Volvió a correr 2 suites (18/18 y 44/44), con el mismo resultado que reportó el writer.
   - `review assess` dio `unassessable` por los archivos sin trackear. El riesgo se nombró igual (ítem 2) y el verificador corrió.
   - **Sobrantes fuera del scratch** que tiene que borrar el usuario: `%TEMP%\guarda-test-6n4pk2w3` y `%TEMP%\guarda-test-ac0fg8x0`.
-- **Siguiente paso:** el commit de F0a; después, F0b.
+- **L10 (2026-11-07), F0b inline.** F0a quedó en `dcad0d9`.
+  - **Qué se hizo:**
+    - `odd_ws/capacidades.py`: los estados, los cuatro puntos de evento, P1 a P10 y los `REQUISITOS` de P1 a P5;
+    - `odd_ws/hosts/__init__.py`: el registro `ADAPTADORES`;
+    - en el adaptador de Claude Code: `EXPRESABLES` y `MANIFIESTO`, todo soportado y con su mecanismo;
+    - un `EMITE` en cada hook.
+
+    No cambia nada en tiempo de ejecución.
+  - **Tests:** RED 0/8 (`ModuleNotFoundError`, `AttributeError`), GREEN 8/8.
+  - **Control positivo con mutantes en memoria:**
+    - sacar `Preguntar` de `pre` en el adaptador lo atrapan 3 tests;
+    - declarar en `writer_guard` un tipo que no construye lo atrapa el chequeo `ast`.
+
+    Mover una decisión de punto no lo atrapa nadie: es el límite que quedó escrito en `Doc/diseno.md`.
+  - **Decisión técnica del padre:** la degradación (`Preguntar` → `Bloquear` en un host que no puede preguntar) se implementa en el `responder` de ese adaptador, en F1. No va en `atender`, para no tocar el camino de los guards de Claude Code.
+  - **Risk: none.** Son datos y tests; el comportamiento de los hooks no cambia.
+- **Siguiente paso:** el commit de F0b; después, F0c.

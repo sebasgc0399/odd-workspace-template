@@ -1,0 +1,1 @@
+ADAPTADORES = ("claude_code",)
