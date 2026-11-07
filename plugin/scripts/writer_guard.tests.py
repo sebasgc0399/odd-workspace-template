@@ -20,6 +20,7 @@ NT = os.name == "nt"
 
 import config_loader  # noqa: E402
 from odd_ws import capas as convencion  # noqa: E402
+from odd_ws.hosts import claude_code as anfitrion  # noqa: E402
 
 
 def _cargar():
@@ -853,7 +854,7 @@ def test_la_foto_no_se_pisa_aunque_otro_proceso_la_escriba_en_el_medio():
         original = G.os.path.exists
         G.os.path.exists = lambda p: False
         try:
-            G.tomar_foto(evento_escritura(archivo), str(raiz))
+            G.tomar_foto(anfitrion.leer(evento_escritura(archivo)), str(raiz))
         finally:
             G.os.path.exists = original
         foto = Path(G.carpeta_fotos(str(raiz), "s1", "a1")) / (G.clave_foto(archivo) + ".foto")

@@ -886,6 +886,30 @@ def test_write_sin_inyeccion_previa_bloquea_una_sola_vez_en_bytes_utf8():
         assert not any(m.startswith("s9/") for m in w.marcas()), w.marcas()
 
 
+def test_un_agent_id_que_no_es_texto_no_cuenta_como_principal():
+    with Toque() as w:
+        for raro in (5, True, ["a1"], {"a": 1}):
+            assert w.correr(dict(leer(w.sql), agent_id=raro)) == (0, "", b""), raro
+        assert w.marcas() == [], w.marcas()
+        for i, vacio in enumerate(("", None, 0)):
+            assert contexto(w.correr(dict(leer(w.sql, sesion="v%d" % i), agent_id=vacio))[1]) is not None, vacio
+        assert w.marcas() == ["v0/principal.sql", "v1/principal.sql", "v2/principal.sql"], w.marcas()
+
+
+def test_sin_hook_event_name_calla_aunque_el_cambio_bloquee():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
+        assert w.correr(evento(ruta))[0] == 2, "control positivo: con PostToolUse bloquea"
+        sin = {k: v for k, v in evento(ruta).items() if k != "hook_event_name"}
+        assert w.correr(sin) == (0, "", b"")
+        assert w.correr(json.dumps(sin).encode("utf-8")) == (0, "", b"")
+    with Toque() as w:
+        sin = {k: v for k, v in a_escribir(w.sql).items() if k != "hook_event_name"}
+        assert w.correr(sin) == (0, "", b"") and w.marcas() == [], "a diferencia de los guards, no cuenta como PreToolUse"
+        assert w.correr(a_escribir(w.sql))[0] == 2, "control positivo: con PreToolUse bloquea"
+
+
 def test_compact_y_clear_resetean_solo_la_sesion_principal():
     with Toque() as w:
         for source in ("compact", "clear"):

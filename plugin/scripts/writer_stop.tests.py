@@ -20,6 +20,7 @@ SILENCIO = (0, "", b"")
 
 from odd_ws import capas as convencion  # noqa: E402
 from odd_ws.comun import plazo_de  # noqa: E402
+from odd_ws.hosts import claude_code as anfitrion  # noqa: E402
 
 
 def _cargar():
@@ -232,17 +233,17 @@ def test_usos_devuelve_nombre_y_entrada_en_orden_y_none_si_no_hay_transcripcion(
             ("Read", {"file_path": "a"}), ("Edit", {"file_path": "b"}), ("Bash", {"command": "ls"}),
             ("Write", {"file_path": "c"}), ("Edit", {"file_path": "b"}), ("Edit", "no es dict"), ("Edit", None),
         ])
-        assert W._usos(t, ("Edit", "Write")) == [("Edit", {"file_path": "b"}), ("Write", {"file_path": "c"}), ("Edit", {"file_path": "b"})]
-        assert W._usos(str(t), ("Bash", "PowerShell")) == [("Bash", {"command": "ls"})]
-        assert W._usos(t, ()) == []
-        assert W._usos(t, ("Grep",)) == []
+        assert anfitrion.usos(t, ("Edit", "Write")) == [("Edit", {"file_path": "b"}), ("Write", {"file_path": "c"}), ("Edit", {"file_path": "b"})]
+        assert anfitrion.usos(str(t), ("Bash", "PowerShell")) == [("Bash", {"command": "ls"})]
+        assert anfitrion.usos(t, ()) == []
+        assert anfitrion.usos(t, ("Grep",)) == []
         for no_ruta in (None, 5, ["x"], b"bytes"):
-            assert W._usos(no_ruta, ("Edit",)) is None, no_ruta
-        assert W._usos(base / "no-existe.jsonl", ("Edit",)) is None
+            assert anfitrion.usos(no_ruta, ("Edit",)) is None, no_ruta
+        assert anfitrion.usos(base / "no-existe.jsonl", ("Edit",)) is None
         (base / "mixto.jsonl").write_bytes(
             b'{"message": 5}\n[1]\n{"message": {"content": "texto"}}\n{"message": {"content": [7, {"type": "tool_use", "name": "Edit", "input": {"file_path": "x\xe9"}},'
             b' {"type": "tool_use", "name": "Edit"}, {"type": "text", "name": "Edit", "input": {"a": 1}}]}}\n{"message": {"content": [{"type": "tool_use", "name": "Edit", "input": {"cortada')
-        assert W._usos(base / "mixto.jsonl", ("Edit",)) == [("Edit", {"file_path": "x�"})]
+        assert anfitrion.usos(base / "mixto.jsonl", ("Edit",)) == [("Edit", {"file_path": "x�"})]
 
 
 def test_resultado_valido_para_los_tres_estados():

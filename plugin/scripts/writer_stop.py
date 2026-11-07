@@ -10,11 +10,12 @@ import subprocess
 import time
 
 import config_loader
-from odd_ws import capas as convencion, transcripcion
+from odd_ws import capas as convencion
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, id_valido, plazo_de, raiz_de_instancia
+from odd_ws.eventos import FinSubagente, Permitir, Seguir
+from odd_ws.hosts import claude_code as anfitrion
+from odd_ws.hosts.claude_code import archivos_tocados
 
-HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
-HERRAMIENTAS_DE_SHELL = ("Bash", "PowerShell")
 ESTADOS = ("ok", "partial", "blocked")
 CAMPOS = ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion")
 SIN_PLACEHOLDER = ("regla", "intento", "presupuesto", "arbol")
@@ -55,38 +56,13 @@ def _guardia():
     return _GUARDIA[0]
 
 
-def _usos(transcript, herramientas):
-    leidos = transcripcion.leer(transcript)
-    if leidos is None:
-        return None
-    entradas = []
-    for registro in leidos[0]:
-        for bloque in transcripcion.bloques(registro):
-            if isinstance(bloque, dict) and bloque.get("type") == "tool_use" and bloque.get("name") in herramientas:
-                entrada = bloque.get("input")
-                if isinstance(entrada, dict):
-                    entradas.append((bloque.get("name"), entrada))
-    return entradas
-
-
-def archivos_tocados(transcript):
-    archivos = []
-    for _, entrada in _usos(transcript, HERRAMIENTAS_DE_ESCRITURA) or []:
-        ruta = entrada.get("file_path")
-        if isinstance(ruta, str) and ruta and ruta not in archivos:
-            archivos.append(ruta)
-    return archivos
-
-
 def escritos_por_bash(transcript):
-    usos = _usos(transcript, HERRAMIENTAS_DE_SHELL)
-    if usos is None:
+    comandos = anfitrion.comandos_de_shell(transcript)
+    if comandos is None:
         return []
     destinos, escritos = _guardia().destinos, []
-    for herramienta, entrada in usos:
-        comando = entrada.get("command")
-        if isinstance(comando, str) and comando:
-            escritos.extend(d for d in destinos(comando, herramienta=herramienta) if d not in escritos)
+    for dialecto, comando in comandos:
+        escritos.extend(d for d in destinos(comando, herramienta=dialecto) if d not in escritos)
     return escritos
 
 
@@ -278,7 +254,7 @@ def _borrar_fotos(raiz, sesion, agente):
 
 def _estado_parcial(evento, sesion, agente, archivos, activo, internos):
     return {
-        "session_id": sesion, "agent_id": agente, "agent_type": evento.get("agent_type"),
+        "session_id": sesion, "agent_id": agente, "agent_type": evento.agente,
         "stop_hook_active": activo, "archivos": archivos, "escritos_por_bash": [], "numstat": [], "bloqueos": [], "avisos": [],
         "formato_ok": None, "formato_errores": [], "resultado": {}, "errores_internos": internos,
         "momento": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -293,54 +269,54 @@ def _etapa(internos, nombre, funcion, defecto):
         return defecto
 
 
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+    if not isinstance(evento, FinSubagente) or not convencion.es_writer(evento.agente):
+        return Permitir()
+    sesion, agente = evento.sesion, evento.id_agente
+    if not (id_valido(sesion) and id_valido(agente)):
+        return Permitir()
+    limite = time.monotonic() + plazo
+    if raiz is None:
+        raiz = raiz_de_instancia(os.environ, evento.cwd or os.getcwd())
+    if raiz is None:
+        return Permitir()
+    estado = config_loader.estado(raiz)
+    if estado.tipo != "ok":
+        return Permitir()
+    config, raiz = estado.config, estado.config["raiz"]
+    activo = evento.ya_reintentado
+    internos = []
+    archivos = _etapa(internos, "archivos_tocados", lambda: archivos_tocados(evento.transcript), [])
+    datos = _estado_parcial(evento, sesion, agente, archivos, activo, internos)
+    _escribir_estado(raiz, sesion, agente, datos)
+    fotos = os.path.join(_carpeta(raiz, sesion), agente + ".fotos")
+    numstat = _etapa(internos, "lineas reales", lambda: lineas_reales(archivos, fotos, limite), [])
+    bloqueos, avisos, por_archivo = _etapa(internos, "chequeos de capa", lambda: _chequear(archivos, config, limite), ([], [], []))
+    campos, errores = _etapa(internos, "formato del cierre", lambda: parsear_resultado(evento.ultimo_mensaje), ({}, []))
+    etapa_rota = bool(internos)
+    escritos = _etapa(internos, "escritos por bash", lambda: escritos_por_bash(evento.transcript), [])
+    internos.extend(por_archivo)
+    total = sum(n["agregadas"] + n["quitadas"] for n in numstat)
+    if campos.get("arbol", "").lower().startswith("sin cambios") and total:
+        errores.append("`arbol:` dice «sin cambios» pero git mide %s; di «sucio (archivos y hunks)» "
+                       "(nunca revertir)" % _texto_reales(numstat))
+    datos.update({
+        "numstat": numstat, "escritos_por_bash": escritos,
+        "bloqueos": [{k: v for k, v in b.items() if k != "texto"} for b in bloqueos],
+        "avisos": [{k: v for k, v in a.items() if k != "texto"} for a in avisos],
+        "formato_ok": not errores, "formato_errores": errores, "resultado": campos,
+        "momento": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    _escribir_estado(raiz, sesion, agente, datos)
+    if activo or etapa_rota or not (bloqueos or errores):
+        _borrar_fotos(raiz, sesion, agente)
+        return Permitir()
+    return Seguir(_razon(bloqueos, errores, numstat))
+
+
 def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     try:
-        if isinstance(evento, (str, bytes, bytearray)):
-            evento = json.loads(evento)
-        if not isinstance(evento, dict) or evento.get("hook_event_name") != "SubagentStop":
-            return SILENCIO
-        if not convencion.es_writer(evento.get("agent_type")):
-            return SILENCIO
-        sesion, agente = evento.get("session_id"), evento.get("agent_id")
-        if not (id_valido(sesion) and id_valido(agente)):
-            return SILENCIO
-        limite = time.monotonic() + plazo
-        if raiz is None:
-            raiz = raiz_de_instancia(os.environ, evento.get("cwd") or os.getcwd())
-        if raiz is None:
-            return SILENCIO
-        estado = config_loader.estado(raiz)
-        if estado.tipo != "ok":
-            return SILENCIO
-        config, raiz = estado.config, estado.config["raiz"]
-        activo = evento.get("stop_hook_active") is True
-        internos = []
-        archivos = _etapa(internos, "archivos_tocados", lambda: archivos_tocados(evento.get("agent_transcript_path")), [])
-        datos = _estado_parcial(evento, sesion, agente, archivos, activo, internos)
-        _escribir_estado(raiz, sesion, agente, datos)
-        fotos = os.path.join(_carpeta(raiz, sesion), agente + ".fotos")
-        numstat = _etapa(internos, "lineas reales", lambda: lineas_reales(archivos, fotos, limite), [])
-        bloqueos, avisos, por_archivo = _etapa(internos, "chequeos de capa", lambda: _chequear(archivos, config, limite), ([], [], []))
-        campos, errores = _etapa(internos, "formato del cierre", lambda: parsear_resultado(evento.get("last_assistant_message")), ({}, []))
-        etapa_rota = bool(internos)
-        escritos = _etapa(internos, "escritos por bash", lambda: escritos_por_bash(evento.get("agent_transcript_path")), [])
-        internos.extend(por_archivo)
-        total = sum(n["agregadas"] + n["quitadas"] for n in numstat)
-        if campos.get("arbol", "").lower().startswith("sin cambios") and total:
-            errores.append("`arbol:` dice «sin cambios» pero git mide %s; di «sucio (archivos y hunks)» "
-                           "(nunca revertir)" % _texto_reales(numstat))
-        datos.update({
-            "numstat": numstat, "escritos_por_bash": escritos,
-            "bloqueos": [{k: v for k, v in b.items() if k != "texto"} for b in bloqueos],
-            "avisos": [{k: v for k, v in a.items() if k != "texto"} for a in avisos],
-            "formato_ok": not errores, "formato_errores": errores, "resultado": campos,
-            "momento": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        })
-        _escribir_estado(raiz, sesion, agente, datos)
-        if activo or etapa_rota or not (bloqueos or errores):
-            _borrar_fotos(raiz, sesion, agente)
-            return SILENCIO
-        return 0, json.dumps({"decision": "block", "reason": _razon(bloqueos, errores, numstat)}), b""
+        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo))
     except (Exception, SystemExit):
         return SILENCIO
 

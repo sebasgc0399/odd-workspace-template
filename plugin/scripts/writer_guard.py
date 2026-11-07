@@ -13,7 +13,6 @@ if __name__ == "__main__":
         sys.exit(0)
 
 import hashlib
-import json
 import os
 import posixpath
 import re
@@ -23,8 +22,9 @@ import config_loader
 from odd_ws import capas as convencion
 from odd_ws import rutas
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia, temporal
+from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir
+from odd_ws.hosts import claude_code as anfitrion
 
-HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
 MAX_FOTO = 8 * 1024 * 1024
 PROFUNDIDAD_MAX = 6
 MAX_SUBS = 50
@@ -999,7 +999,7 @@ def _analizar(texto, estado, profundidad, escape):
 
 
 def _escape(herramienta):
-    return ESCAPE_DE_SHELL["powershell"] if herramienta == "PowerShell" else ESCAPE_DE_SHELL["bash"]
+    return ESCAPE_DE_SHELL["powershell"] if herramienta in ("PowerShell", POWERSHELL) else ESCAPE_DE_SHELL["bash"]
 
 
 def _pasadas(comando, cwd, herramienta):
@@ -1067,14 +1067,13 @@ def _podar_sesiones_viejas(base, actual):
 
 def tomar_foto(evento, raiz):
     try:
-        sesion, agente = evento.get("session_id"), evento.get("agent_id")
-        entrada = evento.get("tool_input")
-        ruta = entrada.get("file_path") if isinstance(entrada, dict) else None
+        sesion, agente = evento.sesion, evento.id_agente
+        ruta = evento.rutas[0] if evento.rutas else None
         if not (id_valido(sesion) and id_valido(agente)):
             return
-        if not isinstance(ruta, str) or not ruta:
+        if not ruta:
             return
-        cwd = evento.get("cwd")
+        cwd = evento.cwd
         if not os.path.isabs(ruta) and isinstance(cwd, str):
             ruta = os.path.join(cwd, ruta)
         carpeta = carpeta_fotos(raiz, sesion, agente)
@@ -1109,41 +1108,41 @@ def tomar_foto(evento, raiz):
         return
 
 
-def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
     try:
-        if isinstance(evento, (str, bytes, bytearray)):
-            evento = json.loads(evento)
-        if not isinstance(evento, dict) or not convencion.es_writer(evento.get("agent_type")):
-            return SILENCIO
-        if evento.get("hook_event_name", "PreToolUse") != "PreToolUse":
-            return SILENCIO
-        herramienta = evento.get("tool_name")
-        if herramienta not in HERRAMIENTAS_DE_ESCRITURA and herramienta not in ("Bash", "PowerShell"):
-            return SILENCIO
+        if not isinstance(evento, Herramienta) or not convencion.es_writer(evento.agente):
+            return Permitir()
+        if evento.fase != "pre" or evento.tipo not in ("edicion", "shell"):
+            return Permitir()
         _LIMITE = time.monotonic() + plazo
         if raiz is None:
-            raiz = raiz_de_instancia(os.environ, evento.get("cwd") or os.getcwd())
+            raiz = raiz_de_instancia(os.environ, evento.cwd or os.getcwd())
         if raiz is None:
-            return SILENCIO
+            return Permitir()
         estado = config_loader.estado(raiz)
         if estado.tipo != "ok":
-            return SILENCIO
-        if herramienta in HERRAMIENTAS_DE_ESCRITURA:
+            return Permitir()
+        if evento.tipo == "edicion":
             tomar_foto(evento, estado.config["raiz"])
-            return SILENCIO
-        comando = (evento.get("tool_input") or {}).get("command")
-        if not isinstance(comando, str) or not comando.strip():
-            return SILENCIO
-        cwd = evento.get("cwd")
-        motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), herramienta)
+            return Permitir()
+        comando = evento.comando
+        if not comando or not comando.strip():
+            return Permitir()
+        cwd = evento.cwd
+        motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), evento.dialecto)
         if not motivo:
-            return SILENCIO
-        return 2, "", (_mensaje(motivo) + "\n").encode("utf-8")
-    except (Exception, SystemExit):
-        return SILENCIO
+            return Permitir()
+        return Bloquear(_mensaje(motivo))
     finally:
         _LIMITE = None
+
+
+def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+    try:
+        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo), pre_por_defecto=True)
+    except (Exception, SystemExit):
+        return SILENCIO
 
 
 def main():

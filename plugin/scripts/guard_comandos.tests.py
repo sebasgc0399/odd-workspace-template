@@ -1040,6 +1040,21 @@ def test_una_entrada_rota_o_ajena_calla():
         assert G.correr(b"\xef\xbb\xbf" + crudo, entorno=e)[0] == 2
 
 
+def test_sin_hook_event_name_o_con_cualquier_herramienta_el_comando_se_analiza():
+    with carpeta() as base:
+        e = entorno_de(instancia(base))
+        empuje = evento("git push --force origin main")
+        esperado = G.correr(empuje, entorno=e)
+        assert esperado[0] == 2, "control positivo"
+        sin_nombre = {k: v for k, v in empuje.items() if k != "hook_event_name"}
+        assert G.correr(sin_nombre, entorno=e) == esperado, "sin hook_event_name cuenta como PreToolUse"
+        assert G.correr(json.dumps(sin_nombre).encode("utf-8"), entorno=e) == esperado
+        assert G.correr(dict(sin_nombre, hook_event_name=None), entorno=e) == (0, "", b""), "solo cuenta la clave ausente"
+        for herramienta in ("Edit", "Grep", None, 7):
+            assert G.correr(evento("git push --force origin main", herramienta=herramienta), entorno=e) == esperado, herramienta
+        assert G.correr({k: v for k, v in empuje.items() if k != "tool_name"}, entorno=e) == esperado
+
+
 def test_con_el_plazo_vencido_calla_y_el_limite_no_queda_para_la_siguiente():
     with carpeta() as base:
         inst = instancia(base)

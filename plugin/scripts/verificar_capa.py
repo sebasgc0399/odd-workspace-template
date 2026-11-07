@@ -3,7 +3,6 @@ import sys
 sys.dont_write_bytecode = True
 
 import difflib
-import json
 import os
 import re
 import shutil
@@ -14,6 +13,8 @@ import config_loader
 from odd_ws import capas as convencion
 from odd_ws.comun import (PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas,
                           plazo_de, raiz_de_instancia)
+from odd_ws.eventos import Bloquear, Contexto, Herramienta, InicioSesion, Permitir
+from odd_ws.hosts import claude_code as anfitrion
 
 TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
@@ -183,10 +184,7 @@ def _salida(relativa, hallazgos):
         encabezado = ("verificar-capa (aviso): %s tiene %d aviso(s); el cambio ya quedó escrito: "
                       "corregirlo si es propio (no hace falta reintentar)." % (relativa, len(hallazgos)))
     texto = "\n".join([encabezado] + [_formatear(h) for h in bloqueos + avisos])
-    if bloqueos:
-        return 2, "", (texto + "\n").encode("utf-8")
-    contexto = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": texto}}
-    return 0, json.dumps(contexto), b""
+    return Bloquear(texto) if bloqueos else Contexto(texto)
 
 
 def es_hallazgo(h):
@@ -222,15 +220,16 @@ def _verificar_archivo(ruta, config):
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 
 
+def _edicion_verificable(evento):
+    return evento.tipo == "edicion" and evento.herramienta != "MultiEdit"
+
+
 def _post_tool_use(evento, config):
-    if evento.get("tool_name") not in ("Edit", "Write"):
-        return SILENCIO
-    ruta = (evento.get("tool_input") or {}).get("file_path")
-    if not isinstance(ruta, str) or not ruta:
-        return SILENCIO
-    resultado = verificar_archivo(ruta, config, _LIMITE)
+    if not _edicion_verificable(evento) or not evento.rutas:
+        return Permitir()
+    resultado = verificar_archivo(evento.rutas[0], config, _LIMITE)
     if resultado is None or not resultado[1]:
-        return SILENCIO
+        return Permitir()
     return _salida(*resultado)
 
 
@@ -245,8 +244,8 @@ def no_negociables(capa, raiz):
 
 
 def _clave(evento):
-    sesion = evento.get("session_id")
-    agente = evento.get("agent_id") or "principal"
+    sesion = evento.sesion
+    agente = evento.id_agente or "principal"
     if not (id_valido(sesion) and id_valido(agente)):
         return None
     return sesion, agente
@@ -308,7 +307,7 @@ def skills_del_frontmatter(texto):
 
 
 def _precarga(evento, capa, raiz):
-    tipo = evento.get("agent_type")
+    tipo = evento.agente
     if not id_valido(tipo):
         return False
     try:
@@ -320,10 +319,9 @@ def _precarga(evento, capa, raiz):
 
 
 def _tocar(evento, config):
-    ruta = (evento.get("tool_input") or {}).get("file_path")
-    if not isinstance(ruta, str) or not ruta:
+    if not evento.rutas:
         return None
-    info = config_loader.clasificar(ruta, config)
+    info = config_loader.clasificar(evento.rutas[0], config)
     clave = _clave(evento) if info else None
     if clave is None:
         return None
@@ -349,32 +347,30 @@ def _texto_primer_toque(capa, raiz, encabezado, bloque):
 def _primer_read(evento, config):
     toque = _tocar(evento, config)
     if toque is None:
-        return SILENCIO
+        return Permitir()
     capa, bloque = toque
     encabezado = ("primer toque (capa-%s): los no negociables de la capa %s, una vez por sesión y agente. "
                   "Aplicarlos en todo lo que se escriba en esta capa (fuente: %s)." % (capa, capa, convencion.skill(capa)))
-    contexto = {"hookSpecificOutput": {"hookEventName": "PostToolUse",
-                                       "additionalContext": _texto_primer_toque(capa, config["raiz"], encabezado, bloque)}}
-    return 0, json.dumps(contexto), b""
+    return Contexto(_texto_primer_toque(capa, config["raiz"], encabezado, bloque))
 
 
 def _pre_tool_use(evento, config):
-    if evento.get("tool_name") not in ("Edit", "Write"):
-        return SILENCIO
+    if not _edicion_verificable(evento):
+        return Permitir()
     toque = _tocar(evento, config)
     if toque is None:
-        return SILENCIO
+        return Permitir()
     capa, bloque = toque
     encabezado = ("primer toque (capa-%s): este %s no se aplicó. Antes de escribir en la capa %s, leer sus no "
                   "negociables y reintentar el mismo cambio, ajustado a ellos (el reintento pasa)."
-                  % (capa, evento["tool_name"], capa))
-    return 2, "", (_texto_primer_toque(capa, config["raiz"], encabezado, bloque) + "\n").encode("utf-8")
+                  % (capa, evento.herramienta, capa))
+    return Bloquear(_texto_primer_toque(capa, config["raiz"], encabezado, bloque))
 
 
 def _session_start(evento, config):
-    sesion = evento.get("session_id")
-    if evento.get("source") not in ("compact", "clear") or not id_valido(sesion):
-        return SILENCIO
+    sesion = evento.sesion
+    if evento.origen not in ("compact", "clear") or not id_valido(sesion):
+        return Permitir()
     carpeta = os.path.join(_marcas_dir(config["raiz"]), sesion)
     if os.path.isdir(carpeta):
         for nombre in os.listdir(carpeta):
@@ -383,59 +379,59 @@ def _session_start(evento, config):
                     os.remove(os.path.join(carpeta, nombre))
                 except OSError:
                     pass
-    return SILENCIO
+    return Permitir()
 
 
 def _post_tool_use_o_read(evento, config):
-    if evento.get("tool_name") == "Read":
+    if evento.tipo == "lectura":
         return _primer_read(evento, config)
     return _post_tool_use(evento, config)
 
 
 def _aviso_de_config_rota(evento, razon):
-    if evento.get("hook_event_name") != "SessionStart" or evento.get("source") not in ORIGENES_DEL_AVISO:
-        return SILENCIO
+    if not isinstance(evento, InicioSesion) or evento.origen not in ORIGENES_DEL_AVISO:
+        return Permitir()
     motivo = " ".join(str(razon).split())
     if len(motivo) > TOPE_DEL_MOTIVO:
         motivo = motivo[:TOPE_DEL_MOTIVO] + "..."
-    texto = ("odd-ws: la configuración de esta instancia está rota y los hooks no verifican nada hasta arreglarla (%s). "
-             "Correr /odd-ws:doctor." % motivo)
-    contexto = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": texto}}
-    return 0, json.dumps(contexto), b""
+    return Contexto("odd-ws: la configuración de esta instancia está rota y los hooks no verifican nada hasta arreglarla "
+                    "(%s). Correr /odd-ws:doctor." % motivo)
 
 
-MANEJADORES = {
-    "PostToolUse": _post_tool_use_o_read,
-    "PreToolUse": _pre_tool_use,
-    "SessionStart": _session_start,
-}
+def _manejador(evento):
+    if isinstance(evento, InicioSesion):
+        return _session_start
+    if isinstance(evento, Herramienta):
+        return _post_tool_use_o_read if evento.fase == "post" else _pre_tool_use
+    return None
 
 
-def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
     try:
-        if isinstance(evento, (str, bytes, bytearray)):
-            evento = json.loads(evento)
-        if not isinstance(evento, dict):
-            return SILENCIO
-        manejador = MANEJADORES.get(evento.get("hook_event_name"))
+        manejador = _manejador(evento)
         if manejador is None:
-            return SILENCIO
+            return Permitir()
         _LIMITE = time.monotonic() + plazo
         if raiz is None:
-            raiz = raiz_de_instancia(os.environ, evento.get("cwd") or os.getcwd())
+            raiz = raiz_de_instancia(os.environ, evento.cwd or os.getcwd())
         if raiz is None:
-            return SILENCIO
+            return Permitir()
         estado = config_loader.estado(raiz)
         if estado.tipo == "rota":
             return _aviso_de_config_rota(evento, estado.razon)
         if estado.tipo != "ok":
-            return SILENCIO
+            return Permitir()
         return manejador(evento, estado.config)
-    except (Exception, SystemExit):
-        return SILENCIO
     finally:
         _LIMITE = None
+
+
+def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+    try:
+        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo))
+    except (Exception, SystemExit):
+        return SILENCIO
 
 
 def main():

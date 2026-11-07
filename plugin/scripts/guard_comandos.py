@@ -2,7 +2,6 @@ import sys
 
 sys.dont_write_bytecode = True
 
-import json
 import os
 import posixpath
 import re
@@ -11,6 +10,8 @@ import time
 import config_loader
 from odd_ws import rutas
 from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, plazo_de, raiz_de_instancia, temporal
+from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir, Preguntar
+from odd_ws.hosts import claude_code as anfitrion
 
 HEREDOC_ABRE = re.compile(r"(?s)^(.*?)<<-?\s*['\"]?\w+['\"]?\r?\n")
 ALIMENTA_SHELL = re.compile(r"(?i)\b(bash|sh|zsh|pwsh|powershell|python|node)\b[^\n]*$")
@@ -884,7 +885,7 @@ def analizar(comando, cwd=None, entorno=None, protegidos=None, herramienta=None)
         return "block", motivo
     if protegidos is not None and protegidos.activa:
         variable = (lambda nombre: entorno.get(nombre.upper())) if os.name == "nt" else entorno.get
-        motivo = _capa_2(comando, base, cwd, variable, protegidos, herramienta != "PowerShell")
+        motivo = _capa_2(comando, base, cwd, variable, protegidos, herramienta not in ("PowerShell", POWERSHELL))
         if motivo:
             return "ask", motivo
     return None, None
@@ -895,49 +896,50 @@ def _mensaje(motivo):
 
 
 def _preguntar(motivo):
-    salida = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                     "permissionDecisionReason": "guard-comandos pregunta antes de correr el comando: " + motivo}}
-    return 0, json.dumps(salida) + "\n", b""
+    return Preguntar("guard-comandos pregunta antes de correr el comando: " + motivo)
 
 
-def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
+def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
     protegidos = None
     try:
-        if isinstance(evento, (str, bytes, bytearray)):
-            evento = json.loads(evento)
-        if not isinstance(evento, dict) or evento.get("hook_event_name", "PreToolUse") != "PreToolUse":
-            return SILENCIO
-        entrada = evento.get("tool_input")
-        comando = entrada.get("command") if isinstance(entrada, dict) else None
-        if not isinstance(comando, str) or not comando.strip():
-            return SILENCIO
+        if not isinstance(evento, Herramienta) or evento.fase != "pre":
+            return Permitir()
+        comando = evento.comando
+        if not comando or not comando.strip():
+            return Permitir()
         _LIMITE = time.monotonic() + plazo
         entorno = os.environ if entorno is None else entorno
-        cwd = evento.get("cwd") if isinstance(evento.get("cwd"), str) else None
+        cwd = evento.cwd if isinstance(evento.cwd, str) else None
         raiz = raiz_de_instancia(entorno, cwd or os.getcwd())
         if raiz is None:
-            return SILENCIO
+            return Permitir()
         protegidos = Protegidos.de_instancia(raiz)
-        herramienta = evento.get("tool_name") if isinstance(evento.get("tool_name"), str) else None
-        resultado, motivo = analizar(comando, cwd, entorno, protegidos, herramienta)
+        resultado, motivo = analizar(comando, cwd, entorno, protegidos, evento.dialecto)
         if resultado == "block":
-            return 2, "", (_mensaje(motivo) + "\n").encode("utf-8")
+            return Bloquear(_mensaje(motivo))
         if resultado == "ask":
             return _preguntar(motivo)
-        return SILENCIO
+        return Permitir()
     except _SinTiempo:
         if protegidos is not None and protegidos.activa:
             return _preguntar(_pregunta(protegidos, "(el análisis no terminó dentro del plazo)", "no se puede leer qué git corre",
                                         ROTA if protegidos.rota is not None else None))
-        return SILENCIO
+        return Permitir()
     except (Exception, SystemExit) as error:
         if protegidos is not None and protegidos.activa:
             return _preguntar(_pregunta(protegidos, "(el guard falló al leerlo)", "error interno: %s" % error,
                                         ROTA if protegidos.rota is not None else None))
-        return SILENCIO
+        return Permitir()
     finally:
         _LIMITE = None
+
+
+def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
+    try:
+        return anfitrion.atender(evento, lambda leido: decidir(leido, entorno, plazo), pre_por_defecto=True)
+    except (Exception, SystemExit):
+        return SILENCIO
 
 
 def main():

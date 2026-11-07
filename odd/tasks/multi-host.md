@@ -52,10 +52,10 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
-| F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | inline; verificador independiente (S5) | pendiente |
-| F0b | S3 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host | inline | pendiente |
+| F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | delegado: un writer, por el respaldo de contexto de una sesión larga (L8); después, un verificador independiente (S5) | verificado (L9); commit en curso |
+| F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | pendiente |
 | F0c | S2, S6 | Generación por host: bootstrap y doctor parametrizados, con `.claude/` como fuente de verdad | inline | pendiente |
-| F1 | S2–S4 | Codex: adaptador, manifiesto, `ask` → bloqueo, rutas de `apply_patch`, agentes TOML y el trust de hooks en el doctor | por decidir | pendiente |
+| F1 | S2–S4 | Codex: adaptador, manifiesto, `ask` → bloqueo, rutas de `apply_patch`, agentes TOML y el trust de hooks en el doctor. Además: inyectar el adaptador según el host y sacar del núcleo los nombres de Claude Code (`MultiEdit`, `PowerShell`), que son los avisos 3 y 4 de L9 | por decidir | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -128,4 +128,20 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
   - **La propuesta:** varios CLI a la vez, con `.claude/` como fuente de verdad y sin migrar instancias.
   - **El porqué:** Codex y Copilot leen `.claude-plugin`, OpenCode lee `.claude/skills` y las rutas ya están centralizadas en `capas.py`. Cambiar después un layout ya persistido es el cambio más caro.
   - **El usuario:** «Vale me parece bien».
-- **Siguiente paso:** crear la rama `feat/multi-host` y arrancar F0a.
+- **L8 (2026-11-07), el arranque de F0a.**
+  - La rama `feat/multi-host` sale de `main` (`4b423c6`). El plan es el commit `5bb9c3e`.
+  - **Decisión técnica del padre sobre S2:** en F0a, `writer_stop` sigue leyendo el transcript (cero cambio), pero esa lectura pasa a vivir en el adaptador de Claude Code. La alternativa de la foto previa se decide en F1, cuando un host la necesite.
+  - **La ruta:** un writer, por el respaldo de contexto. La sesión ya es larga.
+- **L9 (2026-11-07), F0a escrito y verificado.**
+  - **El writer.** Agregó `odd_ws/eventos.py`, `odd_ws/hosts/claude_code.py` (`leer`, `responder`, `atender`, más el transcript) y un `decidir(evento, …)` en cada uno de los cuatro hooks. No tocó `hooks.json`.
+    - RED: 0/7 y 0/18 (`ModuleNotFoundError`). GREEN: 7/7 y 18/18.
+    - Su diferencial contra `main` dio 255/255 idénticos. Con 5 mutaciones lo marcó 30 veces, así que el instrumento sabe decir que sí. De ahí salieron 3 regresiones nuevas.
+  - **El verificador independiente.** Usó su propio corpus de unas 3.400 entradas: 2669/2669 sin estado, 626/626 con estado y 140/140 de dialecto, todas idénticas. Ningún bloqueante; S2 y S5 cumplen. De sus avisos:
+    - 1 y 2: un bloqueo con un surrogate suelto en el texto callaba. En guard_comandos el cambio lo había introducido (antes preguntaba); en writer_guard ya venía de la base. Se corrigió en el adaptador con `encode("utf-8", "replace")`, que falla cerrado (S4), con un test que dio RED antes del arreglo.
+    - 5: `Doc/diseno.md` decía que el adaptador solo normaliza `rutas` y `comando`; ya está corregido.
+    - 3 y 4: el núcleo importa el adaptador fijo y todavía nombra `MultiEdit` y `PowerShell`. Van a F1.
+    - 6: una combinación sin protocolo calla. Va a F0b.
+  - **El padre.** Volvió a correr 2 suites (18/18 y 44/44), con el mismo resultado que reportó el writer.
+  - `review assess` dio `unassessable` por los archivos sin trackear. El riesgo se nombró igual (ítem 2) y el verificador corrió.
+  - **Sobrantes fuera del scratch** que tiene que borrar el usuario: `%TEMP%\guarda-test-6n4pk2w3` y `%TEMP%\guarda-test-ac0fg8x0`.
+- **Siguiente paso:** el commit de F0a; después, F0b.
