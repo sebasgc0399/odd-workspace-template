@@ -47,6 +47,10 @@ def test_hay_al_menos_un_adaptador_y_es_el_de_claude_code():
     assert [nombre for nombre, _ in adaptadores()][:1] == ["claude_code"]
 
 
+def test_los_adaptadores_son_claude_code_y_codex():
+    assert [nombre for nombre, _ in adaptadores()] == ["claude_code", "codex"]
+
+
 def test_los_puntos_de_evento_son_los_cuatro_del_modelo():
     C = cap()
     assert C.PUNTOS_DE_EVENTO == (C.PRE, C.POST, C.INICIO, C.FIN_SUBAGENTE)
@@ -108,15 +112,71 @@ def test_el_manifiesto_de_cada_adaptador_declara_los_diez_puntos():
                 assert nota.strip(), "%s: %s es %s y no escribe su fallback" % (nombre, clave, estado)
 
 
-def test_el_manifiesto_coincide_con_lo_que_el_adaptador_expresa():
+def test_el_registro_tiene_un_nombre_de_cli_por_adaptador():
+    registro = importlib.import_module("odd_ws.hosts")
+    assert sorted(registro.NOMBRES.values()) == sorted(registro.ADAPTADORES), registro.NOMBRES
+    for cli, nombre in registro.NOMBRES.items():
+        assert registro.adaptador(cli) is importlib.import_module("odd_ws.hosts." + nombre), cli
+
+
+def nativo(adaptador, punto, tipo):
+    return tipo in adaptador.EXPRESABLES.get(punto, ()) and tipo not in adaptador.DEGRADACIONES.get(punto, {})
+
+
+def test_cada_degradacion_falla_cerrada_y_se_responde_como_su_destino():
+    C, E = cap(), ev()
+    for nombre, adaptador in adaptadores():
+        assert isinstance(adaptador.DEGRADACIONES, dict), nombre
+        assert set(adaptador.DEGRADACIONES) <= set(C.PUNTOS_DE_EVENTO), nombre
+        for punto, cambios in adaptador.DEGRADACIONES.items():
+            evento = eventos_por_punto()[punto]
+            for origen, destino in cambios.items():
+                assert origen in adaptador.EXPRESABLES.get(punto, ()), "%s: degrada %s en %s sin declararlo expresable" % (
+                    nombre, origen.__name__, punto)
+                assert destino is E.Bloquear, "%s: %s en %s se degrada a %s, y solo bloquear falla cerrado" % (
+                    nombre, origen.__name__, punto, destino.__name__)
+                degradada, propia = adaptador.responder(evento, origen("x")), adaptador.responder(evento, destino("x"))
+                assert degradada != SILENCIO and degradada[0] == propia[0] == 2, (nombre, punto, degradada, propia)
+
+
+def test_una_decision_que_sale_como_bloqueo_esta_declarada_como_degradada():
+    E = ev()
+    for nombre, adaptador in adaptadores():
+        for punto, evento in eventos_por_punto().items():
+            for decision in decisiones():
+                salida = adaptador.responder(evento, decision)
+                if isinstance(decision, E.Bloquear) or salida == SILENCIO:
+                    continue
+                declarada = adaptador.DEGRADACIONES.get(punto, {}).get(type(decision)) is E.Bloquear
+                assert (salida[0] == 2) == declarada, "%s: %s en %s sale con exit %s y DEGRADACIONES dice %s" % (
+                    nombre, type(decision).__name__, punto, salida[0], declarada)
+
+
+def test_soportado_implica_que_el_adaptador_expresa_lo_que_pide_sin_degradarlo():
     C = cap()
     assert set(C.REQUISITOS) <= set(C.CAPACIDADES)
     for nombre, adaptador in adaptadores():
         for clave, requisitos in C.REQUISITOS.items():
-            cumple = all(tipo in adaptador.EXPRESABLES.get(punto, ()) for punto, tipo in requisitos)
-            estado = adaptador.MANIFIESTO[clave][0]
-            assert (estado == C.SOPORTADO) == cumple, (
-                "%s: %s está declarado %s, pero el adaptador %s expresa lo que pide" % (nombre, clave, estado, "sí" if cumple else "no"))
+            cumple = all(nativo(adaptador, punto, tipo) for punto, tipo in requisitos)
+            estado, nota = adaptador.MANIFIESTO[clave]
+            if estado == C.SOPORTADO:
+                assert cumple, "%s: %s está declarado soportado, pero el adaptador no expresa en forma nativa lo que pide" % (
+                    nombre, clave)
+            else:
+                assert nota.strip(), "%s: %s es %s y su nota no explica por qué" % (nombre, clave, estado)
+
+
+def test_un_requisito_degradado_no_puede_figurar_como_soportado():
+    C, E = cap(), ev()
+    codex = importlib.import_module("odd_ws.hosts.codex")
+    assert not nativo(codex, C.PRE, E.Preguntar) and nativo(codex, C.PRE, E.Bloquear)
+    assert codex.MANIFIESTO["P3"][0] == C.DEGRADADO, codex.MANIFIESTO["P3"]
+    assert all(nativo(codex, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Codex"
+    assert codex.MANIFIESTO["P5"][0] == C.NO_DISPONIBLE, "pero writer_stop todavía no corre en Codex (F1b)"
+    claude = importlib.import_module("odd_ws.hosts.claude_code")
+    for clave, requisitos in C.REQUISITOS.items():
+        assert all(nativo(claude, punto, tipo) for punto, tipo in requisitos), clave
+        assert claude.MANIFIESTO[clave][0] == C.SOPORTADO, clave
 
 
 def main():

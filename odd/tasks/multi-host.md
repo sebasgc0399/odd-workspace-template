@@ -53,9 +53,13 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
 | F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | delegado: un writer, por el respaldo de contexto de una sesión larga (L8); después, un verificador independiente (S5) | hecho (`dcad0d9`, L9) |
-| F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | hecho (L10); commit en curso |
-| F0c | S2, S6 | Generación por host: bootstrap y doctor parametrizados, con `.claude/` como fuente de verdad | inline | pendiente |
-| F1 | S2–S4 | Codex: adaptador, manifiesto, `ask` → bloqueo, rutas de `apply_patch`, agentes TOML y el trust de hooks en el doctor. Además: inyectar el adaptador según el host y sacar del núcleo los nombres de Claude Code (`MultiEdit`, `PowerShell`), que son los avisos 3 y 4 de L9 | por decidir | pendiente |
+| F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | hecho (`6db4105`, L10) |
+| F0c | S2, S6 | Se juntó con F1 (L11): la generación por host se diseña con Codex como segundo caso real | — | fusionada en F1 |
+| F1a | S2–S4 | Adaptador de protocolo de Codex (`odd_ws/hosts/codex.py`) y elección del adaptador con `--host` en los tres guards (aviso 3 de L9). Detalle:<br>• `apply_patch` es edición, con las rutas del parche (`Add`, `Update`, `Delete` y `Move to`) resueltas contra el `cwd`<br>• `Bash` es shell, con dialecto según la plataforma: PowerShell en Windows<br>• `Preguntar` se degrada a bloqueo con la instrucción de pedirle al usuario que lo corra (S4)<br>• `DEGRADACIONES` en el manifiesto<br>• los guards procesan todas las rutas de un evento | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2) | pendiente |
+| F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | por decidir | pendiente |
+| F1c | S2, S3 | Empaquetado: `.codex-plugin/plugin.json` con `"hooks": "./hooks/hooks.codex.json"`. Como Codex ignora `args`, los comandos van como string con `--host codex`. Lleva un test de paridad entre los dos `hooks*.json` y la misma versión en los dos manifiestos | por decidir | pendiente |
+| F1d | S2, S6 | Generación (la ex F0c). El bootstrap genera:<br>• `.codex/agents/*.toml` desde las mismas plantillas, con las skills y las herramientas en `developer_instructions`, porque Codex no las precarga ni las restringe<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md` para no tapar los `CLAUDE.md`<br><br>El doctor chequea por host: la versión de Codex, el plugin instalado y que los hooks tengan confianza (`[hooks.state]` de `~/.codex/config.toml`) | por decidir | pendiente |
+| F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks) y entrega `0.3.0` | necesita el sí del usuario: usa su cuenta de Codex | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -160,4 +164,35 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     Mover una decisión de punto no lo atrapa nadie: es el límite que quedó escrito en `Doc/diseno.md`.
   - **Decisión técnica del padre:** la degradación (`Preguntar` → `Bloquear` en un host que no puede preguntar) se implementa en el `responder` de ese adaptador, en F1. No va en `atender`, para no tocar el camino de los guards de Claude Code.
   - **Risk: none.** Son datos y tests; el comportamiento de los hooks no cambia.
-- **Siguiente paso:** el commit de F0b; después, F0c.
+- **L11 (2026-11-07), F0c.** F0b quedó en `6db4105`.
+  - **La propuesta:** juntar F0c con F1, para no adivinar la interfaz de generación teniendo un solo host. Codex trae el segundo caso real: agentes TOML, `AGENTS.md` y el trust de hooks.
+  - **El usuario:** «tomare tu recomendacion».
+- **L12 (2026-11-07), investigación puntual de Codex para F1.** Se leyó el código de los tags 0.144.0 y 0.167.0.
+  - **Hooks de un plugin de Claude.** Codex carga `.claude-plugin/plugin.json` y `hooks/hooks.json`, pero **ignora `args` en silencio**: el handler solo tiene `command`, `commandWindows`, `timeout` y `statusMessage`. El padre lo verificó en `protocol/src/hooks.rs`.
+    - Hoy, la 0.2.2 instalada en Codex corre `python` sin script, y los guards quedan muertos (fallan abiertos).
+    - `.codex-plugin/plugin.json` gana sobre `.claude-plugin`, y su `hooks` reemplaza a `hooks/hooks.json`.
+    - `${CLAUDE_PLUGIN_ROOT}` se reemplaza como texto.
+    - Los matchers son por igualdad, o regex si traen otros caracteres. `Edit` y `Write` son alias de `apply_patch`. `PowerShell` y `Read` nunca disparan.
+    - El timeout va en segundos.
+  - **Detectar el host:** lo fiable es `--host codex` en los comandos de Codex. El entorno se hereda y es frágil.
+  - **Herramientas y payloads:**
+    - `apply_patch` trae el parche entero en `tool_input.command`, con la gramática `*** Add/Update/Delete File:` y `*** Move to:`. Las rutas relativas se resuelven contra el `cwd`.
+    - La shell es siempre `Bash`, con `command` como string; en Windows corre PowerShell.
+    - No hay herramienta de lectura.
+  - **SubagentStop:** trae los mismos campos que Claude Code, y `agent_type` es el `name` del TOML. Bloquear y seguir funciona igual.
+  - **Lo que falla abierto:** `ask`, los timeouts y los errores. Los plugins no pueden traer `.rules`.
+  - **Confianza:**
+    - es por handler y se guarda en `~/.codex/config.toml` (`[hooks.state]`, `trusted_hash`);
+    - en 0.167 el hash cubre todo el plugin, así que cada actualización pide `/hooks` de nuevo;
+    - un hook sin confianza no corre;
+    - la config del proyecto no puede pre-confiar.
+  - **Agentes:** van en `.codex/agents/*.toml` (`name`, `description`, `developer_instructions` y claves de config). No hay lista de herramientas ni skills precargadas.
+  - **Instrucciones:** `AGENTS.md` o los nombres de `project_doc_fallback_filenames`, desde la raíz hasta el `cwd`, con un tope de 32 KiB, sin imports y sin carga diferida.
+  - **Skills:** `disable-model-invocation` no se respeta. El equivalente es `agents/openai.yaml`, con `allow_implicit_invocation: false`.
+  - **0.144 frente a 0.167:** el contrato de hooks es el mismo. La 0.144 no tiene el hash por contenido ni `fork`.
+  - **Decisiones técnicas del padre:**
+    - F1 se parte en F1a a F1e.
+    - **Archivos tocados en Codex:** el transcript de Codex tiene otro formato, así que se usa una bitácora neutral que escribe `writer_guard` (F1b).
+    - **Preguntar:** se degrada a bloqueo dentro del `responder` de Codex.
+    - **Instrucciones:** `CLAUDE.md` sigue siendo la fuente y Codex lo lee por fallback; un `AGENTS.md` taparía el `CLAUDE.md` de su carpeta.
+- **Siguiente paso:** F1a.

@@ -11,11 +11,11 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import hosts
 from odd_ws.capacidades import INICIO, POST, PRE
-from odd_ws.comun import (PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git, id_valido, lineas,
-                          plazo_de, raiz_de_instancia)
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git,
+                          host_de, id_valido, lineas, plazo_de, por_ruta, raiz_de_instancia)
 from odd_ws.eventos import Bloquear, Contexto, Herramienta, InicioSesion, Permitir
-from odd_ws.hosts import claude_code as anfitrion
 
 EMITE = {PRE: (Bloquear,), POST: (Bloquear, Contexto), INICIO: (Contexto,)}
 TIMEOUT_GIT = 5
@@ -226,13 +226,17 @@ def _edicion_verificable(evento):
     return evento.tipo == "edicion" and evento.herramienta != "MultiEdit"
 
 
-def _post_tool_use(evento, config):
-    if not _edicion_verificable(evento) or not evento.rutas:
-        return Permitir()
+def _verificar_ruta(evento, config):
     resultado = verificar_archivo(evento.rutas[0], config, _LIMITE)
     if resultado is None or not resultado[1]:
         return Permitir()
     return _salida(*resultado)
+
+
+def _post_tool_use(evento, config):
+    if not _edicion_verificable(evento) or not evento.rutas:
+        return Permitir()
+    return por_ruta(evento, lambda una: _verificar_ruta(una, config))
 
 
 def no_negociables(capa, raiz):
@@ -347,6 +351,10 @@ def _texto_primer_toque(capa, raiz, encabezado, bloque):
 
 
 def _primer_read(evento, config):
+    return por_ruta(evento, lambda una: _primer_read_de_una(una, config))
+
+
+def _primer_read_de_una(evento, config):
     toque = _tocar(evento, config)
     if toque is None:
         return Permitir()
@@ -359,6 +367,10 @@ def _primer_read(evento, config):
 def _pre_tool_use(evento, config):
     if not _edicion_verificable(evento):
         return Permitir()
+    return por_ruta(evento, lambda una: _primer_toque_de_una(una, config))
+
+
+def _primer_toque_de_una(evento, config):
     toque = _tocar(evento, config)
     if toque is None:
         return Permitir()
@@ -429,16 +441,16 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         _LIMITE = None
 
 
-def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
-        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo))
+        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo))
     except (Exception, SystemExit):
         return SILENCIO
 
 
 def main():
-    plazo = plazo_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(crudo, plazo=plazo))
+    plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
+    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host))
 
 
 if __name__ == "__main__":

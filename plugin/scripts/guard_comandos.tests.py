@@ -1165,6 +1165,82 @@ def test_esta_cableado_en_pre_tool_use_de_bash_y_powershell_con_8_s():
     assert (h["timeout"], plazo_de(h["args"][1:])) == (10, 8), h
 
 
+@contextlib.contextmanager
+def plataforma(nombre):
+    from odd_ws.hosts import codex
+    previo = codex.SISTEMA
+    codex.SISTEMA = nombre
+    try:
+        yield
+    finally:
+        codex.SISTEMA = previo
+
+
+def parche_codex(*lineas):
+    return "\n".join(("*** Begin Patch",) + lineas + ("*** End Patch",)) + "\n"
+
+
+def instancia_protegida(base):
+    repo = base / "equipo" / "db"
+    repo.mkdir(parents=True)
+    inst = instancia(base, {"schema_version": 1, "repos": {"db": {"agent_readonly": True}}, "layers": {"doc": {"extensions": [".x"]}}})
+    (inst / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(repo)}}}), encoding="utf-8")
+    return inst, repo
+
+
+def test_codex_un_parche_de_dos_archivos_no_es_un_comando_de_shell():
+    with carpeta() as base:
+        inst = instancia(base)
+        texto = parche_codex("*** Add File: a.sh", "+git push --force origin main", "*** Update File: b.sh", "@@",
+                             "+git reset --hard HEAD~1")
+        parche = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "tool_input": {"command": texto}}
+        assert G.correr(parche, entorno=entorno_de(inst), host="codex") == (0, "", b"")
+        assert G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), host="codex")[0] == 2, "control"
+
+
+def test_codex_preguntar_se_degrada_a_bloquear_y_el_dialecto_sale_de_la_plataforma():
+    with carpeta() as base:
+        inst, repo = instancia_protegida(base)
+        e = evento("git --git-dir C:\\ blame f.sql", cwd=str(repo))
+        claude = G.correr(e, entorno=entorno_de(inst))
+        assert claude[0] == 0 and json.loads(claude[1])["hookSpecificOutput"]["permissionDecision"] == "ask", "control: Claude pregunta"
+        with plataforma("nt"):
+            assert G.correr(e, entorno=entorno_de(inst), host="codex") == (0, "", b""), "en PowerShell la barra no escapa"
+        with plataforma("posix"):
+            codigo, salida, error = G.correr(e, entorno=entorno_de(inst), host="codex")
+        texto = error.decode("utf-8")
+        assert (codigo, salida) == (2, ""), (codigo, salida, texto)
+        assert texto.startswith("guard-comandos pregunta antes de correr el comando: git ") and "«db»" in texto, texto
+        assert texto.endswith("\nCodex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace "
+                              "falta, pídele al usuario que lo corra él.\n"), texto
+
+
+def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
+    for host in ("otro", "", None):
+        codigo, salida, error = G.correr(evento("ls"), entorno=dict(ENTORNO), host=host)
+        assert (codigo, salida) == (2, "") and error.startswith(b"odd-ws: host desconocido"), (host, error)
+    assert G.correr(evento("ls", hook_event_name="PostToolUse"), entorno=dict(ENTORNO), host="otro") == (0, "", b"")
+    with carpeta() as base:
+        inst = instancia(base)
+        entorno = dict(os.environ, **entorno_de(inst))
+
+        def hook(e, *args):
+            return subprocess.run([sys.executable, str(_RUTA), "--plazo", "8", *args], input=json.dumps(e).encode("utf-8"),
+                                  capture_output=True, env=entorno, cwd=str(base), timeout=60)
+
+        r = hook(evento("git status"), "--host", "gemini")
+        assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
+        r = hook(evento("git status"), "--host")
+        assert r.returncode == 2 and b"sin valor" in r.stderr, r
+        r = hook(evento("git push --force origin main"), "--host", "codex")
+        assert r.returncode == 2 and r.stderr.startswith("guard-comandos bloqueó".encode("utf-8")), r
+        assert hook(evento("git status"), "--host", "codex").returncode == 0
+        r = hook(evento("git status"), "--host=gemini")
+        assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
+        r = hook(evento("git status"), "--host=")
+        assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido"), r
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

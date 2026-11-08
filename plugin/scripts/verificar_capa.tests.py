@@ -35,8 +35,11 @@ def _quitar(func, ruta, _exc):
         pass
 
 
+AISLAMIENTO_GIT = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+
+
 def _entorno_sin_git():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_") or k in AISLAMIENTO_GIT}
 
 
 def git(cwd, *args):
@@ -1167,6 +1170,147 @@ def test_cada_evento_del_primer_toque_esta_cableado():
                   ("SessionStart", "clear"), ("SessionStart", "startup"), ("SessionStart", "resume")):
         assert cableados[clave] == (10, 8), (clave, cableados[clave])
     assert {p for (e, p) in cableados if e == "SessionStart"} == {"startup", "resume", "compact", "clear"}
+
+
+@contextlib.contextmanager
+def git_aislado():
+    carpeta = Path(tempfile.mkdtemp(prefix="verificar-capa-git-"))
+    previo = {k: os.environ.get(k) for k in AISLAMIENTO_GIT}
+    os.environ.update(GIT_CONFIG_GLOBAL=str(carpeta / "global"), GIT_CONFIG_SYSTEM=str(carpeta / "sistema"),
+                      GIT_CONFIG_NOSYSTEM="1")
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+        shutil.rmtree(carpeta, onexc=_quitar)
+        if carpeta.exists():
+            SOBRANTES.append(str(carpeta))
+
+
+def parche_codex(*lineas):
+    return "\n".join(("*** Begin Patch",) + lineas + ("*** End Patch",)) + "\n"
+
+
+def codex(texto, nombre="PreToolUse", cwd=None, **extra):
+    e = {"hook_event_name": nombre, "tool_name": "apply_patch", "tool_input": {"command": texto}, "session_id": "s1",
+         "turn_id": "t1"}
+    if cwd is not None:
+        e["cwd"] = str(cwd)
+    e.update(extra)
+    return e
+
+
+def test_codex_un_parche_de_dos_capas_bloquea_una_vez_con_los_dos_primeros_toques():
+    with git_aislado(), Toque() as w:
+        texto = parche_codex("*** Update File: %s" % w.sql, "@@", "-a", "+b", "*** Add File: %s" % w.cs, "+int a;",
+                             "*** Delete File: %s" % w.sql2)
+        codigo, out, err = M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex")
+        assert codigo == 2 and out == "", (codigo, out)
+        motivo = err.decode("utf-8")
+        assert motivo.index(REGLA % "SQL") < motivo.index(REGLA % "WEB"), motivo
+        assert motivo.count("primer toque (capa-") == 2 and "\n\nprimer toque (capa-web)" in motivo, motivo
+        assert motivo.startswith("primer toque (capa-sql): este apply_patch no se aplicó."), motivo
+        assert w.marcas() == ["s1/principal.sql", "s1/principal.web"], "el tercer archivo es de una capa ya marcada"
+        assert M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex") == (0, "", b""), "el reintento pasa"
+
+
+def test_codex_post_combina_los_hallazgos_de_cada_archivo_y_salta_los_que_ya_no_estan():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        escribir(w.web, "Core/A.cs", "a = MALO BLOQ;\n")
+        escribir(w.web, "Core/B.cs", "b = MALO;\n")
+        escribir(w.web, "Core/C.cs", "c = MALO;\n")
+        texto = parche_codex("*** Update File: Core/B.cs", "@@", "+b = MALO;", "*** Delete File: Core/Borrado.cs",
+                             "*** Update File: Core/Viejo.cs", "*** Move to: Core/A.cs", "@@", "+a = MALO BLOQ;")
+        codigo, out, err = M.correr(codex(texto, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
+        motivo = err.decode("utf-8")
+        assert codigo == 2 and out == "", (codigo, out, motivo)
+        assert motivo.startswith("verificar-capa (aviso): Core/B.cs tiene 1 aviso(s)"), motivo
+        assert "\n\nverificar-capa: Core/A.cs tiene 1 problema(s): corregir y reintentar." in motivo, motivo
+        assert "Borrado" not in motivo and "Viejo" not in motivo, motivo
+        avisos = parche_codex("*** Update File: Core/B.cs", "*** Delete File: Core/Borrado.cs", "*** Add File: Core/C.cs")
+        codigo, out, err = M.correr(codex(avisos, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
+        texto_ = contexto(out)
+        assert (codigo, err) == (0, b"") and texto_ is not None, (codigo, out, err)
+        assert texto_.startswith("verificar-capa (aviso): Core/B.cs") and "\n\nverificar-capa (aviso): Core/C.cs" in texto_, texto_
+        solo_borrado = parche_codex("*** Delete File: Core/Borrado.cs")
+        assert M.correr(codex(solo_borrado, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex") == (0, "", b"")
+
+
+def test_codex_un_archivo_que_revienta_no_silencia_el_bloqueo_de_los_otros():
+    with git_aislado(), Mundo(db={"src/Proc_X.sql": "select 0;\n"}) as w:
+        w.modulo("web", STUB_MALO)
+        w.modulo("sql", "raise RuntimeError('roto')\n")
+        escribir(w.web, "Core/A.cs", "a = MALO BLOQ;\n")
+        escribir(w.db, "src/Proc_X.sql", "select 1;\n")
+        cs = ("*** Update File: Core/A.cs", "@@", "+a = MALO BLOQ;")
+        sql = ("*** Update File: ../db/src/Proc_X.sql", "@@", "-select 0;", "+select 1;")
+        for lineas in (cs + sql, sql + cs):
+            codigo, out, err = M.correr(codex(parche_codex(*lineas), "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25,
+                                        host="codex")
+            assert (codigo, out) == (2, "") and "Core/A.cs tiene 1 problema(s)" in err.decode("utf-8"), (lineas, codigo, err)
+
+
+def test_codex_una_capa_que_revienta_en_el_primer_toque_no_silencia_la_otra():
+    with git_aislado(), Toque() as w:
+        (w.raiz / ".claude" / "skills" / "capa-web" / "SKILL.md").write_bytes(b"\xff\xfe\xff no es utf-8\n")
+        sql = ("*** Update File: %s" % w.sql, "@@", "-a", "+b")
+        cs = ("*** Add File: %s" % w.cs, "+int a;")
+        for sesion, lineas in (("s1", sql + cs), ("s2", cs + sql)):
+            codigo, out, err = M.correr(codex(parche_codex(*lineas), session_id=sesion), raiz=w.raiz, plazo=25, host="codex")
+            assert (codigo, out) == (2, "") and (REGLA % "SQL") in err.decode("utf-8"), (sesion, codigo, err)
+
+
+def test_codex_inicio_con_fork_y_con_la_config_rota():
+    with git_aislado(), Toque() as w:
+        w.correr(leer(w.sql))
+        assert w.marcas() == ["s1/principal.sql"]
+        assert M.correr(inicio("fork"), raiz=w.raiz, host="codex") == (0, "", b"")
+        assert w.marcas() == ["s1/principal.sql"], "fork no reinicia el primer toque"
+        assert M.correr(inicio("compact"), raiz=w.raiz, host="codex") == (0, "", b"") and w.marcas() == []
+        escribir(w.raiz, "workspace.config.json", "{rota")
+        codigo, out, err = M.correr(inicio("startup"), raiz=w.raiz, host="codex")
+        assert (codigo, err) == (0, b"") and "/odd-ws:doctor" in aviso_de(out), (codigo, out, err)
+
+
+def test_un_host_desconocido_bloquea_en_pre_sin_correr_el_nucleo_y_calla_en_lo_demas():
+    with git_aislado(), Toque() as w:
+        for host in ("otro", "", None, "Codex"):
+            codigo, out, err = M.correr(a_escribir(w.sql), raiz=w.raiz, plazo=25, host=host)
+            assert codigo == 2 and out == "" and err.startswith(b"odd-ws: host desconocido"), (host, codigo, err)
+        for e in (leer(w.sql), inicio("startup"), inicio("compact"), evento(w.sql)):
+            assert M.correr(e, raiz=w.raiz, plazo=25, host="otro") == (0, "", b""), e
+        assert w.marcas() == [], "con un host desconocido el núcleo no corre"
+        assert M.correr(a_escribir(w.sql), raiz=w.raiz, plazo=25)[0] == 2 and w.marcas() == ["s1/principal.sql"], "sin host, Claude Code"
+
+
+def test_main_elige_el_host_con_el_argumento():
+    with git_aislado(), Toque() as w:
+        env = dict(_entorno_sin_git(), CLAUDE_PROJECT_DIR=str(w.raiz))
+
+        def hook(payload, *args):
+            return subprocess.run([sys.executable, str(_RUTA), "--plazo", "8", *args], input=json.dumps(payload).encode("utf-8"),
+                                  capture_output=True, timeout=60, env=env)
+
+        r = hook(a_escribir(w.sql), "--host", "gemini")
+        assert r.returncode == 2 and r.stdout == b"" and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
+        r = hook(a_escribir(w.sql), "--host")
+        assert r.returncode == 2 and b"sin valor" in r.stderr, r
+        assert hook(inicio("startup"), "--host", "gemini").returncode == 0 and w.marcas() == []
+        r = hook(codex(parche_codex("*** Update File: %s" % w.sql, " x")), "--host", "codex")
+        assert r.returncode == 2 and (REGLA % "SQL").encode("utf-8") in r.stderr, r
+        r = hook(codex(parche_codex("*** Update File: %s" % w.cs, " x"), session_id="s2"))
+        assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "sin --host es Claude Code, y apply_patch no es suyo"
+        r = hook(a_escribir(w.cs, sesion="s3"))
+        assert r.returncode == 2 and (REGLA % "WEB").encode("utf-8") in r.stderr, r
+        r = hook(codex(parche_codex("*** Update File: %s" % w.sql, " x"), session_id="s4"), "--host=codex")
+        assert r.returncode == 2 and (REGLA % "SQL").encode("utf-8") in r.stderr, "--host=codex es Codex, no Claude Code"
+        r = hook(a_escribir(w.sql, sesion="s5"), "--host=gemini")
+        assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
 
 
 def main():

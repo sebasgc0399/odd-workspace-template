@@ -268,6 +268,85 @@ def test_el_dispatcher_usa_el_mismo_plazo_de():
     assert importlib.import_module("verificar_capa").plazo_de is m().plazo_de
 
 
+def test_host_de_lee_el_argumento_y_sin_el_es_claude_code():
+    assert m().HOST_POR_DEFECTO == "claude-code"
+    assert m().host_de([]) == "claude-code"
+    assert m().host_de(["--plazo", "8"]) == "claude-code"
+    assert m().host_de(["--host", "codex"]) == "codex"
+    assert m().host_de(["--plazo", "8", "--host", "codex", "--host", "otro"]) == "codex", "cuenta el primero, como --plazo"
+    assert m().host_de(["--host", "gemini"]) == "gemini", "el nombre lo valida el registro de hosts"
+    assert m().host_de(["--plazo", "8", "--host"]) is None, "un --host sin valor no vuelve al default"
+
+
+def test_host_de_acepta_la_forma_con_igual():
+    assert m().host_de(["--host=codex"]) == "codex"
+    assert m().host_de(["--plazo", "8", "--host=gemini"]) == "gemini", "el nombre lo valida el registro de hosts"
+    assert m().host_de(["--host=codex", "--host", "otro"]) == "codex", "cuenta el primero, con o sin igual"
+    assert m().host_de(["--host", "codex", "--host=otro"]) == "codex"
+    assert m().host_de(["--host="]) is None, "un --host= vacío no vuelve al default"
+
+
+def test_los_tres_guards_usan_el_mismo_host_de():
+    for nombre in ("verificar_capa", "writer_guard", "guard_comandos"):
+        assert importlib.import_module(nombre).host_de is m().host_de, nombre
+
+
+def eventos():
+    return importlib.import_module("odd_ws.eventos")
+
+
+def test_combinar_gana_el_bloqueo_con_todos_los_mensajes_en_orden():
+    E = eventos()
+    assert m().combinar([]) == E.Permitir()
+    assert m().combinar([E.Permitir(), E.Permitir()]) == E.Permitir()
+    assert m().combinar([E.Contexto("a"), E.Permitir(), E.Contexto("b")]) == E.Contexto("a\n\nb")
+    assert m().combinar([E.Contexto("a"), E.Bloquear("b"), E.Permitir(), E.Bloquear("c")]) == E.Bloquear("a\n\nb\n\nc")
+    assert m().combinar([E.Bloquear("b"), E.Contexto("a")]) == E.Bloquear("b\n\na")
+    assert m().combinar([E.Contexto("a"), E.Preguntar("p")]) == E.Preguntar("a\n\np"), "preguntar no se pierde"
+    assert m().combinar([E.Preguntar("p"), E.Bloquear("b")]) == E.Bloquear("p\n\nb")
+
+
+def test_por_ruta_decide_cada_ruta_aparte_y_combina():
+    E = eventos()
+    vistos = []
+
+    def decidir(evento):
+        vistos.append(evento)
+        return {"/a": E.Bloquear("A"), "/b": E.Contexto("B")}.get(evento.rutas[0] if evento.rutas else None, E.Permitir())
+
+    dos = E.Herramienta(fase="post", tipo="edicion", rutas=("/b", "/c", "/a"), sesion="s1")
+    assert m().por_ruta(dos, decidir) == E.Bloquear("B\n\nA")
+    assert vistos == [E.Herramienta(fase="post", tipo="edicion", rutas=(r,), sesion="s1") for r in ("/b", "/c", "/a")], vistos
+
+
+def test_por_ruta_con_una_ruta_o_ninguna_pasa_el_evento_y_la_decision_tal_cual():
+    E = eventos()
+    for rutas in ((), ("/a",)):
+        evento, vistos = E.Herramienta(fase="pre", tipo="edicion", rutas=rutas), []
+        for decision in (E.Seguir("s"), E.Permitir(), E.Bloquear("b"), None):
+            assert m().por_ruta(evento, lambda e: vistos.append(e) or decision) is decision, (rutas, decision)
+        assert all(visto is evento for visto in vistos), rutas
+
+
+def test_por_ruta_aisla_la_ruta_que_revienta_y_las_demas_deciden():
+    E = eventos()
+
+    def decidir(evento):
+        if evento.rutas[0].startswith("/roto"):
+            raise RuntimeError("roto")
+        return {"/a": E.Bloquear("A"), "/b": E.Contexto("B")}.get(evento.rutas[0], E.Permitir())
+
+    assert m().por_ruta(E.Herramienta(fase="post", tipo="edicion", rutas=("/roto", "/a", "/b")), decidir) == E.Bloquear("A\n\nB")
+    assert m().por_ruta(E.Herramienta(fase="post", tipo="edicion", rutas=("/b", "/a", "/roto")), decidir) == E.Bloquear("B\n\nA")
+    assert m().por_ruta(E.Herramienta(fase="pre", tipo="edicion", rutas=("/roto", "/roto2")), decidir) == E.Permitir()
+    try:
+        m().por_ruta(E.Herramienta(fase="pre", tipo="edicion", rutas=("/roto",)), decidir)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("con una sola ruta la excepción sigue llegando a correr, como en Claude Code")
+
+
 def test_temporal_sigue_el_orden_de_os_tmpdir_de_node():
     if os.name == "nt":
         assert m().temporal({"TEMP": "C:\\a", "TMP": "C:\\b", "SYSTEMROOT": "C:\\w"}) == "C:\\a"

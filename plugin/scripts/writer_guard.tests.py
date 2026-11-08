@@ -1659,6 +1659,78 @@ def test_u6f_destinos_ve_detras_del_envoltorio_y_dentro_del_bloque():
     comprobar(fallos)
 
 
+@contextlib.contextmanager
+def plataforma(nombre):
+    from odd_ws.hosts import codex
+    previo = codex.SISTEMA
+    codex.SISTEMA = nombre
+    try:
+        yield
+    finally:
+        codex.SISTEMA = previo
+
+
+def parche_codex(*lineas):
+    return "\n".join(("*** Begin Patch",) + lineas + ("*** End Patch",)) + "\n"
+
+
+def evento_parche(texto, cwd, sesion="s1", agente="a1", **extra):
+    e = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "session_id": sesion, "agent_id": agente,
+         "agent_type": "writer-sql", "cwd": str(cwd), "tool_input": {"command": texto}}
+    e.update(extra)
+    return e
+
+
+def test_codex_un_parche_toma_la_foto_de_cada_archivo_y_nunca_bloquea():
+    with instancia_temporal() as raiz:
+        viejo, borrado, movido, nuevo = raiz / "A.sql", raiz / "sub" / "B.sql", raiz / "C.sql", raiz / "N.sql"
+        borrado.parent.mkdir()
+        viejo.write_bytes(b"original\n")
+        borrado.write_bytes(b"se va\n")
+        texto = parche_codex("*** Update File: A.sql", "@@", "-original", "+cambiado", "*** Move to: C.sql",
+                             "*** Delete File: sub/B.sql", "*** Add File: %s" % nuevo, "+nuevo")
+        assert correr(evento_parche(texto, raiz, sesion="s0"), raiz, host="otro")[0] == 2
+        assert not (raiz / ".claude").exists(), "con un host desconocido no hay foto"
+        assert correr(evento_parche(texto, raiz, sesion="s2"), raiz) == (0, "", b"")
+        assert not (raiz / ".claude").exists(), "sin --host es Claude Code, y apply_patch no es suyo"
+        assert correr(evento_parche(texto, raiz), raiz, host="codex") == (0, "", b"")
+        esperado = [G.clave_foto(viejo) + ".foto", G.clave_foto(movido) + ".nuevo", G.clave_foto(borrado) + ".foto",
+                    G.clave_foto(nuevo) + ".nuevo"]
+        assert fotos_de(raiz) == sorted(esperado), fotos_de(raiz)
+        carpeta = Path(G.carpeta_fotos(str(raiz), "s1", "a1"))
+        assert (carpeta / esperado[0]).read_bytes() == b"original\n"
+        assert (carpeta / esperado[2]).read_bytes() == b"se va\n", "el archivo que se borra queda en su foto"
+        assert (carpeta / esperado[1]).read_text(encoding="utf-8") == os.path.abspath(str(movido))
+
+
+def test_codex_bash_lee_el_escape_segun_la_plataforma():
+    fallos = []
+    barra, grave = "git -C a\\ b commit -m x", "git -C a` b commit -m x"
+    for comando, sistema, bloquea in ((barra, "posix", True), (barra, "nt", False), (grave, "nt", True), (grave, "posix", False)):
+        with plataforma(sistema):
+            c, o, e = correr(evento_bash(comando), host="codex")
+        esperado = "bloquea" if bloquea else "calla"
+        esperar(fallos, (c == 2) if bloquea else (c, o, e) == (0, "", b""), "%s en %s %s: %r" % (comando, sistema, esperado, (c, e)))
+    comprobar(fallos)
+
+
+def test_un_host_desconocido_bloquea_en_pre():
+    fallos = []
+    for host in ("otro", "", None, "claude_code"):
+        c, o, e = correr(evento_bash("git status"), host=host)
+        esperar(fallos, c == 2 and o == "" and e.startswith(b"odd-ws: host desconocido"), "%r: %r" % (host, (c, o, e)))
+    r = _hook(evento_bash("git status"), "--plazo", "8", "--host", "otro")
+    esperar(fallos, r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido"), "como proceso: %r" % r)
+    r = _hook(evento_bash("git status"), "--host")
+    esperar(fallos, r.returncode == 2 and b"sin valor" in r.stderr, "--host sin valor: %r" % r)
+    sin = {k: v for k, v in evento_bash("git commit -m x").items() if k != "agent_type"}
+    r = _hook(sin, "--host", "otro")
+    esperar(fallos, (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "sin writer el prefiltro sale antes: %r" % r)
+    r = _hook(evento_bash("git -C d commit -m x"), "--plazo", "8", "--host", "codex")
+    esperar(fallos, r.returncode == 2 and "git commit" in r.stderr.decode("utf-8", "replace"), "con codex bloquea: %r" % r)
+    comprobar(fallos)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

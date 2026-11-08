@@ -4,8 +4,11 @@ from odd_ws import transcripcion
 from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
+from odd_ws.hosts import base
 
+cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
+DEGRADACIONES = {}
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, compact y clear"),
     "P2": (SOPORTADO, "PreToolUse de Edit y Write: exit 2 con el motivo en stderr"),
@@ -25,10 +28,6 @@ TIPOS = {"Edit": "edicion", "Write": "edicion", "MultiEdit": "edicion", "Read": 
 DIALECTOS = {"Bash": POSIX, "PowerShell": POWERSHELL}
 HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
 HERRAMIENTAS_DE_SHELL = ("Bash", "PowerShell")
-
-
-def cargar(crudo):
-    return json.loads(crudo) if isinstance(crudo, (str, bytes, bytearray)) else crudo
 
 
 def _herramienta(payload, fase):
@@ -88,8 +87,7 @@ def responder(evento, decision):
 
 
 def atender(crudo, decidir, pre_por_defecto=False):
-    evento = leer(cargar(crudo), pre_por_defecto)
-    return SILENCIO if evento is None else responder(evento, decidir(evento))
+    return base.atender(leer, responder, crudo, decidir, pre_por_defecto)
 
 
 def usos(transcript, herramientas):

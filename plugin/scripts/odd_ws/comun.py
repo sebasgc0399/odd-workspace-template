@@ -4,6 +4,9 @@ import os
 import re
 import sys
 from collections import namedtuple
+from dataclasses import replace
+
+from odd_ws.eventos import Bloquear, Contexto, Permitir, Preguntar
 
 COMANDO_RUTAS_DE_HOOKS = ("rev-parse", "--git-path", "hooks", "--git-dir", "--git-common-dir")
 DecisionDeHooks = namedtuple("DecisionDeHooks", "puede motivo")
@@ -11,6 +14,8 @@ DecisionDeHooks = namedtuple("DecisionDeHooks", "puede motivo")
 ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 SILENCIO = (0, "", b"")
 PLAZO_POR_DEFECTO = 8
+HOST_POR_DEFECTO = "claude-code"
+PRECEDENCIA = (Bloquear, Preguntar, Contexto)
 
 VARIABLES_DE_REPO_GIT = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
@@ -64,6 +69,42 @@ def plazo_de(argv):
     except (ValueError, IndexError):
         return PLAZO_POR_DEFECTO
     return valor if math.isfinite(valor) and valor > 0 else PLAZO_POR_DEFECTO
+
+
+def host_de(argv):
+    for posicion, argumento in enumerate(argv):
+        if argumento.startswith("--host="):
+            return argumento[len("--host="):] or None
+        if argumento == "--host":
+            return argv[posicion + 1] if posicion + 1 < len(argv) else None
+    return HOST_POR_DEFECTO
+
+
+def _texto(decision):
+    if isinstance(decision, (Bloquear, Preguntar)):
+        return decision.motivo
+    return decision.texto if isinstance(decision, Contexto) else None
+
+
+def combinar(decisiones):
+    textos = [texto for texto in map(_texto, decisiones) if texto is not None]
+    for tipo in PRECEDENCIA:
+        if any(isinstance(decision, tipo) for decision in decisiones):
+            return tipo("\n\n".join(textos))
+    return Permitir()
+
+
+def _aislada(decidir, evento):
+    try:
+        return decidir(evento)
+    except Exception:
+        return Permitir()
+
+
+def por_ruta(evento, decidir):
+    if len(evento.rutas) < 2:
+        return decidir(evento)
+    return combinar([_aislada(decidir, replace(evento, rutas=(ruta,))) for ruta in evento.rutas])
 
 
 def temporal(entorno):

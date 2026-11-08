@@ -20,11 +20,12 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import hosts
 from odd_ws import rutas
 from odd_ws.capacidades import PRE
-from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, id_valido, plazo_de, raiz_de_instancia, temporal
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, correr_hook, host_de, id_valido, plazo_de, por_ruta,
+                          raiz_de_instancia, temporal)
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir
-from odd_ws.hosts import claude_code as anfitrion
 
 EMITE = {PRE: (Bloquear,)}
 MAX_FOTO = 8 * 1024 * 1024
@@ -1110,6 +1111,11 @@ def tomar_foto(evento, raiz):
         return
 
 
+def _foto(evento, raiz):
+    tomar_foto(evento, raiz)
+    return Permitir()
+
+
 def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
     try:
@@ -1126,8 +1132,7 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         if estado.tipo != "ok":
             return Permitir()
         if evento.tipo == "edicion":
-            tomar_foto(evento, estado.config["raiz"])
-            return Permitir()
+            return por_ruta(evento, lambda una: _foto(una, estado.config["raiz"]))
         comando = evento.comando
         if not comando or not comando.strip():
             return Permitir()
@@ -1140,16 +1145,16 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         _LIMITE = None
 
 
-def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
-        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo), pre_por_defecto=True)
+        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo), pre_por_defecto=True)
     except (Exception, SystemExit):
         return SILENCIO
 
 
 def main():
-    plazo = plazo_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(ENTRADA if ENTRADA is not None else crudo, plazo=plazo))
+    plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
+    return correr_hook(lambda crudo: correr(ENTRADA if ENTRADA is not None else crudo, plazo=plazo, host=host))
 
 
 if __name__ == "__main__":
