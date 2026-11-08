@@ -1696,7 +1696,7 @@ def test_codex_un_parche_toma_la_foto_de_cada_archivo_y_nunca_bloquea():
         assert correr(evento_parche(texto, raiz), raiz, host="codex") == (0, "", b"")
         esperado = [G.clave_foto(viejo) + ".foto", G.clave_foto(movido) + ".nuevo", G.clave_foto(borrado) + ".foto",
                     G.clave_foto(nuevo) + ".nuevo"]
-        assert fotos_de(raiz) == sorted(esperado), fotos_de(raiz)
+        assert fotos_de(raiz) == sorted(esperado + [convencion.BITACORA]), fotos_de(raiz)
         carpeta = Path(G.carpeta_fotos(str(raiz), "s1", "a1"))
         assert (carpeta / esperado[0]).read_bytes() == b"original\n"
         assert (carpeta / esperado[2]).read_bytes() == b"se va\n", "el archivo que se borra queda en su foto"
@@ -1729,6 +1729,104 @@ def test_un_host_desconocido_bloquea_en_pre():
     r = _hook(evento_bash("git -C d commit -m x"), "--plazo", "8", "--host", "codex")
     esperar(fallos, r.returncode == 2 and "git commit" in r.stderr.decode("utf-8", "replace"), "con codex bloquea: %r" % r)
     comprobar(fallos)
+
+
+def bitacora_de(raiz, sesion="s1", agente="a1"):
+    from odd_ws import comun
+    return comun.leer_bitacora(G.carpeta_fotos(str(raiz), sesion, agente))
+
+
+def shell_de_codex(comando, cwd, sesion="s1", agente="a1", **extra):
+    return evento_bash(comando, session_id=sesion, agent_id=agente, cwd=str(cwd), **extra)
+
+
+def test_codex_la_bitacora_anota_cada_ruta_del_parche_y_lo_que_el_guard_deja_pasar():
+    with instancia_temporal() as raiz, plataforma("nt"):
+        sub = raiz / "sub"
+        sub.mkdir()
+        viejo, nuevo = sub / "A.sql", raiz / "N.sql"
+        viejo.write_bytes(b"original\n")
+        texto = parche_codex("*** Update File: A.sql", "@@", "-original", "+cambiado", "*** Add File: %s" % nuevo, "+nuevo")
+        assert correr(evento_parche(texto, sub), raiz, host="codex") == (0, "", b"")
+        assert correr(shell_de_codex("echo x > salida.txt", raiz), raiz, host="codex") == (0, "", b"")
+        c, o, e = correr(shell_de_codex("git commit -m x", raiz), raiz, host="codex")
+        assert c == 2 and "git commit" in e.decode("utf-8"), (c, e)
+        assert correr(shell_de_codex("   ", raiz), raiz, host="codex") == (0, "", b"")
+        assert correr(evento_parche(parche_codex("sin marcas"), raiz), raiz, host="codex") == (0, "", b"")
+        rutas = [os.path.abspath(str(viejo)), os.path.abspath(str(nuevo))]
+        assert bitacora_de(raiz) == ([{"tipo": "edicion", "rutas": rutas},
+                                      {"tipo": "shell", "comando": "echo x > salida.txt", "dialecto": "powershell"}], 0), bitacora_de(raiz)
+        assert sorted(fotos_de(raiz)) == sorted([G.clave_foto(viejo) + ".foto", G.clave_foto(nuevo) + ".nuevo",
+                                                 convencion.BITACORA]), fotos_de(raiz)
+
+
+def test_codex_la_bitacora_resuelve_la_ruta_como_la_foto_y_respeta_ids_y_ajenos():
+    with instancia_temporal() as raiz:
+        archivo = raiz / "sub" / "A.sql"
+        archivo.parent.mkdir()
+        archivo.write_bytes(b"x\n")
+        relativa = evento_escritura("A.sql", cwd=str(archivo.parent))
+        relativa.update(tool_name="apply_patch", tool_input={"command": parche_codex("*** Update File: A.sql")})
+        assert correr(relativa, raiz, host="codex") == (0, "", b"")
+        rutas = [r["rutas"] for r in bitacora_de(raiz)[0]]
+        assert rutas == [[os.path.abspath(str(archivo))]], rutas
+        assert G.clave_foto(rutas[0][0]) + ".foto" in fotos_de(raiz), "la ruta anotada es la de la foto"
+        ajenos = [evento_parche(parche_codex("*** Add File: B.sql"), raiz, agente="../x"),
+                  evento_parche(parche_codex("*** Add File: B.sql"), raiz, sesion="a/b"),
+                  dict(evento_parche(parche_codex("*** Add File: B.sql"), raiz, sesion="s9"), agent_type="revisor-sql"),
+                  shell_de_codex("echo x > y.txt", raiz, sesion="s9", agent_type="Explore"),
+                  dict(evento_parche(parche_codex("*** Add File: B.sql"), raiz, sesion="s9"), hook_event_name="PostToolUse")]
+        for e in ajenos:
+            assert correr(e, raiz, host="codex") == (0, "", b""), e
+        assert sorted(p.name for p in (raiz / convencion.ESTADO_WRITERS).iterdir()) == ["s1"], "solo el writer con ids validos"
+
+
+def test_codex_un_comando_que_el_analisis_no_termina_igual_se_anota():
+    with instancia_temporal() as raiz:
+        original = G.analizar
+        try:
+            G.analizar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("se paso del plazo"))
+            assert correr(shell_de_codex("echo x > f.txt", raiz), raiz, host="codex") == (0, "", b""), "falla abierto, como antes"
+            G.analizar = lambda *a, **k: "git commit"
+            assert correr(shell_de_codex("git commit -m y", raiz), raiz, host="codex")[0] == 2
+        finally:
+            G.analizar = original
+        assert [r["comando"] for r in bitacora_de(raiz)[0]] == ["echo x > f.txt"], "lo que corre se anota; lo bloqueado, no"
+
+
+def test_codex_un_comando_como_primer_toque_poda_las_sesiones_viejas_como_la_foto():
+    with instancia_temporal() as raiz:
+        writers = raiz / convencion.ESTADO_WRITERS
+        vieja = writers / "sesion-vieja"
+        (vieja / "a1.fotos").mkdir(parents=True)
+        hace = time.time() - (G._verificar_capa().DIAS_PODA + 5) * 86400
+        os.utime(vieja, (hace, hace))
+        with plataforma("posix"):
+            assert correr(shell_de_codex("ls", raiz, sesion="sesion-nueva"), raiz, host="codex") == (0, "", b"")
+        assert not vieja.exists(), "la sesion vieja se poda aunque el primer toque sea un comando"
+        assert bitacora_de(raiz, sesion="sesion-nueva") == ([{"tipo": "shell", "comando": "ls", "dialecto": "posix"}], 0)
+
+
+def test_codex_una_bitacora_que_no_se_puede_escribir_no_bloquea_la_edicion():
+    with instancia_temporal() as raiz:
+        archivo = raiz / "A.sql"
+        archivo.write_bytes(b"x\n")
+        carpeta = Path(G.carpeta_fotos(str(raiz), "s1", "a1"))
+        (carpeta / convencion.BITACORA).mkdir(parents=True)
+        assert correr(evento_parche(parche_codex("*** Update File: A.sql"), raiz), raiz, host="codex") == (0, "", b"")
+        assert correr(shell_de_codex("ls", raiz), raiz, host="codex") == (0, "", b"")
+        assert G.clave_foto(archivo) + ".foto" in fotos_de(raiz), "la foto se saca igual"
+
+
+def test_claude_code_no_escribe_la_bitacora():
+    with instancia_temporal() as raiz:
+        archivo = raiz / "A.sql"
+        archivo.write_bytes(b"x\n")
+        for host in ({}, {"host": "claude-code"}):
+            assert correr(evento_escritura(archivo), raiz, **host) == (0, "", b"")
+            assert correr(shell_de_codex("echo x > f.txt", raiz), raiz, **host) == (0, "", b"")
+            assert correr(shell_de_codex("git commit -m x", raiz), raiz, **host)[0] == 2
+        assert fotos_de(raiz) == [G.clave_foto(archivo) + ".foto"], fotos_de(raiz)
 
 
 def main():

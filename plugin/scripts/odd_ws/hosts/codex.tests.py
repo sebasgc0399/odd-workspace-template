@@ -2,7 +2,9 @@ import contextlib
 import importlib
 import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -266,7 +268,7 @@ def test_las_degradaciones_estan_declaradas():
     assert m().DEGRADACIONES == {cap.PRE: {E.Preguntar: E.Bloquear}}
     assert importlib.import_module("odd_ws.hosts.claude_code").DEGRADACIONES == {}
     assert m().MANIFIESTO["P3"][0] == cap.DEGRADADO and "bloque" in m().MANIFIESTO["P3"][1], m().MANIFIESTO["P3"]
-    assert m().MANIFIESTO["P5"][0] == cap.NO_DISPONIBLE and "F1b" in m().MANIFIESTO["P5"][1], m().MANIFIESTO["P5"]
+    assert m().MANIFIESTO["P5"][0] == cap.SOPORTADO and "bitácora" in m().MANIFIESTO["P5"][1], m().MANIFIESTO["P5"]
 
 
 def test_el_registro_elige_el_adaptador_por_su_nombre_de_cli():
@@ -277,6 +279,37 @@ def test_el_registro_elige_el_adaptador_por_su_nombre_de_cli():
     assert hosts.adaptador("claude-code") is importlib.import_module("odd_ws.hosts.claude_code")
     for desconocido in ("Codex", "claude_code", "", None, 7, ["codex"], "gemini"):
         assert hosts.adaptador(desconocido) is None, desconocido
+
+
+@contextlib.contextmanager
+def temporal():
+    base = Path(tempfile.mkdtemp(prefix="codex-test-"))
+    try:
+        yield base
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def test_el_writer_de_codex_sale_de_la_bitacora_y_no_del_transcript():
+    comun = importlib.import_module("odd_ws.comun")
+    hosts = importlib.import_module("odd_ws.hosts")
+    assert m().BITACORA is True and hosts.necesita_bitacora("codex") is True
+    with temporal() as base:
+        transcript = base / "rollout-a1.jsonl"
+        transcript.write_text(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": str(base / "del-transcript.sql")}},
+            {"type": "tool_use", "name": "Bash", "input": {"command": "ls transcript"}}]}}) + "\n", encoding="utf-8")
+        carpeta = base / "a1.fotos"
+        carpeta.mkdir()
+        a, b = str(base / "a.sql"), str(base / "b.sql")
+        for registro in ({"tipo": "edicion", "rutas": [a, b]}, {"tipo": "shell", "comando": "ls", "dialecto": "powershell"}):
+            comun.anotar_en_bitacora(str(carpeta), registro)
+        e = m().leer(fin(agent_transcript_path=str(transcript)))
+        assert m().archivos_del_writer(e, str(carpeta)) == ([a, b], [])
+        assert m().comandos_del_writer(e, str(carpeta)) == [("powershell", "ls")]
+        archivos, faltas = m().archivos_del_writer(e, str(base / "otra.fotos"))
+        assert archivos == [] and faltas == [], "sin bitácora ni fotos el writer no tocó nada"
+        assert m().comandos_del_writer(e, str(base / "otra.fotos")) is None
 
 
 def main():

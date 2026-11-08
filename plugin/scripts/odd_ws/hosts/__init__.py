@@ -13,6 +13,11 @@ def adaptador(nombre):
     return importlib.import_module("odd_ws.hosts." + modulo) if modulo else None
 
 
+def necesita_bitacora(nombre):
+    elegido = adaptador(nombre)
+    return elegido is not None and elegido.BITACORA
+
+
 def _es_pre(crudo, pre_por_defecto):
     try:
         payload = cargar(crudo)

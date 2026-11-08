@@ -12,7 +12,6 @@ if __name__ == "__main__":
     except Exception:
         sys.exit(0)
 
-import hashlib
 import os
 import posixpath
 import re
@@ -23,8 +22,8 @@ from odd_ws import capas as convencion
 from odd_ws import hosts
 from odd_ws import rutas
 from odd_ws.capacidades import PRE
-from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, correr_hook, host_de, id_valido, plazo_de, por_ruta,
-                          raiz_de_instancia, temporal)
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, anotar_en_bitacora, clave_foto, correr_hook, host_de,
+                          id_valido, plazo_de, por_ruta, raiz_de_instancia, temporal)
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir
 
 EMITE = {PRE: (Bloquear,)}
@@ -1053,10 +1052,6 @@ def _mensaje(motivo):
     return "writer-guard bloqueó el comando. %s Para cambiar código usa Edit o Write." % que
 
 
-def clave_foto(ruta):
-    return hashlib.sha1(os.path.normcase(os.path.abspath(ruta)).encode("utf-8")).hexdigest()
-
-
 def carpeta_fotos(raiz, sesion, agente):
     return os.path.join(raiz, convencion.ESTADO_WRITERS, sesion, agente + ".fotos")
 
@@ -1068,6 +1063,17 @@ def _podar_sesiones_viejas(base, actual):
         return
 
 
+def _resuelta(ruta, cwd):
+    return os.path.join(cwd, ruta) if not os.path.isabs(ruta) and isinstance(cwd, str) else ruta
+
+
+def _preparar(carpeta, sesion):
+    sesion_nueva = not os.path.isdir(os.path.dirname(carpeta))
+    os.makedirs(carpeta, exist_ok=True)
+    if sesion_nueva:
+        _podar_sesiones_viejas(os.path.dirname(os.path.dirname(carpeta)), sesion)
+
+
 def tomar_foto(evento, raiz):
     try:
         sesion, agente = evento.sesion, evento.id_agente
@@ -1076,18 +1082,13 @@ def tomar_foto(evento, raiz):
             return
         if not ruta:
             return
-        cwd = evento.cwd
-        if not os.path.isabs(ruta) and isinstance(cwd, str):
-            ruta = os.path.join(cwd, ruta)
+        ruta = _resuelta(ruta, evento.cwd)
         carpeta = carpeta_fotos(raiz, sesion, agente)
         clave = clave_foto(ruta)
         foto, nuevo = os.path.join(carpeta, clave + ".foto"), os.path.join(carpeta, clave + ".nuevo")
         if os.path.exists(foto) or os.path.exists(nuevo):
             return
-        sesion_nueva = not os.path.isdir(os.path.dirname(carpeta))
-        os.makedirs(carpeta, exist_ok=True)
-        if sesion_nueva:
-            _podar_sesiones_viejas(os.path.dirname(os.path.dirname(carpeta)), sesion)
+        _preparar(carpeta, sesion)
         if os.path.isfile(ruta):
             if os.path.getsize(ruta) > MAX_FOTO:
                 return
@@ -1116,7 +1117,26 @@ def _foto(evento, raiz):
     return Permitir()
 
 
-def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def _registro(evento):
+    if evento.tipo == "edicion":
+        return {"tipo": "edicion", "rutas": [os.path.abspath(_resuelta(ruta, evento.cwd)) for ruta in evento.rutas]}
+    return {"tipo": "shell", "comando": evento.comando, "dialecto": evento.dialecto}
+
+
+def anotar(evento, raiz):
+    try:
+        sesion, agente = evento.sesion, evento.id_agente
+        if not (id_valido(sesion) and id_valido(agente)):
+            return
+        registro = _registro(evento)
+        carpeta = carpeta_fotos(raiz, sesion, agente)
+        _preparar(carpeta, sesion)
+        anotar_en_bitacora(carpeta, registro)
+    except (Exception, SystemExit):
+        return
+
+
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, bitacora=False):
     global _LIMITE
     try:
         if not isinstance(evento, Herramienta) or not convencion.es_writer(evento.agente):
@@ -1132,22 +1152,29 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         if estado.tipo != "ok":
             return Permitir()
         if evento.tipo == "edicion":
+            if bitacora and evento.rutas:
+                anotar(evento, estado.config["raiz"])
             return por_ruta(evento, lambda una: _foto(una, estado.config["raiz"]))
         comando = evento.comando
         if not comando or not comando.strip():
             return Permitir()
         cwd = evento.cwd
-        motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), evento.dialecto)
-        if not motivo:
-            return Permitir()
-        return Bloquear(_mensaje(motivo))
+        decision = None
+        try:
+            motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), evento.dialecto)
+            decision = Bloquear(_mensaje(motivo)) if motivo else Permitir()
+        finally:
+            if bitacora and not isinstance(decision, Bloquear):
+                anotar(evento, estado.config["raiz"])
+        return decision
     finally:
         _LIMITE = None
 
 
 def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
-        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo), pre_por_defecto=True)
+        bitacora = hosts.necesita_bitacora(host)
+        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, bitacora), pre_por_defecto=True)
     except (Exception, SystemExit):
         return SILENCIO
 

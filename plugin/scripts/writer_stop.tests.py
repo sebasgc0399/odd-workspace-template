@@ -19,7 +19,9 @@ SOBRANTES = []
 SILENCIO = (0, "", b"")
 
 from odd_ws import capas as convencion  # noqa: E402
+from odd_ws import comun  # noqa: E402
 from odd_ws.comun import plazo_de  # noqa: E402
+from odd_ws.eventos import FinSubagente  # noqa: E402
 from odd_ws.hosts import claude_code as anfitrion  # noqa: E402
 
 
@@ -150,6 +152,20 @@ def correr(e, inst, **extra):
     return W.correr(e, raiz=str(inst), **extra)
 
 
+def fin(trans):
+    return FinSubagente(agente="writer-web", id_agente="a1b2", sesion="sesion1", transcript=trans)
+
+
+def tocados(trans):
+    archivos, faltas = W.archivos_tocados(fin(trans), None, anfitrion)
+    assert faltas == [], faltas
+    return archivos
+
+
+def escritos(trans):
+    return W.escritos_por_bash(fin(trans), None, anfitrion)
+
+
 def estado_escrito(inst, sesion="sesion1", agente="a1b2"):
     p = Path(inst) / convencion.ESTADO_WRITERS / sesion / ("%s.json" % agente)
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
@@ -218,13 +234,13 @@ def test_archivos_tocados_solo_edit_y_write_en_orden_y_sin_repetir():
             ("Edit", {"file_path": "C:/x/a.cs", "old_string": "b", "new_string": "c"}), ("MultiEdit", {"file_path": "C:/x/m.cs", "edits": []}),
             ("Edit", {"old_string": "sin ruta"}), ("Write", {"file_path": 7}),
         ])
-        assert W.archivos_tocados(t) == ["C:/x/a.cs", "C:/x/b.cs", "C:/x/m.cs"], W.archivos_tocados(t)
-        assert W.archivos_tocados(base / "no-existe.jsonl") == []
-        assert W.archivos_tocados(None) == [] and W.archivos_tocados(5) == []
+        assert tocados(t) == ["C:/x/a.cs", "C:/x/b.cs", "C:/x/m.cs"], tocados(t)
+        assert tocados(base / "no-existe.jsonl") == []
+        assert tocados(None) == [] and tocados(5) == []
         (base / "vacio.jsonl").write_bytes(b"")
-        assert W.archivos_tocados(base / "vacio.jsonl") == []
+        assert tocados(base / "vacio.jsonl") == []
         (base / "bin.jsonl").write_bytes(b"\xff\xfe\x00{\n\x80")
-        assert W.archivos_tocados(base / "bin.jsonl") == []
+        assert tocados(base / "bin.jsonl") == []
 
 
 def test_usos_devuelve_nombre_y_entrada_en_orden_y_none_si_no_hay_transcripcion():
@@ -761,9 +777,9 @@ def test_s14_un_parser_roto_falla_abierto_y_no_cambia_la_decision():
 
 def test_s14_transcript_ilegible_o_sin_bash_da_vacio():
     with temporal() as base:
-        assert W.escritos_por_bash(base / "no" / "existe.jsonl") == [] and W.escritos_por_bash(None) == []
+        assert escritos(base / "no" / "existe.jsonl") == [] and escritos(None) == []
         t = transcript(base, [("Read", {"file_path": "x"}), ("Bash", {"command": 5}), ("Bash", {})])
-        assert W.escritos_por_bash(t) == []
+        assert escritos(t) == []
 
 
 def test_u6d_lo_escrito_por_bash_se_lee_con_el_escape_de_su_herramienta():
@@ -774,9 +790,9 @@ def test_u6d_lo_escrito_por_bash_se_lee_con_el_escape_de_su_herramienta():
         fallos = []
         for k, (uso, une) in enumerate(((_bash(barra), True), (_bash(barra, "PowerShell"), False),
                                          (_bash(grave, "PowerShell"), True), (_bash(grave), False))):
-            escritos = W.escritos_por_bash(transcript(base, [uso], nombre="u%d.jsonl" % k))
-            if (unida in escritos) != une:
-                fallos.append("%s en %s: %r" % (uso[1]["command"], uso[0], escritos))
+            vistos = escritos(transcript(base, [uso], nombre="u%d.jsonl" % k))
+            if (unida in vistos) != une:
+                fallos.append("%s en %s: %r" % (uso[1]["command"], uso[0], vistos))
         assert not fallos, "\n".join(fallos)
 
 
@@ -872,6 +888,141 @@ def test_r4_los_chequeos_reciben_el_limite_de_la_compuerta():
         limite = float(aviso.split("L=", 1)[1])
         assert 19 <= limite - antes <= 20.5, limite - antes
         assert W._verificar_capa()._LIMITE is None, "la compuerta no deja el limite colgado en el dispatcher"
+
+
+@contextlib.contextmanager
+def posix():
+    from odd_ws.hosts import codex
+    previo = codex.SISTEMA
+    codex.SISTEMA = "posix"
+    try:
+        yield
+    finally:
+        codex.SISTEMA = previo
+
+
+def parche(*lineas):
+    return "\n".join(("*** Begin Patch",) + lineas + ("*** End Patch",)) + "\n"
+
+
+def pre_de_codex(inst, herramienta, entrada, cwd, sesion="sesion1", agente="a1b2"):
+    e = {"hook_event_name": "PreToolUse", "tool_name": herramienta, "session_id": sesion, "agent_id": agente,
+         "agent_type": "writer-web", "cwd": str(cwd), "tool_input": {"command": entrada}}
+    return W._guardia().correr(e, raiz=str(inst), host="codex")
+
+
+def escenario_codex(base):
+    repo, archivo, inst = escenario(base, nuevo_texto="a\nb\nc\n")
+    nuevo = repo / "Core" / "A" / "Otro.cs"
+    texto = parche("*** Update File: Core/A/B.cs", "@@", "+y = MALO BLOQ;", "*** Add File: Core/A/Otro.cs", "+uno")
+    assert pre_de_codex(inst, "apply_patch", texto, repo) == SILENCIO
+    sal = (base / "salida.txt").as_posix()
+    assert pre_de_codex(inst, "Bash", "echo a > " + sal, base) == SILENCIO
+    assert pre_de_codex(inst, "Bash", "git commit -m x", repo)[0] == 2
+    escribir(repo, "Core/A/B.cs", "a\nb\nc\ny = MALO BLOQ;\n")
+    escribir(repo, "Core/A/Otro.cs", "uno\n")
+    return repo, archivo, nuevo, inst, sal
+
+
+def test_codex_la_compuerta_lee_la_bitacora_y_no_el_transcript():
+    with temporal() as base, posix():
+        repo, archivo, nuevo, inst, sal = escenario_codex(base)
+        t = transcript(base, [("Edit", {"file_path": str(base / "ajeno.cs")}), _bash("echo z > " + (base / "z.txt").as_posix())])
+        c, o, e = correr(evento(t, resultado("ok")), inst, host="codex")
+        razon = bloqueo(o) or ""
+        assert c == 0 and e == b"" and "T-02" in razon and "Core/A/B.cs" in razon, (c, o, e)
+        est = estado_escrito(inst)
+        assert est["archivos"] == [str(archivo), str(nuevo)], est["archivos"]
+        assert numstat_de(est) == [("Core/A/B.cs", 1, 0, "foto"), ("Core/A/Otro.cs", 1, 0, "nuevo")], numstat_de(est)
+        assert est["escritos_por_bash"] == [sal], "el git commit bloqueado no está: %r" % est["escritos_por_bash"]
+        assert est["errores_internos"] == [], est["errores_internos"]
+        assert (carpeta_de_fotos(inst) / convencion.BITACORA).is_file(), "al bloquear, la bitácora queda para el reintento"
+        c, o, e = correr(evento(t, resultado("ok"), activo=True), inst, host="codex")
+        assert (c, o, e) == SILENCIO and not carpeta_de_fotos(inst).exists(), "al dejar cerrar se va con las fotos"
+
+
+def test_codex_sin_poder_leer_la_bitacora_decide_como_un_transcript_ilegible_y_lo_dice():
+    perdido = Path("no") / "existe.jsonl"
+    with temporal() as base:
+        repo, archivo, inst = escenario(base)
+        referencia = [bloqueo(correr(evento(base / perdido, "Listo."), inst)[1]) is not None,
+                      correr(evento(base / perdido, resultado("ok")), inst)]
+        assert referencia == [True, SILENCIO], "Claude Code con el transcript ilegible: manda el formato y nada más"
+    for dano, falta in (("borrada", "la bitácora no está"), ("vacia", "la bitácora está vacía"),
+                        ("ilegible", "no se pudo leer la bitácora")):
+        with temporal() as base, posix():
+            repo, archivo, nuevo, inst, sal = escenario_codex(base)
+            bitacora = carpeta_de_fotos(inst) / convencion.BITACORA
+            bitacora.unlink()
+            if dano == "vacia":
+                bitacora.write_bytes(b"")
+            elif dano == "ilegible":
+                bitacora.mkdir()
+            c, o, e = correr(evento(base / perdido, "Listo."), inst, host="codex")
+            assert bloqueo(o) is not None, "%s: el formato sigue mandando, la compuerta no se abre" % dano
+            est = estado_escrito(inst)
+            assert est["archivos"] == [str(nuevo)], "%s: el archivo nuevo sale de su marca: %r" % (dano, est["archivos"])
+            internos = est["errores_internos"]
+            assert any(x.startswith("archivos_tocados: " + falta) for x in internos), (dano, internos)
+            assert "archivos_tocados: 1 archivos con foto no están en la bitácora y la compuerta no los puede medir" in internos, internos
+            assert est["escritos_por_bash"] == [], est["escritos_por_bash"]
+            assert correr(evento(base / perdido, resultado("ok")), inst, host="codex") == SILENCIO, dano
+
+
+def test_codex_una_linea_rota_no_abre_la_compuerta():
+    with temporal() as base, posix():
+        repo, archivo, nuevo, inst, sal = escenario_codex(base)
+        bitacora = carpeta_de_fotos(inst) / convencion.BITACORA
+        sin_utf8 = json.dumps({"tipo": "edicion", "rutas": [str(repo / "Core" / "A" / "Z\ud800.cs")]}).encode("ascii")
+        bitacora.write_bytes(b'{"tipo": "edicion", "rut\n' + sin_utf8 + b"\n" + bitacora.read_bytes() + b"\x00basura\n")
+        c, o, e = correr(evento(base / "no.jsonl", resultado("ok")), inst, host="codex")
+        assert "Core/A/B.cs" in (bloqueo(o) or ""), "el bloqueo de capa sigue: %r" % o
+        est = estado_escrito(inst)
+        assert est["archivos"] == [str(archivo), str(nuevo)] and est["escritos_por_bash"] == [sal], est
+        assert est["errores_internos"] == ["archivos_tocados: la bitácora tiene 3 líneas rotas"], est["errores_internos"]
+
+
+def test_codex_una_ruta_sin_utf8_en_el_parche_no_tapa_las_demas():
+    with temporal() as base, posix():
+        repo, archivo, inst = escenario(base)
+        nuevo = repo / "Core" / "A" / "N2.cs"
+        texto = parche("*** Add File: Core/A/N2.cs", "+y = MALO BLOQ;", "*** Add File: Core/A/Z\ud800.cs", "+z")
+        assert pre_de_codex(inst, "apply_patch", texto, repo) == SILENCIO
+        escribir(repo, "Core/A/N2.cs", "y = MALO BLOQ;\n")
+        c, o, e = correr(evento(base / "no.jsonl", resultado("ok")), inst, host="codex")
+        assert c == 0 and e == b"" and "Core/A/N2.cs" in (bloqueo(o) or ""), (c, o, e)
+        assert estado_escrito(inst)["archivos"] == [str(nuevo)], estado_escrito(inst)["archivos"]
+
+
+def test_main_lee_host_como_los_guards():
+    with temporal() as base, posix():
+        repo, archivo, nuevo, inst, sal = escenario_codex(base)
+        entrada = json.dumps(evento(base / "no" / "existe.jsonl", resultado("ok"))).encode("utf-8")
+        for args in (("--plazo", "50", "--host", "otro"), ("--plazo", "50", "--host"), ("--host=", "--plazo", "50")):
+            r = hook(entrada, inst, args)
+            assert (r.returncode, r.stdout, r.stderr) == (0, b"", b"") and estado_escrito(inst) is None, (args, r)
+        for args in (("--plazo", "50", "--host", "codex"), ("--host=codex", "--plazo", "50")):
+            r = hook(entrada, inst, args)
+            assert r.returncode == 0 and r.stderr == b"" and "Core/A/B.cs" in (bloqueo(r.stdout.decode("ascii")) or ""), (args, r)
+            assert estado_escrito(inst)["archivos"] == [str(archivo), str(nuevo)], args
+        for args in (("--plazo", "50", "--host", "claude-code"), ("--plazo", "50")):
+            r = hook(entrada, inst, args)
+            assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), (args, r)
+            assert estado_escrito(inst)["archivos"] == [], "Claude Code lee su transcript, que no está: %r" % (args,)
+
+
+def test_claude_code_no_lee_la_bitacora():
+    with temporal() as base:
+        repo, archivo, inst = escenario(base)
+        t = transcript(base, [("Read", {"file_path": str(archivo)})])
+        for host in ({}, {"host": "claude-code"}):
+            carpeta = carpeta_de_fotos(inst)
+            carpeta.mkdir(parents=True, exist_ok=True)
+            comun.anotar_en_bitacora(str(carpeta), {"tipo": "edicion", "rutas": [str(archivo)]})
+            comun.anotar_en_bitacora(str(carpeta), {"tipo": "shell", "comando": "echo a > x.txt", "dialecto": "posix"})
+            assert correr(evento(t, resultado("ok", arbol="sin cambios")), inst, **host) == SILENCIO, host
+            est = estado_escrito(inst)
+            assert (est["archivos"], est["escritos_por_bash"], est["errores_internos"]) == ([], [], []), (host, est)
 
 
 def main():

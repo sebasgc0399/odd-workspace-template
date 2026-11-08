@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import io
 import json
@@ -286,8 +287,8 @@ def test_host_de_acepta_la_forma_con_igual():
     assert m().host_de(["--host="]) is None, "un --host= vacío no vuelve al default"
 
 
-def test_los_tres_guards_usan_el_mismo_host_de():
-    for nombre in ("verificar_capa", "writer_guard", "guard_comandos"):
+def test_los_cuatro_hooks_usan_el_mismo_host_de():
+    for nombre in ("verificar_capa", "writer_guard", "guard_comandos", "writer_stop"):
         assert importlib.import_module(nombre).host_de is m().host_de, nombre
 
 
@@ -362,6 +363,150 @@ def test_temporal_sigue_el_orden_de_os_tmpdir_de_node():
 def test_los_dos_guards_usan_el_mismo_temporal():
     for nombre in ("writer_guard", "guard_comandos"):
         assert importlib.import_module(nombre).temporal is m().temporal, nombre
+
+
+def capas():
+    return importlib.import_module("odd_ws.capas")
+
+
+def edicion(*rutas):
+    return {"tipo": "edicion", "rutas": list(rutas)}
+
+
+def shell(comando, dialecto="posix"):
+    return {"tipo": "shell", "comando": comando, "dialecto": dialecto}
+
+
+def carpeta_de_fotos(base, nombre="a1.fotos"):
+    carpeta = base / nombre
+    carpeta.mkdir()
+    return carpeta
+
+
+def foto(carpeta, ruta, tipo="foto", contenido=b"x\n"):
+    destino = Path(carpeta) / ("%s.%s" % (m().clave_foto(ruta), tipo))
+    destino.write_bytes(contenido)
+    return destino
+
+
+def test_la_clave_de_la_foto_es_la_de_writer_guard():
+    assert importlib.import_module("writer_guard").clave_foto is m().clave_foto
+    ruta = os.path.abspath(os.path.join("x", "A.sql"))
+    assert m().clave_foto(ruta) == hashlib.sha1(os.path.normcase(ruta).encode("utf-8")).hexdigest()
+    assert m().clave_foto(os.path.join("x", "A.sql")) == m().clave_foto(ruta), "la relativa se resuelve contra el cwd"
+
+
+def test_la_bitacora_guarda_un_registro_por_linea_en_ascii_y_se_lee_en_orden():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        registros = [edicion(str(base / "á.sql")), shell("ls ñ", "powershell"), edicion(str(base / "b.sql"), str(base / "c.sql"))]
+        for registro in registros:
+            m().anotar_en_bitacora(str(carpeta), registro)
+        crudo = (carpeta / capas().BITACORA).read_bytes()
+        assert capas().BITACORA == "bitacora.jsonl"
+        assert crudo.count(b"\n") == 3 and crudo.endswith(b"\n") and all(b < 128 for b in crudo), crudo
+        assert [json.loads(linea) for linea in crudo.splitlines()] == registros
+        assert m().leer_bitacora(str(carpeta)) == (registros, 0)
+
+
+def test_una_linea_rota_o_con_otra_forma_se_cuenta_y_no_tapa_las_demas():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        buenas = [edicion("/x/a.sql"), shell("ls")]
+        rotas = ["{rota", json.dumps(edicion()), json.dumps(edicion("")), json.dumps({"tipo": "edicion", "rutas": "x"}),
+                 json.dumps(edicion("/x/b.sql", 7)), json.dumps(shell("")), json.dumps(shell("ls", "cmd")),
+                 json.dumps({"tipo": "otro"}), "[1]", "ÿ", json.dumps(edicion("/x/a\ud800b.sql")),
+                 json.dumps(shell("ls \udfff"))]
+        lineas = [json.dumps(buenas[0])] + rotas + ["", "  ", json.dumps(buenas[1])]
+        (carpeta / capas().BITACORA).write_bytes(("\n".join(lineas) + "\n").encode("utf-8") + b"\x80{\n")
+        assert m().leer_bitacora(str(carpeta)) == (buenas, len(rotas) + 1)
+
+
+def test_archivos_de_la_bitacora_en_orden_sin_repetir_con_cada_ruta_del_parche():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        a, b, c = (str(base / nombre) for nombre in ("a.sql", "b.sql", "c.sql"))
+        for registro in (edicion(a), shell("echo x > " + str(base / "d.sql")), edicion(b, a, c), edicion(b)):
+            m().anotar_en_bitacora(str(carpeta), registro)
+        foto(carpeta, a)
+        foto(carpeta, c, "nuevo", c.encode("utf-8"))
+        assert m().archivos_de_la_bitacora(str(carpeta)) == ([a, b, c], [])
+
+
+def test_sin_bitacora_y_sin_fotos_el_writer_no_toco_nada():
+    with Temporal() as base:
+        assert m().archivos_de_la_bitacora(str(base / "no-existe.fotos")) == ([], [])
+        assert m().comandos_de_la_bitacora(str(base / "no-existe.fotos")) is None
+        carpeta = carpeta_de_fotos(base)
+        assert m().archivos_de_la_bitacora(str(carpeta)) == ([], [])
+        (carpeta / "otro.txt").write_text("no es una foto", encoding="utf-8")
+        assert m().archivos_de_la_bitacora(str(carpeta)) == ([], [])
+
+
+def test_no_poder_leer_la_bitacora_nunca_es_que_no_toco_nada():
+    with Temporal() as base:
+        a = str(base / "a.sql")
+        sin = carpeta_de_fotos(base, "sin.fotos")
+        foto(sin, a)
+        archivos, faltas = m().archivos_de_la_bitacora(str(sin))
+        assert archivos == [] and any("bitácora no está" in f for f in faltas), faltas
+        assert any("1 archivos con foto" in f for f in faltas), faltas
+        vacia = carpeta_de_fotos(base, "vacia.fotos")
+        (vacia / capas().BITACORA).write_bytes(b"")
+        assert m().archivos_de_la_bitacora(str(vacia)) == ([], ["la bitácora está vacía"])
+        foto(vacia, a)
+        archivos, faltas = m().archivos_de_la_bitacora(str(vacia))
+        assert archivos == [] and faltas[0] == "la bitácora está vacía" and len(faltas) == 2, faltas
+        ilegible = carpeta_de_fotos(base, "ilegible.fotos")
+        (ilegible / capas().BITACORA).mkdir()
+        archivos, faltas = m().archivos_de_la_bitacora(str(ilegible))
+        assert archivos == [] and any("no se pudo leer la bitácora" in f for f in faltas), faltas
+        tapon = base / "tapon.fotos"
+        tapon.write_text("no soy una carpeta", encoding="utf-8")
+        archivos, faltas = m().archivos_de_la_bitacora(str(tapon))
+        assert archivos == [] and any("no se pudo leer la carpeta de fotos" in f for f in faltas), faltas
+
+
+def test_una_foto_sin_su_ruta_es_una_falta_y_la_marca_nuevo_se_recupera():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        a, b, n, x = (str(base / nombre) for nombre in ("a.sql", "b.sql", "n.sql", "x.sql"))
+        m().anotar_en_bitacora(str(carpeta), edicion(a))
+        foto(carpeta, a)
+        foto(carpeta, b)
+        foto(carpeta, n, "nuevo", n.encode("utf-8"))
+        foto(carpeta, x, "nuevo", b"")
+        (carpeta / ("0" * 40 + ".tmp")).write_bytes(b"x")
+        archivos, faltas = m().archivos_de_la_bitacora(str(carpeta))
+        assert archivos == [a, n], archivos
+        assert faltas == ["1 archivos nuevos no estaban en la bitácora y salen de su marca .nuevo",
+                          "2 archivos con foto no están en la bitácora y la compuerta no los puede medir"], faltas
+
+
+def test_una_ruta_que_no_se_codifica_es_una_linea_rota_y_no_revienta():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        a, n = str(base / "a.sql"), str(base / "n.sql")
+        m().anotar_en_bitacora(str(carpeta), edicion(a))
+        m().anotar_en_bitacora(str(carpeta), edicion(n, str(base / "z\ud800.sql")))
+        m().anotar_en_bitacora(str(carpeta), shell("echo \udfff > x"))
+        foto(carpeta, n, "nuevo", n.encode("utf-8"))
+        assert m().archivos_de_la_bitacora(str(carpeta)) == (
+            [a, n], ["la bitácora tiene 2 líneas rotas", "1 archivos nuevos no estaban en la bitácora y salen de su marca .nuevo"])
+        assert m().comandos_de_la_bitacora(str(carpeta)) == []
+
+
+def test_comandos_de_la_bitacora_con_su_dialecto_y_none_si_no_se_lee():
+    with Temporal() as base:
+        carpeta = carpeta_de_fotos(base)
+        for registro in (shell("ls"), edicion(str(base / "a.sql")), shell("Get-Item x", "powershell"), shell("ls")):
+            m().anotar_en_bitacora(str(carpeta), registro)
+        with open(carpeta / capas().BITACORA, "ab") as f:
+            f.write(b"{rota\n")
+        assert m().comandos_de_la_bitacora(str(carpeta)) == [("posix", "ls"), ("powershell", "Get-Item x"), ("posix", "ls")]
+        ilegible = carpeta_de_fotos(base, "ilegible.fotos")
+        (ilegible / capas().BITACORA).mkdir()
+        assert m().comandos_de_la_bitacora(str(ilegible)) is None
 
 
 def _version_plugin():

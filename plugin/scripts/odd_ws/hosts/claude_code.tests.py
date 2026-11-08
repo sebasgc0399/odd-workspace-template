@@ -286,6 +286,25 @@ def test_usos_devuelve_nombre_y_entrada_en_orden():
         assert m().usos(base / "no-existe.jsonl", ("Edit",)) is None
 
 
+def test_el_writer_de_claude_code_sale_del_transcript_y_no_de_la_bitacora():
+    comun = importlib.import_module("odd_ws.comun")
+    hosts = importlib.import_module("odd_ws.hosts")
+    assert m().BITACORA is False and hosts.necesita_bitacora("claude-code") is False
+    with Temporal() as base:
+        t = transcript(base, [("Edit", {"file_path": "/x/a.txt"}), ("Bash", {"command": "ls"}),
+                              ("PowerShell", {"command": "Get-Item x"})])
+        carpeta = base / "a1.fotos"
+        carpeta.mkdir()
+        comun.anotar_en_bitacora(str(carpeta), {"tipo": "edicion", "rutas": ["/x/de-la-bitacora.txt"]})
+        comun.anotar_en_bitacora(str(carpeta), {"tipo": "shell", "comando": "rm x", "dialecto": "posix"})
+        e = m().leer(fin(agent_transcript_path=str(t)))
+        assert m().archivos_del_writer(e, str(carpeta)) == (["/x/a.txt"], [])
+        assert m().comandos_del_writer(e, str(carpeta)) == [("posix", "ls"), ("powershell", "Get-Item x")]
+        ilegible = m().leer(fin(agent_transcript_path=str(base / "no-existe.jsonl")))
+        assert m().archivos_del_writer(ilegible, str(carpeta)) == ([], []), "como antes: un transcript ilegible no deja faltas"
+        assert m().comandos_del_writer(ilegible, str(carpeta)) is None
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

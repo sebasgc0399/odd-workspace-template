@@ -13,6 +13,7 @@ AGENTES = ".claude/agents"
 REVISOR_DISENO = AGENTES + "/revisor-diseno.md"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
+BITACORA = "bitacora.jsonl"
 WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
 CARPETA_VERDAD = "revision"
 CARPETA_OCULTA = "oculto"

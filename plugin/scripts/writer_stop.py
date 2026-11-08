@@ -11,11 +11,11 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import hosts
 from odd_ws.capacidades import FIN_SUBAGENTE
-from odd_ws.comun import PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, id_valido, plazo_de, raiz_de_instancia
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, host_de, id_valido, plazo_de,
+                          raiz_de_instancia)
 from odd_ws.eventos import FinSubagente, Permitir, Seguir
-from odd_ws.hosts import claude_code as anfitrion
-from odd_ws.hosts.claude_code import archivos_tocados
 
 EMITE = {FIN_SUBAGENTE: (Seguir,)}
 ESTADOS = ("ok", "partial", "blocked")
@@ -58,8 +58,12 @@ def _guardia():
     return _GUARDIA[0]
 
 
-def escritos_por_bash(transcript):
-    comandos = anfitrion.comandos_de_shell(transcript)
+def archivos_tocados(evento, fotos, anfitrion):
+    return anfitrion.archivos_del_writer(evento, fotos)
+
+
+def escritos_por_bash(evento, fotos, anfitrion):
+    comandos = anfitrion.comandos_del_writer(evento, fotos)
     if comandos is None:
         return []
     destinos, escritos = _guardia().destinos, []
@@ -271,7 +275,7 @@ def _etapa(internos, nombre, funcion, defecto):
         return defecto
 
 
-def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     if not isinstance(evento, FinSubagente) or not convencion.es_writer(evento.agente):
         return Permitir()
     sesion, agente = evento.sesion, evento.id_agente
@@ -288,15 +292,17 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     config, raiz = estado.config, estado.config["raiz"]
     activo = evento.ya_reintentado
     internos = []
-    archivos = _etapa(internos, "archivos_tocados", lambda: archivos_tocados(evento.transcript), [])
+    anfitrion = hosts.adaptador(host)
+    fotos = os.path.join(_carpeta(raiz, sesion), agente + ".fotos")
+    archivos, faltas = _etapa(internos, "archivos_tocados", lambda: archivos_tocados(evento, fotos, anfitrion), ([], []))
+    internos.extend("archivos_tocados: " + falta for falta in faltas)
     datos = _estado_parcial(evento, sesion, agente, archivos, activo, internos)
     _escribir_estado(raiz, sesion, agente, datos)
-    fotos = os.path.join(_carpeta(raiz, sesion), agente + ".fotos")
     numstat = _etapa(internos, "lineas reales", lambda: lineas_reales(archivos, fotos, limite), [])
     bloqueos, avisos, por_archivo = _etapa(internos, "chequeos de capa", lambda: _chequear(archivos, config, limite), ([], [], []))
     campos, errores = _etapa(internos, "formato del cierre", lambda: parsear_resultado(evento.ultimo_mensaje), ({}, []))
-    etapa_rota = bool(internos)
-    escritos = _etapa(internos, "escritos por bash", lambda: escritos_por_bash(evento.transcript), [])
+    etapa_rota = len(internos) > len(faltas)
+    escritos = _etapa(internos, "escritos por bash", lambda: escritos_por_bash(evento, fotos, anfitrion), [])
     internos.extend(por_archivo)
     total = sum(n["agregadas"] + n["quitadas"] for n in numstat)
     if campos.get("arbol", "").lower().startswith("sin cambios") and total:
@@ -316,16 +322,16 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
     return Seguir(_razon(bloqueos, errores, numstat))
 
 
-def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
+def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
-        return anfitrion.atender(evento, lambda leido: decidir(leido, raiz, plazo))
+        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, host))
     except (Exception, SystemExit):
         return SILENCIO
 
 
 def main():
-    plazo = plazo_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(crudo, plazo=plazo))
+    plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
+    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host))
 
 
 if __name__ == "__main__":

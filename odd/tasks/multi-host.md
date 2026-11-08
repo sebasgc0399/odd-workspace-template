@@ -55,16 +55,21 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F0a | S2, S5 | Modelo de eventos y decisiones en el núcleo, y el adaptador de Claude Code, sin cambio de comportamiento (diferencial) | delegado: un writer, por el respaldo de contexto de una sesión larga (L8); después, un verificador independiente (S5) | hecho (`dcad0d9`, L9) |
 | F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | hecho (`6db4105`, L10) |
 | F0c | S2, S6 | Se juntó con F1 (L11): la generación por host se diseña con Codex como segundo caso real | — | fusionada en F1 |
-| F1a | S2–S4 | Adaptador de protocolo de Codex (`odd_ws/hosts/codex.py`) y elección del adaptador con `--host` en los tres guards (aviso 3 de L9). Detalle:<br>• `apply_patch` es edición, con las rutas del parche (`Add`, `Update`, `Delete` y `Move to`) resueltas contra el `cwd`<br>• `Bash` es shell, con dialecto según la plataforma: PowerShell en Windows<br>• `Preguntar` se degrada a bloqueo con la instrucción de pedirle al usuario que lo corra (S4)<br>• `DEGRADACIONES` en el manifiesto<br>• los guards procesan todas las rutas de un evento | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2) | pendiente |
-| F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | por decidir | pendiente |
-| F1c | S2, S3 | Empaquetado: `.codex-plugin/plugin.json` con `"hooks": "./hooks/hooks.codex.json"`. Como Codex ignora `args`, los comandos van como string con `--host codex`. Lleva un test de paridad entre los dos `hooks*.json` y la misma versión en los dos manifiestos | por decidir | pendiente |
-| F1d | S2, S6 | Generación (la ex F0c). El bootstrap genera:<br>• `.codex/agents/*.toml` desde las mismas plantillas, con las skills y las herramientas en `developer_instructions`, porque Codex no las precarga ni las restringe<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md` para no tapar los `CLAUDE.md`<br><br>El doctor chequea por host: la versión de Codex, el plugin instalado y que los hooks tengan confianza (`[hooks.state]` de `~/.codex/config.toml`) | por decidir | pendiente |
+| F1a | S2–S4 | Adaptador de protocolo de Codex (`odd_ws/hosts/codex.py`) y elección del adaptador con `--host` en los tres guards (aviso 3 de L9). Detalle:<br>• `apply_patch` es edición, con las rutas del parche (`Add`, `Update`, `Delete` y `Move to`) resueltas contra el `cwd`<br>• `Bash` es shell, con dialecto según la plataforma: PowerShell en Windows<br>• `Preguntar` se degrada a bloqueo con la instrucción de pedirle al usuario que lo corra (S4)<br>• `DEGRADACIONES` en el manifiesto<br>• los guards procesan todas las rutas de un evento | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2) | hecho (`f8a9b88`) |
+| F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: `writer_guard` y `writer_stop`) | hecho (L14) |
+| F1c | S2, S3 | Empaquetado: `.codex-plugin/plugin.json` con `"hooks": "./hooks/hooks.codex.json"`. Como Codex ignora `args`, los comandos van como string con `--host codex`. Lleva un test de paridad entre los dos `hooks*.json` y la misma versión en los dos manifiestos. `writer_stop` ya lee `--host` (F1b) y se registra con `--host codex`; `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14) | por decidir | pendiente |
+| F1d | S2, S6 | Generación (la ex F0c). El bootstrap genera:<br>• `.codex/agents/*.toml` desde las mismas plantillas, con las skills y las herramientas en `developer_instructions`, porque Codex no las precarga ni las restringe<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md` para no tapar los `CLAUDE.md`<br><br>El doctor chequea por host: la versión de Codex, el plugin instalado y que los hooks tengan confianza (`[hooks.state]` de `~/.codex/config.toml`). También que ningún hook registrado lleve un `--host` desconocido o vacío: `writer_stop` calla con eso y la compuerta queda apagada (A5 de L14) | por decidir | pendiente |
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks) y entrega `0.3.0` | necesita el sí del usuario: usa su cuenta de Codex | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
 | F5 | S2–S4, S7 | Copilot CLI: verificar antes los nombres de las tools y el payload de cada evento | por decidir | pendiente |
 | X1 | — | Fuera del alcance: `MultiEdit` no está en ningún matcher de `hooks.json`, aunque `writer_guard.py:27` y `writer_stop.py:16` la tratan como escritura (L2) | inline, aparte | pendiente |
+| X2 | — | Fuera del alcance, ya estaba en `6db4105`: en el dialecto PowerShell, ``g`it push --force origin main`` pasa por `guard_comandos`, en Claude Code y en Codex (aviso 5 de L13) | inline, aparte | pendiente |
+| X3 | — | Fuera del alcance: con la config rota, `SessionStart` con `fork` no avisa (`ORIGENES_DEL_AVISO` de `verificar_capa.py`); conviene tratarlo como `resume` (aviso 3 de L13) | inline, aparte | pendiente |
+| X4 | — | Fuera del alcance, ya estaba en `f8a9b88`: en Claude Code, un transcript ilegible, o con una ruta con un surrogate suelto, da «nada tocado» sin dejar falta (A9 de L14). S5 no dejaba cambiarlo en F1b | inline, aparte | pendiente |
+| X5 | — | Fuera del alcance: un writer puede borrar su propia bitácora, o su transcript en Claude Code, con una llamada permitida, y la compuerta calla (paridad con la base); y un enlace duro plantado en lugar de la bitácora hace que el hook anote en otro archivo. Propuesta: proteger `.claude/estado/writers` de los writers en `writer_guard`, y un `lstat` antes del append (A1 y A2 de L14) | inline, aparte | pendiente |
+| X6 | — | Fuera del alcance, ya estaba en la base: un borrado no suma líneas, porque `lineas_reales` salta lo que no existe aunque la `.foto` tenga el contenido previo. En Codex se alcanza con `*** Delete File:` (A6 de L14) | inline, aparte | pendiente |
 
 ## Log
 
@@ -195,4 +200,36 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **Archivos tocados en Codex:** el transcript de Codex tiene otro formato, así que se usa una bitácora neutral que escribe `writer_guard` (F1b).
     - **Preguntar:** se degrada a bloqueo dentro del `responder` de Codex.
     - **Instrucciones:** `CLAUDE.md` sigue siendo la fuente y Codex lo lee por fallback; un `AGENTS.md` taparía el `CLAUDE.md` de su carpeta.
-- **Siguiente paso:** F1a.
+- **L13 (2026-11-07), F1a.** Quedó en `f8a9b88`.
+  - **Ruta:** un writer delegado, por el respaldo de contexto, y después un verificador independiente, por el ítem 2 (los guards).
+  - **El writer:** el adaptador de Codex, `odd_ws/hosts/base.py`, `--host` en los tres guards con falla cerrada, varias rutas por evento (`por_ruta` y `combinar`) y `DEGRADACIONES` con la regla de implicación del manifiesto. RED observado en los tests nuevos y 9 de 10 mutantes muertos; el que sobrevivió era equivalente, y se quitó el chequeo redundante.
+  - **El verificador:** S3 cumplido; S2 parcial y S4 en riesgo por dos fallas abiertas nuevas, las dos solo en Codex:
+    - **B1:** una ruta que lanzaba una excepción silenciaba el bloqueo de las demás (`por_ruta` no aislaba).
+    - **B2:** `--host=codex` caía en silencio a `claude-code`, y el `ask` de `guard_comandos` falla abierto en Codex.
+  - **La corrección (una tanda, inline):** `_aislada` en `por_ruta` (con 2 rutas o más, una ruta que revienta cuenta como `Permitir`), `host_de` reconoce `--host=<v>` (vacío falla cerrado), y el parser de `apply_patch` conserva el espacio de más tras la marca, como Codex (aviso 1). RED de los 7 tests nuevos y GREEN después. El recheck, acotado a B1 y B2, los dio cerrados, y ninguna sonda que antes pasaba falla.
+  - **Medición:** diferencial solo de Claude Code contra `6db4105`, sin flag, con `--host claude-code` y con `--host=claude-code`: 3713 de 3713 payloads sin estado y 1628 de 1628 pasos con estado idénticos, también en los archivos. Sondas Codex: 166 de 167; la que falla es X2, que ya venía de la base.
+  - **Avisos que quedan:** 2, un host desconocido solo reconoce `PreToolUse` como pre (fuera de dominio hoy); 3, X3; 4, `writer_stop` ignora `--host` (va en F1c); 5, X2; 6, una ruta escrita como absoluta y como relativa entra dos veces.
+- **L14 (2026-11-08), F1b.**
+  - **Ruta:** un writer delegado, por el respaldo de contexto, y después un verificador independiente, por el ítem 2 (`writer_guard` y `writer_stop`).
+  - **El writer:**
+    - **Puerto por adaptador:** `BITACORA`, `archivos_del_writer(evento, fotos)`, `comandos_del_writer(evento, fotos)` y `hosts.necesita_bitacora`.
+    - **Bitácora neutral:** está en `odd_ws/comun.py` y escribe en `<agente>.fotos/bitacora.jsonl`, un registro JSON en ASCII por línea con `O_APPEND`.
+    - **Cuándo anota `writer_guard`:** en pre y solo si el host la necesita. Las ediciones van siempre; los comandos, solo si el guard no los bloquea.
+    - **`writer_stop`:** lee `--host`.
+    - **P5 de Codex:** pasa a `soportado`.
+    - **Pruebas:** RED observado en 6 suites y 12 de 12 mutantes muertos.
+  - **Decisión del orquestador:** una bitácora ausente, ilegible, vacía o con líneas rotas decide como Claude Code con un transcript ilegible. La falta queda en `errores_internos` y no cuenta como etapa rota. S4 no cubre este caso, y una etapa rota termina en `Permitir`, así que abriría la compuerta.
+  - **El verificador:** S2, S3 y S5 cumplidos; S4 parcial por un blocker.
+    - **B1:** una línea con un surrogate suelto en una ruta reventaba `clave_foto`. La etapa se rompía y la compuerta dejaba cerrar sin medir nada, con las fotos borradas.
+  - **La corrección (una tanda, inline):** `_cadena_valida` rechaza la ruta o el comando que no se codifica en UTF-8, y esa línea cuenta como rota. RED de 4 tests y GREEN después. El rechequeo, limitado a B1, lo dio cerrado: con esa línea, la compuerta decide igual que con la bitácora sana.
+  - **Medición del verificador:**
+    - **Diferencial de Claude Code contra `f8a9b88`, sin flag, con `--host claude-code` y con `--host=claude-code`:** 1558 de 1558 payloads sin estado y 762 de 762 pasos con estado idénticos, también en los archivos. Ningún `bitacora.jsonl` en Claude Code.
+    - **Paridad Codex contra Claude Code:** la misma decisión en los 10 casos comparables.
+    - **Suites:** 41 de 41.
+  - **Avisos que quedan:**
+    - A1 y A2 van a X5; A5, al doctor de F1d; A6, a X6; A9, a X4.
+    - **A3:** un comando que frena `guard_comandos` y no `writer_guard` queda anotado. Es solo información y está documentado.
+    - **A4:** en Windows, el append no es atómico entre procesos. Dos procesos escribiendo seguido perdieron el 7,5 % de los registros; con hooks reales, 0 de 240. Lo mitiga el control cruzado de las fotos.
+    - **A7:** una ruta relativa en una bitácora alterada se resuelve contra el cwd y entra dos veces.
+    - **A8:** un id de sesión `NUL` en Windows no escribe nada. Ya venía de la base, y Codex da UUID.
+- **Siguiente paso:** F1c.

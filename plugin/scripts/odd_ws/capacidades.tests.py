@@ -166,13 +166,22 @@ def test_soportado_implica_que_el_adaptador_expresa_lo_que_pide_sin_degradarlo()
                 assert nota.strip(), "%s: %s es %s y su nota no explica por qué" % (nombre, clave, estado)
 
 
+def test_p5_soportado_implica_saber_que_toco_el_writer():
+    C = cap()
+    for nombre, adaptador in adaptadores():
+        assert isinstance(adaptador.BITACORA, bool), "%s: BITACORA dice si writer_guard le anota al writer" % nombre
+        if adaptador.MANIFIESTO["P5"][0] == C.SOPORTADO:
+            for puerto in ("archivos_del_writer", "comandos_del_writer"):
+                assert callable(getattr(adaptador, puerto, None)), "%s: P5 soportado sin %s" % (nombre, puerto)
+
+
 def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     C, E = cap(), ev()
     codex = importlib.import_module("odd_ws.hosts.codex")
     assert not nativo(codex, C.PRE, E.Preguntar) and nativo(codex, C.PRE, E.Bloquear)
     assert codex.MANIFIESTO["P3"][0] == C.DEGRADADO, codex.MANIFIESTO["P3"]
     assert all(nativo(codex, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Codex"
-    assert codex.MANIFIESTO["P5"][0] == C.NO_DISPONIBLE, "pero writer_stop todavía no corre en Codex (F1b)"
+    assert codex.MANIFIESTO["P5"][0] == C.SOPORTADO, "y writer_stop corre en Codex con la bitácora (F1b)"
     claude = importlib.import_module("odd_ws.hosts.claude_code")
     for clave, requisitos in C.REQUISITOS.items():
         assert all(nativo(claude, punto, tipo) for punto, tipo in requisitos), clave

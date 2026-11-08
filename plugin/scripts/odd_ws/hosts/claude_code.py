@@ -9,6 +9,7 @@ from odd_ws.hosts import base
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {}
+BITACORA = False
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, compact y clear"),
     "P2": (SOPORTADO, "PreToolUse de Edit y Write: exit 2 con el motivo en stderr"),
@@ -119,3 +120,11 @@ def comandos_de_shell(transcript):
         return None
     return [(DIALECTOS[herramienta], entrada["command"]) for herramienta, entrada in encontrados
             if isinstance(entrada.get("command"), str) and entrada["command"]]
+
+
+def archivos_del_writer(evento, fotos):
+    return archivos_tocados(evento.transcript), []
+
+
+def comandos_del_writer(evento, fotos):
+    return comandos_de_shell(evento.transcript)

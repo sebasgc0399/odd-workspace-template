@@ -1,14 +1,15 @@
 import json
 import os
 
-from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
-from odd_ws.comun import SILENCIO
+from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
+from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
 from odd_ws.hosts import base
 
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {PRE: {Preguntar: Bloquear}}
+BITACORA = True
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, clear, compact y fork"),
     "P2": (SOPORTADO, "PreToolUse de apply_patch: exit 2 con el motivo en stderr, con las rutas sacadas del parche "
@@ -17,8 +18,8 @@ MANIFIESTO = {
                       "permissionDecision ask falla abierto, y el motivo pide que el usuario corra el comando"),
     "P4": (DEGRADADO, "PostToolUse de apply_patch: exit 2 o additionalContext; no hay herramienta de lectura, así que el "
                       "primer toque no llega al leer sino al editar, con el bloqueo de pre"),
-    "P5": (NO_DISPONIBLE, "SubagentStop existe, pero writer_stop lee el transcript de Claude Code; llega en F1b, con la "
-                          "bitácora que escribe writer_guard"),
+    "P5": (SOPORTADO, "SubagentStop con matcher por agent_type y decision block; los archivos y los comandos del writer "
+                      "salen de la bitácora que writer_guard anota en pre, no del transcript (F1b)"),
     "P6": (SOPORTADO, "agent_type y agent_id dentro de un subagente"),
     "P7": (DEGRADADO, "agentes TOML en .codex/agents, sin lista de herramientas ni skills precargadas: van en "
                       "developer_instructions (F1d)"),
@@ -132,3 +133,11 @@ def responder(evento, decision):
 
 def atender(crudo, decidir, pre_por_defecto=False):
     return base.atender(leer, responder, crudo, decidir, pre_por_defecto)
+
+
+def archivos_del_writer(evento, fotos):
+    return archivos_de_la_bitacora(fotos)
+
+
+def comandos_del_writer(evento, fotos):
+    return comandos_de_la_bitacora(fotos)
