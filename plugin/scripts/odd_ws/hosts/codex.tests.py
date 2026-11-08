@@ -3,12 +3,14 @@ import importlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI.parent.parent))
+PLUGIN = AQUI.parent.parent.parent
 SILENCIO = (0, "", b"")
 CWD = os.path.abspath(os.path.join(os.sep, "w"))
 OTRA = os.path.abspath(os.path.join(os.sep, "otra", "x.sql"))
@@ -77,6 +79,22 @@ def fin(**extra):
                "cwd": CWD, "agent_transcript_path": "/t/rollout-a1.jsonl", "last_assistant_message": "Listo."}
     payload.update(extra)
     return payload
+
+
+def negado(motivo):
+    return 0, json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                 "permissionDecisionReason": motivo}}), b""
+
+
+def bloqueado(motivo):
+    return 0, json.dumps({"decision": "block", "reason": motivo}), b""
+
+
+def json_estricto(texto):
+    texto.encode("ascii")
+    datos = json.loads(texto)
+    json.dumps(datos, ensure_ascii=False).encode("utf-8")
+    return datos
 
 
 def test_apply_patch_es_edicion_con_las_rutas_de_cada_marca():
@@ -210,42 +228,63 @@ def test_cargar_y_atender_son_los_compartidos():
         return E.Bloquear("no")
 
     payload = pre("Bash", {"command": "ls"})
-    assert m().atender(json.dumps(payload).encode("utf-8"), nucleo) == (2, "", b"no\n")
+    assert m().atender(json.dumps(payload).encode("utf-8"), nucleo) == negado("no")
     assert vistos == [m().leer(payload)]
     assert m().atender({"hook_event_name": "Stop"}, nucleo) == SILENCIO and len(vistos) == 1
     sin = {k: v for k, v in payload.items() if k != "hook_event_name"}
     assert m().atender(sin, nucleo) == SILENCIO
-    assert m().atender(sin, nucleo, pre_por_defecto=True) == (2, "", b"no\n")
+    assert m().atender(sin, nucleo, pre_por_defecto=True) == negado("no")
 
 
-def test_responder_en_pre_degrada_preguntar_a_bloquear():
+def test_responder_en_pre_bloquea_por_json_y_degrada_preguntar_a_bloquear():
     E, e = ev(), m().leer(pre("Bash", {"command": "ls"}))
     assert m().responder(e, E.Permitir()) == SILENCIO
-    assert m().responder(e, E.Bloquear("guard bloqueó: ñ")) == (2, "", "guard bloqueó: ñ\n".encode("utf-8"))
-    assert m().responder(e, E.Preguntar("¿correr git commit?")) == (
-        2, "", ("¿correr git commit?\n" + SIN_CONFIRMACION + "\n").encode("utf-8"))
+    assert m().responder(e, E.Bloquear("guard bloqueó: ñ")) == (
+        0, '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", '
+           '"permissionDecisionReason": "guard bloque\\u00f3: \\u00f1"}}', b"")
+    assert m().responder(e, E.Preguntar("¿correr git commit?")) == negado("¿correr git commit?\n" + SIN_CONFIRMACION)
     assert m().responder(e, E.Contexto("dato")) == SILENCIO
     assert m().responder(e, E.Seguir("falta")) == SILENCIO
     parche_ = m().leer(de_parche(parche("*** Add File: a.py", "+x")))
-    assert m().responder(parche_, E.Bloquear("primer toque")) == (2, "", b"primer toque\n")
+    assert m().responder(parche_, E.Bloquear("primer toque")) == negado("primer toque")
 
 
-def test_responder_en_post():
+def test_responder_en_post_bloquea_por_json():
     E, e = ev(), m().leer(post("apply_patch", {"command": parche("*** Add File: a.py", "+x")}))
     assert m().responder(e, E.Permitir()) == SILENCIO
-    assert m().responder(e, E.Bloquear("corregir y reintentar")) == (2, "", b"corregir y reintentar\n")
+    assert m().responder(e, E.Bloquear("corregir y reintentar")) == (
+        0, '{"decision": "block", "reason": "corregir y reintentar"}', b"")
     assert m().responder(e, E.Contexto("línea 1\nlínea 2")) == (
         0, '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "l\\u00ednea 1\\nl\\u00ednea 2"}}', b"")
     assert m().responder(e, E.Preguntar("x")) == SILENCIO, "preguntar en post no existe ni degradado"
     assert m().responder(e, E.Seguir("x")) == SILENCIO
 
 
-def test_un_bloqueo_que_no_se_puede_codificar_igual_bloquea():
+def test_un_bloqueo_que_no_se_puede_codificar_igual_bloquea_con_json_valido():
     E = ev()
-    for e in (m().leer(pre("Bash", {"command": "ls"})), m().leer(post("Bash", {"command": "ls"}))):
-        assert m().responder(e, E.Bloquear("temporal C:\\t\ud800")) == (2, "", b"temporal C:\\t?\n")
-    codigo, salida, error = m().responder(m().leer(pre("Bash", {"command": "ls"})), E.Preguntar("x\ud800"))
-    assert (codigo, salida) == (2, "") and error.startswith(b"x?\n"), error
+    en_pre, en_post = m().leer(pre("Bash", {"command": "ls"})), m().leer(post("Bash", {"command": "ls"}))
+    assert m().responder(en_pre, E.Bloquear("temporal C:\\t\ud800")) == negado("temporal C:\\t?")
+    assert m().responder(en_post, E.Bloquear("temporal C:\\t\ud800")) == bloqueado("temporal C:\\t?")
+    codigo, salida, error = m().responder(en_pre, E.Preguntar("x\ud800"))
+    assert (codigo, error) == (0, b""), (codigo, error)
+    motivo = json_estricto(salida)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert motivo == "x?\n" + SIN_CONFIRMACION, motivo
+    for e, decision in ((en_pre, E.Bloquear("\udcff solo")), (en_post, E.Bloquear("a\ud800b\udfffc"))):
+        json_estricto(m().responder(e, decision)[1])
+
+
+def test_en_codex_nada_sale_con_exit_2_ni_por_stderr():
+    E = ev()
+    eventos = (m().leer(pre("Bash", {"command": "ls"})), m().leer(de_parche(parche("*** Add File: a.py", "+x"))),
+               m().leer(post("apply_patch", {"command": parche("*** Add File: a.py", "+x")})), m().leer(inicio("startup")),
+               m().leer(fin()))
+    for e in eventos:
+        for decision in (E.Permitir(), E.Bloquear("x ñ"), E.Preguntar("x ñ"), E.Contexto("x ñ"), E.Seguir("x ñ"),
+                         E.Bloquear("x\ud800"), E.Contexto("x\ud800"), E.Seguir("x\udfff")):
+            codigo, salida, error = m().responder(e, decision)
+            assert (codigo, error) == (0, b""), (e, decision, codigo, error)
+            if salida:
+                json_estricto(salida)
 
 
 def test_responder_al_iniciar_la_sesion_y_al_cerrar_un_subagente():
@@ -269,6 +308,10 @@ def test_las_degradaciones_estan_declaradas():
     assert importlib.import_module("odd_ws.hosts.claude_code").DEGRADACIONES == {}
     assert m().MANIFIESTO["P3"][0] == cap.DEGRADADO and "bloque" in m().MANIFIESTO["P3"][1], m().MANIFIESTO["P3"]
     assert m().MANIFIESTO["P5"][0] == cap.SOPORTADO and "bitácora" in m().MANIFIESTO["P5"][1], m().MANIFIESTO["P5"]
+    for clave in ("P2", "P3", "P4"):
+        nota = m().MANIFIESTO[clave][1]
+        assert "JSON con exit 0" in nota and "stderr" not in nota, (clave, nota)
+    assert ".codex-plugin" in m().MANIFIESTO["P9"][1] and "F1c" not in m().MANIFIESTO["P9"][1], m().MANIFIESTO["P9"]
 
 
 def test_el_registro_elige_el_adaptador_por_su_nombre_de_cli():
@@ -310,6 +353,59 @@ def test_el_writer_de_codex_sale_de_la_bitacora_y_no_del_transcript():
         archivos, faltas = m().archivos_del_writer(e, str(base / "otra.fotos"))
         assert archivos == [] and faltas == [], "sin bitácora ni fotos el writer no tocó nada"
         assert m().comandos_del_writer(e, str(base / "otra.fotos")) is None
+
+
+CONFIG_MINIMA = {"schema_version": 1, "repos": {}, "layers": {"doc": {"extensions": [".x"]}}}
+
+
+def comando_registrado(script):
+    datos = json.loads((PLUGIN / "hooks" / "hooks.codex.json").read_text(encoding="utf-8"))
+    comandos = [h["command"] for grupos in datos["hooks"].values() for grupo in grupos for h in grupo["hooks"]
+                if "/scripts/%s.py" % script in h["command"]]
+    assert len(comandos) == 1, comandos
+    return comandos[0]
+
+
+def shell_del_turno(comando):
+    return ["powershell.exe", "-NoProfile", "-Command", comando] if os.name == "nt" else ["sh", "-c", comando]
+
+
+def entorno_de_codex(base):
+    carpeta = Path(sys.executable).parent
+    if os.name != "nt" and Path(sys.executable).name != "python":
+        carpeta = base / "bin"
+        carpeta.mkdir()
+        (carpeta / "python").symlink_to(sys.executable)
+    entorno = {k: v for k, v in os.environ.items() if not k.upper().startswith(("GIT_", "CLAUDE_", "PYTHON"))}
+    entorno["PATH"] = str(carpeta) + os.pathsep + entorno.get("PATH", "")
+    config = base / "gitconfig"
+    config.write_text("", encoding="utf-8")
+    entorno.update(GIT_CONFIG_GLOBAL=str(config), GIT_CONFIG_SYSTEM=str(config), GIT_CONFIG_NOSYSTEM="1")
+    return entorno
+
+
+def test_de_punta_a_punta_el_shell_de_codex_entrega_el_bloqueo_con_exit_0():
+    with temporal() as base:
+        raiz = base / "con espacio" / "plugin"
+        shutil.copytree(PLUGIN, raiz, ignore=shutil.ignore_patterns("__pycache__", "*.tests.py"))
+        inst = base / "inst"
+        inst.mkdir()
+        (inst / "workspace.config.json").write_text(json.dumps(CONFIG_MINIMA), encoding="utf-8")
+        comando = comando_registrado("guard_comandos").replace("${PLUGIN_ROOT}", str(raiz))
+        entorno = entorno_de_codex(base)
+
+        def hook(linea):
+            entrada = json.dumps(pre("Bash", {"command": linea}, cwd=str(inst))).encode("utf-8")
+            return subprocess.run(shell_del_turno(comando), input=entrada, capture_output=True, env=entorno, cwd=str(inst),
+                                  timeout=60)
+
+        r = hook("git push --force origin main")
+        assert (r.returncode, r.stderr) == (0, b""), "PowerShell convierte el exit 2 en 1, que no bloquea: %r" % (r,)
+        decision = json_estricto(r.stdout.decode("ascii"))["hookSpecificOutput"]
+        assert (decision["hookEventName"], decision["permissionDecision"]) == ("PreToolUse", "deny"), decision
+        assert decision["permissionDecisionReason"].startswith("guard-comandos bloqueó el comando: "), decision
+        r = hook("git status")
+        assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "control: lo que no bloquea calla: %r" % (r,)
 
 
 def main():

@@ -1703,6 +1703,22 @@ def test_codex_un_parche_toma_la_foto_de_cada_archivo_y_nunca_bloquea():
         assert (carpeta / esperado[1]).read_text(encoding="utf-8") == os.path.abspath(str(movido))
 
 
+def negado_en_codex(salida):
+    codigo, texto, error = salida
+    if isinstance(texto, bytes):
+        texto = texto.decode("ascii")
+    if (codigo, error) != (0, b"") or not texto:
+        return None
+    try:
+        decision = json.loads(texto)
+    except ValueError:
+        return None
+    decision = decision.get("hookSpecificOutput") if isinstance(decision, dict) else None
+    if not isinstance(decision, dict) or (decision.get("hookEventName"), decision.get("permissionDecision")) != ("PreToolUse", "deny"):
+        return None
+    return decision.get("permissionDecisionReason")
+
+
 def test_codex_bash_lee_el_escape_segun_la_plataforma():
     fallos = []
     barra, grave = "git -C a\\ b commit -m x", "git -C a` b commit -m x"
@@ -1710,7 +1726,8 @@ def test_codex_bash_lee_el_escape_segun_la_plataforma():
         with plataforma(sistema):
             c, o, e = correr(evento_bash(comando), host="codex")
         esperado = "bloquea" if bloquea else "calla"
-        esperar(fallos, (c == 2) if bloquea else (c, o, e) == (0, "", b""), "%s en %s %s: %r" % (comando, sistema, esperado, (c, e)))
+        cumple = "git commit" in (negado_en_codex((c, o, e)) or "") if bloquea else (c, o, e) == (0, "", b"")
+        esperar(fallos, cumple, "%s en %s %s: %r" % (comando, sistema, esperado, (c, o, e)))
     comprobar(fallos)
 
 
@@ -1727,7 +1744,7 @@ def test_un_host_desconocido_bloquea_en_pre():
     r = _hook(sin, "--host", "otro")
     esperar(fallos, (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "sin writer el prefiltro sale antes: %r" % r)
     r = _hook(evento_bash("git -C d commit -m x"), "--plazo", "8", "--host", "codex")
-    esperar(fallos, r.returncode == 2 and "git commit" in r.stderr.decode("utf-8", "replace"), "con codex bloquea: %r" % r)
+    esperar(fallos, "git commit" in (negado_en_codex((r.returncode, r.stdout, r.stderr)) or ""), "con codex bloquea: %r" % r)
     comprobar(fallos)
 
 
@@ -1749,8 +1766,8 @@ def test_codex_la_bitacora_anota_cada_ruta_del_parche_y_lo_que_el_guard_deja_pas
         texto = parche_codex("*** Update File: A.sql", "@@", "-original", "+cambiado", "*** Add File: %s" % nuevo, "+nuevo")
         assert correr(evento_parche(texto, sub), raiz, host="codex") == (0, "", b"")
         assert correr(shell_de_codex("echo x > salida.txt", raiz), raiz, host="codex") == (0, "", b"")
-        c, o, e = correr(shell_de_codex("git commit -m x", raiz), raiz, host="codex")
-        assert c == 2 and "git commit" in e.decode("utf-8"), (c, e)
+        salida = correr(shell_de_codex("git commit -m x", raiz), raiz, host="codex")
+        assert "git commit" in (negado_en_codex(salida) or ""), salida
         assert correr(shell_de_codex("   ", raiz), raiz, host="codex") == (0, "", b"")
         assert correr(evento_parche(parche_codex("sin marcas"), raiz), raiz, host="codex") == (0, "", b"")
         rutas = [os.path.abspath(str(viejo)), os.path.abspath(str(nuevo))]
@@ -1788,7 +1805,7 @@ def test_codex_un_comando_que_el_analisis_no_termina_igual_se_anota():
             G.analizar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("se paso del plazo"))
             assert correr(shell_de_codex("echo x > f.txt", raiz), raiz, host="codex") == (0, "", b""), "falla abierto, como antes"
             G.analizar = lambda *a, **k: "git commit"
-            assert correr(shell_de_codex("git commit -m y", raiz), raiz, host="codex")[0] == 2
+            assert negado_en_codex(correr(shell_de_codex("git commit -m y", raiz), raiz, host="codex")) is not None
         finally:
             G.analizar = original
         assert [r["comando"] for r in bitacora_de(raiz)[0]] == ["echo x > f.txt"], "lo que corre se anota; lo bloqueado, no"

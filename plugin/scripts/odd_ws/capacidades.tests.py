@@ -1,14 +1,27 @@
 import ast
 import importlib
+import json
+import re
 import sys
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 SCRIPTS = AQUI.parent
+PLUGIN = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 SILENCIO = (0, "", b"")
 HOOKS = ("verificar_capa", "writer_guard", "writer_stop", "guard_comandos")
 DECISIONES_DE_HOOK = ("Bloquear", "Preguntar", "Contexto", "Seguir")
+MOTIVO = "motivo-de-prueba"
+HOOKS_CLAUDE = PLUGIN / "hooks" / "hooks.json"
+HOOKS_CODEX = PLUGIN / "hooks" / "hooks.codex.json"
+MANIFIESTO_CLAUDE = PLUGIN / ".claude-plugin" / "plugin.json"
+MANIFIESTO_CODEX = PLUGIN / ".codex-plugin" / "plugin.json"
+EVENTOS_DE_HERRAMIENTA = ("PreToolUse", "PostToolUse")
+MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Bash|PowerShell|Edit|Write": "Bash|apply_patch",
+                     "Read": None}
+SCRIPT_DE_CLAUDE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+)\.py")
+COMANDO_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
 
 
 def cap():
@@ -123,6 +136,33 @@ def nativo(adaptador, punto, tipo):
     return tipo in adaptador.EXPRESABLES.get(punto, ()) and tipo not in adaptador.DEGRADACIONES.get(punto, {})
 
 
+def _enmascarar(valor):
+    if isinstance(valor, dict):
+        return {clave: _enmascarar(dato) for clave, dato in valor.items()}
+    if isinstance(valor, list):
+        return [_enmascarar(dato) for dato in valor]
+    return MOTIVO if isinstance(valor, str) and MOTIVO in valor else valor
+
+
+def forma(salida):
+    codigo, texto, crudo = salida
+    try:
+        datos = json.loads(texto) if texto else texto
+    except ValueError:
+        datos = texto
+    return codigo, _enmascarar(datos), MOTIVO if MOTIVO.encode("utf-8") in crudo else crudo
+
+
+def test_la_forma_de_una_salida_tapa_solo_el_motivo():
+    C, E = cap(), ev()
+    claude = importlib.import_module("odd_ws.hosts.claude_code")
+    evento = eventos_por_punto()[C.PRE]
+    bloqueo = forma(claude.responder(evento, E.Bloquear(MOTIVO + " y algo más")))
+    assert bloqueo == (2, "", MOTIVO) == forma(claude.responder(evento, E.Bloquear(MOTIVO))), bloqueo
+    assert forma(claude.responder(evento, E.Preguntar(MOTIVO))) != bloqueo, "preguntar no tiene la forma de bloquear"
+    assert forma(claude.responder(evento, E.Bloquear("otro"))) != bloqueo, "el motivo enmascarado tiene que estar"
+
+
 def test_cada_degradacion_falla_cerrada_y_se_responde_como_su_destino():
     C, E = cap(), ev()
     for nombre, adaptador in adaptadores():
@@ -135,21 +175,22 @@ def test_cada_degradacion_falla_cerrada_y_se_responde_como_su_destino():
                     nombre, origen.__name__, punto)
                 assert destino is E.Bloquear, "%s: %s en %s se degrada a %s, y solo bloquear falla cerrado" % (
                     nombre, origen.__name__, punto, destino.__name__)
-                degradada, propia = adaptador.responder(evento, origen("x")), adaptador.responder(evento, destino("x"))
-                assert degradada != SILENCIO and degradada[0] == propia[0] == 2, (nombre, punto, degradada, propia)
+                degradada, propia = adaptador.responder(evento, origen(MOTIVO)), adaptador.responder(evento, destino(MOTIVO))
+                assert degradada != SILENCIO and forma(degradada) == forma(propia), (nombre, punto, degradada, propia)
 
 
 def test_una_decision_que_sale_como_bloqueo_esta_declarada_como_degradada():
     E = ev()
     for nombre, adaptador in adaptadores():
         for punto, evento in eventos_por_punto().items():
-            for decision in decisiones():
-                salida = adaptador.responder(evento, decision)
-                if isinstance(decision, E.Bloquear) or salida == SILENCIO:
+            bloqueo = forma(adaptador.responder(evento, E.Bloquear(MOTIVO)))
+            for tipo in (E.Preguntar, E.Contexto, E.Seguir):
+                salida = adaptador.responder(evento, tipo(MOTIVO))
+                if salida == SILENCIO:
                     continue
-                declarada = adaptador.DEGRADACIONES.get(punto, {}).get(type(decision)) is E.Bloquear
-                assert (salida[0] == 2) == declarada, "%s: %s en %s sale con exit %s y DEGRADACIONES dice %s" % (
-                    nombre, type(decision).__name__, punto, salida[0], declarada)
+                declarada = adaptador.DEGRADACIONES.get(punto, {}).get(tipo) is E.Bloquear
+                assert (forma(salida) == bloqueo) == declarada, "%s: %s en %s sale %s como un bloqueo y DEGRADACIONES dice %s" % (
+                    nombre, tipo.__name__, punto, "igual que" if forma(salida) == bloqueo else "distinto de", declarada)
 
 
 def test_soportado_implica_que_el_adaptador_expresa_lo_que_pide_sin_degradarlo():
@@ -186,6 +227,63 @@ def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     for clave, requisitos in C.REQUISITOS.items():
         assert all(nativo(claude, punto, tipo) for punto, tipo in requisitos), clave
         assert claude.MANIFIESTO[clave][0] == C.SOPORTADO, clave
+
+
+def leer_json(ruta):
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def entradas(datos):
+    for evento, grupos in datos["hooks"].items():
+        for grupo in grupos:
+            for hook in grupo["hooks"]:
+                yield evento, grupo, hook
+
+
+def par_de_codex(evento, grupo, hook):
+    assert set(hook) == {"type", "command", "args", "timeout"} and (hook["type"], hook["command"]) == ("command", "python"), hook
+    ruta, bandera, plazo = hook["args"]
+    script = SCRIPT_DE_CLAUDE.fullmatch(ruta)
+    assert script and bandera == "--plazo", hook
+    matcher = grupo["matcher"]
+    if evento in EVENTOS_DE_HERRAMIENTA:
+        assert matcher in MATCHERS_DE_CODEX, "el matcher %r de Claude Code no tiene su traducción a Codex" % matcher
+        matcher = MATCHERS_DE_CODEX[matcher]
+    return None if matcher is None else (evento, matcher, script.group(1), plazo, hook["timeout"])
+
+
+def de_codex(evento, grupo, hook):
+    assert set(grupo) == {"matcher", "hooks"}, grupo
+    assert set(hook) == {"type", "command", "timeout"} and hook["type"] == "command", (
+        "Codex ignora args y no lleva commandWindows: %r" % hook)
+    comando = COMANDO_DE_CODEX.fullmatch(hook["command"])
+    assert comando, '%r no es python "${PLUGIN_ROOT}/scripts/<script>.py" --plazo N --host codex' % hook["command"]
+    return evento, grupo["matcher"], comando.group(1), comando.group(2), hook["timeout"]
+
+
+def test_cada_hook_de_claude_code_tiene_su_par_en_codex():
+    esperados = [par for par in (par_de_codex(*entrada) for entrada in entradas(leer_json(HOOKS_CLAUDE))) if par is not None]
+    registrados = [de_codex(*entrada) for entrada in entradas(leer_json(HOOKS_CODEX))]
+    assert registrados == esperados, "\nCodex:  %r\nespera: %r" % (registrados, esperados)
+    assert {script for _, _, script, _, _ in esperados} == set(HOOKS), "los cuatro hooks corren en Codex"
+
+
+def test_los_hooks_de_codex_solo_traen_description_y_hooks():
+    datos = leer_json(HOOKS_CODEX)
+    assert set(datos) == {"description", "hooks"}, "Codex rechaza cualquier otra clave arriba: %r" % sorted(datos)
+    assert isinstance(datos["description"], str) and datos["description"].strip(), datos["description"]
+
+
+def test_el_manifiesto_de_codex_es_el_de_claude_code_con_sus_hooks():
+    claude, codex = leer_json(MANIFIESTO_CLAUDE), leer_json(MANIFIESTO_CODEX)
+    assert codex["version"] == claude["version"], "las dos versiones tienen que subir juntas: %r" % (
+        (codex.get("version"), claude.get("version")),)
+    assert (codex["name"], codex["description"]) == (claude["name"], claude["description"]), codex
+    assert codex["interface"] == {"displayName": "ODD Workspace"}, codex.get("interface")
+    hooks = codex["hooks"]
+    assert hooks.startswith("./") and (PLUGIN / hooks).resolve() == HOOKS_CODEX.resolve() and HOOKS_CODEX.is_file(), hooks
+    assert "skills" not in codex, "sin skills, Codex descubre skills/ solo"
+    assert not (PLUGIN / "plugin.json").exists(), "un plugin.json en la raíz gana sobre los dos y apaga los hooks"
 
 
 def main():

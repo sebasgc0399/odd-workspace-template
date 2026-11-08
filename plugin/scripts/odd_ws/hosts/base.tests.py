@@ -63,7 +63,9 @@ def test_atender_generico_lee_decide_y_responde_con_las_funciones_que_recibe():
 
 def test_un_host_conocido_atiende_con_su_adaptador():
     E = ev()
-    for nombre, modulo in (("claude-code", "claude_code"), ("codex", "codex")):
+    negado = json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                "permissionDecisionReason": "no"}})
+    for nombre, modulo, bloqueo in (("claude-code", "claude_code", (2, "", b"no\n")), ("codex", "codex", (0, negado, b""))):
         adaptador = importlib.import_module("odd_ws.hosts." + modulo)
         vistos = []
 
@@ -71,11 +73,11 @@ def test_un_host_conocido_atiende_con_su_adaptador():
             vistos.append(evento)
             return E.Bloquear("no")
 
-        assert hosts().atender(nombre, pre(), nucleo) == (2, "", b"no\n"), nombre
+        assert hosts().atender(nombre, pre(), nucleo) == bloqueo, nombre
         assert vistos == [adaptador.leer(pre())], nombre
         sin = {k: v for k, v in pre().items() if k != "hook_event_name"}
         assert hosts().atender(nombre, sin, nucleo) == SILENCIO
-        assert hosts().atender(nombre, sin, nucleo, pre_por_defecto=True) == (2, "", b"no\n")
+        assert hosts().atender(nombre, sin, nucleo, pre_por_defecto=True) == bloqueo, nombre
 
 
 def test_un_host_desconocido_bloquea_en_pre_sin_correr_el_nucleo():

@@ -1,0 +1,49 @@
+{
+  "description": "Hooks de odd-ws para Codex: los mismos de hooks.json, con el comando como texto, la ruta entre comillas y --host codex",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact|clear",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/writer_guard.py\" --plazo 8 --host codex", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/guard_comandos.py\" --plazo 8 --host codex", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 25 --host codex", "timeout": 30 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^writer-[a-z0-9][a-z0-9-]*$",
+        "hooks": [
+          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}

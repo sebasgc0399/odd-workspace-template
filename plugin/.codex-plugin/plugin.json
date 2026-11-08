@@ -1,0 +1,7 @@
+{
+  "name": "odd-ws",
+  "version": "0.2.2",
+  "description": "Motor ODD: hooks deterministas por capa, primer toque, writers con compuerta y revisión con recibo atado al diff",
+  "hooks": "./hooks/hooks.codex.json",
+  "interface": { "displayName": "ODD Workspace" }
+}

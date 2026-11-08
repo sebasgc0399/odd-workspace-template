@@ -12,12 +12,12 @@ DEGRADACIONES = {PRE: {Preguntar: Bloquear}}
 BITACORA = True
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, clear, compact y fork"),
-    "P2": (SOPORTADO, "PreToolUse de apply_patch: exit 2 con el motivo en stderr, con las rutas sacadas del parche "
-                      "(Add, Update, Delete y Move to)"),
-    "P3": (DEGRADADO, "PreToolUse de Bash: exit 2 con el motivo en stderr; preguntar se degrada a bloquear, porque "
-                      "permissionDecision ask falla abierto, y el motivo pide que el usuario corra el comando"),
-    "P4": (DEGRADADO, "PostToolUse de apply_patch: exit 2 o additionalContext; no hay herramienta de lectura, así que el "
-                      "primer toque no llega al leer sino al editar, con el bloqueo de pre"),
+    "P2": (SOPORTADO, "PreToolUse de apply_patch: permissionDecision deny por JSON con exit 0, con las rutas sacadas del "
+                      "parche (Add, Update, Delete y Move to); nunca exit 2, que PowerShell convierte en 1 y no bloquea"),
+    "P3": (DEGRADADO, "PreToolUse de Bash: permissionDecision deny por JSON con exit 0; preguntar se degrada a bloquear, "
+                      "porque permissionDecision ask falla abierto, y el motivo pide que el usuario corra el comando"),
+    "P4": (DEGRADADO, "PostToolUse de apply_patch: decision block o additionalContext por JSON con exit 0; no hay "
+                      "herramienta de lectura, así que el primer toque no llega al leer sino al editar, con el bloqueo de pre"),
     "P5": (SOPORTADO, "SubagentStop con matcher por agent_type y decision block; los archivos y los comandos del writer "
                       "salen de la bitácora que writer_guard anota en pre, no del transcript (F1b)"),
     "P6": (SOPORTADO, "agent_type y agent_id dentro de un subagente"),
@@ -25,8 +25,9 @@ MANIFIESTO = {
                       "developer_instructions (F1d)"),
     "P8": (DEGRADADO, "skills del plugin (SKILL.md), pero no respeta disable-model-invocation; el equivalente es "
                       "agents/openai.yaml con allow_implicit_invocation: false"),
-    "P9": (SOPORTADO, "lee .claude-plugin y reemplaza CLAUDE_PLUGIN_ROOT; los hooks necesitan confianza en /hooks y van "
-                      "con --host codex (F1c)"),
+    "P9": (SOPORTADO, ".codex-plugin/plugin.json apunta a hooks/hooks.codex.json, con cada comando como texto, la ruta de "
+                      "PLUGIN_ROOT entre comillas y --host codex; los hooks necesitan confianza en /hooks, que se pide de "
+                      "nuevo con cada actualización"),
     "P10": (DEGRADADO, "CLAUDE.md por project_doc_fallback_filenames, desde la raíz hasta el cwd y solo al arrancar (F1d)"),
 }
 SIN_CONFIRMACION = ("Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, "
@@ -112,8 +113,20 @@ def leer(payload, pre_por_defecto=False):
     return None
 
 
+def _limpio(texto):
+    return texto.encode("utf-8", "replace").decode("utf-8")
+
+
 def _contexto(nombre, texto):
-    return 0, json.dumps({"hookSpecificOutput": {"hookEventName": nombre, "additionalContext": texto}}), b""
+    return 0, json.dumps({"hookSpecificOutput": {"hookEventName": nombre, "additionalContext": _limpio(texto)}}), b""
+
+
+def _bloqueo(fase, motivo):
+    motivo = _limpio(motivo)
+    if fase == "pre":
+        return 0, json.dumps({"hookSpecificOutput": {"hookEventName": NOMBRES[fase], "permissionDecision": "deny",
+                                                     "permissionDecisionReason": motivo}}), b""
+    return 0, json.dumps({"decision": "block", "reason": motivo}), b""
 
 
 def responder(evento, decision):
@@ -121,13 +134,13 @@ def responder(evento, decision):
         if isinstance(decision, Preguntar) and evento.fase == "pre":
             decision = Bloquear(decision.motivo + "\n" + SIN_CONFIRMACION)
         if isinstance(decision, Bloquear):
-            return 2, "", (decision.motivo + "\n").encode("utf-8", "replace")
+            return _bloqueo(evento.fase, decision.motivo)
         if isinstance(decision, Contexto) and evento.fase == "post":
             return _contexto(NOMBRES[evento.fase], decision.texto)
     elif isinstance(evento, InicioSesion) and isinstance(decision, Contexto):
         return _contexto("SessionStart", decision.texto)
     elif isinstance(evento, FinSubagente) and isinstance(decision, Seguir):
-        return 0, json.dumps({"decision": "block", "reason": decision.motivo}), b""
+        return 0, json.dumps({"decision": "block", "reason": _limpio(decision.motivo)}), b""
     return SILENCIO
 
 

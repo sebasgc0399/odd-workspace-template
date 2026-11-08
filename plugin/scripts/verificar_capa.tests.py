@@ -1204,13 +1204,39 @@ def codex(texto, nombre="PreToolUse", cwd=None, **extra):
     return e
 
 
+def _json_de_codex(salida):
+    codigo, texto, error = salida
+    if isinstance(texto, bytes):
+        texto = texto.decode("ascii")
+    if (codigo, error) != (0, b"") or not texto:
+        return None
+    try:
+        datos = json.loads(texto)
+    except ValueError:
+        return None
+    return datos if isinstance(datos, dict) else None
+
+
+def negado_en_codex(salida):
+    datos = _json_de_codex(salida) or {}
+    decision = datos.get("hookSpecificOutput")
+    if not isinstance(decision, dict) or (decision.get("hookEventName"), decision.get("permissionDecision")) != ("PreToolUse", "deny"):
+        return None
+    return decision.get("permissionDecisionReason")
+
+
+def bloqueado_en_codex(salida):
+    datos = _json_de_codex(salida) or {}
+    return datos.get("reason") if set(datos) == {"decision", "reason"} and datos["decision"] == "block" else None
+
+
 def test_codex_un_parche_de_dos_capas_bloquea_una_vez_con_los_dos_primeros_toques():
     with git_aislado(), Toque() as w:
         texto = parche_codex("*** Update File: %s" % w.sql, "@@", "-a", "+b", "*** Add File: %s" % w.cs, "+int a;",
                              "*** Delete File: %s" % w.sql2)
-        codigo, out, err = M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex")
-        assert codigo == 2 and out == "", (codigo, out)
-        motivo = err.decode("utf-8")
+        salida = M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex")
+        motivo = negado_en_codex(salida)
+        assert motivo is not None, "en Codex se bloquea por JSON con exit 0: %r" % (salida,)
         assert motivo.index(REGLA % "SQL") < motivo.index(REGLA % "WEB"), motivo
         assert motivo.count("primer toque (capa-") == 2 and "\n\nprimer toque (capa-web)" in motivo, motivo
         assert motivo.startswith("primer toque (capa-sql): este apply_patch no se aplicó."), motivo
@@ -1226,9 +1252,9 @@ def test_codex_post_combina_los_hallazgos_de_cada_archivo_y_salta_los_que_ya_no_
         escribir(w.web, "Core/C.cs", "c = MALO;\n")
         texto = parche_codex("*** Update File: Core/B.cs", "@@", "+b = MALO;", "*** Delete File: Core/Borrado.cs",
                              "*** Update File: Core/Viejo.cs", "*** Move to: Core/A.cs", "@@", "+a = MALO BLOQ;")
-        codigo, out, err = M.correr(codex(texto, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
-        motivo = err.decode("utf-8")
-        assert codigo == 2 and out == "", (codigo, out, motivo)
+        salida = M.correr(codex(texto, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
+        motivo = bloqueado_en_codex(salida)
+        assert motivo is not None, "en Codex post bloquea con decision block y exit 0: %r" % (salida,)
         assert motivo.startswith("verificar-capa (aviso): Core/B.cs tiene 1 aviso(s)"), motivo
         assert "\n\nverificar-capa: Core/A.cs tiene 1 problema(s): corregir y reintentar." in motivo, motivo
         assert "Borrado" not in motivo and "Viejo" not in motivo, motivo
@@ -1250,9 +1276,8 @@ def test_codex_un_archivo_que_revienta_no_silencia_el_bloqueo_de_los_otros():
         cs = ("*** Update File: Core/A.cs", "@@", "+a = MALO BLOQ;")
         sql = ("*** Update File: ../db/src/Proc_X.sql", "@@", "-select 0;", "+select 1;")
         for lineas in (cs + sql, sql + cs):
-            codigo, out, err = M.correr(codex(parche_codex(*lineas), "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25,
-                                        host="codex")
-            assert (codigo, out) == (2, "") and "Core/A.cs tiene 1 problema(s)" in err.decode("utf-8"), (lineas, codigo, err)
+            salida = M.correr(codex(parche_codex(*lineas), "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
+            assert "Core/A.cs tiene 1 problema(s)" in (bloqueado_en_codex(salida) or ""), (lineas, salida)
 
 
 def test_codex_una_capa_que_revienta_en_el_primer_toque_no_silencia_la_otra():
@@ -1261,8 +1286,8 @@ def test_codex_una_capa_que_revienta_en_el_primer_toque_no_silencia_la_otra():
         sql = ("*** Update File: %s" % w.sql, "@@", "-a", "+b")
         cs = ("*** Add File: %s" % w.cs, "+int a;")
         for sesion, lineas in (("s1", sql + cs), ("s2", cs + sql)):
-            codigo, out, err = M.correr(codex(parche_codex(*lineas), session_id=sesion), raiz=w.raiz, plazo=25, host="codex")
-            assert (codigo, out) == (2, "") and (REGLA % "SQL") in err.decode("utf-8"), (sesion, codigo, err)
+            salida = M.correr(codex(parche_codex(*lineas), session_id=sesion), raiz=w.raiz, plazo=25, host="codex")
+            assert (REGLA % "SQL") in (negado_en_codex(salida) or ""), (sesion, salida)
 
 
 def test_codex_inicio_con_fork_y_con_la_config_rota():
@@ -1302,13 +1327,13 @@ def test_main_elige_el_host_con_el_argumento():
         assert r.returncode == 2 and b"sin valor" in r.stderr, r
         assert hook(inicio("startup"), "--host", "gemini").returncode == 0 and w.marcas() == []
         r = hook(codex(parche_codex("*** Update File: %s" % w.sql, " x")), "--host", "codex")
-        assert r.returncode == 2 and (REGLA % "SQL").encode("utf-8") in r.stderr, r
+        assert (REGLA % "SQL") in (negado_en_codex((r.returncode, r.stdout, r.stderr)) or ""), r
         r = hook(codex(parche_codex("*** Update File: %s" % w.cs, " x"), session_id="s2"))
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "sin --host es Claude Code, y apply_patch no es suyo"
         r = hook(a_escribir(w.cs, sesion="s3"))
         assert r.returncode == 2 and (REGLA % "WEB").encode("utf-8") in r.stderr, r
         r = hook(codex(parche_codex("*** Update File: %s" % w.sql, " x"), session_id="s4"), "--host=codex")
-        assert r.returncode == 2 and (REGLA % "SQL").encode("utf-8") in r.stderr, "--host=codex es Codex, no Claude Code"
+        assert (REGLA % "SQL") in (negado_en_codex((r.returncode, r.stdout, r.stderr)) or ""), "--host=codex es Codex: %r" % r
         r = hook(a_escribir(w.sql, sesion="s5"), "--host=gemini")
         assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
 

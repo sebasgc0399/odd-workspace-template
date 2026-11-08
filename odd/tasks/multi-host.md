@@ -56,8 +56,8 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F0b | S3, S4 | Manifiesto de capacidades y su test de paridad, con Claude Code como primer host. Suma un test que falla si un núcleo emite una decisión que el host no puede expresar, que hoy calla (aviso 6 de L9) | inline | hecho (`6db4105`, L10) |
 | F0c | S2, S6 | Se juntó con F1 (L11): la generación por host se diseña con Codex como segundo caso real | — | fusionada en F1 |
 | F1a | S2–S4 | Adaptador de protocolo de Codex (`odd_ws/hosts/codex.py`) y elección del adaptador con `--host` en los tres guards (aviso 3 de L9). Detalle:<br>• `apply_patch` es edición, con las rutas del parche (`Add`, `Update`, `Delete` y `Move to`) resueltas contra el `cwd`<br>• `Bash` es shell, con dialecto según la plataforma: PowerShell en Windows<br>• `Preguntar` se degrada a bloqueo con la instrucción de pedirle al usuario que lo corra (S4)<br>• `DEGRADACIONES` en el manifiesto<br>• los guards procesan todas las rutas de un evento | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2) | hecho (`f8a9b88`) |
-| F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: `writer_guard` y `writer_stop`) | hecho (L14) |
-| F1c | S2, S3 | Empaquetado: `.codex-plugin/plugin.json` con `"hooks": "./hooks/hooks.codex.json"`. Como Codex ignora `args`, los comandos van como string con `--host codex`. Lleva un test de paridad entre los dos `hooks*.json` y la misma versión en los dos manifiestos. `writer_stop` ya lee `--host` (F1b) y se registra con `--host codex`; `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14) | por decidir | pendiente |
+| F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: `writer_guard` y `writer_stop`) | hecho (`c3736ff`, L14) |
+| F1c | S2–S4 | Empaquetado y bloqueo por JSON (L15). Detalle:<br>• `.codex-plugin/plugin.json` con la misma versión que `.claude-plugin`, `"hooks": "./hooks/hooks.codex.json"`, sin `skills` (Codex descubre `skills/`) y sin `plugin.json` en la raíz<br>• `hooks/hooks.codex.json`: comandos como string, `python "${PLUGIN_ROOT}/scripts/<x>.py" --plazo N --host codex`, con matchers `apply_patch` y `Bash`, sin `Read` ni `PowerShell`<br>• `writer_stop` se registra con `--host codex`, y `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14)<br>• el adaptador de Codex bloquea por JSON y exit 0, nunca con exit 2<br>• un test de paridad entre los dos `hooks*.json` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: el bloqueo de los guards en Codex) | hecho (L16) |
 | F1d | S2, S6 | Generación (la ex F0c). El bootstrap genera:<br>• `.codex/agents/*.toml` desde las mismas plantillas, con las skills y las herramientas en `developer_instructions`, porque Codex no las precarga ni las restringe<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md` para no tapar los `CLAUDE.md`<br><br>El doctor chequea por host: la versión de Codex, el plugin instalado y que los hooks tengan confianza (`[hooks.state]` de `~/.codex/config.toml`). También que ningún hook registrado lleve un `--host` desconocido o vacío: `writer_stop` calla con eso y la compuerta queda apagada (A5 de L14) | por decidir | pendiente |
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks) y entrega `0.3.0` | necesita el sí del usuario: usa su cuenta de Codex | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
@@ -232,4 +232,46 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **A4:** en Windows, el append no es atómico entre procesos. Dos procesos escribiendo seguido perdieron el 7,5 % de los registros; con hooks reales, 0 de 240. Lo mitiga el control cruzado de las fotos.
     - **A7:** una ruta relativa en una bitácora alterada se resuelve contra el cwd y entra dos veces.
     - **A8:** un id de sesión `NUL` en Windows no escribe nada. Ya venía de la base, y Codex da UUID.
-- **Siguiente paso:** F1c.
+- **L15 (2026-11-08), investigación puntual para F1c.** F1b quedó en `c3736ff`. Se leyó el código de Codex en los tags 0.144.0 y 0.167.0.
+  - **Cómo corre un hook:** pasa por el shell del turno, sin login: `$SHELL -c` en Unix y PowerShell en Windows (`pwsh`, o si no `powershell.exe`, con `-NoProfile -Command`). `commandWindows` reemplaza a `command` en Windows. `${PLUGIN_ROOT}` y `${CLAUDE_PLUGIN_ROOT}` se reemplazan como texto y sin comillas, así que la ruta va entre comillas en el propio comando, y el comando no puede empezar con un token entre comillas (PowerShell lo toma como expresión). El timeout está en segundos; sin él, 600.
+  - **El hallazgo que cambia F1a:** con `-Command`, PowerShell convierte en 1 cualquier exit distinto de 0 o 1. El padre lo comprobó en esta máquina: `powershell.exe -NoProfile -Command 'python -c "import sys; sys.exit(2)"'` sale con 1, y con `; exit $LASTEXITCODE` sale con 2. En Windows, el exit 2 del adaptador de Codex llegaba como 1, un error que no bloquea: los guards fallaban abiertos (S4).
+  - **Bloquear por JSON con exit 0** funciona en las dos versiones, y el padre lo verificó en sus tests (`hooks/src/events/pre_tool_use.rs`, `post_tool_use.rs`):
+    - PreToolUse: `hookSpecificOutput.permissionDecision: "deny"` con `permissionDecisionReason`.
+    - PostToolUse: `{"decision": "block", "reason": …}`.
+  - **El manifiesto:** ningún campo de `.codex-plugin/plugin.json` es obligatorio, y los desconocidos se ignoran.
+    - `version`, si viene, es un string no vacío.
+    - `hooks` acepta una ruta que empiece con `./`.
+    - Sin `skills`, Codex descubre `skills/`.
+    - Con `.codex-plugin`, Codex ignora entero `.claude-plugin`.
+    - En 0.167, un `plugin.json` en la raíz con `$schema` de agent-plugins gana sobre los dos y apaga los hooks.
+  - **El archivo de hooks** tiene `deny_unknown_fields`: arriba solo admite `description` y `hooks`.
+  - **Matchers:** `SessionStart` admite `startup|resume|clear|compact`, y `fork` desde 0.167. `apply_patch` sirve literal. `SubagentStop` compara contra el `agent_role`.
+  - **Confianza:** en 0.167 el hash incluye el contenido del bundle, así que cualquier cambio en un script pide confiar de nuevo. La clave incluye la ruta del archivo de hooks.
+  - **Decisiones técnicas del padre:**
+    - El adaptador de Codex bloquea por JSON y exit 0 en todas las plataformas, con un solo camino de código.
+    - `command` usa `python`, como `hooks.json` de Claude Code, sin `commandWindows`.
+    - El matcher de `SessionStart` es el mismo de Claude Code; `fork` sigue en X3.
+- **L16 (2026-11-08), F1c.**
+  - **Ruta:** un writer delegado, por el respaldo de contexto, y después un verificador independiente, por los ítems 2 y 5.
+  - **El writer:**
+    - El adaptador de Codex bloquea por JSON y exit 0: `deny` en pre y `decision: block` en post.
+    - `hooks.codex.json` y `.codex-plugin/plugin.json`.
+    - El test de paridad entre los dos `hooks*.json`, en `capacidades.tests.py`, con la misma versión en los dos manifiestos. Los tests de degradación comparan la forma de la salida y no el exit code.
+    - Una prueba de punta a punta por `powershell.exe -NoProfile -Command`, con un espacio en la ruta.
+    - Pasaron 40 de 41 suites y murieron 7 de 7 mutantes.
+    - `tools/entrega.py` no sube versiones, así que no cambió.
+  - **El padre:**
+    - Sumó `odd_ws/hosts/base.tests.py` a la superficie: también esperaba exit 2 de Codex. Se aplicó el diff del writer, probado en RED y en GREEN.
+    - Aplicó la misma limpieza de surrogates a `Contexto` y a `Seguir` (`_limpio`), con RED observado: serde_json rechaza un surrogate suelto escapado y la decisión se perdía.
+  - **El verificador:** S2, S3, S4 y S5 cumplen, sin blockers.
+    - **Contra el parser real:** copió `output_parser.rs` y `schema.rs` de los dos tags y los compiló con serde_json. Las 25 salidas de punta a punta dan el mismo veredicto en 0.144 y en 0.167, y las 104 salidas con motivos raros son válidas.
+    - **El instrumento sabe decir que sí:** en la base, los mismos 11 bloqueos salían con exit 1 por PowerShell, es decir, abiertos.
+    - **Mutantes y suites:** murieron 17 de 17 mutantes del empaquetado y 7 de 7 del adaptador. Pasaron 41 de 41 suites (1636 pruebas).
+    - **Claude Code:** `claude plugin validate` da lo mismo en la base y en el candidato.
+  - **Avisos que quedan:**
+    - **A1:** una ruta del plugin con `$` se rompe dentro de las comillas dobles. Es fuera de dominio y quedó escrito en `diseno.md`.
+    - **A2:** un `--host` desconocido sale con exit 2 y no bloquea en Codex; va al doctor de F1d.
+    - **A3:** el test de paridad fija `displayName` como literal y no lo compara con `.claude-plugin`.
+    - **A5:** un motivo vacío Codex lo toma como inválido, pero ningún núcleo lo construye.
+    - **A6:** PowerShell suma unos 0,33 s por hook.
+- **Siguiente paso:** F1d.

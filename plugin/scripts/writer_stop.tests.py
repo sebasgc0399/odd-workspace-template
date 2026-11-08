@@ -179,6 +179,20 @@ def bloqueo(salida):
     return d.get("reason") if isinstance(d, dict) and d.get("decision") == "block" else None
 
 
+def negado_en_codex(salida):
+    codigo, texto, error = salida
+    if (codigo, error) != (0, b"") or not texto:
+        return None
+    try:
+        decision = json.loads(texto)
+    except ValueError:
+        return None
+    decision = decision.get("hookSpecificOutput") if isinstance(decision, dict) else None
+    if not isinstance(decision, dict) or (decision.get("hookEventName"), decision.get("permissionDecision")) != ("PreToolUse", "deny"):
+        return None
+    return decision.get("permissionDecisionReason")
+
+
 def escenario(base, nuevo_texto="a\nB\nc\ny = MALO BLOQ;\n", extra=None, modulo=STUB_MALO):
     repo = repo_web(base, {"Core/A/B.cs": "a\nb\nc\n"})
     escribir(repo, "Core/A/B.cs", nuevo_texto)
@@ -918,7 +932,7 @@ def escenario_codex(base):
     assert pre_de_codex(inst, "apply_patch", texto, repo) == SILENCIO
     sal = (base / "salida.txt").as_posix()
     assert pre_de_codex(inst, "Bash", "echo a > " + sal, base) == SILENCIO
-    assert pre_de_codex(inst, "Bash", "git commit -m x", repo)[0] == 2
+    assert "git commit" in (negado_en_codex(pre_de_codex(inst, "Bash", "git commit -m x", repo)) or "")
     escribir(repo, "Core/A/B.cs", "a\nb\nc\ny = MALO BLOQ;\n")
     escribir(repo, "Core/A/Otro.cs", "uno\n")
     return repo, archivo, nuevo, inst, sal

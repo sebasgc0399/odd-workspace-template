@@ -1195,7 +1195,22 @@ def test_codex_un_parche_de_dos_archivos_no_es_un_comando_de_shell():
                              "+git reset --hard HEAD~1")
         parche = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "tool_input": {"command": texto}}
         assert G.correr(parche, entorno=entorno_de(inst), host="codex") == (0, "", b"")
-        assert G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), host="codex")[0] == 2, "control"
+        bloqueo = G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), host="codex")
+        assert (negado_en_codex(bloqueo) or "").startswith("guard-comandos bloqueó"), "control: %r" % (bloqueo,)
+
+
+def negado_en_codex(salida):
+    codigo, texto, error = salida
+    if (codigo, error) != (0, b"") or not texto:
+        return None
+    try:
+        decision = json.loads(texto)
+    except ValueError:
+        return None
+    decision = decision.get("hookSpecificOutput") if isinstance(decision, dict) else None
+    if not isinstance(decision, dict) or (decision.get("hookEventName"), decision.get("permissionDecision")) != ("PreToolUse", "deny"):
+        return None
+    return decision.get("permissionDecisionReason")
 
 
 def test_codex_preguntar_se_degrada_a_bloquear_y_el_dialecto_sale_de_la_plataforma():
@@ -1207,12 +1222,12 @@ def test_codex_preguntar_se_degrada_a_bloquear_y_el_dialecto_sale_de_la_platafor
         with plataforma("nt"):
             assert G.correr(e, entorno=entorno_de(inst), host="codex") == (0, "", b""), "en PowerShell la barra no escapa"
         with plataforma("posix"):
-            codigo, salida, error = G.correr(e, entorno=entorno_de(inst), host="codex")
-        texto = error.decode("utf-8")
-        assert (codigo, salida) == (2, ""), (codigo, salida, texto)
+            salida = G.correr(e, entorno=entorno_de(inst), host="codex")
+        texto = negado_en_codex(salida)
+        assert texto is not None, "en Codex se bloquea por JSON con exit 0: %r" % (salida,)
         assert texto.startswith("guard-comandos pregunta antes de correr el comando: git ") and "«db»" in texto, texto
         assert texto.endswith("\nCodex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace "
-                              "falta, pídele al usuario que lo corra él.\n"), texto
+                              "falta, pídele al usuario que lo corra él."), texto
 
 
 def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
@@ -1233,8 +1248,9 @@ def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
         r = hook(evento("git status"), "--host")
         assert r.returncode == 2 and b"sin valor" in r.stderr, r
         r = hook(evento("git push --force origin main"), "--host", "codex")
-        assert r.returncode == 2 and r.stderr.startswith("guard-comandos bloqueó".encode("utf-8")), r
-        assert hook(evento("git status"), "--host", "codex").returncode == 0
+        assert (negado_en_codex((r.returncode, r.stdout.decode("ascii"), r.stderr)) or "").startswith("guard-comandos bloqueó"), r
+        r = hook(evento("git status"), "--host", "codex")
+        assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
         r = hook(evento("git status"), "--host=gemini")
         assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
         r = hook(evento("git status"), "--host=")
