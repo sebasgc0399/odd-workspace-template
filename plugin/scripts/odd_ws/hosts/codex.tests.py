@@ -408,6 +408,104 @@ def test_de_punta_a_punta_el_shell_de_codex_entrega_el_bloqueo_con_exit_0():
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "control: lo que no bloquea calla: %r" % (r,)
 
 
+def agente(**cambios):
+    plantilla_writer = importlib.import_module("plantilla_writer")
+    datos = {"nombre": "writer-sql", "descripcion": "Escribe la capa sql.", "herramientas": ("Read", "Edit", "Bash"),
+             "skills": ("criterios", "capa-sql"), "version": 3, "instrucciones": "Primera línea.\n\nÚltima línea."}
+    datos.update(cambios)
+    return plantilla_writer.Agente(**datos)
+
+
+def toml_de(texto):
+    import tomllib
+
+    return tomllib.loads(texto)
+
+
+def test_archivos_da_un_toml_por_agente_y_la_config_del_proyecto_al_final():
+    capas = importlib.import_module("odd_ws.capas")
+    archivo = importlib.import_module("odd_ws.hosts").Archivo
+    archivos = m().archivos([agente(), agente(nombre="revisor-sql", herramientas=("Read",))])
+    assert [a.ruta for a in archivos] == [capas.agente_codex("writer-sql"), capas.agente_codex("revisor-sql"), capas.CODEX_CONFIG]
+    assert all(isinstance(a, archivo) for a in archivos), archivos
+    assert [a.fuente for a in archivos] == [capas.agente("writer-sql"), capas.agente("revisor-sql"), None], archivos
+    assert archivos[0].contenido == m().toml(agente())
+    assert archivos[-1].contenido == 'project_doc_fallback_filenames = ["CLAUDE.md"]\n'
+    assert m().archivos([]) == [archivo(capas.CODEX_CONFIG, 'project_doc_fallback_filenames = ["CLAUDE.md"]\n', None)]
+
+
+def test_el_toml_de_un_agente_tiene_solo_sus_tres_claves_y_un_encabezado_comentado():
+    texto = m().toml(agente())
+    datos = toml_de(texto)
+    assert datos == {
+        "name": "writer-sql",
+        "description": "Escribe la capa sql.",
+        "developer_instructions": datos["developer_instructions"],
+    }, datos
+    cuerpo = datos["developer_instructions"]
+    assert cuerpo.endswith("Primera línea.\n\nÚltima línea.\n"), cuerpo
+    assert "**Herramientas de este agente:** Read, Edit, Bash." in cuerpo, cuerpo
+    assert "`.claude/skills/criterios/SKILL.md` y `.claude/skills/capa-sql/SKILL.md`" in cuerpo, cuerpo
+    lineas = texto.split("\n")
+    assert lineas[0].startswith("# ") and ".claude/agents/writer-sql.md" in lineas[0], lineas[0]
+    assert lineas[1] == "# odd-ws-plantilla: 3" and lineas[2] == "# odd-ws-hash: " + m().huella(texto), lineas[:3]
+    assert lineas[3].startswith("name = "), lineas[3]
+
+
+def test_el_toml_es_valido_con_cualquier_texto():
+    raros = ["'''", '"""', "\\", "\\\n", "a\tb", "\r", "\x00\x01\x1b\x1f", "\x7f", "  y \u0085", "termina en \"",
+             "termina en '", "termina en \\", "\ud800 suelto", "ñ y 😀", "]]\n[tabla]\nname = \"x\""]
+    for raro in raros:
+        datos = toml_de(m().toml(agente(descripcion="d " + raro, instrucciones="i " + raro)))
+        esperado = raro.replace("\ud800", "�")
+        assert datos["description"] == "d " + esperado, (raro, datos["description"])
+        assert datos["developer_instructions"].endswith("i " + esperado + "\n"), (raro, datos["developer_instructions"])
+        assert set(datos) == {"name", "description", "developer_instructions"}, raro
+
+
+def test_el_toml_sin_herramientas_ni_skills_no_inventa_esas_lineas():
+    cuerpo = toml_de(m().toml(agente(herramientas=(), skills=())))["developer_instructions"]
+    assert "Herramientas" not in cuerpo and "Skills" not in cuerpo and cuerpo == "Primera línea.\n\nÚltima línea.\n", cuerpo
+    assert "`.claude/skills/criterios/SKILL.md`." in toml_de(m().toml(agente(skills=("criterios",))))["developer_instructions"]
+
+
+def test_el_toml_rechaza_un_agente_sin_nombre_description_o_instrucciones():
+    for cambio in ({"nombre": ""}, {"nombre": None}, {"descripcion": ""}, {"descripcion": None}, {"descripcion": "  "},
+                   {"instrucciones": ""}, {"instrucciones": "\n \n"}, {"nombre": "writer sql"}, {"nombre": "a/b"}):
+        try:
+            m().toml(agente(**cambio))
+        except ValueError:
+            continue
+        raise AssertionError("armó un TOML con %r" % (cambio,))
+
+
+def test_la_huella_del_toml_no_cubre_su_valor_y_tolera_crlf_y_bom():
+    texto = m().toml(agente())
+    huella = m().huella(texto)
+    assert m().huella("﻿" + texto.replace("\n", "\r\n")) == huella
+    assert m().huella(texto.replace("# odd-ws-hash: " + huella, "# odd-ws-hash: " + "0" * 64)) == huella
+    for editado in (texto.replace("Primera", "Segunda"), texto.replace("# odd-ws-plantilla: 3", "# odd-ws-plantilla: 4"),
+                    texto + "model = \"x\"\n"):
+        assert m().huella(editado) != huella, editado
+
+
+def test_los_textos_de_codex_describen_su_realidad():
+    textos = m().TEXTOS
+    juntos = "\n".join(textos.values())
+    for frase in ("apply_patch", "herramienta de shell (en Windows corre PowerShell)", "por la shell", "bitácora", "SKILL.md"):
+        assert frase in juntos, frase
+    for frase in ("Edit o Write", "con Read", "transcript", "Tu contexto trae precargada", "Bash"):
+        assert frase not in juntos, frase
+    assert "`Bash`" not in m().HERRAMIENTAS and "herramienta de shell" in m().HERRAMIENTAS, m().HERRAMIENTAS
+
+
+def test_el_manifiesto_ya_no_deja_p7_ni_p10_para_despues():
+    for clave, cita in (("P7", "developer_instructions"), ("P10", "project_doc_fallback_filenames")):
+        estado, nota = m().MANIFIESTO[clave]
+        assert "(F1d)" not in nota and cita in nota, (clave, nota)
+    assert "confianza" in m().MANIFIESTO["P7"][1] and "confianza" in m().MANIFIESTO["P10"][1]
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

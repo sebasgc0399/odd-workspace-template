@@ -29,6 +29,11 @@ GOLDEN_DEL_WRITER = {
     "capa-larga-con-guiones": "c69a18b7f68c7bab730555f05ec7b8d6235e522b9e8bcae775648fdfd491ff63",
 }
 DESCRIPCION_RARA = 'Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
+PLANTILLAS_DE_AGENTES = ("writer.md", "revisor.md", "revisor-diseno.md")
+MARCADOR_DE_HOST = re.compile(r"\{\{host:[a-z][a-z0-9-]*\}\}")
+FRASES_DE_CLAUDE_CODE = ("Edit o Write", "con Read", "Read, Glob o Grep", "Tus herramientas son Read", "transcript",
+                         "Tu contexto trae precargada", "el Glob o el Grep", "ya están en tu contexto", "por Bash",
+                         ". Bash te sirve")
 
 
 def p():
@@ -375,6 +380,86 @@ def test_leer_plantilla_acepta_otra_ruta_y_la_por_defecto_sigue_siendo_la_del_wr
         ruta = i.raiz / "otra.md"
         ruta.write_bytes(b"\xef\xbb\xbfuno\r\ndos\r\n")
         assert p().leer_plantilla(ruta) == "uno\ndos\n"
+
+
+def registro():
+    return importlib.import_module("odd_ws.hosts")
+
+
+def marcadores_de(nombre):
+    return set(MARCADOR_DE_HOST.findall(p().leer_plantilla(PLUGIN / "plantillas" / nombre)))
+
+
+def test_las_frases_de_claude_code_de_las_plantillas_de_agentes_son_marcadores_de_host():
+    for nombre in PLANTILLAS_DE_AGENTES:
+        texto = p().leer_plantilla(PLUGIN / "plantillas" / nombre)
+        assert marcadores_de(nombre), nombre
+        for frase in FRASES_DE_CLAUDE_CODE:
+            assert frase not in texto, (nombre, frase)
+
+
+def test_cada_host_resuelve_todos_los_marcadores_de_las_plantillas_y_ninguno_mas():
+    marcadores = set().union(*(marcadores_de(nombre) for nombre in PLANTILLAS_DE_AGENTES))
+    assert registro().FUENTE == "claude-code"
+    for host in registro().NOMBRES:
+        assert {marca for marca, _ in p().textos(host)} == marcadores, host
+    assert p().textos() == p().textos(registro().FUENTE)
+
+
+def test_generar_sin_host_es_el_de_claude_code_y_no_cambia_la_salida():
+    for capa, esperado in GOLDEN_DEL_WRITER.items():
+        assert p().generar(capa, host="claude-code") == p().generar(capa), capa
+        assert sha(p().generar(capa, host="claude-code")) == esperado, capa
+
+
+def test_generar_para_codex_cambia_solo_los_marcadores_y_conserva_lo_de_la_instancia():
+    for capa in CAPAS:
+        claude, codex = p().generar(capa), p().generar(capa, host="codex")
+        assert "{{" not in codex and "}}" not in codex, re.findall(r"\{\{[^}]*\}\}", codex)
+        sin_hash = lambda texto: re.sub(r"(?m)^odd-ws-hash: .*$", "odd-ws-hash:", frontmatter(texto))
+        assert sin_hash(codex) == sin_hash(claude), capa
+        assert "odd-ws-hash: %s" % p().huella(codex) in frontmatter(codex).splitlines()
+        for frase in FRASES_DE_CLAUDE_CODE:
+            assert frase not in codex, (capa, frase)
+        for frase in ("apply_patch", "PowerShell", "por la shell", "bitácora", "SKILL.md"):
+            assert frase in codex, (capa, frase)
+        for nombre in BLOQUES:
+            assert bloque(codex, nombre) == bloque(claude, nombre), (capa, nombre)
+        propio = con_bloque(con_descripcion(claude, '"Mía: # propia"'), "limites", "- Límite propio.\n")
+        derivado = p().generar(capa, propio, host="codex")
+        assert bloque(derivado, "limites") == "- Límite propio.\n" and descripcion(derivado)[1] == "Mía: # propia"
+        assert p().huella(derivado) == p().huella(codex), capa
+
+
+def test_un_host_desconocido_no_se_arma():
+    for host in ("gemini", "", None, "Codex", "claude_code"):
+        try:
+            p().generar("sql", host=host)
+        except ValueError as error:
+            assert "host" in str(error), (host, error)
+            continue
+        raise AssertionError("armó con el host %r" % (host,))
+
+
+def test_agente_lee_lo_que_declara_el_md_armado():
+    generado = p().generar("sql")
+    agente = p().agente(generado)
+    assert agente.nombre == "writer-sql"
+    assert agente.descripcion == descripcion(generado)[1]
+    assert agente.herramientas == ("Read", "Glob", "Grep", "Edit", "Write", "Bash")
+    assert agente.skills == ("criterios", "capa-sql")
+    assert agente.version == p().version()
+    assert agente.instrucciones.startswith("**Arranque, antes que nada.**"), agente.instrucciones[:80]
+    assert "<!--" not in agente.instrucciones and "Lo genera odd-ws" not in agente.instrucciones
+    assert "Eres el writer de la capa `sql`" in agente.instrucciones and writer_stop.PLANTILLA in agente.instrucciones
+    assert agente.instrucciones == agente.instrucciones.strip()
+    propio = con_bloque(generado, "identidad", "<!-- nota propia -->\nOtra identidad.\n")
+    assert "<!-- nota propia -->\nOtra identidad." in p().agente(propio).instrucciones
+
+
+def test_agente_sin_lo_que_el_frontmatter_no_declara():
+    agente = p().agente("---\nname: otro\n---\nTexto.\n")
+    assert agente == p().Agente(nombre="otro", descripcion=None, herramientas=(), skills=(), version=None, instrucciones="Texto.")
 
 
 def main():

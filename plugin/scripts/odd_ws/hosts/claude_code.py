@@ -29,6 +29,38 @@ TIPOS = {"Edit": "edicion", "Write": "edicion", "MultiEdit": "edicion", "Read": 
 DIALECTOS = {"Bash": POSIX, "PowerShell": POWERSHELL}
 HERRAMIENTAS_DE_ESCRITURA = ("Edit", "Write", "MultiEdit")
 HERRAMIENTAS_DE_SHELL = ("Bash", "PowerShell")
+TEXTOS = {
+    "{{host:arranque-writer}}": (
+        "Tu contexto trae precargadas `criterios` y `capa-{{capa}}`. Si NO está la\n"
+        "línea `CENTINELA criterios` o la línea `CENTINELA capa-{{capa}}` (cada una suelta, seguida de una fecha,\n"
+        "fuera de este párrafo), lee la skill que falte con Read (`.claude/skills/<skill>/SKILL.md`, desde la raíz\n"
+        "de la instancia: la carpeta que tiene `workspace.config.json`) antes de escribir, y avísalo en la PRIMERA\n"
+        "línea de tu último mensaje: «<skill> no venía precargada; la leí del disco». Si tampoco está en el disco,\n"
+        "no escribes código: cierras con `estado: blocked` y `regla: falta la skill <skill>`."),
+    "{{host:arranque-revisor}}": (
+        "Tu contexto trae precargadas `criterios` y `capa-{{capa}}`. Si NO está la\n"
+        "línea `CENTINELA criterios` o la línea `CENTINELA capa-{{capa}}` (cada una suelta, seguida de una fecha,\n"
+        "fuera de este párrafo), lee la skill que falte con Read (`.claude/skills/<skill>/SKILL.md`, desde la raíz\n"
+        "de la instancia: la carpeta que tiene `workspace.config.json`) antes de revisar, y avísalo en la PRIMERA\n"
+        "línea de tu reporte: «<skill> no venía precargada; la leí del disco». Si tampoco está en el disco, no\n"
+        "revisas: lo dices en el reporte y no inventas criterios."),
+    "{{host:arranque-revisor-diseno}}": (
+        "Tu contexto trae precargada `criterios`. Si NO está la línea\n"
+        "`CENTINELA criterios` (suelta, seguida de una fecha, fuera de este párrafo), lee\n"
+        "`.claude/skills/criterios/SKILL.md` con Read, desde la raíz de la instancia (la carpeta que tiene\n"
+        "`workspace.config.json`), antes de revisar, y avísalo en la PRIMERA línea de tu reporte: «criterios no venía\n"
+        "precargada; la leí del disco». Si tampoco está en el disco, no revisas: lo dices en el reporte y no\n"
+        "inventas criterios."),
+    "{{host:en-contexto}}": "ya están en tu contexto",
+    "{{host:edicion}}": "Edit o Write",
+    "{{host:shell}}": "Bash",
+    "{{host:por-shell}}": "por Bash",
+    "{{host:origen-de-archivos}}": "del transcript",
+    "{{host:solo-lees}}": ("Tus herramientas son Read, Glob y Grep: no editas, no escribes, no corres comandos y no\n"
+                           "  cambias el árbol de git."),
+    "{{host:leida-con}}": "leída con Read, Glob o Grep",
+    "{{host:la-busqueda}}": "el Glob o el Grep",
+}
 
 
 def _herramienta(payload, fase):
@@ -120,6 +152,10 @@ def comandos_de_shell(transcript):
         return None
     return [(DIALECTOS[herramienta], entrada["command"]) for herramienta, entrada in encontrados
             if isinstance(entrada.get("command"), str) and entrada["command"]]
+
+
+def archivos(agentes):
+    return []
 
 
 def archivos_del_writer(evento, fotos):

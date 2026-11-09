@@ -295,6 +295,122 @@ def test_al_importar_el_modulo_solo_se_registra_config():
     assert resultado.stdout.decode("utf-8").strip() == "config"
 
 
+def archivos_de_codex():
+    c = capas()
+    return [c.agente_codex("writer-capa-a"), c.agente_codex("revisor-capa-a"), c.agente_codex("revisor-diseno"), c.CODEX_CONFIG]
+
+
+def test_b1_sumar_codex_a_una_instancia_existente_no_crea_toml_de_la_plantilla_y_avisa_que_los_deriva_el_doctor():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        spec = spec_completa(e)
+        assert cli(e, spec, e.raiz)[0] == 0
+        c = capas()
+        md = e.raiz / c.writer("capa-a")
+        texto = md.read_bytes().decode("utf-8")
+        texto = texto.replace("<!-- /instancia:limites -->", "- REGLA PROPIA: los nombres llevan un prefijo propio.\n<!-- /instancia:limites -->", 1)
+        texto = "\n".join('description: "Writer de mi proyecto (propia)"' if l.startswith("description:") else l for l in texto.split("\n"))
+        md.write_bytes(texto.encode("utf-8"))
+        config = e.raiz / "workspace.config.json"
+        datos = json.loads(config.read_text(encoding="utf-8"))
+        datos["hosts"] = ["claude-code", "codex"]
+        config.write_text(json.dumps(datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        spec["config"]["hosts"] = ["claude-code", "codex"]
+        de_agentes = {c.agente_codex(n): c.agente(n) for n in ("writer-capa-a", "revisor-capa-a", "revisor-diseno")}
+        antes = sin_git(arbol(e.raiz))
+        codigo, salida, errores = cli(e, spec, e.raiz, "--ensayo")
+        assert codigo == 0 and errores == "" and sin_git(arbol(e.raiz)) == antes, (codigo, errores)
+        lineas = salida.splitlines()
+        for toml, fuente in de_agentes.items():
+            assert f"no se crearía {toml}: {fuente} ya existe, así que lo deriva de ahí el doctor (doctor --arreglar)" in lineas, lineas
+        assert f"crearía {c.CODEX_CONFIG}" in lineas, lineas
+        total = len(archivos_esperados())
+        assert lineas[-1] == f"ensayo: 1 se crearían, {total} ya existen, 3 los derivaría el doctor, no se escribió nada", lineas[-1]
+        codigo, salida, errores = cli(e, spec, e.raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        for toml, fuente in de_agentes.items():
+            assert f"no se creó {toml}: {fuente} ya existía, así que lo deriva de ahí el doctor (doctor --arreglar)" in lineas, lineas
+            assert not (e.raiz / toml).exists(), toml
+        assert f"creado {c.CODEX_CONFIG}" in lineas and (e.raiz / c.CODEX_CONFIG).is_file(), lineas
+        assert lineas[-1] == f"resumen: 1 creados, {total} ya existían, 3 los deriva el doctor", lineas[-1]
+        assert md.read_bytes() == texto.encode("utf-8")
+
+
+def test_con_hosts_claude_code_la_cli_hace_lo_mismo_que_sin_la_clave():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        sin = spec_completa(e)
+        con = spec_completa(e)
+        con["config"]["hosts"] = ["claude-code"]
+        corridas = []
+        for nombre, spec in (("sin-clave", sin), ("con-clave", con)):
+            raiz = e.base / nombre
+            for extra in (("--ensayo",), (), ()):
+                codigo, salida, errores = cli(e, spec, raiz, *extra)
+                corridas.append((nombre, extra, codigo, salida.replace(str(raiz), "<raiz>"), errores))
+            vista = sin_git(arbol(raiz))
+            vista.pop("workspace.config.json")
+            corridas.append((nombre, "arbol", vista))
+        mitad = len(corridas) // 2
+        for de_sin, de_con in zip(corridas[:mitad], corridas[mitad:]):
+            assert de_sin[1:] == de_con[1:], (de_sin, de_con)
+        assert not (e.base / "sin-clave" / ".codex").exists() and not (e.base / "con-clave" / ".codex").exists()
+
+
+def test_con_codex_la_cli_crea_los_toml_y_la_config_de_codex_y_la_segunda_corrida_no_los_toca():
+    import tomllib
+
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        spec = spec_completa(e)
+        spec["config"]["hosts"] = ["claude-code", "codex"]
+        codigo, salida, errores = cli(e, spec, e.raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        esperados = archivos_esperados() + archivos_de_codex()
+        for ruta in esperados:
+            assert f"creado {ruta}" in lineas, (ruta, lineas)
+        assert lineas[-1] == f"resumen: {len(esperados)} creados, 0 ya existían", lineas[-1]
+        for ruta in archivos_de_codex():
+            datos = tomllib.loads((e.raiz / ruta).read_bytes().decode("utf-8"))
+            assert datos, ruta
+        assert not [p for p in e.raiz.rglob("*") if p.name.upper() == "AGENTS.MD"]
+        antes = sin_git(arbol(e.raiz))
+        codigo, salida, errores = cli(e, spec, e.raiz)
+        assert codigo == 0 and errores == "" and sin_git(arbol(e.raiz)) == antes, (codigo, errores)
+        assert salida.splitlines()[-1] == f"resumen: 0 creados, {len(esperados)} ya existían"
+
+
+def test_una_config_de_codex_que_ya_existe_no_se_pisa():
+    with Escenario() as e:
+        if not sin_repo(e):
+            return
+        spec = spec_completa(e)
+        spec["config"]["hosts"] = ["codex"]
+        propia = b'model = "propio"\r\n'
+        destino = e.raiz / capas().CODEX_CONFIG
+        destino.parent.mkdir(parents=True)
+        destino.write_bytes(propia)
+        codigo, salida, errores = cli(e, spec, e.raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert f"ya existía {capas().CODEX_CONFIG}" in salida.splitlines(), salida
+        assert destino.read_bytes() == propia
+        assert (e.raiz / capas().agente_codex("writer-capa-a")).is_file()
+
+
+def test_un_hosts_invalido_sale_dos_por_la_cli_sin_crear_nada():
+    with Escenario() as e:
+        spec = spec_completa(e)
+        spec["config"]["hosts"] = ["codex", "codex"]
+        codigo, salida, errores = cli(e, spec, e.raiz)
+        assert codigo == 2 and salida == "" and "hosts: 'codex' está repetido" in errores, (codigo, salida, errores)
+        assert not e.raiz.exists()
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

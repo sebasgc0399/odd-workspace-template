@@ -1,8 +1,9 @@
 import datetime
 from pathlib import Path
 
+import config_loader
 import plantilla_writer
-from odd_ws import capas
+from odd_ws import capas, hosts
 
 CLAVES = ()
 PLANTILLAS = Path(__file__).resolve().parents[1] / "plantillas"
@@ -35,17 +36,41 @@ def _capas_de(spec):
     return [capa for capa in declaradas if isinstance(capa, str) and capas.es_writer("writer-%s" % capa)]
 
 
+def _hosts_de(spec):
+    config = spec.get("config") if isinstance(spec, dict) else None
+    return config_loader.hosts_de(config if isinstance(config, dict) else {})
+
+
 def _sustituir(ruta, capa, fecha):
     texto = plantilla_writer.leer_plantilla(ruta)
     return texto.replace("{{capa}}", capa).replace("{{fecha}}", fecha)
 
 
-def generar_revisor(capa, actual=None):
-    return plantilla_writer.armar(capa, plantilla_writer.leer_plantilla(PLANTILLA_REVISOR), actual)
+def generar_revisor(capa, actual=None, host=hosts.FUENTE):
+    return plantilla_writer.armar(capa, plantilla_writer.leer_plantilla(PLANTILLA_REVISOR), actual, plantilla_writer.textos(host))
 
 
-def generar_revisor_diseno(actual=None):
-    return plantilla_writer.armar("diseno", plantilla_writer.leer_plantilla(PLANTILLA_REVISOR_DISENO), actual)
+def generar_revisor_diseno(actual=None, host=hosts.FUENTE):
+    return plantilla_writer.armar("diseno", plantilla_writer.leer_plantilla(PLANTILLA_REVISOR_DISENO), actual,
+                                  plantilla_writer.textos(host))
+
+
+def _accion(archivo):
+    if archivo.fuente is None:
+        return archivo.ruta, archivo.contenido
+    from bootstrap import AccionDerivada
+
+    return AccionDerivada(archivo.ruta, archivo.contenido, archivo.fuente)
+
+
+def _armados(por_capa, host):
+    armados = []
+    for capa in por_capa:
+        armados.append(plantilla_writer.generar(capa, host=host))
+        armados.append(generar_revisor(capa, host=host))
+    if por_capa:
+        armados.append(generar_revisor_diseno(host=host))
+    return armados
 
 
 def generar(spec, hoy=None):
@@ -59,4 +84,7 @@ def generar(spec, hoy=None):
     if por_capa:
         acciones.append((capas.REVISOR_DISENO, generar_revisor_diseno()))
     acciones.append((capas.CRITERIOS_SKILL, _sustituir(PLANTILLA_CRITERIOS, "", fecha)))
+    for host in _hosts_de(spec):
+        agentes = [plantilla_writer.agente(texto) for texto in _armados(por_capa, host)]
+        acciones.extend(_accion(archivo) for archivo in hosts.adaptador(host).archivos(agentes))
     return acciones

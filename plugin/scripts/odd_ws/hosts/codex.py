@@ -1,10 +1,13 @@
+import hashlib
 import json
 import os
+import re
 
+from odd_ws import capas
 from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
-from odd_ws.hosts import base
+from odd_ws.hosts import Archivo, base
 
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
@@ -21,15 +24,57 @@ MANIFIESTO = {
     "P5": (SOPORTADO, "SubagentStop con matcher por agent_type y decision block; los archivos y los comandos del writer "
                       "salen de la bitácora que writer_guard anota en pre, no del transcript (F1b)"),
     "P6": (SOPORTADO, "agent_type y agent_id dentro de un subagente"),
-    "P7": (DEGRADADO, "agentes TOML en .codex/agents, sin lista de herramientas ni skills precargadas: van en "
-                      "developer_instructions (F1d)"),
+    "P7": (DEGRADADO, "agentes TOML en .codex/agents (name, description y developer_instructions), derivados del .md de "
+                      ".claude/agents, que es la fuente, y generados solo si la instancia declara codex en hosts; sin lista "
+                      "de herramientas ni skills precargadas: las del frontmatter van escritas en developer_instructions, el "
+                      "agente lee los SKILL.md por la shell y el límite de herramientas es solo de texto. Codex carga "
+                      ".codex/ solo con el proyecto en confianza ([projects] de ~/.codex/config.toml)"),
     "P8": (DEGRADADO, "skills del plugin (SKILL.md), pero no respeta disable-model-invocation; el equivalente es "
                       "agents/openai.yaml con allow_implicit_invocation: false"),
     "P9": (SOPORTADO, ".codex-plugin/plugin.json apunta a hooks/hooks.codex.json, con cada comando como texto, la ruta de "
                       "PLUGIN_ROOT entre comillas y --host codex; los hooks necesitan confianza en /hooks, que se pide de "
                       "nuevo con cada actualización"),
-    "P10": (DEGRADADO, "CLAUDE.md por project_doc_fallback_filenames, desde la raíz hasta el cwd y solo al arrancar (F1d)"),
+    "P10": (DEGRADADO, "CLAUDE.md por project_doc_fallback_filenames en .codex/config.toml, que el bootstrap genera si la "
+                       "instancia declara codex en hosts y el archivo no existe, sin ningún AGENTS.md; se lee desde la raíz "
+                       "hasta el cwd, solo al arrancar y con un tope de 32 KiB, y .codex/ carga solo con el proyecto en "
+                       "confianza"),
 }
+TEXTOS = {
+    "{{host:arranque-writer}}": (
+        "Las skills `criterios` y `capa-{{capa}}` no vienen precargadas en tu contexto: antes de escribir, abre\n"
+        "y lee entero el `SKILL.md` de cada una con la herramienta de shell (`.claude/skills/<skill>/SKILL.md`, desde\n"
+        "la raíz de la instancia: la carpeta que tiene `workspace.config.json`). Si alguno no está en el disco, no\n"
+        "escribes código: cierras con `estado: blocked` y `regla: falta la skill <skill>`."),
+    "{{host:arranque-revisor}}": (
+        "Las skills `criterios` y `capa-{{capa}}` no vienen precargadas en tu contexto: antes de revisar, abre\n"
+        "y lee entero el `SKILL.md` de cada una con la herramienta de shell (`.claude/skills/<skill>/SKILL.md`, desde\n"
+        "la raíz de la instancia: la carpeta que tiene `workspace.config.json`). Si alguno no está en el disco, no\n"
+        "revisas: lo dices en el reporte y no inventas criterios."),
+    "{{host:arranque-revisor-diseno}}": (
+        "La skill `criterios` no viene precargada en tu contexto: antes de revisar, abre y lee entero\n"
+        "`.claude/skills/criterios/SKILL.md` con la herramienta de shell, desde la raíz de la instancia (la carpeta que\n"
+        "tiene `workspace.config.json`). Si no está en el disco, no revisas: lo dices en el reporte y no inventas\n"
+        "criterios."),
+    "{{host:en-contexto}}": "están en la skill que leíste al arrancar",
+    "{{host:edicion}}": "`apply_patch`",
+    "{{host:shell}}": "La herramienta de shell (en Windows corre PowerShell)",
+    "{{host:por-shell}}": "por la shell",
+    "{{host:origen-de-archivos}}": "de la bitácora que anota el guard",
+    "{{host:solo-lees}}": ("No tienes herramienta de lectura: lees con la herramienta de shell (en Windows corre PowerShell),\n"
+                           "  solo con comandos que no escriben. No usas `apply_patch`, no escribes y no cambias el árbol de git."),
+    "{{host:leida-con}}": "leída con la herramienta de shell",
+    "{{host:la-busqueda}}": "el comando de búsqueda",
+}
+CONFIG_DEL_PROYECTO = 'project_doc_fallback_filenames = ["CLAUDE.md"]\n'
+NOMBRE_DE_AGENTE = re.compile(r"[a-z0-9][a-z0-9-]*")
+ENCABEZADO = "# Lo genera odd-ws desde %s, que es la fuente: los cambios van en ese .md, no acá."
+CLAVE_VERSION = "# odd-ws-plantilla:"
+CLAVE_HASH = "# odd-ws-hash:"
+HERRAMIENTAS = ("**Herramientas de este agente:** %s. Son los nombres de Claude Code, y Codex no tiene una lista de "
+                "herramientas por agente, así que el límite lo pones tú: Read, Glob y Grep son lecturas con la herramienta de "
+                "shell; Edit y Write, `apply_patch`; y Bash, la herramienta de shell, que en Windows corre PowerShell. Lo que "
+                "no está en esta lista no lo usas.")
+SKILLS = "**Skills de este agente:** %s. Las rutas son desde la raíz de la instancia."
 SIN_CONFIRMACION = ("Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, "
                     "pídele al usuario que lo corra él.")
 FASES = {"PreToolUse": "pre", "PostToolUse": "post"}
@@ -154,3 +199,70 @@ def archivos_del_writer(evento, fotos):
 
 def comandos_del_writer(evento, fotos):
     return comandos_de_la_bitacora(fotos)
+
+
+def _escapar(texto, multilinea=False):
+    salida = []
+    for letra in texto:
+        codigo = ord(letra)
+        if letra in '"\\':
+            salida.append("\\" + letra)
+        elif letra == "\t" or (letra == "\n" and multilinea):
+            salida.append(letra)
+        elif codigo < 0x20 or codigo == 0x7f:
+            salida.append("\\u%04x" % codigo)
+        elif 0xd800 <= codigo <= 0xdfff:
+            salida.append("�")
+        else:
+            salida.append(letra)
+    return "".join(salida)
+
+
+def _enumerar(partes):
+    return partes[0] if len(partes) == 1 else ", ".join(partes[:-1]) + " y " + partes[-1]
+
+
+def _con_texto(valor, clave):
+    if not isinstance(valor, str) or not valor.strip():
+        raise ValueError("el agente necesita %s no vacío para su TOML de Codex" % clave)
+    return valor
+
+
+def huella(texto):
+    lineas = texto.lstrip("﻿").replace("\r\n", "\n").split("\n")
+    esqueleto, en_cabecera = [], True
+    for linea in lineas:
+        en_cabecera = en_cabecera and linea.startswith("#")
+        esqueleto.append(CLAVE_HASH if en_cabecera and linea.startswith(CLAVE_HASH) else linea)
+    return hashlib.sha256("\n".join(esqueleto).encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def toml(agente):
+    nombre = agente.nombre
+    if not isinstance(nombre, str) or not NOMBRE_DE_AGENTE.fullmatch(nombre):
+        raise ValueError("el nombre de agente %r no sirve para %s" % (nombre, capas.CODEX_AGENTES))
+    descripcion = _con_texto(agente.descripcion, "una description")
+    partes = []
+    if agente.herramientas:
+        partes.append(HERRAMIENTAS % ", ".join(agente.herramientas))
+    if agente.skills:
+        partes.append(SKILLS % _enumerar(["`%s`" % capas.skill_de(skill) for skill in agente.skills]))
+    partes.append(_con_texto(agente.instrucciones, "instrucciones"))
+    lineas = [
+        ENCABEZADO % capas.agente(nombre),
+        CLAVE_VERSION if agente.version is None else "%s %s" % (CLAVE_VERSION, agente.version),
+        CLAVE_HASH,
+        'name = "%s"' % _escapar(nombre),
+        'description = "%s"' % _escapar(descripcion),
+        'developer_instructions = """',
+        _escapar("\n\n".join(partes), multilinea=True),
+        '"""',
+        "",
+    ]
+    texto = "\n".join(lineas)
+    return texto.replace("\n%s\n" % CLAVE_HASH, "\n%s %s\n" % (CLAVE_HASH, huella(texto)), 1)
+
+
+def archivos(agentes):
+    derivados = [Archivo(capas.agente_codex(agente.nombre), toml(agente), capas.agente(agente.nombre)) for agente in agentes]
+    return derivados + [Archivo(capas.CODEX_CONFIG, CONFIG_DEL_PROYECTO)]

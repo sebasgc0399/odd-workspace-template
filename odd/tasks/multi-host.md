@@ -27,6 +27,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
   - Cada host recibe solo sus archivos delgados generados, por ejemplo los agentes TOML de Codex.
   - El archivo de instrucciones (`CLAUDE.md` o `AGENTS.md`) se decide en F1, sin duplicar contenido.
 - **S7. El orden de los CLI, del usuario (L6).** «Prioridad Codex, Gentle-Shell o si hay mas de la comunidad y luego OpenCode, luyego Gemini y de ultimo Copilot».
+- **S8. Los hosts se declaran (L17).** `workspace.config.json` lleva una clave opcional `hosts`, por ejemplo `["claude-code", "codex"]`. Sin la clave, el workspace es solo Claude Code, y las instancias que ya existen no cambian. La instalación genera los archivos de un host, y el doctor lo revisa, solo si está declarado.
 
 ### Matriz de capacidades (2026-11-07)
 
@@ -57,8 +58,9 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F0c | S2, S6 | Se juntó con F1 (L11): la generación por host se diseña con Codex como segundo caso real | — | fusionada en F1 |
 | F1a | S2–S4 | Adaptador de protocolo de Codex (`odd_ws/hosts/codex.py`) y elección del adaptador con `--host` en los tres guards (aviso 3 de L9). Detalle:<br>• `apply_patch` es edición, con las rutas del parche (`Add`, `Update`, `Delete` y `Move to`) resueltas contra el `cwd`<br>• `Bash` es shell, con dialecto según la plataforma: PowerShell en Windows<br>• `Preguntar` se degrada a bloqueo con la instrucción de pedirle al usuario que lo corra (S4)<br>• `DEGRADACIONES` en el manifiesto<br>• los guards procesan todas las rutas de un evento | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2) | hecho (`f8a9b88`) |
 | F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: `writer_guard` y `writer_stop`) | hecho (`c3736ff`, L14) |
-| F1c | S2–S4 | Empaquetado y bloqueo por JSON (L15). Detalle:<br>• `.codex-plugin/plugin.json` con la misma versión que `.claude-plugin`, `"hooks": "./hooks/hooks.codex.json"`, sin `skills` (Codex descubre `skills/`) y sin `plugin.json` en la raíz<br>• `hooks/hooks.codex.json`: comandos como string, `python "${PLUGIN_ROOT}/scripts/<x>.py" --plazo N --host codex`, con matchers `apply_patch` y `Bash`, sin `Read` ni `PowerShell`<br>• `writer_stop` se registra con `--host codex`, y `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14)<br>• el adaptador de Codex bloquea por JSON y exit 0, nunca con exit 2<br>• un test de paridad entre los dos `hooks*.json` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: el bloqueo de los guards en Codex) | hecho (L16) |
-| F1d | S2, S6 | Generación (la ex F0c). El bootstrap genera:<br>• `.codex/agents/*.toml` desde las mismas plantillas, con las skills y las herramientas en `developer_instructions`, porque Codex no las precarga ni las restringe<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md` para no tapar los `CLAUDE.md`<br><br>El doctor chequea por host: la versión de Codex, el plugin instalado y que los hooks tengan confianza (`[hooks.state]` de `~/.codex/config.toml`). También que ningún hook registrado lleve un `--host` desconocido o vacío: `writer_stop` calla con eso y la compuerta queda apagada (A5 de L14) | por decidir | pendiente |
+| F1c | S2–S4 | Empaquetado y bloqueo por JSON (L15). Detalle:<br>• `.codex-plugin/plugin.json` con la misma versión que `.claude-plugin`, `"hooks": "./hooks/hooks.codex.json"`, sin `skills` (Codex descubre `skills/`) y sin `plugin.json` en la raíz<br>• `hooks/hooks.codex.json`: comandos como string, `python "${PLUGIN_ROOT}/scripts/<x>.py" --plazo N --host codex`, con matchers `apply_patch` y `Bash`, sin `Read` ni `PowerShell`<br>• `writer_stop` se registra con `--host codex`, y `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14)<br>• el adaptador de Codex bloquea por JSON y exit 0, nunca con exit 2<br>• un test de paridad entre los dos `hooks*.json` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: el bloqueo de los guards en Codex) | hecho (`167132d`, L16) |
+| F1d1 | S2, S5, S6, S8 | Generación (la ex F0c), solo para los hosts declarados en `hosts` (S8, L17). Detalle:<br>• `hosts` en `workspace.config.json`, validado contra el registro<br>• un puerto de generación por adaptador<br>• marcadores por host en las plantillas, que en Claude Code valen el texto de hoy<br>• `.codex/agents/*.toml` derivados del `.md`<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md`<br><br>Claude Code genera lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5: el bootstrap es el instalador de la instancia) | hecho (L19) |
+| F1d2 | S2–S4, S8 | Doctor por host (L17):<br>• Codex: la versión, el plugin instalado y la confianza de los hooks y del proyecto<br>• `codex-agentes` (L18): cada TOML se compara con el que sale del `.md` actual. Si falta, se genera; si está atrasado y su huella coincide, da `FALTA` y `--arreglar` lo re-deriva; si fue editado a mano, da `AVISO` sin pisarlo y pide editar el `.md`. Se compara contra la derivación completa y no contra `# odd-ws-plantilla: N`, que no sube cuando cambian los textos de Codex (A5 del verificador de F1d1)<br>• `hooks-host` en todos los hosts: ningún hook con un `--host` desconocido o vacío (A5 de L14, A2 de L16)<br>• `claude` no es `FALTA` si la instancia no lo declara<br>• el bootstrap ya promete «lo deriva de ahí el doctor (doctor --arreglar)»: F1d2 la cumple, e idealmente suma el id del arreglo a esa línea (A6 de L19) | delegado: un writer, por el respaldo de contexto; después, un verificador | pendiente |
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks) y entrega `0.3.0` | necesita el sí del usuario: usa su cuenta de Codex | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
@@ -274,4 +276,52 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **A3:** el test de paridad fija `displayName` como literal y no lo compara con `.claude-plugin`.
     - **A5:** un motivo vacío Codex lo toma como inválido, pero ningún núcleo lo construye.
     - **A6:** PowerShell suma unos 0,33 s por hook.
-- **Siguiente paso:** F1d.
+- **L17 (2026-11-08), el mapa de F1d y la decisión del usuario.** F1c quedó en `167132d`. Un explorador mapeó el bootstrap, el doctor y el esquema de Codex en 0.144 y 0.167.
+  - **El bootstrap solo crea.** Lo que ya existe no se pisa, y cada plantilla de agente lleva una huella (`odd-ws-hash`). Una plantilla se actualiza por `doctor --arreglar`.
+  - **La config de la instancia:** `config_loader` ignora las claves de primer nivel que no conoce. La `config` de la spec tiene que ser idéntica a la de una instancia que ya existe.
+  - **El doctor** devuelve un `Resultado` por chequeo. Hoy, sin `claude`, da `FALTA`.
+  - **El TOML de un agente de Codex:**
+    - claves `name`, `description` y `developer_instructions`, las tres obligatorias y no vacías, con `deny_unknown_fields`;
+    - el nombre sale de `name` y llega a los hooks como `agent_type`;
+    - en 0.167 solo se aplican las instrucciones, el modelo y el apagado de algunas features, y `sandbox_mode` se ignora;
+    - no hay lista blanca de herramientas ni skills precargadas.
+  - **`.codex/config.toml` y `.codex/agents`** solo cargan si la raíz del repo tiene confianza en `[projects]`. `project_doc_fallback_filenames` sí vale en la config del proyecto.
+  - **La confianza de un hook** se guarda bajo `[hooks.state."<plugin>@<marketplace>:<archivo>:<evento>:<grupo>:<handler>"]`. Su hash en 0.167 incluye el contenido del bundle, así que recalcularlo es frágil.
+  - **La pregunta al usuario:** ¿cuándo genera la instalación los archivos de Codex: siempre, si se declara en la config, o si detecta Codex en la máquina?
+    - **Respuesta:** «Declarado en config (Recomendado)». De ahí sale S8.
+  - **Decisiones técnicas del padre:**
+    - F1d se parte en F1d1 (generación) y F1d2 (doctor). F1d2 depende de la clave `hosts` de F1d1, así que van una después de la otra.
+    - `hosts` es una lista no vacía, sin repetidos, de nombres del registro (`hosts.NOMBRES`).
+    - El TOML se deriva del `.md`:
+      - la versión y la huella van en un comentario TOML;
+      - los bloques de la instancia y la description viven solo en el `.md`;
+      - las diferencias de texto entre hosts entran por marcadores en las plantillas, que en Claude Code valen el texto de hoy, así que la huella no cambia.
+    - Sin `sandbox_mode` ni `shell_tool = false`: la restricción va por texto y P7 queda degradado.
+    - Una instancia que ya existe suma Codex agregando `"codex"` a `hosts` y corriendo `doctor --arreglar` (F1d2).
+- **L18 (2026-11-08), los TOML de Codex atrasados respecto del `.md`.**
+  - **El problema:** el writer de F1d1 avisó (A1) que en una instancia que ya existe, si se agrega `codex` y se corre el bootstrap, los TOML salen de la plantilla, sin los bloques ni la `description` del `.md`. El bootstrap solo crea y no lee el disco.
+  - **La propuesta:** lo resuelve el doctor de F1d2 con el chequeo `codex-agentes`, como cualquier otro TOML que se atrasa cuando cambia su `.md`. La regla es la misma que el doctor ya usa con los writers: re-deriva el atrasado, avisa del editado a mano y genera el que falta. Se descartó que el bootstrap lea los `.md` existentes, porque va contra su diseño y solo cubre este caso.
+  - **El usuario:** «tomare tu recomendacion».
+- **L19 (2026-11-08), F1d1.**
+  - **Ruta:** un writer delegado, por el respaldo de contexto, y después un verificador independiente, por el ítem 5 (el bootstrap es el instalador) y el 6.
+  - **El writer:**
+    - **`hosts`:** `config_loader.hosts_de` y `hosts` la validan, con `["claude-code"]` por defecto. `cargar` no la mira, así que una clave rota no cambia los hooks. El bootstrap la valida.
+    - **El puerto de generación:** `TEXTOS` y `archivos(agentes)` en cada adaptador.
+    - **Las plantillas:** 11 marcadores `{{host:x}}`. Con los textos de Claude Code dan las plantillas de antes, byte a byte.
+    - **Los TOML de Codex:** se derivan del `.md` armado. Llevan solo `name`, `description` y `developer_instructions`, en strings básicos escapados, con la versión y la huella en comentarios.
+    - **`.codex/config.toml`:** sale con el fallback a `CLAUDE.md`.
+    - **Pruebas:** pasaron 41 de 41 suites, murieron 8 de 8 mutantes, y el diferencial de S5 dio 100 de 100 iguales.
+  - **El verificador:** S2, S5 y S8 cumplen; S6 quedó parcial por un blocker.
+    - **S5, sin diferencias en ninguna comparación:** bootstrap 124, generadores 1071, doctor 324 y hooks 690.
+    - **Los TOML contra Codex:** un modelo compilado del parser de roles de Codex los acepta, incluidos 153 con textos raros.
+    - **B1:** en una instancia que ya existe, sumar `codex` y correr el bootstrap escribía cada TOML desde la plantilla, sin la `description` ni los bloques del `.md`, y con una cabecera que decía, en falso, que salía del `.md`.
+  - **La corrección (una tanda, del writer):**
+    - **B1:** `AccionDerivada(ruta, contenido, fuente)`. El plan la marca `lo_deriva_el_doctor` cuando la fuente ya existía, con el mismo `lexists` de `ya_existe` y sin leerla. Esas acciones no se escriben, y el informe dice que las deriva el doctor (coherente con L18).
+    - **A2:** los textos de Codex ya no nombran `Bash`. El modelo ve la shell como `exec_command`; `Bash` es solo el nombre en los hooks.
+    - **A4:** `hosts` salió de `bootstrap.ejemplo.json`.
+    - **Docs:** `diseno.md` dice que `.claude/` sale siempre, porque es la fuente y para Codex es inerte.
+  - **El rechequeo,** limitado a B1: cerrado. El diferencial de S5 sigue en 0, y `ticket.py`, que comparte el plan, da 24 de 24 iguales a la base.
+  - **Avisos que quedan:**
+    - **A6:** hoy el doctor todavía no cumple la línea «lo deriva el doctor»; va en F1d2.
+    - **A7:** `isinstance(AccionDerivada)` depende de que `bootstrap.py` se registre en `sys.modules` como `bootstrap`. Hoy no hay ningún punto de entrada distinto.
+- **Siguiente paso:** F1d2.

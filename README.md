@@ -99,6 +99,7 @@ claude --add-dir D:/code/mi-repo
 - **Entrevista,** de a una pregunta: el nombre del proyecto, los repos con su ruta absoluta y las capas, cada una con sus extensiones, sus repos y su prefijo de reglas. `diseno` es un nombre reservado.
 - **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan. Solo con tu sí escribe.
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
+- **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
 - **Termina con el doctor.** No hace `git add` ni `commit`: el primer commit es tuyo.
 
 ### `/odd-ws:doctor`
@@ -169,7 +170,7 @@ Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por q
 
 | Ruta en la instancia | Para qué |
 |---|---|
-| `workspace.config.json` | La config versionada: los repos (con `agent_readonly` opcional), las capas y, opcional, `knowledge` |
+| `workspace.config.json` | La config versionada: los repos (con `agent_readonly` opcional), las capas y, opcionales, `knowledge` y `hosts` |
 | `workspace.local.json` | Lo de tu máquina: la ruta de cada repo y `plugin_root`. Va en `.gitignore` |
 | `CLAUDE.md` | El índice y la metodología de la instancia |
 | `tickets/_plantilla/` | La plantilla de cada ticket, con su `.claude/settings.json` |
@@ -179,6 +180,7 @@ Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por q
 | `.githooks/pre-commit` | Corre las pruebas de las reglas de cada capa (`reglas.py --test`) |
 | `.claude/settings.json` | El `enabledPlugins` de la raíz |
 | `.gitignore`, `git init` y `core.hooksPath` | Para que el pre-commit corra desde el primer commit |
+| `.codex/` | Solo si `hosts` declara `codex`: un `agents/<agente>.toml` por agente, derivado de su `.md` en `.claude/agents` (que es donde se edita), y `config.toml` para que Codex lea los `CLAUDE.md`. Codex los carga solo si el proyecto tiene su confianza. En una instancia que ya existía, el TOML de un agente que ya tenía su `.md` no lo crea el bootstrap: lo genera el doctor |
 
 No los genera: la carpeta de docs de `knowledge`, el estado de ejecución (`.claude/estado/`, ignorado por git) ni las carpetas `revision/` de cada ticket.
 

@@ -11,6 +11,9 @@ CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
 AGENTES = ".claude/agents"
 REVISOR_DISENO = AGENTES + "/revisor-diseno.md"
+CODEX = ".codex"
+CODEX_AGENTES = CODEX + "/agents"
+CODEX_CONFIG = CODEX + "/config.toml"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
 BITACORA = "bitacora.jsonl"
@@ -56,6 +59,10 @@ def writer(capa):
 
 def agente(nombre):
     return "%s/%s.md" % (AGENTES, nombre)
+
+
+def agente_codex(nombre):
+    return "%s/%s.toml" % (CODEX_AGENTES, nombre)
 
 
 def partir_bloque(lineas):

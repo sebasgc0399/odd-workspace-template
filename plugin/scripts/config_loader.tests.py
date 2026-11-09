@@ -750,6 +750,103 @@ def test_knowledge_no_devuelve_las_listas_de_la_config_original():
     assert config["knowledge"] == {"scan": ["a/*.md"], "quantities": ["tablas"]}, config
 
 
+def con_hosts(valor):
+    config = config_valida()
+    config["hosts"] = valor
+    return config
+
+
+def _rota_por_hosts(valor, esperado):
+    with Instancia(config=con_hosts(valor)) as i:
+        assert m().estado(i.raiz).tipo == "ok", valor
+        try:
+            m().hosts(i.raiz)
+        except m().ConfigRota as error:
+            assert str(error).startswith("hosts") and all(t in str(error) for t in esperado), (valor, str(error))
+        else:
+            raise AssertionError(f"hosts() debe lanzar ConfigRota para {valor!r}")
+    try:
+        m().hosts_de({"hosts": valor})
+    except m().ConfigRota:
+        return
+    raise AssertionError(f"hosts_de() debe lanzar ConfigRota para {valor!r}")
+
+
+def test_sin_hosts_la_instancia_es_solo_de_claude_code():
+    with Instancia() as i:
+        assert m().hosts(i.raiz) == ["claude-code"]
+    assert m().hosts_de({}) == ["claude-code"]
+    assert m().HOSTS_POR_DEFECTO == ("claude-code",)
+
+
+def test_hosts_validos_se_devuelven_en_su_orden():
+    for valor in (["claude-code"], ["codex"], ["claude-code", "codex"], ["codex", "claude-code"]):
+        with Instancia(config=con_hosts(list(valor))) as i:
+            assert m().hosts(i.raiz) == valor, valor
+
+
+def test_los_hosts_validos_son_los_del_registro():
+    registro = importlib.import_module("odd_ws.hosts")
+    assert list(registro.NOMBRES) == ["claude-code", "codex"]
+    for nombre in registro.NOMBRES:
+        assert m().hosts_de({"hosts": [nombre]}) == [nombre], nombre
+    assert m().hosts_de({"hosts": list(registro.NOMBRES)}) == list(registro.NOMBRES)
+
+
+def test_hosts_que_no_es_una_lista_no_vacia_de_textos_es_rota():
+    for malo in ("codex", {"codex": True}, None, 3, True, [], [1], [None], [["codex"]], ["codex", 2]):
+        _rota_por_hosts(malo, ["lista no vacía", "claude-code, codex"])
+
+
+def test_un_host_desconocido_es_rota_y_nombra_los_validos():
+    for malo in (["claude"], ["Codex"], ["gemini"], [""], ["claude-code", "opencode"], [" codex"], ["codex "]):
+        desconocido = next(h for h in malo if h not in ("claude-code", "codex"))
+        _rota_por_hosts(malo, [repr(desconocido), "no es un host conocido", "claude-code, codex"])
+
+
+def test_un_host_repetido_es_rota():
+    for malo, repetido in ((["codex", "codex"], "codex"), (["claude-code", "codex", "claude-code"], "claude-code")):
+        _rota_por_hosts(malo, [repr(repetido), "repetido"])
+
+
+def test_cargar_ignora_hosts_valido_o_invalido_y_solo_hosts_lo_juzga():
+    for valor in ("codex", [], ["codex", "codex"], ["gemini"], ["codex"], ["claude-code", "codex"]):
+        with Instancia(config=con_hosts(valor)) as i:
+            con_clave = m().cargar(i.raiz)
+            estado = m().estado(i.raiz)
+            assert m().capas(i.raiz) == config_valida()["layers"], valor
+            assert m().conocimiento(i.raiz) == KNOWLEDGE_POR_DEFECTO, valor
+            (i.raiz / "workspace.config.json").write_text(json.dumps(config_valida()), encoding="utf-8")
+            sin_clave = m().cargar(i.raiz)
+            assert "hosts" not in con_clave and con_clave == sin_clave, (valor, con_clave)
+            assert estado.tipo == "ok" and estado.config == sin_clave, (valor, estado)
+
+
+def test_hosts_valida_la_version_y_no_exige_las_rutas_locales():
+    config = con_hosts(["codex"])
+    with Instancia(config=config, local=False) as i:
+        assert m().estado(i.raiz).tipo == "rota"
+        assert m().hosts(i.raiz) == ["codex"]
+    config["schema_version"] = 2
+    with Instancia(config=config) as i:
+        try:
+            m().hosts(i.raiz)
+        except m().ConfigRota as error:
+            assert "schema_version" in str(error), error
+        else:
+            raise AssertionError("una schema_version desconocida debe lanzar ConfigRota")
+
+
+def test_hosts_no_devuelve_la_lista_de_la_config_original():
+    config = con_hosts(["codex"])
+    resultado = m().hosts_de(config)
+    resultado.append("x")
+    assert config["hosts"] == ["codex"], config
+    por_defecto = m().hosts_de({})
+    por_defecto.append("x")
+    assert m().hosts_de({}) == ["claude-code"]
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

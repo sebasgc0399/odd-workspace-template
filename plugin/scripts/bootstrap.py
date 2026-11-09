@@ -16,6 +16,8 @@ VERSION_DE_SPEC = 1
 USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo]"
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
+LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
+LO_DERIVADO = "{verbo} {ruta}: {fuente} ya {existe}, así que lo deriva de ahí el doctor (doctor --arreglar)"
 CLAVES_BASE = ("spec_version",)
 LINEAS_DE_GITIGNORE = (config_loader.NOMBRE_LOCAL, convencion.ESTADO + "/")
 CARACTERES_INVALIDOS = frozenset('<>:"|?*')
@@ -33,8 +35,9 @@ GIT_INIT, GIT_HOOKS = "init", "hooks_path"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
-Accion = namedtuple("Accion", "ruta contenido modo permisos", defaults=(None,))
+Accion = namedtuple("Accion", "ruta contenido modo permisos fuente", defaults=(None, None))
 AccionDeGit = namedtuple("AccionDeGit", "tipo valor")
+AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente")
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
@@ -108,6 +111,7 @@ def _cargar_en_temporal(contenidos, prefijo):
         try:
             config_loader.cargar(copia)
             config_loader.conocimiento(copia)
+            config_loader.hosts(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 
@@ -301,19 +305,27 @@ def _revisar_raiz(raiz):
     return raiz
 
 
-def _sumar_accion(raiz, valor, generador, vistas, acciones):
+def _sumar_accion(raiz, valor, generador, vistas, acciones, fuente=None):
     ruta, contenido, permisos = _accion(valor, generador)
     clave = ruta.casefold()
     if clave in vistas:
         raise ErrorDePlan(f"la ruta {ruta} está repetida (generadores {vistas[clave][1]} y {generador})")
     vistas[clave] = (ruta, generador)
     _revisar_destino(raiz, ruta)
-    acciones.append((ruta, contenido, permisos))
+    acciones.append((ruta, contenido, permisos, fuente))
+
+
+def _modo(raiz, ruta, fuente):
+    if os.path.lexists(raiz / ruta):
+        return YA_EXISTE
+    if fuente is not None and os.path.lexists(raiz / fuente):
+        return LO_DERIVA_EL_DOCTOR
+    return CREAR
 
 
 def _armar_plan(raiz, acciones, vistas):
     _revisar_choques(vistas)
-    plan = Plan(Accion(ruta, contenido, YA_EXISTE if os.path.lexists(raiz / ruta) else CREAR, permisos) for ruta, contenido, permisos in acciones)
+    plan = Plan(Accion(ruta, contenido, _modo(raiz, ruta, fuente), permisos, fuente) for ruta, contenido, permisos, fuente in acciones)
     plan.raiz_real = os.path.realpath(raiz)
     return plan
 
@@ -329,6 +341,10 @@ def planificar(spec, raiz):
                 if any(a.tipo == valor.tipo for a in acciones_git):
                     raise ErrorDePlan(f"la acción de git {valor.tipo} está repetida")
                 acciones_git.append(_paso_de_git(valor, generador.nombre))
+                continue
+            if isinstance(valor, AccionDerivada):
+                fuente = _ruta_relativa(valor.fuente)
+                _sumar_accion(raiz, (valor.ruta, valor.contenido), generador.nombre, vistas, acciones, fuente)
                 continue
             _sumar_accion(raiz, valor, generador.nombre, vistas, acciones)
     plan = _armar_plan(raiz, acciones, vistas)
@@ -543,6 +559,9 @@ def aplicar(plan, raiz):
     except OSError as error:
         raise ErrorDeAplicacion(f"no se pudo crear la raíz {raiz}: {error}", resultados)
     for accion in plan:
+        if accion.modo == LO_DERIVA_EL_DOCTOR:
+            resultados.append(Resultado(accion.ruta, LO_DERIVA_EL_DOCTOR))
+            continue
         if accion.modo != CREAR:
             resultados.append(Resultado(accion.ruta, YA_EXISTIA))
             continue
@@ -589,15 +608,20 @@ def _motivo(error, destino):
 
 def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     contenidos = {a.ruta: a.contenido for a in plan}
+    fuentes = {a.ruta: a.fuente for a in plan}
     if ensayo:
-        hechos = [(a.ruta, a.modo == YA_EXISTE) for a in plan]
+        hechos = [(a.ruta, a.modo == YA_EXISTE, a.modo == LO_DERIVA_EL_DOCTOR) for a in plan]
         fraseo = ("crearía", "ya existe")
     else:
-        hechos = [(r.ruta, r.estado == YA_EXISTIA) for r in resultados]
+        hechos = [(r.ruta, r.estado == YA_EXISTIA, r.estado == LO_DERIVA_EL_DOCTOR) for r in resultados]
         fraseo = (CREADO, "ya existía")
     ejecutables = {a.ruta for a in plan if a.permisos and a.permisos & 0o111}
     lineas = []
-    for ruta, existe in hechos:
+    for ruta, existe, derivado in hechos:
+        if derivado:
+            lineas.append(LO_DERIVADO.format(verbo="no se crearía" if ensayo else "no se creó", ruta=ruta, fuente=fuentes.get(ruta),
+                                             existe="existe" if ensayo else "existía"))
+            continue
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
         if EN_WINDOWS and not existe and ruta in ejecutables:
             lineas.append(f"al commitear, marcalo ejecutable: git add --chmod=+x {ruta}")
@@ -618,12 +642,15 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     else:
         lineas.extend(getattr(resultados, "git", ()))
     if con_resumen:
-        nuevos = sum(1 for _, existe in hechos if not existe)
-        previos = len(hechos) - nuevos
+        derivados = sum(1 for _, _, derivado in hechos if derivado)
+        nuevos = sum(1 for _, existe, derivado in hechos if not existe and not derivado)
+        previos = len(hechos) - nuevos - derivados
         if ensayo:
-            lineas.append(f"ensayo: {nuevos} se crearían, {previos} ya existen, no se escribió nada")
+            extra = f", {derivados} los derivaría el doctor" if derivados else ""
+            lineas.append(f"ensayo: {nuevos} se crearían, {previos} ya existen{extra}, no se escribió nada")
         else:
-            lineas.append(f"resumen: {nuevos} creados, {previos} ya existían")
+            extra = f", {derivados} los deriva el doctor" if derivados else ""
+            lineas.append(f"resumen: {nuevos} creados, {previos} ya existían{extra}")
     return lineas
 
 

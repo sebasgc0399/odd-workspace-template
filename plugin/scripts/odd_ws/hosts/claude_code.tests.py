@@ -305,6 +305,19 @@ def test_el_writer_de_claude_code_sale_del_transcript_y_no_de_la_bitacora():
         assert m().comandos_del_writer(ilegible, str(carpeta)) is None
 
 
+def test_el_puerto_de_generacion_no_suma_archivos_porque_los_md_son_la_fuente():
+    plantilla_writer = importlib.import_module("plantilla_writer")
+    assert m().archivos([]) == []
+    assert m().archivos([plantilla_writer.agente(plantilla_writer.generar("sql"))]) == []
+
+
+def test_los_textos_de_claude_code_son_los_de_sus_herramientas():
+    juntos = "\n".join(m().TEXTOS.values())
+    for frase in ("Edit o Write", "Read, Glob o Grep", "transcript", "Tu contexto trae precargada", "CENTINELA"):
+        assert frase in juntos, frase
+    assert "apply_patch" not in juntos and "bitácora" not in juntos
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

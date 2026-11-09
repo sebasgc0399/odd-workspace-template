@@ -296,6 +296,30 @@ def test_agregando_el_prefijo_a_mano_la_misma_cli_completa_la_instancia_anterior
     verificar_instancia_ok(caja.doctor())
 
 
+def test_una_instancia_con_codex_declarado_suma_sus_toml_validos_y_la_segunda_corrida_no_cambia_ningun_byte():
+    import tomllib
+
+    caja = Caja()
+    spec = caja.spec()
+    spec["config"]["hosts"] = ["claude-code", "codex"]
+    codigo, salida, errores = caja.cli(spec)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    de_codex = [f".codex/agents/writer-{CAPA}.toml", f".codex/agents/revisor-{CAPA}.toml", ".codex/agents/revisor-diseno.toml",
+                ".codex/config.toml"]
+    lineas = salida.splitlines()
+    for ruta in archivos_esperados() + de_codex:
+        assert f"creado {ruta}" in lineas, (ruta, lineas)
+    for ruta in de_codex[:3]:
+        datos = tomllib.loads((caja.raiz / ruta).read_bytes().decode("utf-8"))
+        assert set(datos) == {"name", "description", "developer_instructions"}, (ruta, datos)
+        assert datos["name"] == ruta.rsplit("/", 1)[1][:-len(".toml")], (ruta, datos["name"])
+    verificar_instancia_ok(caja.doctor())
+    antes = caja.arbol()
+    codigo, salida, errores = caja.cli(spec)
+    assert codigo == 0 and errores == "" and caja.arbol() == antes, (codigo, errores)
+    assert salida.splitlines()[-1] == f"resumen: 0 creados, {len(archivos_esperados()) + len(de_codex)} ya existían"
+
+
 def test_el_aislamiento_de_git_dejo_vacias_las_config_global_y_del_sistema():
     assert CAJAS
     for caja in CAJAS:

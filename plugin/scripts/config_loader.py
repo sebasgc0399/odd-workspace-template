@@ -6,6 +6,8 @@ from collections import namedtuple
 from functools import lru_cache
 from pathlib import Path
 
+from odd_ws import hosts as registro_de_hosts
+
 NOMBRE = "workspace.config.json"
 NOMBRE_LOCAL = "workspace.local.json"
 VERSION_SOPORTADA = 1
@@ -14,6 +16,7 @@ PREFIJO_RE = re.compile(r"[A-Z][A-Z0-9]*")
 CLAVES_DE_CONOCIMIENTO = ("docs", "index", "index_max_lines", "scan", "quantities", "claims")
 INDICE_POR_DEFECTO = "CLAUDE.md"
 TOPE_DEL_INDICE_POR_DEFECTO = 200
+HOSTS_POR_DEFECTO = ("claude-code",)
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -262,6 +265,29 @@ def conocimiento(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     return _conocimiento(config)
+
+
+def hosts_de(config):
+    if "hosts" not in config:
+        return list(HOSTS_POR_DEFECTO)
+    valor = config["hosts"]
+    conocidos = ", ".join(registro_de_hosts.NOMBRES)
+    if not isinstance(valor, list) or not valor or not all(isinstance(nombre, str) for nombre in valor):
+        raise ConfigRota(f"hosts debe ser una lista no vacía de nombres de host ({conocidos})")
+    vistos = []
+    for nombre in valor:
+        if nombre not in registro_de_hosts.NOMBRES:
+            raise ConfigRota(f"hosts: {nombre!r} no es un host conocido ({conocidos})")
+        if nombre in vistos:
+            raise ConfigRota(f"hosts: {nombre!r} está repetido")
+        vistos.append(nombre)
+    return vistos
+
+
+def hosts(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return hosts_de(config)
 
 
 def cargar(raiz):

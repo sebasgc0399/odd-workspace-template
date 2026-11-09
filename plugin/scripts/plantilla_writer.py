@@ -5,16 +5,19 @@ from collections import namedtuple
 from pathlib import Path
 
 import writer_stop
-from odd_ws import capas
+from odd_ws import capas, hosts
 
 RUTA = Path(__file__).resolve().parents[1] / "plantillas" / "writer.md"
 ABRE_RE = re.compile(r"<!-- instancia:([a-z][a-z0-9-]*) -->")
 CIERRA_RE = re.compile(r"<!-- /instancia:([a-z][a-z0-9-]*) -->")
+COMENTARIO_RE = re.compile(r"<!--.*-->")
+ITEM_RE = re.compile(r"\s+-\s+(\S.*?)\s*")
 CLAVE_VERSION = "odd-ws-plantilla"
 CLAVE_HASH = "odd-ws-hash"
 CLAVE_DESCRIPCION = "description"
 
 Revision = namedtuple("Revision", "codigo version")
+Agente = namedtuple("Agente", "nombre descripcion herramientas skills version instrucciones")
 
 
 def normalizar(texto):
@@ -103,20 +106,27 @@ def _descripcion(lineas):
     return crudo
 
 
-def generar(capa, actual=None, plantilla=None):
+def textos(host=hosts.FUENTE):
+    adaptador = hosts.adaptador(host)
+    if adaptador is None:
+        raise ValueError("el host %r no está en el registro (%s)" % (host, ", ".join(hosts.NOMBRES)))
+    return tuple(adaptador.TEXTOS.items())
+
+
+def generar(capa, actual=None, plantilla=None, host=hosts.FUENTE):
     if not isinstance(capa, str) or not capas.es_writer("writer-%s" % capa):
         raise ValueError("writer-%s no cumple %s" % (capa, capas.WRITER_RE.pattern))
     base = leer_plantilla() if plantilla is None else plantilla
-    return armar(capa, base, actual, (("{{resultado}}", writer_stop.PLANTILLA),))
+    return armar(capa, base, actual, (("{{resultado}}", writer_stop.PLANTILLA),) + textos(host))
 
 
 def armar(capa, plantilla, actual=None, sustituciones=()):
     if not isinstance(capa, str) or not capas.es_writer("writer-%s" % capa):
         raise ValueError("la capa %r no cumple %s" % (capa, capas.WRITER_RE.pattern))
-    texto = normalizar(plantilla).replace("{{capa}}", capa)
+    texto = normalizar(plantilla)
     for marca, valor in sustituciones:
         texto = texto.replace(marca, valor)
-    lineas = texto.split("\n")
+    lineas = texto.replace("{{capa}}", capa).split("\n")
     propios, descripcion = {}, None
     if actual is not None:
         previas = normalizar(actual).split("\n")
@@ -137,6 +147,42 @@ def armar(capa, plantilla, actual=None, sustituciones=()):
                   for i, l in enumerate(lineas)]
     sello = huella("\n".join(lineas))
     return "\n".join(CLAVE_HASH + ": " + sello if 0 < i < fin and _es_clave(l, CLAVE_HASH) else l for i, l in enumerate(lineas))
+
+
+def _lista(lineas, clave):
+    fin = _fin_de_cabecera(lineas)
+    inicio = next((i for i in range(1, fin) if _es_clave(lineas[i], clave)), None)
+    if inicio is None:
+        return ()
+    items = []
+    for linea in lineas[inicio + 1:fin]:
+        item = ITEM_RE.fullmatch(linea)
+        if item is None:
+            break
+        items.append(item.group(1))
+    return tuple(items)
+
+
+def _es_del_plugin(linea, es_la_primera):
+    marca = linea.strip()
+    return bool(ABRE_RE.fullmatch(marca) or CIERRA_RE.fullmatch(marca) or (es_la_primera and COMENTARIO_RE.fullmatch(marca)))
+
+
+def agente(texto):
+    lineas = normalizar(texto).split("\n")
+    meta = _meta(lineas)
+    fin = _fin_de_cabecera(lineas)
+    cuerpo = lineas[fin + 1:] if fin else lineas
+    primera = next((i for i, linea in enumerate(cuerpo) if linea.strip()), None)
+    instrucciones = [linea for i, linea in enumerate(cuerpo) if not _es_del_plugin(linea, i == primera)]
+    return Agente(
+        nombre=meta.get("name"),
+        descripcion=_descripcion(lineas),
+        herramientas=tuple(h.strip() for h in meta.get("tools", "").split(",") if h.strip()),
+        skills=_lista(lineas, "skills"),
+        version=_entero(meta.get(CLAVE_VERSION)),
+        instrucciones="\n".join(instrucciones).strip("\n"),
+    )
 
 
 def revisar(raiz, capa, plantilla=None):

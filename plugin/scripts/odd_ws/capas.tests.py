@@ -107,6 +107,17 @@ def test_rutas_de_los_textos_del_bootstrap():
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
+def test_rutas_de_codex():
+    assert m().CODEX == ".codex"
+    assert m().CODEX_AGENTES == ".codex/agents"
+    assert m().CODEX_CONFIG == ".codex/config.toml"
+    assert m().agente_codex("writer-sql") == ".codex/agents/writer-sql.toml"
+    assert m().agente_codex("revisor-diseno") == ".codex/agents/revisor-diseno.toml"
+    assert m().CODEX_AGENTES.startswith(m().CODEX + "/") and m().CODEX_CONFIG.startswith(m().CODEX + "/")
+    for ruta in (m().CODEX, m().CODEX_AGENTES, m().CODEX_CONFIG, m().agente_codex("x")):
+        assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
+
+
 def test_rutas_de_la_plantilla_del_ticket():
     assert m().TICKET_PLANTILLA_DIR == "tickets/_plantilla"
     assert m().TICKET_SETTINGS == "tickets/_plantilla/.claude/settings.json"

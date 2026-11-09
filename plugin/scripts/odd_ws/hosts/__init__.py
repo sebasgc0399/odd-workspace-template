@@ -1,11 +1,15 @@
 import importlib
+from collections import namedtuple
 
 from odd_ws.comun import SILENCIO
 from odd_ws.hosts.base import cargar
 
 ADAPTADORES = ("claude_code", "codex")
 NOMBRES = {"claude-code": "claude_code", "codex": "codex"}
+FUENTE = "claude-code"
 PRE = "PreToolUse"
+
+Archivo = namedtuple("Archivo", "ruta contenido fuente", defaults=(None,))
 
 
 def adaptador(nombre):

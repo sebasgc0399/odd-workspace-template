@@ -286,6 +286,19 @@ def test_el_manifiesto_de_codex_es_el_de_claude_code_con_sus_hooks():
     assert not (PLUGIN / "plugin.json").exists(), "un plugin.json en la raíz gana sobre los dos y apaga los hooks"
 
 
+def test_cada_adaptador_tiene_su_puerto_de_generacion_con_los_mismos_marcadores():
+    marcadores = None
+    for nombre, adaptador in adaptadores():
+        assert callable(adaptador.archivos), nombre
+        assert isinstance(adaptador.TEXTOS, dict) and adaptador.TEXTOS, nombre
+        for marca, valor in adaptador.TEXTOS.items():
+            assert re.fullmatch(r"\{\{host:[a-z][a-z0-9-]*\}\}", marca), (nombre, marca)
+            assert isinstance(valor, str) and valor.strip() and "{{host:" not in valor, (nombre, marca)
+        marcadores = set(adaptador.TEXTOS) if marcadores is None else marcadores
+        assert set(adaptador.TEXTOS) == marcadores, (nombre, set(adaptador.TEXTOS) ^ marcadores)
+    assert importlib.import_module("odd_ws.hosts").FUENTE == "claude-code"
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

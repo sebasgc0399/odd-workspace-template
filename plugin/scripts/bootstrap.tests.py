@@ -194,6 +194,28 @@ def test_config_invalida_no_escribe_nada():
             assert "la config no es válida" in correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(e.raiz)])[2]
 
 
+def test_hosts_invalido_rechaza_la_spec_sin_escribir_nada():
+    with Escenario() as e:
+        for valor, fragmento in ((["codex", "codex"], "hosts: 'codex' está repetido"), (["gemini"], "hosts: 'gemini' no es un host conocido"),
+                                 ([], "hosts debe ser una lista no vacía"), ("codex", "hosts debe ser una lista no vacía")):
+            spec = e.spec()
+            spec["config"]["hosts"] = valor
+            rechazada(e, spec, fragmento)
+            assert "la config no es válida" in correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(e.raiz)])[2]
+            assert arbol(e.raiz) == {}, valor
+
+
+def test_hosts_valido_pasa_y_viaja_tal_cual_en_la_config():
+    with Escenario() as e:
+        for valor in (["claude-code"], ["codex"], ["claude-code", "codex"]):
+            spec = e.spec()
+            spec["config"]["hosts"] = valor
+            raiz = e.base / ("instancia-" + "-".join(valor))
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+            assert codigo == 0 and errores == "", (valor, codigo, errores)
+            assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"]), valor
+
+
 def test_config_invalida_no_crea_ni_la_raiz():
     with Escenario() as e:
         mala = e.spec()
@@ -627,6 +649,58 @@ def test_planificar_archivos_aplicado_escribe_los_bytes_y_no_pisa_lo_que_existe(
             "ya existe d/a.txt", "ensayo: 0 se crearían, 1 ya existen, no se escribió nada"]
 
 
+def test_lo_derivado_de_un_archivo_que_ya_existia_no_se_crea_y_lo_deriva_el_doctor():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "fuente").mkdir()
+        (raiz / "fuente" / "vieja.md").write_bytes(b"propia\n")
+        (raiz / "derivados").mkdir()
+        (raiz / "derivados" / "previo.toml").write_bytes(b"previo\n")
+        derivada = b().AccionDerivada
+        alta = ("derivados", generador_de(
+            ("fuente/nueva.md", "nueva\n"),
+            derivada("derivados/de-nueva.toml", "de nueva\n", "fuente/nueva.md"),
+            derivada("derivados/de-vieja.toml", "de vieja\n", "fuente/vieja.md"),
+            derivada("derivados/previo.toml", "otro\n", "fuente/vieja.md"),
+        ))
+        with generadores_temporales(alta):
+            plan = b().planificar(e.spec(), raiz)
+        modos = {a.ruta: (a.modo, a.fuente) for a in plan}
+        assert modos["fuente/nueva.md"] == ("crear", None), modos
+        assert modos["derivados/de-nueva.toml"] == ("crear", "fuente/nueva.md"), modos
+        assert modos["derivados/de-vieja.toml"] == (b().LO_DERIVA_EL_DOCTOR, "fuente/vieja.md"), modos
+        assert modos["derivados/previo.toml"] == ("ya_existe", "fuente/vieja.md"), modos
+        ensayo = b().informe(plan, None, raiz, True)
+        assert ("no se crearía derivados/de-vieja.toml: fuente/vieja.md ya existe, así que lo deriva de ahí el doctor "
+                "(doctor --arreglar)") in ensayo, ensayo
+        assert "crearía derivados/de-nueva.toml" in ensayo and "ya existe derivados/previo.toml" in ensayo, ensayo
+        assert ensayo[-1] == "ensayo: 5 se crearían, 1 ya existen, 1 los derivaría el doctor, no se escribió nada", ensayo
+        resultados = b().aplicar(plan, raiz)
+        assert ("derivados/de-vieja.toml", b().LO_DERIVA_EL_DOCTOR) in [(r.ruta, r.estado) for r in resultados], resultados
+        assert not (raiz / "derivados" / "de-vieja.toml").exists()
+        assert (raiz / "derivados" / "de-nueva.toml").read_bytes() == b"de nueva\n"
+        assert (raiz / "derivados" / "previo.toml").read_bytes() == b"previo\n"
+        assert (raiz / "fuente" / "vieja.md").read_bytes() == b"propia\n"
+        lineas = b().informe(plan, resultados, raiz, False)
+        assert ("no se creó derivados/de-vieja.toml: fuente/vieja.md ya existía, así que lo deriva de ahí el doctor "
+                "(doctor --arreglar)") in lineas, lineas
+        assert lineas[-1] == "resumen: 5 creados, 1 ya existían, 1 los deriva el doctor", lineas
+
+
+def test_una_accion_derivada_con_una_fuente_invalida_rechaza_el_plan():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        for fuente in ("../fuera.md", "C:/x.md", "a\\b.md", "", None, "a//b.md"):
+            alta = ("derivados", generador_de(b().AccionDerivada("d/x.toml", "x\n", fuente)))
+            with generadores_temporales(alta):
+                try:
+                    b().planificar(e.spec(), raiz)
+                except b().ErrorDePlan:
+                    continue
+            raise AssertionError("aceptó la fuente %r" % (fuente,))
+        assert arbol(raiz) == {}
+
+
 def test_planificar_archivos_rechaza_lo_mismo_que_el_plan_de_los_generadores():
     with Escenario() as e:
         raiz = e.crear_raiz()
@@ -738,6 +812,10 @@ def test_el_ejemplo_se_valida_y_se_genera():
             assert (e.raiz / ".gitignore").read_bytes() == GITIGNORE_ESPERADO.encode("utf-8")
     finally:
         b().GENERADORES[:] = copia
+
+
+def test_el_ejemplo_no_trae_la_clave_opcional_hosts():
+    assert "hosts" not in json.loads(EJEMPLO.read_text(encoding="utf-8"))["config"]
 
 
 def test_el_ejemplo_esta_en_lf_sin_bom_y_con_salto_final():

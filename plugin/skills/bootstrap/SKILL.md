@@ -36,6 +36,8 @@ Una pregunta por vez, cada una con tu propuesta. Esperá la respuesta antes de l
 
 La sección `knowledge` es opcional. Preguntala solo si el usuario la menciona.
 
+La clave `hosts` también es opcional: dice en qué CLI se trabaja la instancia. Sin ella, la instancia es solo de Claude Code. Preguntala solo si el usuario menciona otro CLI. Hoy el plugin conoce `claude-code` y `codex`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`: una lista sin repetidos. Con `codex`, el script también genera `.codex/agents/` y `.codex/config.toml`.
+
 ## 3. La spec
 
 Escribila con la herramienta Write, en UTF-8 y **fuera de la instancia** (en el scratch de la sesión o en el temp del sistema), para que no termine en un commit:
@@ -75,6 +77,7 @@ Cómo leer la salida:
   - Si es de una config que ya existía, el arreglo es del usuario: decile qué falta.
 - **`no se tocó` en una línea de git** (hooks propios, un worktree enlazado, un `core.hooksPath` con otro valor): explicá en una línea qué significa. No lo cambies por tu cuenta.
 - **`al commitear, marcalo ejecutable: git add --chmod=+x …`**, **`falta en .gitignore: …`** y **`no se pudo borrar …`:** pasáselas al usuario. La última va antes de su primer commit.
+- **`no se creó … ya existía, así que lo deriva de ahí el doctor`** (o `no se crearía …` en el ensayo): el TOML de Codex de un agente que ya tenía su `.md`. No es un error: lo genera el doctor del paso 5, desde ese `.md`, con su arreglo.
 
 ## 5. El doctor
 

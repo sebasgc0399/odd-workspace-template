@@ -9,6 +9,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -18,6 +19,16 @@ import plantilla_writer  # noqa: E402
 import verificar_capa  # noqa: E402
 from odd_ws import capas  # noqa: E402
 
+HOOKS_CODEX = AQUI.parent / "hooks" / "hooks.codex.json"
+GOLDEN_DEL_REVISOR = {
+    "sql": "069e1b2fd987dd14473bd1025f6d294e829d4f3bdf8d720455bc999e2d379319",
+    "web": "8887ea14bcbaf7a2dec5be9f694fe32d0ba9f21be4d7ba69fa60b339d9033ba7",
+    "movil": "679c52af770cc47fd770ee5bce7b80f1a1613c7ac58974f44ffd4cb972e01de0",
+}
+GOLDEN_DEL_REVISOR_DE_DISENO = "3fbcd9c42c77035b069dd112c707748c7c3ab43792afc7f14e7353d49de3aeac"
+FRASES_DE_CLAUDE_CODE = ("Edit o Write", "con Read", "Read, Glob o Grep", "Tus herramientas son Read", "transcript",
+                         "Tu contexto trae precargada", "el Glob o el Grep", "ya están en tu contexto", "por Bash",
+                         ". Bash te sirve")
 HOY = datetime.date(2026, 10, 30)
 CAPAS = ("sql", "web", "movil")
 PROHIBIDAS = re.compile(r"(?:paths|disable-model-invocation|hooks|model)\s*:")
@@ -440,6 +451,158 @@ def test_el_motor_de_bootstrap_acepta_el_generador():
             assert (t.raiz / capas.skill("sql")).read_text(encoding="utf-8") == "mío\n"
     finally:
         bootstrap.GENERADORES[:] = previos
+
+
+def codex():
+    return importlib.import_module("odd_ws.hosts.codex")
+
+
+def con_hosts(hosts, *nombres):
+    spec = spec_de(*nombres)
+    spec["config"]["hosts"] = hosts
+    return spec
+
+
+def agentes_de(nombres):
+    return [n for capa in nombres for n in ("writer-%s" % capa, "revisor-%s" % capa)] + ["revisor-diseno"]
+
+
+def contenidos(acciones):
+    return {accion[0]: accion[1] for accion in acciones}
+
+
+def tomls(*nombres, hosts=("codex",)):
+    generados = contenidos(a().generar(con_hosts(list(hosts), *nombres), HOY))
+    return generados, {nombre: generados[capas.agente_codex(nombre)] for nombre in agentes_de(nombres)}
+
+
+def instrucciones(texto):
+    return tomllib.loads(texto)["developer_instructions"]
+
+
+def test_sin_hosts_y_con_claude_code_sale_byte_a_byte_lo_de_antes():
+    sin = a().generar(spec_de(*CAPAS), HOY)
+    assert a().generar(con_hosts(["claude-code"], *CAPAS), HOY) == sin
+    assert not [ruta for ruta, _ in sin if ruta.startswith(capas.CODEX + "/") or ruta.endswith(".toml")], sin
+    generados = dict(sin)
+    for capa in CAPAS:
+        assert sha(generados[capas.writer(capa)]) == GOLDEN_DEL_WRITER[capa], capa
+        assert sha(generados[capas.revisor(capa)]) == GOLDEN_DEL_REVISOR[capa], capa
+    assert sha(generados[capas.REVISOR_DISENO]) == GOLDEN_DEL_REVISOR_DE_DISENO
+
+
+def test_con_codex_salen_el_toml_de_cada_agente_y_su_config_detras_de_lo_de_siempre():
+    sin = a().generar(spec_de(*CAPAS), HOY)
+    for hosts in (["codex"], ["claude-code", "codex"], ["codex", "claude-code"]):
+        con = a().generar(con_hosts(hosts, *CAPAS), HOY)
+        assert con[:len(sin)] == sin, hosts
+        esperadas = [capas.agente_codex(nombre) for nombre in agentes_de(CAPAS)] + [capas.CODEX_CONFIG]
+        assert [accion[0] for accion in con[len(sin):]] == esperadas, (hosts, con[len(sin):])
+
+
+def test_cada_toml_declara_que_deriva_del_md_de_su_agente_y_la_config_de_codex_no():
+    bootstrap = importlib.import_module("bootstrap")
+    extra = a().generar(con_hosts(["codex"], *CAPAS), HOY)[len(a().generar(spec_de(*CAPAS), HOY)):]
+    for accion in extra[:-1]:
+        assert isinstance(accion, bootstrap.AccionDerivada), accion[0]
+        assert accion.fuente == capas.agente(accion.ruta.rsplit("/", 1)[1][:-len(".toml")]), (accion.ruta, accion.fuente)
+    assert extra[-1] == (capas.CODEX_CONFIG, codex().CONFIG_DEL_PROYECTO) and not isinstance(extra[-1], bootstrap.AccionDerivada)
+
+
+def test_sin_codex_declarado_no_sale_nada_de_codex_ni_un_agents_md():
+    for spec in (spec_de("sql"), con_hosts(["claude-code"], "sql")):
+        rutas = [accion[0] for accion in a().generar(spec, HOY)]
+        assert not [r for r in rutas if r.startswith(capas.CODEX) or r.endswith(".toml") or r.upper().endswith("AGENTS.MD")], rutas
+    rutas = [accion[0] for accion in a().generar(con_hosts(["codex"], "sql"), HOY)]
+    assert not [r for r in rutas if r.upper().endswith("AGENTS.MD")], rutas
+
+
+def test_el_toml_es_valido_y_solo_trae_name_description_y_developer_instructions():
+    generados, por_agente = tomls(*CAPAS)
+    for nombre, texto in por_agente.items():
+        datos = tomllib.loads(texto)
+        assert set(datos) == {"name", "description", "developer_instructions"}, (nombre, set(datos))
+        assert all(isinstance(valor, str) and valor.strip() for valor in datos.values()), nombre
+        md = plantilla_writer.agente(generados[capas.agente(nombre)])
+        assert datos["name"] == nombre == md.nombre and datos["description"] == md.descripcion, nombre
+        for linea in texto.split("\n"):
+            assert not re.match(r"\s*(sandbox_mode|shell_tool|model)\s*=", linea), (nombre, linea)
+        assert texto.endswith("\n") and "\r" not in texto and not texto.startswith("\ufeff"), nombre
+
+
+def test_los_writers_de_codex_cumplen_el_matcher_de_su_compuerta():
+    datos = json.loads(HOOKS_CODEX.read_text(encoding="utf-8"))
+    matcher = next(grupo["matcher"] for grupo in datos["hooks"]["SubagentStop"])
+    _, por_agente = tomls(*CAPAS)
+    for capa in CAPAS:
+        assert re.search(matcher, tomllib.loads(por_agente["writer-%s" % capa])["name"]), (capa, matcher)
+    for nombre in ("revisor-sql", "revisor-diseno"):
+        assert not re.search(matcher, tomllib.loads(por_agente[nombre])["name"]), nombre
+
+
+def test_el_toml_lleva_su_version_y_su_huella_en_un_comentario_y_no_como_clave():
+    _, por_agente = tomls("sql")
+    for nombre, texto in por_agente.items():
+        cabecera = [linea for linea in texto.split("\n") if linea.startswith("#")]
+        assert "# odd-ws-plantilla: %d" % plantilla_writer.version() in cabecera, (nombre, cabecera)
+        huella = re.fullmatch(r"# odd-ws-hash: ([0-9a-f]{64})", next(l for l in cabecera if l.startswith("# odd-ws-hash:")))
+        assert huella and huella.group(1) == codex().huella(texto), (nombre, cabecera)
+        assert not [clave for clave in tomllib.loads(texto) if "odd" in clave], nombre
+        assert codex().huella(texto.replace(huella.group(1), "0" * 64)) == huella.group(1), nombre
+        assert codex().huella(texto.replace("Arranque", "Arranco", 1)) != huella.group(1), nombre
+
+
+def test_las_instrucciones_de_codex_traen_las_herramientas_y_las_skills_del_frontmatter():
+    _, por_agente = tomls("sql")
+    writer, revisor, diseno = (instrucciones(por_agente[n]) for n in ("writer-sql", "revisor-sql", "revisor-diseno"))
+    assert "Read, Glob, Grep, Edit, Write, Bash" in writer
+    for texto in (writer, revisor):
+        assert capas.skill_de("criterios") in texto and capas.skill("sql") in texto
+    assert "Read, Glob, Grep." in revisor and "Read, Glob, Grep." in diseno
+    assert capas.skill_de("criterios") in diseno and "capa-" not in diseno
+
+
+def test_las_instrucciones_de_codex_describen_su_realidad_y_no_la_de_claude_code():
+    _, por_agente = tomls(*CAPAS)
+    for nombre, texto in por_agente.items():
+        cuerpo = instrucciones(texto)
+        for frase in FRASES_DE_CLAUDE_CODE:
+            assert frase not in cuerpo, (nombre, frase)
+        for marca in ("{{", "<!-- instancia:", "<!-- /instancia:", "Lo genera odd-ws desde su plantilla"):
+            assert marca not in cuerpo, (nombre, marca)
+        for frase in ("herramienta de shell (en Windows corre PowerShell)", "apply_patch", "no viene", "precargada"):
+            assert frase in cuerpo, (nombre, frase)
+        sin_cabecera = cuerpo.split("**Arranque, antes que nada.**", 1)[1]
+        assert "Bash" not in sin_cabecera, (nombre, [l for l in sin_cabecera.split("\n") if "Bash" in l])
+    writer = instrucciones(por_agente["writer-sql"])
+    assert "de la bitácora" in writer and "## Resultado" in writer
+
+
+def test_la_config_de_codex_es_el_fallback_a_claude_md():
+    generados, _ = tomls("sql")
+    assert generados[capas.CODEX_CONFIG] == 'project_doc_fallback_filenames = ["CLAUDE.md"]\n'
+    assert tomllib.loads(generados[capas.CODEX_CONFIG]) == {"project_doc_fallback_filenames": ["CLAUDE.md"]}
+
+
+def test_el_toml_deriva_del_md_con_los_bloques_y_la_description_de_la_instancia():
+    rara = "Mía: ''' y \"\"\" con C:\\x\\y, ñ y # no es comentario"
+    propia = "Identidad '''propia''' con \"\"\"comillas\"\"\", una \\ barra al final\\\n\tcon tab y \x7f.\n"
+    claude = plantilla_writer.generar("sql")
+    propio = re.sub(r"(?m)^description:.*$", lambda _m: "description: " + json.dumps(rara, ensure_ascii=False), claude, count=1)
+    propio = re.sub(r"(<!-- instancia:identidad -->\n).*?(<!-- /instancia:identidad -->)", lambda m: m.group(1) + propia + m.group(2),
+                    propio, count=1, flags=re.S)
+    archivos = contenidos(codex().archivos([plantilla_writer.agente(plantilla_writer.generar("sql", propio, host="codex"))]))
+    datos = tomllib.loads(archivos[capas.agente_codex("writer-sql")])
+    assert datos["description"] == rara, datos["description"]
+    assert propia.rstrip("\n") in datos["developer_instructions"], datos["developer_instructions"]
+
+
+def test_generar_con_codex_es_pura_y_determinista():
+    spec = con_hosts(["claude-code", "codex"], "sql", "web")
+    copia = json.loads(json.dumps(spec))
+    primero = a().generar(spec, HOY)
+    assert a().generar(spec, HOY) == primero and spec == copia
+    assert len(primero) == 8 + 5 + 1, [accion[0] for accion in primero]
 
 
 def main():
