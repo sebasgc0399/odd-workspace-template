@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /odd-ws:abrir
 
-Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker y `<ticket>` es la carpeta del ticket.
+Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## Reglas duras
 
@@ -32,14 +32,14 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 3. **Ensayo:** no escribe nada. Mostrá su salida tal cual.
 
    ```bash
-   python "<S>/ticket.py" <id> <slug> --ensayo
+   python3 "<S>/ticket.py" <id> <slug> --ensayo
    ```
 
    Lista lo que crearía (`crearía …`), el resumen (`ensayo: N se crearían, M ya existen, no se escribió nada`) y, al final, la línea `ticket: <ruta>`. Si dice `0 se crearían`, la carpeta ya está completa: pasá al caso «Una» de arriba. Si por stderr sale un aviso de que la plantilla no tiene `tickets/_plantilla/.claude/settings.json` (una instancia generada antes de que el ticket llevara su `settings.json`), una sesión abierta dentro del ticket no cargaría el plugin: completá la instancia con `/odd-ws:bootstrap` y volvé a correr `ticket.py` (en el ensayo y, después, en la corrida real).
 4. **Pedí el sí** a la carpeta y su nombre. Con el sí, el mismo comando sin `--ensayo`:
 
    ```bash
-   python "<S>/ticket.py" <id> <slug>
+   python3 "<S>/ticket.py" <id> <slug>
    ```
 
    Copia la plantilla entera sin pisar nada y termina con `ticket: <ruta>`: esa es la carpeta del ticket de ahora en adelante.

@@ -44,7 +44,7 @@ def _entorno_sin_git():
 
 def git(cwd, *args):
     r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
-                        "-c", "core.autocrlf=false", *args],
+                        "-c", "core.autocrlf=false", "-c", "maintenance.auto=false", *args],
                        cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", env=_entorno_sin_git())
     if r.returncode != 0:
         raise RuntimeError("git %s fallo: %s" % (" ".join(args), r.stderr))

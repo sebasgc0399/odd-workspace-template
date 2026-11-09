@@ -87,6 +87,22 @@ def uso(nombre, entrada):
     return {"type": "tool_use", "name": nombre, "input": entrada}
 
 
+def enlazar(enlace, destino):
+    try:
+        os.symlink(destino, enlace, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        pass
+    if os.name == "nt":
+        return subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(destino)], capture_output=True).returncode == 0
+    return False
+
+
+def desenlazar(enlace):
+    if os.path.lexists(enlace):
+        (os.rmdir if os.name == "nt" else os.unlink)(enlace)
+
+
 def instancia(base):
     base.mkdir(parents=True, exist_ok=True)
     (base / "workspace.config.json").write_text(json.dumps({"schema_version": 1, "repos": {}}), encoding="utf-8")
@@ -110,6 +126,44 @@ def test_normalizar_ruta_windows_y_msys():
                   "\\\\?\\C:\\inst\\docs\\x.md"):
         assert m().normalizar_ruta(crudo, CWD) == esperado, (crudo, m().normalizar_ruta(crudo, CWD))
     assert m().normalizar_ruta("docs\\x.md", CWD) == esperado
+
+
+def test_una_ruta_que_pasa_por_un_enlace_se_compara_por_la_carpeta_real():
+    with Temporal() as base:
+        real, enlace = base / "real", base / "enlace"
+        (real / "secreto" / "abierto").mkdir(parents=True)
+        if not enlazar(enlace, real):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        try:
+            for regla, otra in ((enlace, real), (real, enlace)):
+                rs = m().armar_reglas([str(regla / "secreto")], [str(regla / "secreto" / "abierto")], str(base))
+                inf = m().auditar([lectura("Read", file_path=str(otra / "secreto" / "x.md")),
+                                   lectura("Grep", pattern="x", path=str(otra / "secreto")),
+                                   lectura("Glob", pattern="*.md", path=str(otra)),
+                                   lectura("Read", file_path=str(otra / "secreto" / "abierto" / "a.md"))], rs, str(base))
+                assert niveles(inf) == ["contaminado", "exposicion", "exposicion"], (regla, inf["hallazgos"])
+                assert [h["indice"] for h in inf["hallazgos"]] == [0, 1, 2], (regla, inf["hallazgos"])
+        finally:
+            desenlazar(enlace)
+
+
+def test_cli_lee_por_el_enlace_lo_que_la_regla_prohibe_por_la_ruta_real():
+    with Temporal() as base:
+        real, enlace = base / "real", base / "enlace"
+        raiz = instancia(real / "inst")
+        (raiz / "sub").mkdir()
+        if not enlazar(enlace, real):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        try:
+            f = lecturas_json(base, "a.lecturas.json", [lectura("Read", file_path="secreto\\y.md"), lectura("Grep", pattern="x")])
+            codigo, salida, error = cli(f, "--prohibida", str(raiz / "secreto"), "--json", cwd=enlace / "inst" / "sub")
+            assert codigo == 1 and error == "", (codigo, salida, error)
+            h = json.loads(salida)["archivos"][0]["hallazgos"]
+            assert [(x["indice"], x["nivel"]) for x in h] == [(0, "contaminado"), (1, "exposicion")], h
+        finally:
+            desenlazar(enlace)
 
 
 def test_es_bajo_exige_limite_de_segmento():
@@ -382,10 +436,10 @@ def test_cli_la_busqueda_sin_path_audita_contra_la_raiz_de_la_instancia():
         codigo, salida, error = cli(f, "--prohibida", secreto, "--json", cwd=raiz / "sub" / "hondo")
         assert codigo == 1 and error == "", (codigo, error)
         informe = json.loads(salida)
-        assert informe["cwd"] == os.path.abspath(raiz), informe["cwd"]
+        assert os.path.samefile(informe["cwd"], raiz), informe["cwd"]
         h = informe["archivos"][0]["hallazgos"]
         assert [(x["indice"], x["nivel"]) for x in h] == [(0, "exposicion"), (1, "contaminado")], h
-        assert h[0]["alcance"] == "(cwd %s)" % os.path.abspath(raiz), h[0]
+        assert h[0]["alcance"] == "(cwd %s)" % informe["cwd"], h[0]
 
 
 def test_cli_la_raiz_sale_del_entorno_de_la_sesion_antes_que_del_cwd():

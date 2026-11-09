@@ -176,6 +176,15 @@ def raiz_de_instancia(ctx):
     return config_loader.encontrar_raiz(config_loader.inicio_de_sesion(ctx.entorno, str(ctx.cwd)))
 
 
+def misma_carpeta(a, b):
+    if config_loader.canonica(a) == config_loader.canonica(b):
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def chequear_plugin_root(ctx):
     raiz = raiz_de_instancia(ctx)
     if raiz is None:
@@ -199,7 +208,7 @@ def chequear_plugin_root(ctx):
                          arreglo=arreglo)
     if not (Path(anotado) / "scripts" / "reglas.py").is_file():
         return resultado("plugin-root", FALTA, f"plugin_root = {anotado} no existe (una versión desinstalada o movida)", arreglo=arreglo)
-    if config_loader.canonica(anotado) != config_loader.canonica(ctx.plugin):
+    if not misma_carpeta(anotado, ctx.plugin):
         return resultado("plugin-root", FALTA, f"plugin_root = {anotado} es otra copia del plugin; el doctor corre desde {ctx.plugin}",
                          arreglo=arreglo)
     return resultado("plugin-root", OK, f"plugin_root = {anotado}")

@@ -5,7 +5,7 @@ description: Medir los revisores de la instancia (los agentes de .claude/agents 
 
 # /odd-ws:eval-reviewers
 
-Mide a los revisores LLM de la instancia contra la revisión real de un líder, sin que vean la respuesta y de forma repetible. Los scripts los corre el orquestador, nunca el revisor. En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`.
+Mide a los revisores LLM de la instancia contra la revisión real de un líder, sin que vean la respuesta y de forma repetible. Los scripts los corre el orquestador, nunca el revisor. En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## Reglas duras
 
@@ -30,7 +30,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 4. **Rescatar** cuando terminan todos:
 
    ```bash
-   python "<S>/rescatar.py" --sesion "<~/.claude/projects/<proyecto>/<sesión>/subagents>" --destino "<scratch>/corridas" --corrida <nombre>=<agentId> --corrida …
+   python3 "<S>/rescatar.py" --sesion "<~/.claude/projects/<proyecto>/<sesión>/subagents>" --destino "<scratch>/corridas" --corrida <nombre>=<agentId> --corrida …
    ```
 
    - Un revisor cortado no deja reporte: sale como `FAIL` (exit 1) y se informa; no se reintenta en silencio.
@@ -39,7 +39,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 6. **Auditar las lecturas** de cada corrida:
 
    ```bash
-   python "<S>/auditar_lecturas.py" <corridas>/*.lecturas.json --manifest <manifest.json> --scratch <scratch> [--ceguera-fisica]
+   python3 "<S>/auditar_lecturas.py" <corridas>/*.lecturas.json --manifest <manifest.json> --scratch <scratch> [--ceguera-fisica]
    ```
 
    - **CONTAMINADO** (un `Read` bajo una ruta prohibida): la corrida no cuenta, salvo que se demuestre que ese archivo no traía la verdad de terreno. Se puntúa `contaminado`.
@@ -66,13 +66,13 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 8. **Ratificación a ciegas.** Primero, la tabla:
 
    ```bash
-   python "<S>/puntuar.py" puntajes.json --plantilla-ratificacion tabla.md --clave clave.json
+   python3 "<S>/puntuar.py" puntajes.json --plantilla-ratificacion tabla.md --clave clave.json
    ```
 
    Entregá **solo** `tabla.md`; `clave.json` no se muestra. Se responde en la última columna, con `sí` o `no → <veredicto>`. Después:
 
    ```bash
-   python "<S>/puntuar.py" puntajes.json --aplicar-ratificacion tabla.md clave.json --ratificado-por "<quién>"
+   python3 "<S>/puntuar.py" puntajes.json --aplicar-ratificacion tabla.md clave.json --ratificado-por "<quién>"
    ```
 
    - Si quedan filas sin responder, sale con 1 y no escribe nada.
@@ -81,7 +81,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 9. **Agregar y comparar:**
 
    ```bash
-   python "<S>/puntuar.py" puntajes.json --brazo v1=<corrida>,<corrida> --brazo v2=<corrida>,<corrida>
+   python3 "<S>/puntuar.py" puntajes.json --brazo v1=<corrida>,<corrida> --brazo v2=<corrida>,<corrida>
    ```
 
    - Por corrida y por brazo, da `ok`, `parcial`, contra (`reves` + `elogio`) y el puntaje (`ok + 0,5 × parcial`).

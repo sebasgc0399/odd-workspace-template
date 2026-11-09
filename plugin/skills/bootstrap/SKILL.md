@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /odd-ws:bootstrap
 
-La entrevista arma una spec en JSON y se la pasa a un script determinista, `bootstrap.py`, que genera la instancia. El script **nunca pisa un archivo que ya existe**: lo deja como está y lo dice en su salida.
+La entrevista arma una spec en JSON y se la pasa a un script determinista, `bootstrap.py`, que genera la instancia. El script **nunca pisa un archivo que ya existe**: lo deja como está y lo dice en su salida. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## 1. La raíz
 
@@ -63,7 +63,7 @@ Nunca pongas `plugin_root` en `local`: lo anota el script cuando crea `workspace
 1. Corré el ensayo, que no escribe nada:
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --spec "<ruta de la spec>" --raiz "<raíz>" --ensayo
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --spec "<ruta de la spec>" --raiz "<raíz>" --ensayo
    ```
 
 2. Mostrá el plan tal cual sale: `crearía …`, `ya existe …` y lo que haría git.
@@ -84,7 +84,7 @@ Cómo leer la salida:
 Al final, corré el doctor y presentalo como dice `/odd-ws:doctor`, con los arreglos de a uno y solo con un sí:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
 ## Reglas

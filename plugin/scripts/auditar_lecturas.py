@@ -18,7 +18,7 @@ _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _MSYS = re.compile(r"^/([A-Za-z])(?:/|$)")
 
 
-def normalizar_ruta(ruta, cwd):
+def _ruta_de_texto(ruta, cwd):
     r = str(ruta).strip().replace("\\", "/")
     if r.startswith("//?/"):
         r = r[4:]
@@ -28,7 +28,20 @@ def normalizar_ruta(ruta, cwd):
     elif not (re.match(r"^[A-Za-z]:", r) or r.startswith("/")):
         base = str(cwd).replace("\\", "/").rstrip("/")
         r = "%s/%s" % (base, r)
-    r = posixpath.normpath(r)
+    return posixpath.normpath(r)
+
+
+def _es_de_esta_maquina(ruta):
+    return bool(_DRIVE.match(ruta)) if os.name == "nt" else ruta.startswith("/")
+
+
+def normalizar_ruta(ruta, cwd):
+    r = _ruta_de_texto(ruta, cwd)
+    if _es_de_esta_maquina(r):
+        try:
+            r = _ruta_de_texto(config_loader.canonica(r), cwd)
+        except (OSError, ValueError):
+            pass
     return r.lower().rstrip("/") if len(r) > 3 else r.lower()
 
 

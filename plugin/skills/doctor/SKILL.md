@@ -8,10 +8,10 @@ description: Chequeo de la máquina (Capa 0) para trabajar con la plantilla ODD.
 Corre el diagnóstico desde el directorio del proyecto (si es un clon de `odd-workspace-template`, también revisa sus hooks y la lista negra; si es una instancia, `plugin-root`: la ruta del plugin que usa su pre-commit, anotada en `workspace.local.json`; `config`, que la config carga entera, rutas locales incluidas; `instancia-hooks`, que su `core.hooksPath` apunte a `.githooks`; `instancia-plugin`, que su `.claude/settings.json` habilite el plugin; un ítem `writer-<capa>` por cada capa declarada, que revisa `.claude/agents/writer-<capa>.md` contra la plantilla del plugin, y dos ítems de sus agentes: `agentes-skills`, que las skills precargadas con `skills:` existan y se precarguen de verdad, y `agentes-hooks`, que ningún agente declare `hooks:` en el frontmatter). Los ítems de cada CLI salen solo para los que declara la instancia en `hosts` (sin la clave, Claude Code: `claude` y `marketplace`, además de `instancia-plugin` y los de agentes). Con `codex` declarado, suma `codex` (versión ≥ 0.144), `codex-plugin` (instalado en el caché de Codex y habilitado en `[plugins]`), `codex-hooks` (cada hook con su confianza en `[hooks.state]`), `codex-proyecto` (la raíz o su repo con confianza en `[projects]`), `codex-config` (`.codex/config.toml` con el fallback a `CLAUDE.md`), `codex-agentes` (cada `.codex/agents/<agente>.toml` igual al que sale de su `.md`) y `hooks-host` (ningún hook con un `--host` desconocido, vacío o de otro host). Con `hosts` inválido sale un solo ítem `hosts` en FALTA:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
-Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fallar. gentle-ai, engram, `jq` y el `credential.helper` de git son opcionales: si faltan o están atrasados, salen como AVISO con «opcional» en el detalle.
+En Windows con Codex, los comandos van con `python` en lugar de `python3`. Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fallar. gentle-ai, engram, `jq` y el `credential.helper` de git son opcionales: si faltan o están atrasados, salen como AVISO con «opcional» en el detalle.
 
 ## Cómo presentarlo
 
@@ -20,7 +20,7 @@ Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fal
 3. **Ofrecé los arreglos de a uno.** Si el ítem tiene arreglo automático (la línea `arreglo: --arreglar <id>`), preguntá si lo aplicás. Corré `--arreglar <id>` **solo** después de un sí explícito para **ese** ítem:
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py" --arreglar <id>
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py" --arreglar <id>
    ```
 
 4. Si el ítem no tiene arreglo automático, pasale al usuario el texto de `cómo:`. No lo hagas por tu cuenta: son cambios de la máquina (PATH, instaladores, la lista negra).

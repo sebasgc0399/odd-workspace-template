@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /odd-ws:cerrar
 
-Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta. Corre desde la raíz de la instancia (o desde dentro de la carpeta del ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<ticket>` es la carpeta del ticket y `<capa>` es una capa declarada en `workspace.config.json` con `rule_prefix`.
+Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta. Corre desde la raíz de la instancia (o desde dentro de la carpeta del ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<ticket>` es la carpeta del ticket y `<capa>` es una capa declarada en `workspace.config.json` con `rule_prefix`. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## Reglas duras
 
@@ -102,8 +102,8 @@ Escribí lo aprobado en su destino, uno por uno:
 **Después de cada fila nueva, la matriz tiene que dar 0 fallas** para su capa:
 
 ```bash
-python "<S>/matriz.py" --destinos --capa <capa>
-python "<S>/matriz.py" --severidad --capa <capa>
+python3 "<S>/matriz.py" --destinos --capa <capa>
+python3 "<S>/matriz.py" --severidad --capa <capa>
 ```
 
 Salen con 0 si todo cuadra, con 1 si hay `FALLA` o `ESQUEMA` (muestra el mensaje y corregí la fila o la regla) y con 2 por un error de entorno (por ejemplo, una capa sin `rule_prefix`). Un `PENDIENTE` significa que el destino todavía no existe: no es una falla, pero tampoco una regla escrita.
@@ -135,7 +135,7 @@ git -C <repo> worktree prune
 Después de editar los docs, corré el nivel 1 de `/odd-ws:conocimiento`, que revisa el índice, los links, las anclas y el tope de líneas:
 
 ```bash
-python "<S>/conocimiento.py"
+python3 "<S>/conocimiento.py"
 ```
 
 Sale con 0 si está sano, con 1 si hay algún `FAIL` (corregilo antes del commit), con 3 si solo hay deuda y con 2 por un error de entorno. El aviso «todo commiteado» es esperado en este punto: el commit de cierre lo resuelve.

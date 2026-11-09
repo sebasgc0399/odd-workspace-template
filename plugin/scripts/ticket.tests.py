@@ -90,7 +90,7 @@ class Escenario:
     def __exit__(self, *_):
         for ruta in sorted(self.base.rglob("*"), reverse=True):
             if ruta.is_symlink() or (hasattr(os.path, "isjunction") and os.path.isjunction(ruta)):
-                os.rmdir(ruta) if ruta.is_dir() else os.unlink(ruta)
+                os.rmdir(ruta) if os.name == "nt" and ruta.is_dir() else os.unlink(ruta)
         shutil.rmtree(self.base, onexc=lambda f, r, _e: (os.chmod(r, 0o700), f(r)))
 
 

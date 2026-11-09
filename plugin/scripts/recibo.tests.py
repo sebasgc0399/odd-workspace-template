@@ -38,7 +38,7 @@ def _quitar(func, ruta, _exc):
 
 @contextlib.contextmanager
 def temporal():
-    raiz = Path(tempfile.mkdtemp(prefix="recibo-test-"))
+    raiz = Path(os.path.realpath(tempfile.mkdtemp(prefix="recibo-test-")))
     try:
         yield raiz
     finally:

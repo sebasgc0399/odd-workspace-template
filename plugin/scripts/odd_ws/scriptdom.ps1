@@ -43,7 +43,7 @@ try {
     $candidatas = @()
     if ($Dll) {
         $candidatas += $Dll
-    } else {
+    } elseif ($IsWindows -ne $false) {
         $candidatas += 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\Extensions\Application\' + $nombreDll
         foreach ($base in @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')) {
             foreach ($ver in @('18', '2022')) {
@@ -60,6 +60,9 @@ try {
         }
     }
     if (-not $usada) {
+        if ($candidatas.Count -eq 0) {
+            Fallo 'sin_dll' 'no se encontro ScriptDom: fuera de Windows no hay rutas conocidas, hay que pasar -Dll' 3
+        }
         Fallo 'sin_dll' ("no se encontro ScriptDom en: " + ($candidatas -join '; ')) 3
     }
 

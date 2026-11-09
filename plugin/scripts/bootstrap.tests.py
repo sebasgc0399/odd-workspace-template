@@ -2125,7 +2125,9 @@ def test_el_estado_de_git_se_vuelve_a_mirar_al_aplicar_y_no_se_confia_en_el_plan
 
 def escribir_hooks_propios(raiz, marcador, nombres):
     for nombre in nombres:
-        (raiz / ".git" / "hooks" / nombre).write_bytes(f"#!/bin/sh\necho {nombre} >> '{marcador.as_posix()}'\nexit 0\n".encode("utf-8"))
+        hook = raiz / ".git" / "hooks" / nombre
+        hook.write_bytes(f"#!/bin/sh\necho {nombre} >> '{marcador.as_posix()}'\nexit 0\n".encode("utf-8"))
+        hook.chmod(0o755)
 
 
 def commit_aislado(raiz, mensaje):

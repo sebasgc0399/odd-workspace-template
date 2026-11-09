@@ -292,6 +292,39 @@ def test_sin_dll_en_la_maquina_la_suite_se_salta():
             assert ok is False and "ScriptDom" in motivo, (ok, motivo)
 
 
+def _literal(texto):
+    return "'%s'" % str(texto).replace("'", "''")
+
+
+def correr_fuera_de_windows(raiz, extra=()):
+    lista, salida = Path(raiz) / "lista.txt", Path(raiz) / "salida.json"
+    (Path(raiz) / "a.sql").write_bytes(b"SELECT 1\r\n")
+    lista.write_bytes((str(Path(raiz) / "a.sql") + "\n").encode("utf-8"))
+    argumentos = ["-Lista", str(lista), "-Salida", str(salida), *extra]
+    if os.name == "nt":
+        orden = "$IsWindows = $false; & %s %s; exit $LASTEXITCODE" % (
+            _literal(PS1), " ".join(a if a.startswith("-") else _literal(a) for a in argumentos))
+        comando = [powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", orden]
+    else:
+        comando = [powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(PS1), *argumentos]
+    r = subprocess.run(comando, capture_output=True, timeout=90)
+    datos = json.loads(salida.read_bytes().decode("utf-8")) if salida.exists() else None
+    return r.returncode, datos, r.stderr.decode("utf-8", errors="replace")
+
+
+def test_fuera_de_windows_no_busca_en_las_rutas_de_windows_y_sale_con_3():
+    if powershell() is None:
+        raise Saltar("no hay powershell en el PATH")
+    with temporal() as raiz:
+        codigo, datos, err = correr_fuera_de_windows(raiz)
+        assert codigo == 3, "exit 3 esperado fuera de Windows sin -Dll, fue %r: %r %r" % (codigo, datos, err)
+        assert datos.get("ok") is False and datos.get("error") == "sin_dll", datos
+        assert "Program Files" not in datos["detalle"] and "-Dll" in datos["detalle"], datos
+        dll = str(Path(raiz) / "no-existe.dll")
+        codigo, datos, err = correr_fuera_de_windows(raiz, ("-Dll", dll))
+        assert codigo == 3 and datos.get("error") == "sin_dll" and dll in datos["detalle"], (codigo, datos, err)
+
+
 def test_la_dll_que_usa_el_helper_esta_entre_las_que_ve_la_suite():
     requiere_helper()
     usada = corrida()[1]["dll"]

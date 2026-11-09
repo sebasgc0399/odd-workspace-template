@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import os
+import posixpath
 import re
 import shutil
 import stat
@@ -226,13 +227,54 @@ def test_plugin_root_viejo_o_de_otra_copia_es_falta_y_arreglar_lo_corrige():
             shutil.rmtree(raiz, onexc=_forzar_borrado)
 
 
+def enlazar(enlace, destino):
+    try:
+        os.symlink(destino, enlace, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        pass
+    if os.name == "nt":
+        return subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(destino)], capture_output=True).returncode == 0
+    return False
+
+
 def test_plugin_root_que_apunta_al_mismo_plugin_con_otra_forma_es_ok():
     with Escenario() as e:
         ctx = Falso(e.base)
-        raiz = e.instancia(json.dumps({"plugin_root": str(ctx.plugin).upper() + os.sep}))
+        formas = [os.path.join(str(ctx.plugin), "scripts", os.pardir) + os.sep]
+        if os.path.isdir(str(ctx.plugin).upper()):
+            formas.append(str(ctx.plugin).upper() + os.sep)
+        enlace = e.base / "enlace-al-plugin"
+        if enlazar(enlace, ctx.plugin):
+            formas.append(str(enlace))
+        try:
+            for forma in formas:
+                raiz = e.instancia(json.dumps({"plugin_root": forma}))
+                ctx.cwd = raiz
+                r = por_id(ctx)["plugin-root"]
+                assert r.estado == "OK", (forma, r)
+                shutil.rmtree(raiz, onexc=_forzar_borrado)
+        finally:
+            if os.path.lexists(enlace):
+                (os.rmdir if os.name == "nt" else os.unlink)(enlace)
+
+
+def test_plugin_root_con_otras_mayusculas_es_ok_aunque_la_plataforma_no_las_pliegue():
+    with Escenario() as e:
+        ctx = Falso(e.base)
+        otra = str(ctx.plugin).swapcase()
+        if not os.path.isdir(otra):
+            print("      (el disco distingue mayúsculas: prueba omitida)")
+            return
+        raiz = e.instancia(json.dumps({"plugin_root": otra}))
         ctx.cwd = raiz
-        r = por_id(ctx)["plugin-root"]
-        assert r.estado == "OK", r
+        normcase, realpath = os.path.normcase, os.path.realpath
+        os.path.normcase, os.path.realpath = posixpath.normcase, os.path.abspath
+        try:
+            r = por_id(ctx)["plugin-root"]
+        finally:
+            os.path.normcase, os.path.realpath = normcase, realpath
+        assert r.estado == "OK" and r.arreglo is None, r
 
 
 def test_con_la_copia_de_emergencia_plugin_root_es_ok():
@@ -1426,9 +1468,11 @@ def test_codex_proyecto_acepta_la_confianza_del_repo_que_contiene_la_instancia()
         shutil.move(str(raiz), str(destino))
         ctx = falso_de_codex(e, destino, git_real=True)
         poner_cache_de_codex(ctx)
-        poner_config_de_codex(ctx, proyecto=(repo, "trusted"))
+        repo_canonico = os.path.realpath(repo)
+        poner_config_de_codex(ctx, proyecto=(repo_canonico, "trusted"))
         assert por_id(ctx)["codex-proyecto"].estado == "OK"
-        poner_config_de_codex(ctx, proyecto=(repo, "trusted"), extra='\n[projects.%s]\ntrust_level = "untrusted"\n' % texto_toml(str(destino)))
+        poner_config_de_codex(ctx, proyecto=(repo_canonico, "trusted"),
+                              extra='\n[projects.%s]\ntrust_level = "untrusted"\n' % texto_toml(str(destino)))
         assert por_id(ctx)["codex-proyecto"].estado == "AVISO"
 
 

@@ -83,7 +83,7 @@ Se desarrolla en Windows, y las suites corren también en Linux y macOS (ver «L
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
 | gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún script del plugin los invoca | No |
 
-> **`python3` en Windows.** Lo crean el Python install manager de python.org y la Microsoft Store. El instalador clásico, winget y choco no lo crean, y entonces `python3` cae en el alias de la Store, que no corre: los hooks no arrancan. `/odd-ws:doctor` lo marca como FALTA en el ítem `python`, con el arreglo. En Windows, los hooks de Codex lanzan `python`, así que con `codex` declarado el doctor revisa también ese.
+> **`python3` en Windows.** Lo crean el Python install manager de python.org y la Microsoft Store. El instalador clásico, winget y choco no lo crean, y entonces `python3` cae en el alias de la Store, que no corre: los hooks no arrancan. `/odd-ws:doctor` lo marca como FALTA en el ítem `python`, con el arreglo. En Windows, los hooks de Codex lanzan `python`, así que con `codex` declarado el doctor revisa también ese. Si en Windows usas solo Codex, los comandos de este README y de las skills van con `python` en lugar de `python3`.
 
 > **El doctor y las herramientas opcionales.** Si no encuentra gentle-ai, engram, jq o un `credential.helper`, `/odd-ws:doctor` lo marca como AVISO con «opcional» en el detalle, y no falla por eso. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
 
@@ -134,7 +134,7 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 - Arregla de a un ítem, solo con tu sí (`doctor.py --arreglar <id>`).
 - Revisa cada CLI solo si la instancia lo declara en `hosts` (sin la clave, Claude Code). Con `codex` suma la versión de Codex (0.144 o más), el plugin instalado y habilitado, la confianza de los hooks y del proyecto, `.codex/config.toml` y que cada `.codex/agents/<agente>.toml` sea el que sale de su `.md` (`codex-agentes`), además de `hooks-host`, que ningún hook lleve un `--host` desconocido, vacío o de otro host. No escribe en la carpeta de Codex, y no verifica que el hash de la confianza siga fresco.
 - **Sumar Codex a una instancia que ya existe:** agrega `"codex"` a `hosts` y corre `doctor.py --arreglar codex-config` y `doctor.py --arreglar codex-agentes`. Los TOML salen de los `.md` de `.claude/agents`, con su `description` y sus bloques; uno editado a mano queda en AVISO y no se pisa.
-- Sin el plugin instalado, se corre desde un clon: `python plugin/scripts/doctor.py`.
+- Sin el plugin instalado, se corre desde un clon: `python3 plugin/scripts/doctor.py`.
 
 ### `/odd-ws:abrir`
 
@@ -223,8 +223,8 @@ La plantilla trae una sola biblioteca de reglas, la de T-SQL (`odd_ws.tsql`). Pa
 - **Correrlas sin Claude.** `reglas.py` está en `scripts/` del plugin; su ruta queda en `plugin_root` de `workspace.local.json`.
 
   ```text
-  python "<plugin_root>/scripts/reglas.py" --test [CAPA]
-  python "<plugin_root>/scripts/reglas.py" --calibrar CAPA CARPETA [--detalle]
+  python3 "<plugin_root>/scripts/reglas.py" --test [CAPA]
+  python3 "<plugin_root>/scripts/reglas.py" --calibrar CAPA CARPETA [--detalle]
   ```
 
   `--test` corre las pruebas de las reglas. `--calibrar` pasa las reglas sobre una carpeta de código real y cuenta cuántas veces salta cada una. Las dos aceptan `--raiz <instancia>`.
@@ -255,8 +255,8 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 
 ### Puesta en marcha del clon
 
-1. Clona el repo (si no eres colaborador, trabaja en un fork y propón el cambio con un pull request) y, desde el clon, corre `python plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
-2. `python plugin/scripts/doctor.py --arreglar repo-hooks` (o `git config core.hooksPath .githooks`). **Obligatorio:** git no instala hooks solo, y un clon sin este paso no corre ningún barrido.
+1. Clona el repo (si no eres colaborador, trabaja en un fork y propón el cambio con un pull request) y, desde el clon, corre `python3 plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
+2. `python3 plugin/scripts/doctor.py --arreglar repo-hooks` (o `git config core.hooksPath .githooks`). **Obligatorio:** git no instala hooks solo, y un clon sin este paso no corre ningún barrido.
 3. Crea la lista negra en `~/.odd-ws/denylist.txt` (o apunta `ODD_WS_DENYLIST` a otra ruta). Va **fuera** del repo y no viaja con él. Sin ella, el barrido bloquea todos los commits: falla cerrado.
 4. Vuelve a correr el doctor hasta que no quede ninguna FALTA.
 
@@ -275,8 +275,8 @@ Los tres corren Python con el primero que arranca de `python3`, `python` y `py` 
 No hay pytest: cada `*.tests.py` es un script que se corre solo. `.github/workflows/pruebas.yml` corre todas las suites en Ubuntu, Windows y macOS con Python 3.12, porque los tests piden 3.12 (`shutil.rmtree(onexc=)` y `os.path.isjunction`).
 
 ```text
-python plugin/scripts/<script>.tests.py
-for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
+python3 plugin/scripts/<script>.tests.py
+for suite in $(git ls-files -- '*.tests.py'); do python3 "$suite"; done
 ```
 
 ### Una entrega

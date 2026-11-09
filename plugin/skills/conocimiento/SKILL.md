@@ -11,9 +11,11 @@ disable-model-invocation: true
 Corre desde la carpeta de la instancia. Dónde viven los docs lo dice la sección opcional `knowledge` de `workspace.config.json` (ver `Doc/diseno.md`, «Conocimiento»):
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/conocimiento.py" [--v]
-python "${CLAUDE_PLUGIN_ROOT}/scripts/conocimiento.py" --cruce
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/conocimiento.py" [--v]
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/conocimiento.py" --cruce
 ```
+
+En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## Niveles
 
