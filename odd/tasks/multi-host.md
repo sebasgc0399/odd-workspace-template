@@ -61,8 +61,8 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F1c | S2–S4 | Empaquetado y bloqueo por JSON (L15). Detalle:<br>• `.codex-plugin/plugin.json` con la misma versión que `.claude-plugin`, `"hooks": "./hooks/hooks.codex.json"`, sin `skills` (Codex descubre `skills/`) y sin `plugin.json` en la raíz<br>• `hooks/hooks.codex.json`: comandos como string, `python "${PLUGIN_ROOT}/scripts/<x>.py" --plazo N --host codex`, con matchers `apply_patch` y `Bash`, sin `Read` ni `PowerShell`<br>• `writer_stop` se registra con `--host codex`, y `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14)<br>• el adaptador de Codex bloquea por JSON y exit 0, nunca con exit 2<br>• un test de paridad entre los dos `hooks*.json` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: el bloqueo de los guards en Codex) | hecho (`167132d`, L16) |
 | F1d1 | S2, S5, S6, S8 | Generación (la ex F0c), solo para los hosts declarados en `hosts` (S8, L17). Detalle:<br>• `hosts` en `workspace.config.json`, validado contra el registro<br>• un puerto de generación por adaptador<br>• marcadores por host en las plantillas, que en Claude Code valen el texto de hoy<br>• `.codex/agents/*.toml` derivados del `.md`<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md`<br><br>Claude Code genera lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5: el bootstrap es el instalador de la instancia) | hecho (`932d733`, L19) |
 | F1d2 | S2–S4, S8 | Doctor por host (L17):<br>• Codex: la versión, el plugin instalado y la confianza de los hooks y del proyecto<br>• `codex-agentes` (L18): cada TOML se compara con el que sale del `.md` actual. Si falta, se genera; si está atrasado y su huella coincide, da `FALTA` y `--arreglar` lo re-deriva; si fue editado a mano, da `AVISO` sin pisarlo y pide editar el `.md`. Se compara contra la derivación completa y no contra `# odd-ws-plantilla: N`, que no sube cuando cambian los textos de Codex (A5 del verificador de F1d1)<br>• `hooks-host` en todos los hosts: ningún hook con un `--host` desconocido o vacío (A5 de L14, A2 de L16)<br>• `claude` no es `FALTA` si la instancia no lo declara<br>• el bootstrap ya promete «lo deriva de ahí el doctor (doctor --arreglar)»: F1d2 la cumple, e idealmente suma el id del arreglo a esa línea (A6 de L19) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5) | hecho (`39f46e4`, L20) |
-| F1f | S4, S5 | Lo que encontró el humo (L23):<br>• A: en Codex, el primer toque no se saltea por las skills del frontmatter, porque Codex no las precarga<br>• D: documentar la config de Codex que necesita un writer en Windows<br>• B pasó a X7 (L25) | inline; después, un verificador (ítem 2: `verificar_capa`) | hecho (L26) |
-| F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | en curso |
+| F1f | S4, S5 | Lo que encontró el humo (L23):<br>• A: en Codex, el primer toque no se saltea por las skills del frontmatter, porque Codex no las precarga<br>• D: documentar la config de Codex que necesita un writer en Windows<br>• B pasó a X7 (L25) | inline; después, un verificador (ítem 2: `verificar_capa`) | hecho (`d205677`, L26) |
+| F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | hecho (L22–L24 y L27) |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -410,4 +410,14 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
   - **Avisos que quedan:**
     - A3: restaurar `_HOST` en el `finally` es defensivo;
     - A4: la marca de la sesión principal es compartida, igual que en la base.
-- **Siguiente paso:** la decisión del usuario sobre la `0.3.0`.
+- **L27 (2026-11-09), entrega `0.3.0`.** F1f quedó en `d205677`.
+  - **El usuario:** sobre la `0.3.0` (subir la versión, etiquetar y el push), respondió «Si autorizo».
+  - **El commit de la entrega:**
+    - `0.3.0` en `.claude-plugin/plugin.json` y en `.codex-plugin/plugin.json`;
+    - la sección `## 0.3.0` en `CHANGELOG.md`;
+    - en el README, el paso de la entrega nombra los dos manifiestos.
+  - **El resto,** como en la `0.2.2`:
+    - etiqueta con `claude plugin tag ./plugin`;
+    - push de `main` y la etiqueta juntos (`git push origin <sha>:refs/heads/main refs/tags/odd-ws--v0.3.0`), que avanza `main` sin merge desde `4b423c6`;
+    - el release lo publica `release.yml`.
+- **Siguiente paso:** cerrar la entrega y, después, F2 (gentle-shell).

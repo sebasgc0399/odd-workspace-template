@@ -242,7 +242,7 @@ for suite in $(git ls-files -- '*.tests.py'); do python "$suite"; done
 
 ### Una entrega
 
-1. Sube `version` en `plugin/.claude-plugin/plugin.json`, escribe sus notas en una sección `## <versión>` de `CHANGELOG.md` y commitea las dos cosas juntas.
+1. Sube `version` en `plugin/.claude-plugin/plugin.json` y en `plugin/.codex-plugin/plugin.json` (las dos tienen que coincidir: lo exige un test), escribe sus notas en una sección `## <versión>` de `CHANGELOG.md` y commitea las dos cosas juntas.
 2. Etiqueta con `claude plugin tag ./plugin --dry-run` y después sin `--dry-run`. Crea `odd-ws--v<versión>` y exige el árbol limpio.
 3. Empuja `main` y la etiqueta juntas:
 
