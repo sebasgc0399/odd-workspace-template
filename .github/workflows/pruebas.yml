@@ -1,0 +1,39 @@
+name: pruebas
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Todas las suites
+        shell: bash
+        run: |
+          fallas=0
+          for suite in $(git ls-files -- '*.tests.py'); do
+            if python "$suite" > "$RUNNER_TEMP/suite.log" 2>&1; then
+              echo "ok    $suite $(tail -n 1 "$RUNNER_TEMP/suite.log")"
+            else
+              echo "::error::suite en rojo: $suite"
+              cat "$RUNNER_TEMP/suite.log"
+              fallas=$((fallas + 1))
+            fi
+          done
+          echo "suites con falla: $fallas"
+          test "$fallas" -eq 0
