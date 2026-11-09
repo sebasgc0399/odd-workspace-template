@@ -427,4 +427,30 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **Sección nueva «Usarlo desde Codex»:** declarar `hosts`; instalar con `codex plugin marketplace add` y `codex plugin add`; confiar la carpeta y los hooks; invocar las skills con `$`. También, que los writers necesitan 0.167 o más y, en Windows, la config del sandbox.
     - **Requisitos:** suma Codex CLI.
     - **Actualizar el plugin:** suma los comandos de Codex.
-- **Siguiente paso:** el push del README (pide autorización) y, después, F2 (gentle-shell).
+- **L29 (2026-11-09), historial reescrito con el email personal.** El README quedó en `main` (`f7b7630`, que ahora es `9245d36`).
+  - **Por qué:** GitHub no contaba los commits en el gráfico del usuario, porque los 107 estaban firmados con el email del trabajo, que viene del `~/.gitconfig` global. Además, ese email quedaba a la vista en el historial público.
+  - **La decisión:** el usuario: «me gustaria rescribir el historial para que queden a mi nombre». Para el push forzado eligió «Sí, forzar el push».
+  - **Qué se hizo:**
+    - respaldo previo en `D:\Project\odd-workspace-template-respaldo-20261109.bundle`;
+    - `git config --local user.email` con el email personal;
+    - `git filter-branch --env-filter` sobre todas las ramas y etiquetas, y las 4 etiquetas anotadas rehechas con el mismo mensaje y la misma fecha.
+  - **Verificado:** 214 de 214 campos de autor y de commit, y las 4 etiquetas, con el email personal; los 107 commits; los 14 árboles idénticos a los de antes.
+  - **El push:** `main` y las 4 etiquetas con `--force-with-lease`. Las otras 5 ramas ya no existían en GitHub. Los releases `0.3.0` y `0.2.2` siguen en pie.
+  - **Incidente:** el primer push forzado subió el `main` local, que había quedado en `4b423c6` reescrito (`0ddf1a4`). Se corrigió en el acto, con un fast-forward a `9245d36`.
+  - **Hashes de este documento,** viejo → nuevo:
+
+    | Viejo | Nuevo |
+    |---|---|
+    | `4b423c6` | `0ddf1a4` |
+    | `5bb9c3e` | `f6d13dc` |
+    | `dcad0d9` | `78345f2` |
+    | `6db4105` | `1f12bb9` |
+    | `f8a9b88` | `1417ebf` |
+    | `c3736ff` | `f1809b5` |
+    | `167132d` | `ca43398` |
+    | `932d733` | `858ca5a` |
+    | `39f46e4` | `f85a96d` |
+    | `d205677` | `37d2a1a` |
+    | `9590e57` | `c6a799b` |
+    | `f7b7630` | `9245d36` |
+- **Siguiente paso:** F2 (gentle-shell).
