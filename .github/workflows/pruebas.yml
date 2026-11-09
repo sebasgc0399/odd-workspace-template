@@ -30,7 +30,8 @@ jobs:
             if python "$suite" > "$RUNNER_TEMP/suite.log" 2>&1; then
               echo "ok    $suite $(tail -n 1 "$RUNNER_TEMP/suite.log")"
             else
-              echo "::error::suite en rojo: $suite"
+              resumen=$(grep -E '^(FALLA|ERROR)|Error|Traceback' "$RUNNER_TEMP/suite.log" | head -n 6 | cut -c1-300 | tr '\n' '|')
+              echo "::error title=suite en rojo: $suite::${resumen:-sin detalle; ver el log}"
               cat "$RUNNER_TEMP/suite.log"
               fallas=$((fallas + 1))
             fi
