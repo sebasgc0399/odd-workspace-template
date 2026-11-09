@@ -420,4 +420,11 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - etiqueta con `claude plugin tag ./plugin`;
     - push de `main` y la etiqueta juntos (`git push origin <sha>:refs/heads/main refs/tags/odd-ws--v0.3.0`), que avanza `main` sin merge desde `4b423c6`;
     - el release lo publica `release.yml`.
-- **Siguiente paso:** cerrar la entrega y, después, F2 (gentle-shell).
+- **L28 (2026-11-09), el README para Codex.** La entrega quedó en `9590e57`, con push de `main` y la etiqueta `odd-ws--v0.3.0`. El release lo publicó el CI.
+  - **El usuario,** probando en su Codex, avisó que `/odd-ws:` no muestra nada. En Codex las skills se invocan con `$` o con `/skills` (`chat_composer.rs` de 0.167), y con `$` aparecen las siete. El usuario: «falta actualizar el readme tambien».
+  - **El README:**
+    - **Descripción y versión:** dice «para Claude Code y Codex CLI» y la versión `0.3.0`.
+    - **Sección nueva «Usarlo desde Codex»:** declarar `hosts`; instalar con `codex plugin marketplace add` y `codex plugin add`; confiar la carpeta y los hooks; invocar las skills con `$`. También, que los writers necesitan 0.167 o más y, en Windows, la config del sandbox.
+    - **Requisitos:** suma Codex CLI.
+    - **Actualizar el plugin:** suma los comandos de Codex.
+- **Siguiente paso:** el push del README (pide autorización) y, después, F2 (gentle-shell).

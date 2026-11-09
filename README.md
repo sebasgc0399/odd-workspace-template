@@ -1,12 +1,13 @@
 # odd-workspace-template
 
-Marketplace de Claude Code con un solo plugin, **`odd-ws`**. El plugin convierte la carpeta de un proyecto en una **instancia**: un espacio de trabajo con agentes donde cada ticket tiene su carpeta y los hooks chequean cada edición contra las reglas de su capa. Los cambios grandes los escriben agentes con compuerta, y los revisores dejan un recibo atado al diff. Lo aprendido en un ticket sube a reglas y docs verificables. El principio es *Mecanismo > Memoria*: lo que se aprende se vuelve un chequeo, no un recordatorio.
+Marketplace con un solo plugin, **`odd-ws`**, para Claude Code y Codex CLI. El plugin convierte la carpeta de un proyecto en una **instancia**: un espacio de trabajo con agentes donde cada ticket tiene su carpeta y los hooks chequean cada edición contra las reglas de su capa. Los cambios grandes los escriben agentes con compuerta, y los revisores dejan un recibo atado al diff. Lo aprendido en un ticket sube a reglas y docs verificables. El principio es *Mecanismo > Memoria*: lo que se aprende se vuelve un chequeo, no un recordatorio.
 
-**Versión actual:** `0.2.2`. Quedan en espera, hasta que haya un consumidor real, las bibliotecas de reglas para C# y Java, el fixture ciego de `eval-reviewers` y el juicio de las afirmaciones SQL.
+**Versión actual:** `0.3.0`. Quedan en espera, hasta que haya un consumidor real, las bibliotecas de reglas para C# y Java, el fixture ciego de `eval-reviewers` y el juicio de las afirmaciones SQL.
 
 | Si quieres… | Ve a |
 |---|---|
 | Usar el plugin en tu proyecto | [Camino rápido](#camino-rápido) |
+| Usarlo desde Codex CLI | [Usarlo desde Codex](#usarlo-desde-codex) |
 | Saber qué hace cada comando | [Skills](#skills) |
 | Entender por qué Claude frenó una edición o un comando | [Hooks](#hooks) |
 | Escribir reglas para tu stack | [Capas y reglas propias](#capas-y-reglas-propias) |
@@ -48,13 +49,34 @@ Tres reglas de la instalación:
 - **Cada ticket lleva su propio `.claude/settings.json`,** porque Claude Code lee ese archivo solo de la carpeta donde arranca la sesión. El bootstrap pone el `enabledPlugins` en la raíz y en la plantilla, y `/odd-ws:abrir` lo copia a cada ticket.
 - **La sesión de un ticket se abre desde su carpeta, con cada repo de código agregado:** `claude --add-dir <ruta>`, una vez por cada repo o worktree de «Worktree y rama» en el `CLAUDE.md` del ticket. Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket.
 
+### Usarlo desde Codex
+
+La instancia sigue siendo la misma: `.claude/` es la fuente, y Codex recibe sus propios archivos generados. Una instancia puede trabajarse con los dos CLI a la vez.
+
+1. **Declara Codex en la instancia:** `"hosts": ["claude-code", "codex"]` en `workspace.config.json`. En una instancia nueva, el bootstrap te lo pregunta si mencionas Codex. En una que ya existe, agrega la clave y corre `/odd-ws:doctor` con `--arreglar codex-config` y `--arreglar codex-agentes`.
+2. **Instala el plugin en Codex:**
+
+   ```text
+   codex plugin marketplace add sebasgc0399/odd-workspace-template
+   codex plugin add odd-ws@odd-workspace-template
+   ```
+
+3. **Abre `codex` en la raíz de la instancia, acepta confiar en la carpeta y confía los hooks de `odd-ws`** cuando Codex muestre «Hooks need review», o desde `/hooks`. Codex no corre un hook sin confianza, y en la 0.167 la vuelve a pedir con cada actualización del plugin.
+4. **Las skills se invocan con `$`, no con `/`:** escribe `$` y elige, por ejemplo, `doctor (odd-ws)`, o explóralas con `/skills`. Lo que este README llama `/odd-ws:<skill>` es la forma de Claude Code.
+
+Dos cosas a tener en cuenta:
+
+- **Los writers necesitan Codex 0.167 o más.** En la 0.144 Codex no deja lanzar un subagente con su rol. Los guards y el primer toque funcionan desde la 0.144.
+- **En Windows, un writer necesita poder escribir en los repos de tus capas.** Configura en Codex `sandbox_mode = "workspace-write"`, `[windows] sandbox = "unelevated"` y los repos como `writable_roots`, con su ruta absoluta. El detalle está en «Writers en Codex» de `Doc/diseno.md`.
+
 ### Requisitos de la máquina
 
 Se desarrolla y se prueba en Windows.
 
 | Herramienta | Para qué | ¿Obligatoria? |
 |---|---|---|
-| Claude Code ≥ 2.1.284 | El plugin, sus skills y sus hooks | Sí |
+| Claude Code ≥ 2.1.284 | El plugin, sus skills y sus hooks | Sí, si la instancia declara `claude-code` |
+| Codex CLI ≥ 0.144 (0.167 para los writers) | El plugin desde Codex | Solo si la instancia declara `codex` |
 | Python 3, invocable como `python` | Todos los hooks y scripts del plugin; el doctor necesita 3.11 o más para leer la config de Codex | Sí |
 | Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
 | Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
@@ -91,6 +113,8 @@ claude --add-dir D:/code/mi-repo
 | `/odd-ws:cerrar` | Al terminar un ticket | La instancia: su raíz o el ticket | Solo tú |
 | `/odd-ws:conocimiento` | Para revisar la salud de los docs del proyecto | La raíz de la instancia | Solo tú |
 | `/odd-ws:eval-reviewers` | Para medir un revisor contra la revisión real de un líder | La instancia | Tú o Claude |
+
+En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`; ver [Usarlo desde Codex](#usarlo-desde-codex).
 
 «Solo tú» quiere decir que Claude no la dispara por su cuenta: la escribes tú en el chat. Todas las skills que escriben algo te muestran antes lo que van a hacer y esperan tu sí.
 
@@ -213,6 +237,15 @@ claude plugin update odd-ws@odd-workspace-template
 ```
 
 Después, `/plugin` dentro de una sesión debe mostrar la versión nueva, con la pestaña de errores vacía.
+
+En Codex:
+
+```text
+codex plugin marketplace upgrade odd-workspace-template
+codex plugin add odd-ws@odd-workspace-template
+```
+
+Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor` (en Codex, `$doctor`) avisa si a alguno le falta la confianza.
 
 ## Contribuir a la plantilla
 
