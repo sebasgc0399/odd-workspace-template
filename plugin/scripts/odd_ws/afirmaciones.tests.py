@@ -18,10 +18,55 @@ sys.path.insert(0, str(AQUI.parent))
 
 CONTEO = r"git ls-tree -r {ref} --name-only | grep -c '\.txt$'"
 P = "git ls-tree -r origin/HEAD --name-only | "
+SLEEP, CAT, SH = "/bin/sleep", "/bin/cat", "/bin/sh"
+IMPRIMIR_ENTORNO = "/usr/bin/env"
+TIMEOUT = "/usr/bin/timeout"
 
 
 def m():
     return importlib.import_module("odd_ws.afirmaciones")
+
+
+@contextlib.contextmanager
+def sistema(nombre):
+    modulo = m()
+    previo = modulo.SISTEMA
+    modulo.SISTEMA = nombre
+    try:
+        yield modulo
+    finally:
+        modulo.SISTEMA = previo
+
+
+@contextlib.contextmanager
+def carpeta_temporal_propia(base):
+    propia = Path(base) / "temporal-propio"
+    propia.mkdir()
+    previo = tempfile.tempdir
+    tempfile.tempdir = str(propia)
+    try:
+        yield propia
+    finally:
+        tempfile.tempdir = previo
+
+
+@contextlib.contextmanager
+def espiar_lanzamientos(modulo):
+    lanzados, guiones = [], []
+    original = modulo.subprocess.Popen
+
+    class Espia(original):
+        def __init__(self, argv, *args, **kw):
+            lanzados.append((list(argv), kw))
+            if len(argv) == 2 and str(argv[1]).endswith(".sh"):
+                guiones.append(Path(kw["cwd"], argv[1]).read_text(encoding="utf-8"))
+            super().__init__(argv, *args, **kw)
+
+    modulo.subprocess.Popen = Espia
+    try:
+        yield lanzados, guiones
+    finally:
+        modulo.subprocess.Popen = original
 
 
 def _quitar(funcion, ruta, _error):
@@ -339,6 +384,51 @@ def test_comando_seguro_flags_que_escriben_o_ejecutan():
     assert m().comando_seguro(P + "uniq a b")[1] == "uniq con dos operandos escribe el segundo (b)"
 
 
+UNIQ_QUE_NO_PERMUTA = ["uniq - -c", "uniq a -c", "uniq -c a -u", "uniq x --", "uniq - --count", "uniq -f 1 a -s 2"]
+
+
+def test_comando_seguro_uniq_cuenta_los_operandos_tambien_como_un_uniq_que_no_permuta():
+    for cmd in UNIQ_QUE_NO_PERMUTA:
+        ok, motivo = m().comando_seguro(P + cmd)
+        assert not ok, "%r pasó la lista blanca: el uniq de macOS para en el primer operando y escribe el siguiente" % cmd
+        assert motivo.startswith("uniq con dos operandos escribe el segundo"), (cmd, motivo)
+    assert m().comando_seguro(P + "uniq - -c")[1] == "uniq con dos operandos escribe el segundo (-c)"
+    for cmd in ("uniq -c", "uniq -f 1 -", "uniq -cf 1", "uniq -c -f 1 -", "uniq --skip-fields 1 -c", "uniq -s2 -",
+                "uniq -w 3", "uniq -c -"):
+        assert m().comando_seguro(P + cmd) == (True, None), cmd
+
+
+GUION_EN_GRUPO_CORTO = ["uniq -c-ignore-cas - x", "uniq -i-ignore-cas a b", "uniq -cd-ignore-cas - x",
+                        "sort -u-t=d", "sort -u-temporary-directory=d"]
+
+
+def test_comando_seguro_un_guion_dentro_de_un_grupo_de_opciones_cortas_se_rechaza():
+    for cmd in GUION_EN_GRUPO_CORTO:
+        ok, motivo = m().comando_seguro(P + cmd)
+        assert not ok, "%r pasó la lista blanca: el getopt de BSD y el de Cygwin leen '-X-larga' como '-X --larga'" % cmd
+        assert "opción larga" in motivo, (cmd, motivo)
+    assert m().comando_seguro(P + "uniq -i-ignore-cas a b")[1] == \
+        "uniq -i-ignore-cas: un '-' dentro de un grupo de opciones cortas abre una opción larga que la lista blanca no revisa"
+    for cmd in ("sort -t-", "uniq -f-1", "sort -t- -k2", "uniq -cf-1", "sort -k1,1 -t-"):
+        assert m().comando_seguro(P + cmd) == (True, None), cmd
+
+
+def test_correr_un_guion_dentro_de_un_grupo_corto_no_deja_que_uniq_escriba():
+    modulo = m()
+    carga = {"carga.txt": "a\nA\nb\n"}
+    with temporal() as tmp:
+        if sys.platform in ("win32", "darwin"):
+            testigo = repo_con_archivos(tmp, carga, "testigo")
+            argvs = [modulo.resolver_argv(t)[0] for t in (["git", "show", "origin/HEAD:carga.txt"],
+                                                           ["uniq", "-i-ignore-cas", "-", "escrito.txt"])]
+            modulo.ejecutar_con_bash(argvs, str(testigo), modulo.entorno_de_corrida(), 30)
+            assert (testigo / "escrito.txt").is_file(), "el instrumento no sabe decir que sí: sin la lista blanca, uniq no escribió"
+        repo = repo_con_archivos(tmp, carga, "medido")
+        v = modulo.correr(af("git show {ref}:carga.txt | uniq -i-ignore-cas - escrito.txt", 2), repo)
+        assert not (repo / "escrito.txt").exists(), "uniq escribió en el repo medido: %s" % (tuple(v),)
+        assert v.estado == "ERROR" and "opción larga" in v.detalle, tuple(v)
+
+
 def test_comando_seguro_endurecimiento_sort_temporales():
     for cmd in ("sort -T x", "sort -T/x", "sort -uT x", "sort -T x -u", "sort -S 1K -T x", "sort --temporary-directory=x",
                 "sort --temporary-directory x", "sort --temp=x", "sort --tem x", "sort -k2 -T x", "sort -ruT x"):
@@ -596,7 +686,7 @@ def test_ejecutar_con_bash_un_programa_que_pasa_del_plazo_agota_el_plazo_y_se_co
         repo = repo_fixture(tmp)
         t0 = time.time()
         try:
-            modulo.ejecutar_con_bash([["/usr/bin/sleep", "30"]], str(repo), modulo.entorno_de_corrida(), 1)
+            modulo.ejecutar_con_bash([[SLEEP, "30"]], str(repo), modulo.entorno_de_corrida(), 1)
         except subprocess.TimeoutExpired as exc:
             assert exc.timeout == 1
         else:
@@ -604,13 +694,13 @@ def test_ejecutar_con_bash_un_programa_que_pasa_del_plazo_agota_el_plazo_y_se_co
         assert time.time() - t0 < 1 + 8, "tardó %.1f s con plazo 1" % (time.time() - t0)
         t0 = time.time()
         try:
-            modulo.ejecutar_con_bash([["/usr/bin/sleep", "30"], ["/usr/bin/cat"]], str(repo), modulo.entorno_de_corrida(), 1)
+            modulo.ejecutar_con_bash([[SLEEP, "30"], [CAT]], str(repo), modulo.entorno_de_corrida(), 1)
         except subprocess.TimeoutExpired:
             pass
         else:
             raise AssertionError("el tramo que duerme no agotó el plazo aunque el último tramo terminó bien")
         assert time.time() - t0 < 1 + 8, "tardó %.1f s con plazo 1" % (time.time() - t0)
-        salida, error = modulo.ejecutar_con_bash([["/usr/bin/sleep", "0.2"]], str(repo), modulo.entorno_de_corrida(), 30)
+        salida, error = modulo.ejecutar_con_bash([[SLEEP, "0.2"]], str(repo), modulo.entorno_de_corrida(), 30)
         assert (salida, error) == (b"", b"")
 
 
@@ -630,16 +720,17 @@ def test_ejecutar_tramos_nativo_cierra_el_stdin_del_primer_tramo():
 
 def test_el_guion_temporal_se_borra_haya_salido_bien_o_con_plazo():
     modulo = m()
-    patron = "afirmaciones-*.sh"
     with temporal() as tmp:
         repo = repo_fixture(tmp)
-        antes = set(Path(tempfile.gettempdir()).glob(patron))
-        assert tuple(modulo.correr(af(CONTEO, 1), repo)) == ("OK", "1")
-        try:
-            modulo.ejecutar_con_bash([["/usr/bin/sleep", "30"]], str(repo), modulo.entorno_de_corrida(), 1)
-        except subprocess.TimeoutExpired:
-            pass
-        assert set(Path(tempfile.gettempdir()).glob(patron)) == antes, "quedó un guion temporal"
+        with carpeta_temporal_propia(tmp) as propia, espiar_lanzamientos(modulo) as (lanzados, _):
+            assert tuple(modulo.correr(af(CONTEO, 1), repo)) == ("OK", "1")
+            try:
+                modulo.ejecutar_con_bash([[SLEEP, "30"]], str(repo), modulo.entorno_de_corrida(), 1)
+            except subprocess.TimeoutExpired:
+                pass
+        carpetas = [Path(kw["cwd"]) for a, kw in lanzados if len(a) == 2 and str(a[1]).endswith(".sh")]
+        assert carpetas == [propia, propia], "el instrumento no sabe decir que sí: los guiones no fueron a %s (%s)" % (propia, carpetas)
+        assert not list(propia.glob("afirmaciones-*.sh")), "quedó un guion temporal: %s" % list(propia.iterdir())
 
 
 def test_el_plazo_de_bash_mata_al_programa_y_a_sus_hijos_y_no_deja_nada_vivo():
@@ -650,7 +741,7 @@ def test_el_plazo_de_bash_mata_al_programa_y_a_sus_hijos_y_no_deja_nada_vivo():
         bucle = "i=0; while [ $i -lt 40 ]; do echo x >> '%s'; i=$((i+1)); sleep 1; done" % latido.as_posix()
         t0 = time.time()
         try:
-            modulo.ejecutar_con_bash([["/usr/bin/sh", "-c", bucle]], str(repo), modulo.entorno_de_corrida(), 3)
+            modulo.ejecutar_con_bash([[SH, "-c", bucle]], str(repo), modulo.entorno_de_corrida(), 3)
         except subprocess.TimeoutExpired:
             pass
         else:
@@ -720,7 +811,6 @@ def test_correr_ignora_el_entorno_que_altera_a_bash_a_git_y_a_los_filtros():
             ("SHELLOPTS", "xtrace", "bash traza cada comando en stderr"),
             ("GIT_TRACE", "1", "git traza en stderr"),
             ("GIT_DIR", str(otro / ".git"), "git lee OTRO repo, donde el ref no existe"),
-            ("GREP_OPTIONS", "-v", "grep aplica opciones heredadas"),
             ("BASH_ENV", arranque.as_posix(), "bash lee el script de arranque"),
             ("GIT_CONFIG_COUNT", "2", "el segundo par de config inyectada no existe: git muere"),
         ]
@@ -732,6 +822,21 @@ def test_correr_ignora_el_entorno_que_altera_a_bash_a_git_y_a_los_filtros():
                 salida, error = modulo.ejecutar_con_bash(sin_limpiar, str(repo), dict(os.environ), 30)
                 assert (salida.strip(), error.strip()) != (b"1", b""), \
                     "%s no cambió nada sin limpiar el entorno: el caso no demuestra nada (%s)" % (var, porque)
+
+
+def test_correr_no_le_pasa_grep_options_a_los_filtros():
+    modulo = m()
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        with entorno(GREP_OPTIONS="-v"):
+            heredado, _ = modulo.ejecutar_con_bash([[IMPRIMIR_ENTORNO]], str(repo), dict(os.environ), 30)
+            assert b"GREP_OPTIONS=-v" in heredado.splitlines(), \
+                "el instrumento no sabe decir que sí: sin limpiar, GREP_OPTIONS no llegó al tramo del guion"
+            limpio, _ = modulo.ejecutar_con_bash([[IMPRIMIR_ENTORNO]], str(repo), modulo.entorno_de_corrida(), 30)
+            assert not any(l.upper().startswith(b"GREP_OPTIONS=") for l in limpio.splitlines()), \
+                "GREP_OPTIONS llega a los filtros: un grep que la lee aplicaría opciones heredadas"
+            v = modulo.correr(af(CONTEO, 1), repo)
+        assert tuple(v) == ("OK", "1"), v
 
 
 def repo_con_drivers(base):
@@ -1232,23 +1337,10 @@ def test_plan_de_comando_da_el_argv_exacto_que_se_valida_y_se_ejecuta():
 
 def test_correr_ejecuta_con_bash_sobre_un_guion_generado_y_nunca_con_c():
     modulo = m()
-    lanzados, guiones = [], []
-    original = modulo.subprocess.Popen
-
-    class Espia(original):
-        def __init__(self, argv, *args, **kw):
-            lanzados.append((list(argv), kw))
-            if len(argv) == 2 and str(argv[1]).endswith(".sh"):
-                guiones.append(Path(kw["cwd"], argv[1]).read_text(encoding="utf-8"))
-            super().__init__(argv, *args, **kw)
-
     with temporal() as tmp:
         repo = repo_fixture(tmp)
-        modulo.subprocess.Popen = Espia
-        try:
+        with espiar_lanzamientos(modulo) as (lanzados, guiones):
             v = modulo.correr(af(r"git ls-tree -r {ref} --name-only | sort | head -n 5 | wc -l", 1), repo)
-        finally:
-            modulo.subprocess.Popen = original
         assert tuple(v) == ("OK", "1"), v
     assert lanzados, "no se lanzó nada"
     assert not any(kw.get("shell") for _, kw in lanzados), "se lanzó con shell=True"
@@ -1268,11 +1360,15 @@ def test_correr_ejecuta_con_bash_sobre_un_guion_generado_y_nunca_con_c():
     assert len(tuberia) == 1, guion
     tokens = shlex.split(tuberia[0])
     assert tokens.count("|") == 3, tokens
-    assert tokens[:4] == ["/usr/bin/timeout", "-k", "2", "60"], tokens
+    if os.name == "nt":
+        assert tokens[:4] == [TIMEOUT, "-k", "2", "60"], tokens
+        assert tokens.count(TIMEOUT) == 4, "cada tramo va con su timeout: %s" % tokens
+    else:
+        assert not any("timeout" in t for t in tokens), "fuera de Windows no hay timeout de GNU: %s" % tokens
+        assert Path(tokens[0]).stem == "git", tokens
     assert tokens[tokens.index("</dev/null") - 1] != "|"
     assert "/usr/bin/sort" in tokens and "/usr/bin/head" in tokens and "/usr/bin/wc" in tokens, tokens
     assert any(Path(t).stem.lower() == "git" and os.path.isabs(t) for t in tokens), tokens
-    assert tokens.count("/usr/bin/timeout") == 4, "cada tramo va con su timeout: %s" % tokens
     assert not any(Path(t).name.lower() in ("sort.exe", "head.exe", "wc.exe") for t in tokens)
     assert lineas[0].startswith("cd -- ") and "|| exit" in lineas[0], lineas[0]
     assert any("PIPESTATUS" in l for l in lineas), guion
@@ -1576,24 +1672,80 @@ def repo_con_archivos(base, archivos, nombre="repo"):
 
 
 def test_generar_guion_cita_cada_token_y_se_recupera_exacto_con_shlex():
-    modulo = m()
     tokens = ["/usr/bin/grep", "-c", "a b", "'", '"', "\\", "{,}", "*", "?", "[a]", "~", "$HOME", "`x`", "$(x)", "a'b\\c d", "--{,}output=x", "", ";", "|", "&&", "#", "%+G?"]
-    guion = modulo.generar_guion([tokens, ["/usr/bin/wc", "-l"]], "C:\\Users\\x y\\repo", 5)
-    lineas = guion.splitlines()
-    assert lineas[0] == "cd -- 'C:\\Users\\x y\\repo' || exit 125", lineas[0]
-    assert guion.endswith("\n")
-    tuberia = lineas[1]
-    partes = shlex.split(tuberia)
-    assert partes[:4] == ["/usr/bin/timeout", "-k", "2", "5"], partes
-    assert partes[4:4 + len(tokens)] == tokens, "el argv no vuelve igual: %s" % partes
-    resto = partes[4 + len(tokens):]
-    assert resto == ["</dev/null", "|", "/usr/bin/timeout", "-k", "2", "5", "/usr/bin/wc", "-l"], resto
+    for nombre, prefijo in (("nt", [TIMEOUT, "-k", "2", "5"]), ("posix", [])):
+        with sistema(nombre) as modulo:
+            guion = modulo.generar_guion([tokens, ["/usr/bin/wc", "-l"]], "C:\\Users\\x y\\repo", 5)
+        lineas = guion.splitlines()
+        assert lineas[0] == "cd -- 'C:\\Users\\x y\\repo' || exit 125", lineas[0]
+        assert guion.endswith("\n")
+        partes = shlex.split(lineas[1])
+        assert partes == [*prefijo, *tokens, "</dev/null", "|", *prefijo, "/usr/bin/wc", "-l"], (nombre, partes)
 
 
 def test_generar_guion_el_plazo_y_el_estado_de_salida():
-    guion = m().generar_guion([["/usr/bin/true"]], "/tmp", 2.5)
+    with sistema("nt") as modulo:
+        guion = modulo.generar_guion([["/usr/bin/true"]], "/tmp", 2.5)
     assert "/usr/bin/timeout -k 2 2.5 /usr/bin/true </dev/null" in guion
     assert 'PIPESTATUS' in guion and "exit 124" in guion and guion.rstrip().endswith("exit 0")
+
+
+def test_generar_guion_en_windows_es_el_literal_de_siempre():
+    argvs = [["/x/git.exe", "ls-tree", "-r", "origin/HEAD"], ["/usr/bin/grep", "-c", "a b'c"]]
+    for plazo, texto in ((60, "60"), (2.5, "2.5"), (0.001, "0.001"), (1e-9, "0.000001")):
+        with sistema("nt") as modulo:
+            guion = modulo.generar_guion(argvs, "C:\\x y\\r", plazo)
+        esperado = (
+            "cd -- 'C:\\x y\\r' || exit 125\n"
+            "/usr/bin/timeout -k 2 " + texto + " /x/git.exe ls-tree -r origin/HEAD </dev/null | "
+            "/usr/bin/timeout -k 2 " + texto + " /usr/bin/grep -c 'a b'\"'\"'c'\n"
+            'estados=("${PIPESTATUS[@]}")\n'
+            'for estado in "${estados[@]}"; do\n'
+            '    if [ "$estado" = 124 ] || [ "$estado" = 137 ]; then exit 124; fi\n'
+            "done\n"
+            "exit 0\n"
+        )
+        assert guion == esperado, (plazo, guion)
+
+
+def test_generar_guion_fuera_de_windows_no_llama_al_timeout_de_gnu():
+    with sistema("posix") as modulo:
+        guion = modulo.generar_guion([["/usr/bin/true"], ["/usr/bin/wc", "-l"]], "/tmp", 2.5)
+    assert "timeout" not in guion, "macOS no trae /usr/bin/timeout y sin él toda afirmación da err\n%s" % guion
+    assert "/usr/bin/true </dev/null | /usr/bin/wc -l" in guion, guion
+    assert 'PIPESTATUS' in guion and "exit 124" in guion and guion.rstrip().endswith("exit 0")
+
+
+def test_correr_fuera_de_windows_mide_sin_el_timeout_de_gnu():
+    with temporal() as tmp:
+        repo = repo_fixture(tmp)
+        with sistema("posix") as modulo, espiar_lanzamientos(modulo) as (_, guiones):
+            v = modulo.correr(af(CONTEO, 1), repo)
+        assert tuple(v) == ("OK", "1"), v
+        assert len(guiones) == 1, guiones
+        assert "timeout" not in guiones[0], "el guion llama a un timeout que macOS no trae:\n%s" % guiones[0]
+
+
+def test_fuera_de_windows_el_plazo_corta_al_programa_colgado_en_el_plazo_y_no_en_el_respaldo():
+    colgado = [[SLEEP, "30"], [CAT]]
+    with sistema("posix") as modulo, temporal() as tmp:
+        repo = repo_fixture(tmp)
+        with carpeta_temporal_propia(tmp) as propia, espiar_lanzamientos(modulo) as (lanzados, _):
+            t0 = time.time()
+            try:
+                modulo.ejecutar_con_bash(colgado, str(repo), modulo.entorno_de_corrida(), 1)
+            except subprocess.TimeoutExpired as exc:
+                assert (exc.cmd, exc.timeout) == (colgado, 1), (exc.cmd, exc.timeout)
+            else:
+                raise AssertionError("un programa que duerme 30 s no agotó un plazo de 1 s")
+            assert time.time() - t0 < 1 + modulo.MARGEN_DEL_PLAZO, "lo cortó el respaldo (%.1f s), no el plazo" % (time.time() - t0)
+        carpetas = [Path(kw["cwd"]) for a, kw in lanzados if len(a) == 2 and str(a[1]).endswith(".sh")]
+        assert carpetas == [propia], "el instrumento no sabe decir que sí: el guion no fue a %s (%s)" % (propia, carpetas)
+        assert not list(propia.glob("afirmaciones-*.sh")), "quedó un guion temporal: %s" % list(propia.iterdir())
+        salida, error = modulo.ejecutar_con_bash([[SLEEP, "0.2"]], str(repo), modulo.entorno_de_corrida(), 30)
+        assert (salida, error) == (b"", b"")
+        v = modulo.correr(af(CONTEO, 1), repo, plazo=30)
+        assert tuple(v) == ("OK", "1"), v
 
 
 FILTROS_CON_TRAMPAS = [

@@ -405,7 +405,8 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - El NUL se rechaza en cualquier parte.
     - Se rechazan los flags que escriben, leen el disco o ejecutan:
       - `sort -o` y `-T`;
-      - `uniq` con dos operandos;
+      - `uniq` con dos operandos, contados de dos maneras: como GNU, que permuta, y como el `uniq` de macOS, que deja de leer opciones en el primer operando (`getopt_long` con `+`). Por eso `uniq - -c` es FAIL: en macOS escribe el archivo `-c`;
+      - en `sort` y `uniq`, un `-` dentro de un grupo de opciones cortas, antes de una opción con argumento. El getopt de BSD (macOS) y el de Cygwin (Git for Windows) leen `-X-larga` como `-X --larga`: `uniq -i-ignore-cas - x` escribía `x` y `sort -u-t=DIR` creaba temporales en DIR. `sort -t-` y `uniq -f-1` siguen valiendo, porque ahí el `-` es el argumento;
       - en git, `--output`, `-O`, `--ext-diff`, `--textconv`, `--filters`, `--no-index` y `--show-signature`, con las opciones largas comparadas por prefijo;
       - un formato que cumpla `%[-+ ]?G` (`afirmaciones.REGEX_DE_FIRMAS`).
     - El `ref` se valida con una regex, así que no puede ser una opción ni meter shell.
@@ -414,13 +415,15 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - El motor **genera** un script con `shlex.quote` en cada token de ese argv. Dentro de comillas simples, bash no expande nada, y entre procesos MSYS los argumentos pasan sin reinterpretarse: cada programa recibe exactamente lo validado.
     - **No se ejecuta sin shell.** Un filtro MSYS lanzado desde un proceso nativo reinterpreta su línea de comandos: expande llaves, globs y `~`, quita las `\` y toma la `'` como comilla (medido, L94).
     - El script va en un archivo temporal. Lo corre el `bash` real de Git for Windows (`usr\bin\bash.exe`, ubicado a partir de `git`, sin depender del PATH; `/bin/bash` en POSIX), que recibe **solo la ruta del archivo**, nunca el texto por `-c`. Después se borra.
-    - El script entra al repo con `cd --`. El stdin del primer tramo es `/dev/null`, y cada tramo va con `/usr/bin/timeout -k 2 <plazo>`. Si algún tramo sale con 124 o 137 (lo mira con `PIPESTATUS`), el plazo se agotó.
+    - El script entra al repo con `cd --`. El stdin del primer tramo es `/dev/null`.
+    - **El plazo en Windows:** cada tramo va con `/usr/bin/timeout -k 2 <plazo>`, que es el de Git for Windows, en la misma carpeta que los filtros. Si algún tramo sale con 124 o 137 (lo mira con `PIPESTATUS`), el plazo se agotó. Windows conserva `timeout` porque, sin él, `taskkill /T /F` sobre `bash.exe` deja vivo un descendiente MSYS (medido).
+    - **El plazo fuera de Windows:** no hay `timeout` externo, porque macOS no lo trae: GNU coreutils llega solo con brew, y el de busybox tiene otras opciones. El plazo lo pone Python: bash arranca con `start_new_session` y, al vencer el plazo exacto, `os.killpg` mata el grupo, con cada tramo y sus descendientes.
     - git va por su ruta absoluta. Justo después del verbo se le insertan `--no-textconv`, `--no-ext-diff` y `--no-show-signature` en `show` y `log`, y las dos primeras en `diff-tree`.
     - Los filtros van por su ruta MSYS absoluta (`/usr/bin/<filtro>`), nunca por el PATH: en Windows, `sort` resolvería a otro programa.
-    - **El respaldo en Python** mata el árbol (`taskkill /T /F` en Windows, `os.killpg` en POSIX) cuando pasan el plazo más 10 s. Lo hace con archivos temporales en lugar de pipes, y alcanza a los descendientes nativos de `git.exe`, que `timeout` no mata.
+    - **El respaldo en Python, solo en Windows,** mata el árbol con `taskkill /T /F` cuando pasan el plazo más 10 s. Lo hace con archivos temporales en lugar de pipes, y alcanza a los descendientes nativos de `git.exe`, que `timeout` no mata. En los dos sistemas, un plazo agotado sale como `TimeoutExpired(argvs, plazo)`.
     - El `rev-parse --verify` previo y la antigüedad del fetch corren nativos, con la misma maquinaria de archivos y del árbol.
     - **La semántica es la de bash:** un diferencial **de ejecución** sobre 1 170 comandos aceptados da lo mismo que bash leyendo un script. El origen corría `bash -c "<texto>"` desde Python y sufría la misma reinterpretación: reducía `\\` a `\`.
-    - El entorno parte de `comun.entorno_git` y quita `BASH_*`, `ENV`, `SHELLOPTS`, `GREP_OPTIONS`, `POSIXLY_CORRECT` y todo `GIT_*` ajeno.
+    - El entorno parte de `comun.entorno_git` y quita `BASH_*`, `ENV`, `SHELLOPTS`, `GREP_OPTIONS`, `POSIXLY_CORRECT` y todo `GIT_*` ajeno. El test de `GREP_OPTIONS` usa `/usr/bin/env` como instrumento, porque el GNU grep actual ignora la variable.
     - Por `GIT_CONFIG_COUNT`, que gana a la config local del repo medido, fuerza:
       - `core.fsmonitor=false` y `log.showSignature=false`;
       - `gpg.program`, `gpg.openpgp.program`, `gpg.ssh.program` y `gpg.x509.program` apuntando a una ruta inexistente. Falla cerrado: la afirmación queda `err`.
@@ -441,7 +444,9 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
     - un filtro que, fuera del primer tramo, lee un archivo como operando (solo lectura);
     - `git grep -f`;
     - otros ejecutables de la config local, más allá de los medidos y cerrados: `textconv`, `smudge`, `diff.external`, los cuatro programas de firma, `core.fsmonitor` y el fetch perezoso;
-    - un nieto MSYS nacido por fork/exec bajo un `git.exe` nativo sobrevive al plazo: `timeout` mata solo al hijo directo. Desde un archivo de afirmaciones no se alcanza, porque haría falta un fetch perezoso y `GIT_NO_LAZY_FETCH` está forzado (L96);
+    - en Windows, un nieto MSYS nacido por fork/exec bajo un `git.exe` nativo sobrevive al plazo: `timeout` mata solo al hijo directo. Desde un archivo de afirmaciones no se alcanza, porque haría falta un fetch perezoso y `GIT_NO_LAZY_FETCH` está forzado (L96);
+    - `grep -r` sin operando lee el working tree, aunque la entrada llegue por un pipe;
+    - entre GNU y BSD cambia el espaciado interno de las salidas de varias columnas (`wc -lc`, `uniq -c`), y eso puede dar `ROJO` en un solo OS. Un flag solo de GNU da `err`;
     - una capa mal declarada en la config, que también da 2 en `--claims`.
 - **Nivel 3**, `--cruce`: propone **candidatos**, no hallazgos, y sale siempre con 0. No usa git, red ni repos.
   - Busca entidades entre backticks que aparecen en 6 docs o más.

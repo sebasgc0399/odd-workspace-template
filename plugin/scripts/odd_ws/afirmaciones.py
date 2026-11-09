@@ -14,6 +14,7 @@ from pathlib import Path
 from odd_ws.comun import decodificar, entorno_git
 
 VERSION = 1
+SISTEMA = os.name
 CLAVES_DEL_ARCHIVO = ("version", "reglas", "claims", "rechazados", "cobertura_triada")
 TIPOS = ("estructura", "contrato")
 NATURALEZAS = ("invariante", "inventario")
@@ -165,6 +166,25 @@ def _larga_prohibida(tok, nombres):
     return bool(nombre) and any(n.startswith(nombre) for n in nombres)
 
 
+def _guion_en_grupo_corto(tok, cortas_con_argumento):
+    if not tok.startswith("-") or tok.startswith("--"):
+        return False
+    for ch in tok[1:]:
+        if ch == "-":
+            return True
+        if ch in cortas_con_argumento:
+            return False
+    return False
+
+
+def _motivo_guion_en_grupo_corto(toks, cortas_con_argumento):
+    for t in toks[1:]:
+        if _guion_en_grupo_corto(t, cortas_con_argumento):
+            return "%s %s: un '-' dentro de un grupo de opciones cortas abre una opción larga que la lista blanca no revisa" % (
+                toks[0], t)
+    return None
+
+
 def _motivo_sort(toks):
     for t in toks[1:]:
         if t.startswith("--"):
@@ -180,15 +200,16 @@ def _motivo_sort(toks):
                     return "sort -T escribe archivos temporales (%s)" % t
                 if ch in SORT_CORTAS_CON_ARGUMENTO:
                     break
-    return None
+    return _motivo_guion_en_grupo_corto(toks, SORT_CORTAS_CON_ARGUMENTO)
 
 
-def _motivo_uniq(toks):
+def _operandos_de_uniq(toks, permuta):
     operandos, i, solo_operandos = [], 1, False
     while i < len(toks):
         t = toks[i]
         if solo_operandos or t == "-" or not t.startswith("-"):
             operandos.append(t)
+            solo_operandos = solo_operandos or not permuta
         elif t == "--":
             solo_operandos = True
         elif t.startswith("--"):
@@ -200,9 +221,15 @@ def _motivo_uniq(toks):
                     i += 0 if t[j:] else 1
                     break
         i += 1
-    if len(operandos) >= 2:
-        return "uniq con dos operandos escribe el segundo (%s)" % operandos[1]
-    return None
+    return operandos
+
+
+def _motivo_uniq(toks):
+    for permuta in (True, False):
+        operandos = _operandos_de_uniq(toks, permuta)
+        if len(operandos) >= 2:
+            return "uniq con dos operandos escribe el segundo (%s)" % operandos[1]
+    return _motivo_guion_en_grupo_corto(toks, UNIQ_CORTAS_CON_ARGUMENTO)
 
 
 def _motivo_git(toks):
@@ -425,10 +452,17 @@ def _texto_de_plazo(plazo):
     return texto or "%g" % PLAZO_MINIMO
 
 
+def _prefijo_de_plazo(plazo):
+    if SISTEMA != "nt":
+        return []
+    return ["/usr/bin/timeout", "-k", "2", _texto_de_plazo(plazo)]
+
+
 def generar_guion(argvs, cwd, plazo):
+    prefijo = _prefijo_de_plazo(plazo)
     tuberia = []
     for i, argv in enumerate(argvs):
-        linea = " ".join(shlex.quote(t) for t in ["/usr/bin/timeout", "-k", "2", _texto_de_plazo(plazo), *argv])
+        linea = " ".join(shlex.quote(t) for t in [*prefijo, *argv])
         tuberia.append(linea + " </dev/null" if i == 0 else linea)
     return "\n".join([
         "cd -- %s || exit 125" % shlex.quote(cwd),
@@ -447,12 +481,15 @@ def ejecutar_con_bash(argvs, cwd, env, plazo):
     if bash is None:
         raise OSError("no se encontró el bash de Git for Windows")
     guion = generar_guion(argvs, str(cwd), plazo)
+    limite = plazo + MARGEN_DEL_PLAZO if _prefijo_de_plazo(plazo) else plazo
     descriptor, ruta = tempfile.mkstemp(prefix="afirmaciones-", suffix=".sh")
     try:
         with os.fdopen(descriptor, "wb") as archivo:
             archivo.write(guion.encode("utf-8"))
         carpeta, nombre = os.path.split(ruta)
-        salida, error, codigos = _lanzar([[bash, nombre]], carpeta, env, plazo + MARGEN_DEL_PLAZO)
+        salida, error, codigos = _lanzar([[bash, nombre]], carpeta, env, limite)
+    except subprocess.TimeoutExpired:
+        raise subprocess.TimeoutExpired(argvs, plazo) from None
     finally:
         try:
             os.unlink(ruta)

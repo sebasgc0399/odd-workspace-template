@@ -66,7 +66,8 @@ class Arbol:
         vacio = self.base / "gitconfig-vacio"
         vacio.write_text("", encoding="utf-8")
         os.environ.update({
-            "GIT_CONFIG_GLOBAL": str(vacio), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CEILING_DIRECTORIES": str(self.base),
+            "GIT_CONFIG_GLOBAL": str(vacio), "GIT_CONFIG_SYSTEM": str(vacio), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CEILING_DIRECTORIES": str(self.base),
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
         })
         os.environ.pop("CLAUDE_PROJECT_DIR", None)
@@ -1316,6 +1317,28 @@ def test_claims_por_la_cli_sale_con_el_codigo_y_en_utf8():
     with ArbolDeAfirmaciones(archivo(af(CONTEO, 9))) as a:
         codigo, salida, error = a.cli("--claims")
         assert codigo == 1 and "ROJO" in salida
+
+
+def test_claims_fuera_de_windows_corre_sin_el_timeout_de_gnu():
+    motor = m().motor
+    guiones, original, previo = [], motor.subprocess.Popen, motor.SISTEMA
+
+    class Espia(original):
+        def __init__(self, argv, *args, **kw):
+            if len(argv) == 2 and str(argv[1]).endswith(".sh"):
+                guiones.append(Path(kw["cwd"], argv[1]).read_text(encoding="utf-8"))
+            super().__init__(argv, *args, **kw)
+
+    with ArbolDeAfirmaciones(archivo(af(CONTEO, 1, id="a"), af(CONTEO, 2, id="b"))) as a:
+        motor.subprocess.Popen, motor.SISTEMA = Espia, "posix"
+        try:
+            codigo, lineas, error = claims(a)
+        finally:
+            motor.subprocess.Popen, motor.SISTEMA = original, previo
+    assert len(guiones) == 2, guiones
+    assert not any("timeout" in g for g in guiones), "el tier 2 llama a un timeout que macOS no trae:\n%s" % guiones[0]
+    assert (codigo, error) == (1, ""), (codigo, lineas)
+    assert fila("ok  ", "a", "1") in lineas and fila("ROJO", "b", "esperado ['2'], obtenido ['1']") in lineas, lineas
 
 
 def test_claims_el_informe_normal_no_ejecuta_las_afirmaciones():
