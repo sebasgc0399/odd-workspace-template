@@ -1161,7 +1161,7 @@ def test_esta_cableado_en_pre_tool_use_de_bash_y_powershell_con_8_s():
     assert len(cableados) == 1, cableados
     evento_, matcher, h = cableados[0]
     assert evento_ == "PreToolUse" and set(matcher.split("|")) == {"Bash", "PowerShell"}, (evento_, matcher)
-    assert h["type"] == "command" and h["command"] == "python", h
+    assert h["type"] == "command" and h["command"] == "python3" and h.get("onFailure") == "block", h
     assert (h["timeout"], plazo_de(h["args"][1:])) == (10, 8), h
 
 

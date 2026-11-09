@@ -9,8 +9,14 @@ from odd_ws.hosts import base, leer_hooks, manejadores, tokens_de
 
 cargar = base.cargar
 ARCHIVO_DE_HOOKS = "hooks/hooks.json"
+PYTHON = "python3"
+PYTHON_EN_WINDOWS = "python3"
 VERSION_MINIMA = (2, 1, 284)
 AYUDA_CLAUDE = "Actualizá Claude Code a 2.1.284 o superior."
+VERSION_ON_FAILURE = (2, 1, 295)
+AVISO_ON_FAILURE = "un hook que no arranca deja pasar"
+AYUDA_ON_FAILURE = ("Actualizá Claude Code a 2.1.295 o superior: desde esa versión, onFailure: block hace que un hook que no arranca "
+                    "(por ejemplo, sin python3) bloquee la herramienta en vez de dejarla pasar.")
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {}
 BITACORA = False
@@ -164,7 +170,10 @@ def archivos(agentes):
 
 
 def version(ctx, nucleo):
-    return nucleo.chequear_version(ctx, "claude", ["claude", "--version"], VERSION_MINIMA, AYUDA_CLAUDE)
+    item, instalado = nucleo.chequear_version(ctx, "claude", ["claude", "--version"], VERSION_MINIMA, AYUDA_CLAUDE)
+    if item.estado == nucleo.OK and nucleo.leer_version(item.detalle) < VERSION_ON_FAILURE:
+        item = item._replace(estado=nucleo.AVISO, detalle=f"{item.detalle}: {AVISO_ON_FAILURE}", ayuda=AYUDA_ON_FAILURE)
+    return item, instalado
 
 
 def chequeos(ctx, raiz, nucleo, cli):

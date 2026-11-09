@@ -319,7 +319,7 @@ def test_los_textos_de_claude_code_son_los_de_sus_herramientas():
 
 
 class Ctx:
-    def __init__(self, base, version="2.1.284 (Claude Code)\n", marketplaces=None):
+    def __init__(self, base, version="2.1.295 (Claude Code)\n", marketplaces=None):
         self.plugin, self.home, self.llamadas, self.version = AQUI.parent.parent.parent, base / "home", [], version
         if marketplaces is not None:
             (self.home / ".claude" / "plugins").mkdir(parents=True)
@@ -335,7 +335,7 @@ def test_el_puerto_del_doctor_da_la_version_de_claude_y_el_marketplace_como_ante
     with Temporal() as base:
         ctx = Ctx(base, marketplaces={"odd-workspace-template": {}})
         claude, instalado = m().version(ctx, doctor.NUCLEO)
-        assert (claude.id, claude.estado, claude.detalle, instalado) == ("claude", "OK", "2.1.284", True), claude
+        assert (claude.id, claude.estado, claude.detalle, instalado) == ("claude", "OK", "2.1.295", True), claude
         assert [(r.id, r.estado, r.detalle) for r in m().chequeos(ctx, None, doctor.NUCLEO, doctor.NUCLEO.CLI_INSTALADO)] == [
             ("marketplace", "OK", "odd-workspace-template registrado")]
         assert ctx.llamadas == [("claude", "--version")], ctx.llamadas
@@ -355,12 +355,29 @@ def test_el_puerto_del_doctor_da_la_version_de_claude_y_el_marketplace_como_ante
         assert (claude.estado, claude.detalle, instalado) == ("FALTA", "claude no está instalado", False), claude
 
 
+def test_claude_code_anterior_a_2_1_295_es_aviso_porque_un_hook_que_no_arranca_deja_pasar():
+    doctor = importlib.import_module("doctor")
+    for version in ("2.1.284", "2.1.294"):
+        with Temporal() as base:
+            claude, instalado = m().version(Ctx(base, version="%s (Claude Code)\n" % version), doctor.NUCLEO)
+            assert (claude.id, claude.estado, claude.detalle, instalado) == (
+                "claude", "AVISO", "%s: un hook que no arranca deja pasar" % version, True), claude
+            assert "2.1.295" in claude.ayuda and "onFailure" in claude.ayuda and claude.comando is None, claude
+    for version in ("2.1.295", "2.1.319", "2.2.0", "3.0.0"):
+        with Temporal() as base:
+            claude, _ = m().version(Ctx(base, version="%s (Claude Code)\n" % version), doctor.NUCLEO)
+            assert (claude.estado, claude.detalle) == ("OK", version), claude
+    with Temporal() as base:
+        claude, _ = m().version(Ctx(base, version="2.1.283 (Claude Code)\n"), doctor.NUCLEO)
+        assert (claude.estado, claude.ayuda) == ("FALTA", "Actualizá Claude Code a 2.1.284 o superior."), claude
+
+
 def test_los_hooks_registrados_de_claude_code_son_command_y_args_de_hooks_json():
     with Temporal() as base:
         registrados = list(m().hooks_registrados(Ctx(base), None))
         assert len(registrados) == 7 and all(propio for _, _, propio in registrados), registrados
         assert registrados[0] == ("hooks/hooks.json SessionStart[0][0]",
-                                  ["python", "${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], True), registrados[0]
+                                  ["python3", "${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], True), registrados[0]
         ctx = Ctx(base)
         ctx.plugin = base / "sin-plugin"
         assert list(m().hooks_registrados(ctx, None)) == [("hooks/hooks.json", None, True)]

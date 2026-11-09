@@ -690,7 +690,7 @@ def test_s21_hooks_json_cablea_el_guard_y_la_compuerta():
     stop = [(e, m, h) for e, m, h in _hooks_del_plugin() if h["args"][0] == "${CLAUDE_PLUGIN_ROOT}/scripts/writer_stop.py"]
     assert len(stop) == 1 and stop[0][0] == "SubagentStop", stop
     evento_, matcher, h = stop[0]
-    assert h["type"] == "command" and h["command"] == "python", h
+    assert h["type"] == "command" and h["command"] == "python3" and "onFailure" not in h, h
     assert (h["timeout"], plazo_de(h["args"][1:])) == (60, 50), h
     assert plazo_de(h["args"][1:]) <= h["timeout"] - 2, h
 

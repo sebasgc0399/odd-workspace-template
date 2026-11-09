@@ -3,6 +3,7 @@ import importlib
 import json
 import re
 import sys
+import types
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -21,7 +22,8 @@ EVENTOS_DE_HERRAMIENTA = ("PreToolUse", "PostToolUse")
 MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Bash|PowerShell|Edit|Write": "Bash|apply_patch",
                      "Read": None}
 SCRIPT_DE_CLAUDE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+)\.py")
-COMANDO_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
+COMANDO_DE_CODEX = re.compile(r'python3 "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
+COMANDO_WINDOWS_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
 
 
 def cap():
@@ -247,7 +249,8 @@ def entradas(datos):
 
 
 def par_de_codex(evento, grupo, hook):
-    assert set(hook) == {"type", "command", "args", "timeout"} and (hook["type"], hook["command"]) == ("command", "python"), hook
+    claves = {"type", "command", "args", "timeout"} | ({"onFailure"} if evento in EVENTOS_DE_HERRAMIENTA else set())
+    assert set(hook) == claves and (hook["type"], hook["command"]) == ("command", "python3"), hook
     ruta, bandera, plazo = hook["args"]
     script = SCRIPT_DE_CLAUDE.fullmatch(ruta)
     assert script and bandera == "--plazo", hook
@@ -260,11 +263,26 @@ def par_de_codex(evento, grupo, hook):
 
 def de_codex(evento, grupo, hook):
     assert set(grupo) == {"matcher", "hooks"}, grupo
-    assert set(hook) == {"type", "command", "timeout"} and hook["type"] == "command", (
-        "Codex ignora args y no lleva commandWindows: %r" % hook)
+    assert set(hook) == {"type", "command", "commandWindows", "timeout"} and hook["type"] == "command", (
+        "Codex ignora args, no tiene onFailure y en Windows corre commandWindows: %r" % hook)
     comando = COMANDO_DE_CODEX.fullmatch(hook["command"])
-    assert comando, '%r no es python "${PLUGIN_ROOT}/scripts/<script>.py" --plazo N --host codex' % hook["command"]
+    assert comando, '%r no es python3 "${PLUGIN_ROOT}/scripts/<script>.py" --plazo N --host codex' % hook["command"]
+    en_windows = COMANDO_WINDOWS_DE_CODEX.fullmatch(hook["commandWindows"])
+    assert en_windows and en_windows.groups() == comando.groups(), (
+        "commandWindows es el mismo comando con python, que es lo que hay en Windows: %r" % hook)
     return evento, grupo["matcher"], comando.group(1), comando.group(2), hook["timeout"]
+
+
+def test_los_hooks_de_claude_code_lanzan_python3_y_los_de_herramienta_bloquean_si_no_arrancan():
+    revisados = 0
+    for evento, _, hook in entradas(leer_json(HOOKS_CLAUDE)):
+        revisados += 1
+        assert hook["command"] == "python3", "macOS, Ubuntu y Debian no traen python, y entonces el hook no arranca: %r" % hook
+        if evento in EVENTOS_DE_HERRAMIENTA:
+            assert hook.get("onFailure") == "block", "sin onFailure, un hook que no arranca deja pasar la herramienta: %r" % hook
+        else:
+            assert "onFailure" not in hook, "en %s, onFailure no bloquea: %r" % (evento, hook)
+    assert revisados == 7, revisados
 
 
 def test_cada_hook_de_claude_code_tiene_su_par_en_codex():
@@ -303,6 +321,20 @@ def test_cada_adaptador_tiene_su_puerto_de_generacion_con_los_mismos_marcadores(
         marcadores = set(adaptador.TEXTOS) if marcadores is None else marcadores
         assert set(adaptador.TEXTOS) == marcadores, (nombre, set(adaptador.TEXTOS) ^ marcadores)
     assert importlib.import_module("odd_ws.hosts").FUENTE == "claude-code"
+
+
+def test_cada_adaptador_declara_el_python_que_lanzan_sus_hooks_en_cada_sistema():
+    lanzados = {}
+    for nombre, adaptador in adaptadores():
+        ctx = types.SimpleNamespace(plugin=PLUGIN, home=PLUGIN / "sin-home", entorno={}, windows=False)
+        propios = [(origen, tokens) for origen, tokens, propio in adaptador.hooks_registrados(ctx, None) if propio]
+        assert propios and all(tokens for _, tokens in propios), (nombre, propios)
+        en_windows = {tokens[0] for origen, tokens in propios if origen.endswith(" (commandWindows)")}
+        comunes = {tokens[0] for origen, tokens in propios if not origen.endswith(" (commandWindows)")}
+        assert comunes == {adaptador.PYTHON}, (nombre, comunes, adaptador.PYTHON)
+        assert (en_windows or comunes) == {adaptador.PYTHON_EN_WINDOWS}, (nombre, en_windows, adaptador.PYTHON_EN_WINDOWS)
+        lanzados[nombre] = (adaptador.PYTHON, adaptador.PYTHON_EN_WINDOWS)
+    assert lanzados == {"claude_code": ("python3", "python3"), "codex": ("python3", "python")}, lanzados
 
 
 def test_cada_adaptador_tiene_su_puerto_del_doctor_con_su_archivo_de_hooks_en_el_plugin():

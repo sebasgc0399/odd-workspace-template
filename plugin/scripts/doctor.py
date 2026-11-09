@@ -28,8 +28,16 @@ OPCIONAL = "opcional: ningún script del plugin lo invoca"
 OPCIONAL_CREDENCIALES = "opcional: solo hace falta para empujar a GitHub"
 
 AYUDA_LISTA = "Creá ~/.odd-ws/denylist.txt en UTF-8, un término por línea (o apuntá ODD_WS_DENYLIST a otra ruta). Sin ella, el barrido bloquea todos los commits."
-AYUDA_PYTHON = ("Desactivá el alias de ejecución de python.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
+AYUDA_PYTHON = ("Desactivá el alias de ejecución de {}.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
                 "Alias de ejecución de aplicaciones) o poné %LOCALAPPDATA%\\Python\\bin antes de WindowsApps en el PATH de usuario.")
+AYUDA_PYTHON3_WINDOWS = ("Instalá Python con el Python install manager de python.org o desde la Microsoft Store: los dos crean python3. "
+                         "El instalador clásico, winget y choco no lo crean, y entonces python3 cae en el alias de la Store, que no corre.")
+AYUDA_PYTHON_WINDOWS = ("Instalá Python con el Python install manager de python.org, desde la Microsoft Store o con el instalador clásico "
+                        "marcando «Add python.exe to PATH»: en Windows, los hooks de Codex lanzan python.")
+SUFIJO_WINDOWS = " (commandWindows)"
+AYUDA_PYTHON3 = "Instalá Python 3 (3.7 o más) y dejá python3 en el PATH."
+SONDA_PYTHON = "import sys; print('Python %d.%d.%d' % sys.version_info[:3])"
+PYTHON_MINIMO = (3, 7, 0)
 AYUDA_CREDENCIALES = "Instalá Git for Windows con Git Credential Manager, o corré git config --global credential.helper manager."
 AYUDA_GENTLE = "Instalá o actualizá gentle-ai (en Windows: go install github.com/gentleman-programming/gentle-ai/v4/cmd/gentle-ai@latest) y corré sync con Claude Code cerrado."
 AYUDA_RDD = "D3: el RDD nativo no ve el dominio (su reviewer corre sin herramientas); la plantilla trae el propio. Solo se apaga si lo pedís con --arreglar rdd."
@@ -413,20 +421,56 @@ def chequear_hooks_de_agentes(agentes):
     return resultado(id, OK, "ningún agente declara hooks: en el frontmatter")
 
 
-def chequear_python(ctx):
-    ruta = ctx.which("python")
+def pythons_de_los_hosts(ctx):
+    declarados, _ = hosts_declarados(raiz_de_instancia(ctx))
+    declarados = declarados or list(config_loader.HOSTS_POR_DEFECTO)
+    pythons = {}
+    for nombre in declarados:
+        adaptador = registro_de_hosts.adaptador(nombre)
+        pythons.setdefault(adaptador.PYTHON_EN_WINDOWS if ctx.windows else adaptador.PYTHON, []).append(nombre)
+    return pythons, declarados != list(config_loader.HOSTS_POR_DEFECTO)
+
+
+def ayuda_para_instalar(ctx, python):
+    if not ctx.windows:
+        return AYUDA_PYTHON3
+    return AYUDA_PYTHON3_WINDOWS if python == "python3" else AYUDA_PYTHON_WINDOWS
+
+
+def chequear_un_python(ctx, python, hosts):
+    quien = f"los hooks de {', '.join(hosts)}" if hosts else "los hooks"
+    ayuda = ayuda_para_instalar(ctx, python)
+    ruta = ctx.which(python)
     if not ruta:
-        return resultado("python", FALTA, "python no está en el PATH: los hooks lo llaman por nombre", None, "Instalá Python y agregalo al PATH.")
-    codigo, salida = ctx.ejecutar([ruta, "--version"])
-    if codigo != 0:
-        return resultado("python", FALTA, f"{ruta} no corre", None, "Reinstalá Python o revisá el PATH.")
-    version = primera_linea(salida) or "Python"
+        return resultado("python", FALTA, f"{python} no está en el PATH: {quien} lo llaman por nombre", None, ayuda)
+    codigo, salida = ctx.ejecutar([ruta, "-c", SONDA_PYTHON])
+    numero = leer_version(salida) if codigo == 0 else None
+    if numero is None:
+        motivo = primera_linea(salida)[:80] or ("no se pudo ejecutar" if codigo is None else f"sale con {codigo}")
+        sin_arranque = f"; {quien} no arrancan" if hosts else ""
+        return resultado("python", FALTA, f"{ruta} no corre: {motivo}{sin_arranque}", None, ayuda)
+    if numero < PYTHON_MINIMO:
+        return resultado("python", FALTA, f"{python} ({ruta}) es {texto_version(numero)} y {quien} piden {texto_version(PYTHON_MINIMO)} o más",
+                         None, ayuda)
+    version = f"Python {texto_version(numero)}"
     if os.path.normcase(os.path.abspath(ruta)) == os.path.normcase(os.path.abspath(ctx.ejecutable)):
         return resultado("python", OK, f"{version} ({ruta})")
     del_path, real = ctx.medir(ruta), ctx.medir(ctx.ejecutable)
     if del_path - real > UMBRAL_MS:
-        return resultado("python", AVISO, f"{version}: el python del PATH ({ruta}) arranca en {del_path:.0f} ms y el intérprete real en {real:.0f} ms; cada hook paga la diferencia", None, AYUDA_PYTHON)
+        return resultado("python", AVISO, f"{version}: el {python} del PATH ({ruta}) arranca en {del_path:.0f} ms y el intérprete real en {real:.0f} ms; cada hook paga la diferencia", None, AYUDA_PYTHON.format(python))
     return resultado("python", OK, f"{version}: arranca en {del_path:.0f} ms")
+
+
+def chequear_python(ctx):
+    pythons, nombrar = pythons_de_los_hosts(ctx)
+    revisados = [(python, chequear_un_python(ctx, python, hosts if nombrar else None)) for python, hosts in pythons.items()]
+    if len(revisados) == 1:
+        return revisados[0][1]
+    estados = {r.estado for _, r in revisados}
+    estado = FALTA if FALTA in estados else AVISO if AVISO in estados else OK
+    detalle = "; ".join(f"{python}: {r.detalle}" if r.estado == OK else r.detalle for python, r in revisados)
+    ayuda = " ".join(dict.fromkeys(r.ayuda for _, r in revisados if r.estado != OK and r.ayuda))
+    return resultado("python", estado, detalle, None, ayuda)
 
 
 def chequear_credenciales(ctx):
@@ -498,7 +542,7 @@ def chequear_hooks_host(ctx, raiz, declarados):
                    for registrado in registro_de_hosts.adaptador(nombre).hooks_registrados(ctx, raiz)]
     scripts = {os.path.basename(token.replace("\\", "/")) for _, _, tokens, propio in registrados if propio and tokens
                for token in tokens if token.endswith(".py")}
-    malos, avisos, revisados = [], [], 0
+    malos, avisos, revisados, handlers = [], [], 0, set()
     for nombre, origen, tokens, propio in registrados:
         if tokens is None:
             (malos if propio else avisos).append(f"{origen} no se puede leer")
@@ -507,6 +551,7 @@ def chequear_hooks_host(ctx, raiz, declarados):
         if script is None:
             continue
         revisados += 1
+        handlers.add((nombre, origen[:-len(SUFIJO_WINDOWS)] if origen.endswith(SUFIJO_WINDOWS) else origen))
         valor = host_de(argumentos)
         if valor != nombre:
             malos.append(f"{origen}: {script} {_con_host(valor, argumentos)}, y el hook es de {nombre}")
@@ -514,7 +559,8 @@ def chequear_hooks_host(ctx, raiz, declarados):
         return resultado(id, FALTA, "; ".join(malos + avisos), None, AYUDA_HOOKS_HOST)
     if avisos:
         return resultado(id, AVISO, "; ".join(avisos), None, AYUDA_HOOKS_HOST)
-    return resultado(id, OK, f"{revisados} hooks de {', '.join(declarados)}, cada uno con el --host de su archivo")
+    comandos = f" ({revisados} comandos)" if revisados != len(handlers) else ""
+    return resultado(id, OK, f"{len(handlers)} hooks de {', '.join(declarados)}{comandos}, cada uno con el --host de su archivo")
 
 
 def versiones_de_los_hosts(ctx):
@@ -555,6 +601,7 @@ NUCLEO = types.SimpleNamespace(
     OK=OK, FALTA=FALTA, AVISO=AVISO, NO_APLICA=NO_APLICA, MARKETPLACE=MARKETPLACE, URL_MARKETPLACE=URL_MARKETPLACE, PLUGIN=PLUGIN,
     CLAVE_PLUGIN=CLAVE_PLUGIN, AYUDA_CONFIG=AYUDA_CONFIG, CLI_INSTALADO=CLI_INSTALADO, CLI_AUSENTE=CLI_AUSENTE,
     CLI_DE_OTRO_HOST=CLI_DE_OTRO_HOST, resultado=resultado, chequear_version=chequear_version, raiz_del_repo_de=raiz_del_repo_de,
+    leer_version=leer_version,
 )
 
 

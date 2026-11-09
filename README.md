@@ -71,17 +71,19 @@ Dos cosas a tener en cuenta:
 
 ### Requisitos de la máquina
 
-Se desarrolla y se prueba en Windows.
+Se desarrolla en Windows, y las suites corren también en Linux y macOS (ver «Las pruebas»).
 
 | Herramienta | Para qué | ¿Obligatoria? |
 |---|---|---|
-| Claude Code ≥ 2.1.284 | El plugin, sus skills y sus hooks | Sí, si la instancia declara `claude-code` |
+| Claude Code ≥ 2.1.284; se recomienda 2.1.295 o más | El plugin, sus skills y sus hooks. Desde la 2.1.295, un hook que no arranca bloquea la herramienta; antes la deja pasar | Sí, si la instancia declara `claude-code` |
 | Codex CLI ≥ 0.144 (0.167 para los writers) | El plugin desde Codex | Solo si la instancia declara `codex` |
-| Python 3, invocable como `python` | Todos los hooks y scripts del plugin; el doctor necesita 3.11 o más para leer la config de Codex | Sí |
+| Python 3.7 o más, invocable como `python3` | Todos los hooks y scripts del plugin; el doctor necesita 3.11 o más para leer la config de Codex | Sí |
 | Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
 | Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
 | gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún script del plugin los invoca | No |
+
+> **`python3` en Windows.** Lo crean el Python install manager de python.org y la Microsoft Store. El instalador clásico, winget y choco no lo crean, y entonces `python3` cae en el alias de la Store, que no corre: los hooks no arrancan. `/odd-ws:doctor` lo marca como FALTA en el ítem `python`, con el arreglo. En Windows, los hooks de Codex lanzan `python`, así que con `codex` declarado el doctor revisa también ese.
 
 > **El doctor y las herramientas opcionales.** Si no encuentra gentle-ai, engram, jq o un `credential.helper`, `/odd-ws:doctor` lo marca como AVISO con «opcional» en el detalle, y no falla por eso. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
 
@@ -182,6 +184,8 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 
 Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por qué.
 
+Los lanza `python3`. Si no arranca, en Claude Code 2.1.295 o más la herramienta queda bloqueada con el error; con una versión anterior, y siempre en Codex, la herramienta pasa sin el chequeo.
+
 | Cuándo | Qué hace |
 |---|---|
 | Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
@@ -264,9 +268,11 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
 | `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión y sus notas en `CHANGELOG.md` |
 
+Los tres corren Python con el primero que arranca de `python3`, `python` y `py` (`.githooks/python.sh`); si no arranca ninguno, frenan con el motivo.
+
 ### Las pruebas
 
-No hay pytest: cada `*.tests.py` es un script que se corre solo.
+No hay pytest: cada `*.tests.py` es un script que se corre solo. `.github/workflows/pruebas.yml` corre todas las suites en Ubuntu, Windows y macOS con Python 3.12, porque los tests piden 3.12 (`shutil.rmtree(onexc=)` y `os.path.isjunction`).
 
 ```text
 python plugin/scripts/<script>.tests.py

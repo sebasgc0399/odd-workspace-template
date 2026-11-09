@@ -359,8 +359,9 @@ CONFIG_MINIMA = {"schema_version": 1, "repos": {}, "layers": {"doc": {"extension
 
 
 def comando_registrado(script):
+    campo = "commandWindows" if os.name == "nt" else "command"
     datos = json.loads((PLUGIN / "hooks" / "hooks.codex.json").read_text(encoding="utf-8"))
-    comandos = [h["command"] for grupos in datos["hooks"].values() for grupo in grupos for h in grupo["hooks"]
+    comandos = [h[campo] for grupos in datos["hooks"].values() for grupo in grupos for h in grupo["hooks"]
                 if "/scripts/%s.py" % script in h["command"]]
     assert len(comandos) == 1, comandos
     return comandos[0]
@@ -372,10 +373,10 @@ def shell_del_turno(comando):
 
 def entorno_de_codex(base):
     carpeta = Path(sys.executable).parent
-    if os.name != "nt" and Path(sys.executable).name != "python":
+    if os.name != "nt":
         carpeta = base / "bin"
         carpeta.mkdir()
-        (carpeta / "python").symlink_to(sys.executable)
+        (carpeta / "python3").symlink_to(sys.executable)
     entorno = {k: v for k, v in os.environ.items() if not k.upper().startswith(("GIT_", "CLAUDE_", "PYTHON"))}
     entorno["PATH"] = str(carpeta) + os.pathsep + entorno.get("PATH", "")
     config = base / "gitconfig"
@@ -458,6 +459,9 @@ def test_el_archivo_de_hooks_es_el_que_declara_el_manifiesto_de_codex():
     assert (PLUGIN / m().ARCHIVO_DE_HOOKS).is_file()
 
 
+PROPIOS = 12
+
+
 class Ctx:
     def __init__(self, plugin, home, entorno=None, windows=True):
         self.plugin, self.home, self.entorno, self.windows = Path(plugin), Path(home), entorno or {}, windows
@@ -471,7 +475,7 @@ def test_los_hooks_json_de_codex_home_y_de_la_instancia_tambien_se_registran():
             carpeta.mkdir(parents=True)
             (carpeta / "hooks.json").write_text(json.dumps(hook), encoding="utf-8")
         (raiz / ".codex" / "config.toml").write_text('model = "x"\n', encoding="utf-8")
-        resto = list(m().hooks_registrados(Ctx(PLUGIN, base / "home"), raiz))[6:]
+        resto = list(m().hooks_registrados(Ctx(PLUGIN, base / "home"), raiz))[PROPIOS:]
         assert resto == [
             ("%s Stop[0][0]" % (base / "home" / ".codex" / "hooks.json"), ["python", "w.py", "--host", "codex"], False),
             (".codex/hooks.json Stop[0][0]", ["python", "w.py", "--host", "codex"], False),
@@ -487,12 +491,12 @@ def test_los_comandos_de_windows_se_parten_sin_comerse_las_barras_y_command_wind
         usuario.write_text('[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n'
                            'command = %s\ncommand_windows = %s\n' % (json.dumps(r"python C:\x\y\guard_comandos.py --host gemini"),
                                                                      json.dumps(r'py "C:\a b\w.py" --host=')), encoding="utf-8")
-        en_windows = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=True), None))[6:]
+        en_windows = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=True), None))[PROPIOS:]
         assert en_windows == [
             ("%s Stop[0][0]" % usuario, ["python", "C:/x/y/guard_comandos.py", "--host", "gemini"], False),
             ("%s Stop[0][0] (commandWindows)" % usuario, ["py", "C:/a b/w.py", "--host="], False),
         ], en_windows
-        en_posix = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=False), None))[6:]
+        en_posix = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=False), None))[PROPIOS:]
         assert en_posix[0][1] == ["python", "C:xyguard_comandos.py", "--host", "gemini"], en_posix
         assert en_posix[1] == en_windows[1], en_posix
 
@@ -501,10 +505,10 @@ def test_los_hooks_registrados_salen_del_plugin_y_de_cada_config_toml_de_codex()
     with temporal() as base:
         ctx = Ctx(PLUGIN, base / "home")
         propios = list(m().hooks_registrados(ctx, None))
-        assert len(propios) == 6 and all(propio for _, _, propio in propios), propios
-        origen, tokens, _ = propios[-1]
-        assert origen == "hooks/hooks.codex.json SubagentStop[0][0]", origen
-        assert tokens == ["python", "${PLUGIN_ROOT}/scripts/writer_stop.py", "--plazo", "50", "--host", "codex"], tokens
+        assert len(propios) == PROPIOS and all(propio for _, _, propio in propios), propios
+        argumentos = ["${PLUGIN_ROOT}/scripts/writer_stop.py", "--plazo", "50", "--host", "codex"]
+        assert propios[-2:] == [("hooks/hooks.codex.json SubagentStop[0][0]", ["python3", *argumentos], True),
+                                ("hooks/hooks.codex.json SubagentStop[0][0] (commandWindows)", ["python", *argumentos], True)], propios
         usuario = base / "home" / ".codex" / "config.toml"
         usuario.parent.mkdir(parents=True)
         usuario.write_text('[hooks.state."x"]\ntrusted_hash = "h"\n\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n'
@@ -512,7 +516,7 @@ def test_los_hooks_registrados_salen_del_plugin_y_de_cada_config_toml_de_codex()
         raiz = base / "instancia"
         (raiz / ".codex").mkdir(parents=True)
         (raiz / ".codex" / "config.toml").write_text("roto = [\n", encoding="utf-8")
-        resto = list(m().hooks_registrados(ctx, raiz))[6:]
+        resto = list(m().hooks_registrados(ctx, raiz))[PROPIOS:]
         assert resto == [
             ("%s Stop[0][0]" % usuario, ["python", "C:/a b/w.py", "--host=codex"], False),
             ("%s Stop[0][0] (commandWindows)" % usuario, ["py", "w.py", "--host"], False),
@@ -523,7 +527,7 @@ def test_los_hooks_registrados_salen_del_plugin_y_de_cada_config_toml_de_codex()
         otra = base / "otra"
         otra.mkdir()
         (otra / "config.toml").write_text('[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "x \'sin cerrar"\n', encoding="utf-8")
-        de_otra = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", {"CODEX_HOME": str(otra)}), None))[6:]
+        de_otra = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", {"CODEX_HOME": str(otra)}), None))[PROPIOS:]
         assert de_otra == [("%s Stop[0][0]" % (otra / "config.toml"), ["x", "'sin", "cerrar"], False)], de_otra
 
 

@@ -1,11 +1,11 @@
 {
-  "description": "Hooks de odd-ws para Codex: los mismos de hooks.json, con el comando como texto, la ruta entre comillas y --host codex",
+  "description": "Hooks de odd-ws para Codex: los mismos de hooks.json, con el comando como texto, la ruta entre comillas y --host codex; python3 en command y python en commandWindows",
   "hooks": {
     "SessionStart": [
       {
         "matcher": "startup|resume|compact|clear",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
         ]
       }
     ],
@@ -13,19 +13,19 @@
       {
         "matcher": "apply_patch",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 8 --host codex", "timeout": 10 }
         ]
       },
       {
         "matcher": "Bash|apply_patch",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/writer_guard.py\" --plazo 8 --host codex", "timeout": 10 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/writer_guard.py\" --plazo 8 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/writer_guard.py\" --plazo 8 --host codex", "timeout": 10 }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/guard_comandos.py\" --plazo 8 --host codex", "timeout": 10 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/guard_comandos.py\" --plazo 8 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/guard_comandos.py\" --plazo 8 --host codex", "timeout": 10 }
         ]
       }
     ],
@@ -33,7 +33,7 @@
       {
         "matcher": "apply_patch",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 25 --host codex", "timeout": 30 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 25 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/verificar_capa.py\" --plazo 25 --host codex", "timeout": 30 }
         ]
       }
     ],
@@ -41,7 +41,7 @@
       {
         "matcher": "^writer-[a-z0-9][a-z0-9-]*$",
         "hooks": [
-          { "type": "command", "command": "python \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "timeout": 60 }
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "timeout": 60 }
         ]
       }
     ]

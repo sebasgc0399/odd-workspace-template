@@ -16,11 +16,13 @@ sys.path.insert(0, str(AQUI))
 
 PYTHON_PATH = "C:/py/bin/python.exe"
 PYTHON_REAL = "C:/py/core/python.exe"
+ALIAS_DE_LA_STORE = "C:/Users/u/AppData/Local/Microsoft/WindowsApps/python3.exe"
+SIN_PYTHON = "Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut.\n"
 RESPUESTAS_OK = {
     ("git", "config", "--get", "credential.helper"): (0, "manager\n"),
     ("git", "rev-parse", "--show-toplevel"): (128, "fatal: not a git repository\n"),
-    (PYTHON_PATH, "--version"): (0, "Python 3.14.3\n"),
-    ("claude", "--version"): (0, "2.1.284 (Claude Code)\n"),
+    (PYTHON_PATH, "-c"): (0, "Python 3.14.3\n"),
+    ("claude", "--version"): (0, "2.1.295 (Claude Code)\n"),
     ("gentle-ai", "version"): (0, "gentle-ai 4.2.0\n"),
     ("gentle-ai", "review", "mode", "status"): (0, "receipt-driven development: off (decided by global)\n  global:      off\n"),
     ("gentle-ai", "telemetry", "status"): (0, "telemetry: disabled (source: GENTLE_AI_TELEMETRY)\n"),
@@ -49,7 +51,7 @@ class Falso:
         propias = respuestas or {}
         tapadas = [clave for clave in RESPUESTAS_OK if any(isinstance(p, tuple) and clave[:len(p)] == p for p in propias)]
         self.respuestas = {**{c: v for c, v in RESPUESTAS_OK.items() if c not in tapadas}, **propias}
-        self.rutas = {"python": PYTHON_PATH, **(which or {})}
+        self.rutas = {"python3": PYTHON_PATH, "python": PYTHON_PATH, **(which or {})}
         self.tiempos = {PYTHON_PATH: 50.0, PYTHON_REAL: 49.0, **(tiempos or {})}
         self.git_real = git_real
         self.home = base / "home"
@@ -550,21 +552,143 @@ def test_el_plugin_del_contexto_real_es_la_carpeta_del_plugin():
     assert ctx.entorno is os.environ
 
 
-def test_python_lento_por_el_alias_es_aviso_con_la_ayuda():
+def test_python3_lento_por_el_alias_es_aviso_con_la_ayuda():
     with Escenario() as e:
         r = por_id(Falso(e.base, tiempos={PYTHON_PATH: 214.0}))["python"]
-        assert r.estado == "AVISO" and "214" in r.detalle and "WindowsApps" in r.ayuda, r
+        assert r.estado == "AVISO" and "214" in r.detalle and "python3" in r.detalle, r
+        assert "WindowsApps" in r.ayuda and "python3.exe" in r.ayuda, r
 
 
-def test_python_que_resuelve_al_mismo_interprete_es_ok():
+def test_python3_que_resuelve_al_mismo_interprete_es_ok():
     with Escenario() as e:
-        ctx = Falso(e.base, which={"python": PYTHON_REAL}, respuestas={(PYTHON_REAL, "--version"): (0, "Python 3.14.3\n")})
-        assert por_id(ctx)["python"].estado == "OK"
+        ctx = Falso(e.base, which={"python3": PYTHON_REAL}, respuestas={(PYTHON_REAL, "-c"): (0, "Python 3.14.3\n")})
+        r = por_id(ctx)["python"]
+        assert (r.estado, r.detalle) == ("OK", "Python 3.14.3 (%s)" % PYTHON_REAL), r
 
 
-def test_python_ausente_es_falta():
+def test_con_python_y_python3_sanos_el_item_da_lo_mismo_que_antes():
     with Escenario() as e:
-        assert por_id(Falso(e.base, which={"python": None}))["python"].estado == "FALTA"
+        ctx = Falso(e.base, which={"python": PYTHON_PATH, "python3": PYTHON_PATH},
+                    respuestas={(PYTHON_PATH, "--version"): (0, "Python 3.14.3\n"), (PYTHON_PATH, "-c"): (0, "Python 3.14.3\n")})
+        r = por_id(ctx)["python"]
+        assert (r.id, r.estado, r.detalle, r.comando, r.ayuda) == ("python", "OK", "Python 3.14.3: arranca en 50 ms", None, ""), r
+
+
+def test_python3_sano_se_prueba_corriendo_python3_c_y_no_hace_falta_python():
+    with Escenario() as e:
+        ctx = Falso(e.base, which={"python": None})
+        r = por_id(ctx)["python"]
+        assert r.estado == "OK", r
+        sondas = [llamada for llamada in ctx.llamadas if llamada[0] == PYTHON_PATH]
+        assert len(sondas) == 1 and sondas[0][1] == "-c" and "sys.version_info" in sondas[0][2], ctx.llamadas
+
+
+def test_python3_ausente_es_falta_aunque_haya_python_y_dice_como_tenerlo_en_windows():
+    with Escenario() as e:
+        ctx = Falso(e.base, which={"python3": None, "python": PYTHON_PATH}, respuestas={(PYTHON_PATH, "--version"): (0, "Python 3.14.3\n")})
+        r = por_id(ctx)["python"]
+        assert r.estado == "FALTA" and "python3 no está en el PATH" in r.detalle, r
+        assert "install manager" in r.ayuda and "Microsoft Store" in r.ayuda and "instalador clásico" in r.ayuda, r
+
+
+def test_en_mac_y_linux_la_ayuda_de_python3_es_instalar_python_3():
+    with Escenario() as e:
+        ctx = Falso(e.base, which={"python3": None})
+        ctx.windows = False
+        r = por_id(ctx)["python"]
+        assert r.estado == "FALTA" and "Python 3" in r.ayuda and "install manager" not in r.ayuda, r
+
+
+def test_python3_que_no_corre_con_argumentos_es_falta_como_el_alias_de_la_store():
+    with Escenario() as e:
+        ctx = Falso(e.base, which={"python3": ALIAS_DE_LA_STORE}, respuestas={(ALIAS_DE_LA_STORE,): (9009, SIN_PYTHON)})
+        r = por_id(ctx)["python"]
+        assert r.estado == "FALTA" and ALIAS_DE_LA_STORE in r.detalle and "no corre" in r.detalle, r
+        assert "install manager" in r.ayuda, r
+        assert [llamada[1] for llamada in ctx.llamadas if llamada[0] == ALIAS_DE_LA_STORE] == ["-c"], ctx.llamadas
+        sin_version = Falso(e.base / "b", which={"python3": ALIAS_DE_LA_STORE}, respuestas={(ALIAS_DE_LA_STORE,): (0, SIN_PYTHON)})
+        assert por_id(sin_version)["python"].estado == "FALTA"
+        sin_ejecutar = por_id(Falso(e.base / "c", which={"python3": ALIAS_DE_LA_STORE}, respuestas={(ALIAS_DE_LA_STORE,): None}))["python"]
+        assert (sin_ejecutar.estado, sin_ejecutar.detalle) == ("FALTA", f"{ALIAS_DE_LA_STORE} no corre: no se pudo ejecutar"), sin_ejecutar
+
+
+def test_python3_que_da_la_version_pero_sale_con_error_es_falta():
+    with Escenario() as e:
+        ctx = Falso(e.base, respuestas={(PYTHON_PATH, "-c"): (1, "Python 3.14.3\nFatal Python error: init_import_site\n")})
+        r = por_id(ctx)["python"]
+        assert r.estado == "FALTA" and PYTHON_PATH in r.detalle and "no corre" in r.detalle, r
+
+
+def test_python3_anterior_a_3_7_es_falta_y_3_7_alcanza():
+    with Escenario() as e:
+        r = por_id(Falso(e.base, respuestas={(PYTHON_PATH, "-c"): (0, "Python 3.6.9\n")}))["python"]
+        assert r.estado == "FALTA" and "3.6.9" in r.detalle and "3.7" in r.detalle, r
+        assert por_id(Falso(e.base / "b", respuestas={(PYTHON_PATH, "-c"): (0, "Python 3.7.0\n")}))["python"].estado == "OK"
+
+
+PYTHON_CLASICO = "C:/Python312/python.exe"
+PYTHON3_SANO = "C:/py/bin/python3.exe"
+
+
+def item_python_con_hosts(e, hosts, windows=True, **extra):
+    raiz = e.instancia() if hosts is None else con_hosts(e.instancia(), hosts)
+    ctx = Falso(e.base, cwd=raiz, **extra)
+    ctx.windows = windows
+    return por_id(ctx)["python"], [llamada[0] for llamada in ctx.llamadas if len(llamada) > 1 and llamada[1] == "-c"]
+
+
+def test_en_windows_con_codex_y_el_instalador_clasico_revisa_python_y_no_el_alias_de_python3():
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["codex"], which={"python3": ALIAS_DE_LA_STORE, "python": PYTHON_CLASICO},
+                                          respuestas={(ALIAS_DE_LA_STORE,): (9009, SIN_PYTHON), (PYTHON_CLASICO, "-c"): (0, "Python 3.12.4\n")})
+        assert (r.estado, r.detalle) == ("OK", "Python 3.12.4: arranca en 50 ms"), r
+        assert sondas == [PYTHON_CLASICO], sondas
+
+
+def test_en_windows_con_codex_sin_python_es_falta_aunque_python3_este_sano():
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["codex"], which={"python3": PYTHON3_SANO, "python": None},
+                                          respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.12.4\n")})
+        assert (r.estado, r.detalle) == ("FALTA", "python no está en el PATH: los hooks de codex lo llaman por nombre"), r
+        assert "python.exe to PATH" in r.ayuda and "Microsoft Store" in r.ayuda, r
+        assert sondas == [], sondas
+
+
+def test_en_windows_con_los_dos_hosts_revisa_python3_y_python_y_nombra_al_host_que_no_arranca():
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["claude-code", "codex"], which={"python3": PYTHON3_SANO, "python": PYTHON_CLASICO},
+                                          respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.14.3\n"), (PYTHON_CLASICO, "-c"): (0, "Python 3.12.4\n")})
+        assert (r.estado, r.detalle) == ("OK", "python3: Python 3.14.3: arranca en 50 ms; python: Python 3.12.4: arranca en 50 ms"), r
+        assert sondas == [PYTHON3_SANO, PYTHON_CLASICO], sondas
+    with Escenario() as e:
+        r, _ = item_python_con_hosts(e, ["claude-code", "codex"], which={"python3": PYTHON3_SANO, "python": None},
+                                     respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.14.3\n")})
+        assert r.estado == "FALTA" and "python no está en el PATH: los hooks de codex" in r.detalle and "claude-code" not in r.detalle, r
+    with Escenario() as e:
+        r, _ = item_python_con_hosts(e, ["claude-code", "codex"], which={"python3": ALIAS_DE_LA_STORE, "python": PYTHON_CLASICO},
+                                     respuestas={(ALIAS_DE_LA_STORE,): (9009, SIN_PYTHON), (PYTHON_CLASICO, "-c"): (0, "Python 3.12.4\n")})
+        assert r.estado == "FALTA" and "los hooks de claude-code no arrancan" in r.detalle and "codex" not in r.detalle, r
+        assert "python: Python 3.12.4" in r.detalle and "install manager" in r.ayuda, r
+
+
+def test_fuera_de_windows_con_codex_declarado_se_sigue_revisando_solo_python3():
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["codex"], windows=False, which={"python3": PYTHON3_SANO, "python": None},
+                                          respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.9.6\n")})
+        assert (r.estado, sondas) == ("OK", [PYTHON3_SANO]), (r, sondas)
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["claude-code", "codex"], windows=False, which={"python3": None, "python": PYTHON_CLASICO})
+        assert (r.estado, r.detalle) == ("FALTA", "python3 no está en el PATH: los hooks de claude-code, codex lo llaman por nombre"), r
+        assert sondas == [] and "Python 3" in r.ayuda, (r, sondas)
+
+
+def test_solo_con_claude_code_o_con_hosts_invalido_el_item_python_es_el_de_fuera_de_una_instancia():
+    for hosts in (None, ["claude-code"], "codex", []):
+        with Escenario() as e:
+            afuera = por_id(Falso(e.base / "afuera", which={"python3": None}))["python"]
+            r, sondas = item_python_con_hosts(e, hosts, which={"python3": None, "python": None})
+            assert r == afuera, (hosts, r, afuera)
+            assert r.detalle == "python3 no está en el PATH: los hooks lo llaman por nombre", r
 
 
 def test_sin_credential_helper_es_aviso_opcional_y_sin_git_es_falta():
@@ -580,6 +704,15 @@ def test_claude_viejo_es_falta_y_version_ilegible_es_aviso():
     with Escenario() as e:
         assert por_id(Falso(e.base, respuestas={("claude", "--version"): (0, "2.1.200 (Claude Code)\n")}))["claude"].estado == "FALTA"
         assert por_id(Falso(e.base / "b", respuestas={("claude", "--version"): (0, "sin numeros\n")}))["claude"].estado == "AVISO"
+
+
+def test_claude_anterior_a_2_1_295_es_aviso_y_no_hace_fallar_la_salida():
+    with Escenario() as e:
+        ctx = Falso(e.base, respuestas={("claude", "--version"): (0, "2.1.284 (Claude Code)\n")})
+        r = por_id(ctx)["claude"]
+        assert (r.estado, r.detalle) == ("AVISO", "2.1.284: un hook que no arranca deja pasar"), r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0 and "un hook que no arranca deja pasar" in salida and "2.1.295" in salida, salida
 
 
 def test_marketplace_no_registrado_es_falta_con_arreglo_automatico():
@@ -1152,6 +1285,15 @@ def test_una_instancia_codex_sana_da_ok_en_todos_sus_items():
         assert "frescura" in r["codex-hooks"].detalle and "no se verifica" in r["codex-hooks"].detalle, r["codex-hooks"]
         codigo, salida = correr([], ctx)
         assert codigo == 0, salida
+
+
+def test_hooks_host_cuenta_handlers_y_aparte_los_comandos_cuando_un_handler_trae_command_windows():
+    with Escenario() as e:
+        _, ctx = instancia_codex_sana(e)
+        assert por_id(ctx)["hooks-host"].detalle == "6 hooks de codex (12 comandos), cada uno con el --host de su archivo"
+    with Escenario() as e:
+        _, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+        assert por_id(ctx)["hooks-host"].detalle == "13 hooks de claude-code, codex (19 comandos), cada uno con el --host de su archivo"
 
 
 def test_codex_por_version_ausente_o_vieja_y_sin_codex_lo_de_la_maquina_no_aplica():

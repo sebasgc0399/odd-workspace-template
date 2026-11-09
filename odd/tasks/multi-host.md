@@ -63,6 +63,9 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F1d2 | S2–S4, S8 | Doctor por host (L17):<br>• Codex: la versión, el plugin instalado y la confianza de los hooks y del proyecto<br>• `codex-agentes` (L18): cada TOML se compara con el que sale del `.md` actual. Si falta, se genera; si está atrasado y su huella coincide, da `FALTA` y `--arreglar` lo re-deriva; si fue editado a mano, da `AVISO` sin pisarlo y pide editar el `.md`. Se compara contra la derivación completa y no contra `# odd-ws-plantilla: N`, que no sube cuando cambian los textos de Codex (A5 del verificador de F1d1)<br>• `hooks-host` en todos los hosts: ningún hook con un `--host` desconocido o vacío (A5 de L14, A2 de L16)<br>• `claude` no es `FALTA` si la instancia no lo declara<br>• el bootstrap ya promete «lo deriva de ahí el doctor (doctor --arreglar)»: F1d2 la cumple, e idealmente suma el id del arreglo a esa línea (A6 de L19) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5) | hecho (`39f46e4`, L20) |
 | F1f | S4, S5 | Lo que encontró el humo (L23):<br>• A: en Codex, el primer toque no se saltea por las skills del frontmatter, porque Codex no las precarga<br>• D: documentar la config de Codex que necesita un writer en Windows<br>• B pasó a X7 (L25) | inline; después, un verificador (ítem 2: `verificar_capa`) | hecho (`d205677`, L26) |
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | hecho (L22–L24 y L27) |
+| M1 | S4 | Un CI que corra todas las suites en Windows, Linux y macOS (L30). Hoy las suites solo corren en el pre-commit de una máquina Windows, y el único workflow es `release.yml` | inline | hecho (L34) |
+| M2 | S4 | Un arranque de Python portable. Los 13 hooks llaman a `python`, que no existe en una Mac típica, y entonces el hook no arranca y los guards fallan abiertos. En Codex: `command` con `python3` y `commandWindows` con `python`. En Claude Code: por investigar (L30) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítems 2, 3 y 5) | hecho (L34) |
+| M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job | por decidir | pendiente |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -453,4 +456,74 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     | `d205677` | `37d2a1a` |
     | `9590e57` | `c6a799b` |
     | `f7b7630` | `9245d36` |
-- **Siguiente paso:** F2 (gentle-shell).
+- **L30 (2026-11-09), macOS y Linux antes de Pi.** El commit de la tabla de hashes quedó en `5d4f764`, sin push.
+  - **La pregunta del usuario:** «si alguien en mac quiere usar este plugin no le va funcionar bien?».
+  - **La evidencia:**
+    - los 13 hooks (7 en `hooks.json` y 6 en `hooks.codex.json`) llaman a `python`;
+    - macOS no lo trae desde la 12.3, y Homebrew y python.org instalan `python3`;
+    - las suites nunca corrieron fuera de Windows: el único workflow es `release.yml`;
+    - no hay WSL en esta máquina.
+  - **La propuesta:** primero un CI en las tres plataformas, después el arranque portable.
+  - **El usuario:** a «¿Lo meto como próxima tarea, antes de Pi?», respondió «Si me parece bien».
+- **L31 (2026-11-09), la investigación de M2 y la decisión.** El usuario pidió «Investiga bien, antes de que tomemos una decision para estar seguros».
+  - **Claude Code** (según `hooks.md`):
+    - Con `args`, ejecuta el binario sin shell. Sin `args`, usa `sh -c`, o Git Bash en Windows.
+    - No hay campo de comando por sistema operativo.
+    - `onFailure: "block"`, desde la v2.1.295, cuenta como falla un hook que no arranca, un exit distinto de 0 y 2, un timeout o un JSON inválido. Hace lo mismo que un exit 2 y no tiene efecto en `Stop`/`SubagentStop`.
+    - Un plugin de prueba con `onFailure` valida en la 2.1.284 y en la actual: la versión vieja no lo rechaza.
+  - **Python:**
+    - **Versión:** los hooks y sus imports necesitan 3.7 (análisis estático con `ast` y `tokenize`); los tests, 3.12 (`shutil.rmtree(onexc=)` y `os.path.isjunction`).
+    - **Mac y Linux:** `python3` existe siempre; en Mac, el de las Command Line Tools es 3.9.6. `python` falta en macOS, en Ubuntu y en Debian de fábrica, y en el runner `macos-latest`.
+    - **Windows:** traen `python3` el Python install manager, la Store y scoop. El instalador clásico (obsoleto desde 3.14, sin publicar desde 3.16), winget y choco no lo traen, y ahí `python3` cae en el alias de la Store, que falla con argumentos.
+    - **El costo:** medido en esta máquina, un lanzador `sh` le suma unos 330 ms a cada hook en Windows (388 contra 58 ms).
+  - **Las opciones** que se le presentaron:
+    - A: exec `python3` más `onFailure: "block"`;
+    - B: lanzador `sh`;
+    - C: `python` como hoy.
+  - **El usuario:** «Si vamos con A».
+- **L32 (2026-11-09), el primer CI en tres plataformas.**
+  - **El usuario:** «si te doy autorizacion» (el push de una rama para el CI y la `0.3.1`).
+  - **La rama `ci/pruebas`:** un worktree aparte desde `5d4f764`, con solo el workflow, empujado a GitHub (`cf3b2f5`, y `0aa6ca3` con anotaciones por suite).
+  - **Resultado:**
+    - **Windows:** GitHub no creó el job ninguna de las dos veces; la primera, con «Internal server error».
+    - **Ubuntu:** 7 suites en rojo.
+    - **macOS:** 10 suites en rojo.
+    - **Hay dos tipos:** tests que asumen Windows (mayúsculas en rutas, `/var` → `/private/var`, el bit de ejecución de los hooks, `GREP_OPTIONS`) y posibles bugs reales (`guard_comandos` con 18/19 decisiones distintas, `/usr/bin/timeout` en `afirmaciones` en macOS, y otros sin causa).
+  - **`gh`:** el usuario instaló GitHub CLI e inició sesión, así que los logs se leen con `gh run view --log-failed`.
+- **L33 (2026-11-09), triaje de M3.** Lo hizo un explorador sobre `ci/pruebas` (`0aa6ca3`) y los logs de `gh`.
+  - **El conteo real:** 6 suites en Ubuntu y 11 en macOS; a `ticket` no la anotó porque GitHub guarda como mucho 10 errores por step.
+  - **Lo que es solo del test (T):**
+    - fixtures de `guard_comandos` hechas para Windows (`TEMP=C:\…`, `\\?\`, `C:/`), y la ruta `//mp/…` que la mutila el test (L713);
+    - `shutil.copyfile`, que pierde el bit de ejecución (en `pre-commit.tests` y en `bootstrap.tests`);
+    - `os.rmdir` sobre un symlink en `ticket.tests`;
+    - `/var` → `/private/var` en `recibo.tests` y en `doctor` `codex_proyecto`;
+    - `GREP_OPTIONS`, que el GNU grep actual ignora.
+  - **Lo que es del producto (P), de mayor a menor riesgo:**
+    - **P1:** `guard_comandos` capa 2 **falla abierta en macOS**. `rutas.caso` y `config_loader.canonica` no pliegan mayúsculas en darwin, y APFS no las distingue: un push o un commit sobre un repo `agent_readonly`, escrito con otras mayúsculas, pasa. Toca `canonica`, que es compartido (ítem 3).
+    - **P2:** `auditar_lecturas` no ve una lectura prohibida si la ruta pasa por un symlink (`/var` → `/private/var`): compara texto.
+    - **P3:** `afirmaciones` y `conocimiento` fijan `/usr/bin/timeout`, que en macOS no existe. Todo da ERROR, y los filtros BSD pueden diferir.
+    - **P4:** la excepción del scratch de la capa 1 de `guard_comandos` no funciona en POSIX: `_bajo_scratch` solo acepta `X:/` o `/x/`. Falla cerrada, más un borde improbable de falla abierta con `/c/…` resuelto contra el cwd.
+    - **P5:** el doctor da FALTA en `plugin_root` en macOS cuando apunta al mismo plugin; se arregla con `samefile`.
+    - **P6:** fuera de Windows, `scriptdom.ps1` sale con 4 en vez de 3 (`Join-Path 'C:\…'`).
+  - **Windows:** sin pista. La primera corrida tuvo un solo job y la segunda, dos.
+- **L34 (2026-11-09), M1 y M2 cerrados.**
+  - **M1:** `.github/workflows/pruebas.yml` corre todas las suites con Python 3.12 en Ubuntu, Windows y macOS, sin `fail-fast`. Cada suite en rojo deja una anotación con sus primeras fallas, y GitHub guarda como mucho 10 por step.
+  - **M2, el writer:**
+    - **Claude Code:** `hooks.json` con `python3` en exec form, y `onFailure: "block"` en los 5 hooks de pre y post.
+    - **Codex:** `hooks.codex.json` con `python3` y `commandWindows` con `python`.
+    - **El doctor:** revisa que el binario corra un Python 3.7 o más y da un AVISO con Claude Code entre la 2.1.284 y la 2.1.294.
+    - **Hooks de git:** `.githooks/python.sh` sondea `python3`, `python` y `py`, y la plantilla del pre-commit lleva el mismo texto.
+    - **Pruebas:** 24 mutantes muertos.
+  - **El padre:** cambió `writer_stop.tests.py:693` a `python3` y sin `onFailure`.
+  - **El verificador:** S5 cumple, y S4 quedó parcial por un blocker.
+    - **B1:** el ítem `python` del doctor revisaba solo `python3`, pero Codex lanza `python` en Windows.
+    - **La corrección:** cada adaptador declara `PYTHON` y `PYTHON_EN_WINDOWS`. En Windows, el doctor revisa el binario de cada host declarado. A1: `hooks-host` cuenta handlers, con los comandos entre paréntesis.
+    - **El rechequeo:** B1 y A1 cerrados, con una matriz de 40 casos.
+  - **Pruebas:** 41 de 41 suites, con 1758 pruebas.
+  - **Avisos que quedan:**
+    - **A3:** la sonda solo silencia stderr.
+    - **A5:** la sonda elige el primer intérprete que arranca, sin mirar la versión.
+    - **A7:** `which` acepta los shims `.bat`; ahora eso falla cerrado.
+    - **A8:** las instancias existentes conservan el pre-commit viejo, que llama a `python`.
+    - **Las skills y el README:** unas 25 líneas todavía dicen `python` a secas (pasan a M3).
+- **Siguiente paso:** M3 en unidades: guard (P1, P4), afirmaciones (P3), el resto (P2, P5, P6 y los T), las skills y el README con `python3`, y `windows-2022` en el CI. Después, la `0.3.1` y F2.

@@ -1,13 +1,20 @@
 #!/bin/sh
 raiz=$(git rev-parse --show-toplevel) || exit 1
-if ! python -c "" 2>/dev/null; then
-    echo "pre-commit: python no corre desde el PATH; /odd-ws:doctor lo revisa (item python)" >&2
+python=
+for candidato in python3 python py; do
+    if "$candidato" -c "" 2>/dev/null; then
+        python=$candidato
+        break
+    fi
+done
+if [ -z "$python" ]; then
+    echo "${0##*/}: python no corre desde el PATH (se probaron python3, python y py); /odd-ws:doctor lo revisa (item python)" >&2
     exit 1
 fi
 if [ -f "$raiz/.claude/plugin/scripts/reglas.py" ]; then
     plugin="$raiz/.claude/plugin"
 else
-    plugin=$(python -c 'import json, sys
+    plugin=$("$python" -c 'import json, sys
 try:
     with open(sys.argv[1], encoding="utf-8-sig") as f:
         valor = json.load(f).get("plugin_root")
@@ -20,4 +27,4 @@ if [ -z "$plugin" ] || [ ! -f "$plugin/scripts/reglas.py" ]; then
     echo "pre-commit: se arregla con /odd-ws:doctor --arreglar plugin-root, o con la copia de emergencia en .claude/plugin" >&2
     exit 1
 fi
-exec python "$plugin/scripts/reglas.py" --test --raiz "$raiz"
+exec "$python" "$plugin/scripts/reglas.py" --test --raiz "$raiz"
