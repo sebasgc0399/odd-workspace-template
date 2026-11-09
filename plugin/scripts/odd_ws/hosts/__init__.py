@@ -1,5 +1,7 @@
 import importlib
+import json
 from collections import namedtuple
+from pathlib import Path
 
 from odd_ws.comun import SILENCIO
 from odd_ws.hosts.base import cargar
@@ -9,7 +11,39 @@ NOMBRES = {"claude-code": "claude_code", "codex": "codex"}
 FUENTE = "claude-code"
 PRE = "PreToolUse"
 
-Archivo = namedtuple("Archivo", "ruta contenido fuente", defaults=(None,))
+Archivo = namedtuple("Archivo", "ruta contenido fuente arreglo", defaults=(None, None))
+
+
+def leer_hooks(ruta):
+    try:
+        datos = json.loads(Path(ruta).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return datos if isinstance(datos, dict) else None
+
+
+def manejadores(datos):
+    eventos = datos.get("hooks") if isinstance(datos, dict) else None
+    if not isinstance(eventos, dict):
+        return
+    for evento, grupos in eventos.items():
+        if not isinstance(grupos, list):
+            continue
+        for grupo, entrada in enumerate(grupos):
+            lista = entrada.get("hooks") if isinstance(entrada, dict) else None
+            for indice, manejador in enumerate(lista if isinstance(lista, list) else []):
+                yield evento, grupo, indice, manejador
+
+
+def tokens_de(texto, windows=False):
+    import shlex
+
+    if windows:
+        texto = texto.replace("\\", "/")
+    try:
+        return shlex.split(texto)
+    except ValueError:
+        return texto.split()
 
 
 def adaptador(nombre):

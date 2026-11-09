@@ -506,6 +506,7 @@ def test_cada_toml_declara_que_deriva_del_md_de_su_agente_y_la_config_de_codex_n
     for accion in extra[:-1]:
         assert isinstance(accion, bootstrap.AccionDerivada), accion[0]
         assert accion.fuente == capas.agente(accion.ruta.rsplit("/", 1)[1][:-len(".toml")]), (accion.ruta, accion.fuente)
+        assert accion.arreglo == codex().ID_AGENTES == "codex-agentes", (accion.ruta, accion.arreglo)
     assert extra[-1] == (capas.CODEX_CONFIG, codex().CONFIG_DEL_PROYECTO) and not isinstance(extra[-1], bootstrap.AccionDerivada)
 
 
@@ -595,6 +596,23 @@ def test_el_toml_deriva_del_md_con_los_bloques_y_la_description_de_la_instancia(
     datos = tomllib.loads(archivos[capas.agente_codex("writer-sql")])
     assert datos["description"] == rara, datos["description"]
     assert propia.rstrip("\n") in datos["developer_instructions"], datos["developer_instructions"]
+
+
+def test_armar_da_lo_mismo_que_el_generador_de_cada_agente_y_los_nombres_salen_en_el_orden_del_bootstrap():
+    assert a().nombres_de_agentes(CAPAS) == agentes_de(CAPAS)
+    assert a().nombres_de_agentes(("sql", "C_Sharp", 3)) == ["writer-sql", "revisor-sql", "revisor-diseno"]
+    assert a().nombres_de_agentes(()) == [] and a().nombres_de_agentes(("C_Sharp",)) == []
+    propio = re.sub(r"(?m)^description:.*$", 'description: "Mía"', plantilla_writer.generar("sql"), count=1)
+    for host in ("claude-code", "codex"):
+        assert a().armar("writer-sql", propio, host) == plantilla_writer.generar("sql", propio, host=host)
+        assert a().armar("revisor-web", None, host) == a().generar_revisor("web", host=host)
+        assert a().armar("revisor-diseno", None, host) == a().generar_revisor_diseno(host=host)
+    for malo in ("otro", "writer-", "revisor-C_Sharp", None):
+        try:
+            a().armar(malo)
+        except ValueError:
+            continue
+        raise AssertionError("armó %r" % (malo,))
 
 
 def test_generar_con_codex_es_pura_y_determinista():

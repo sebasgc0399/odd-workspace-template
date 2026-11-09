@@ -55,22 +55,33 @@ def generar_revisor_diseno(actual=None, host=hosts.FUENTE):
                                   plantilla_writer.textos(host))
 
 
+def nombres_de_agentes(declaradas):
+    por_capa = [capa for capa in declaradas if isinstance(capa, str) and capas.es_writer("writer-%s" % capa)]
+    nombres = [nombre for capa in por_capa for nombre in ("writer-%s" % capa, "revisor-%s" % capa)]
+    return nombres + ["revisor-diseno"] if por_capa else nombres
+
+
+def armar(nombre, actual=None, host=hosts.FUENTE):
+    tipo, _, capa = nombre.partition("-") if isinstance(nombre, str) else ("", "", "")
+    if nombre == "revisor-diseno":
+        return generar_revisor_diseno(actual, host)
+    if tipo == "writer":
+        return plantilla_writer.generar(capa, actual, host=host)
+    if tipo == "revisor":
+        return generar_revisor(capa, actual, host)
+    raise ValueError("%r no es un agente de la plantilla (writer-<capa>, revisor-<capa> o revisor-diseno)" % (nombre,))
+
+
 def _accion(archivo):
     if archivo.fuente is None:
         return archivo.ruta, archivo.contenido
     from bootstrap import AccionDerivada
 
-    return AccionDerivada(archivo.ruta, archivo.contenido, archivo.fuente)
+    return AccionDerivada(archivo.ruta, archivo.contenido, archivo.fuente, archivo.arreglo)
 
 
 def _armados(por_capa, host):
-    armados = []
-    for capa in por_capa:
-        armados.append(plantilla_writer.generar(capa, host=host))
-        armados.append(generar_revisor(capa, host=host))
-    if por_capa:
-        armados.append(generar_revisor_diseno(host=host))
-    return armados
+    return [armar(nombre, host=host) for nombre in nombres_de_agentes(por_capa)]
 
 
 def generar(spec, hoy=None):

@@ -318,6 +318,60 @@ def test_los_textos_de_claude_code_son_los_de_sus_herramientas():
     assert "apply_patch" not in juntos and "bitácora" not in juntos
 
 
+class Ctx:
+    def __init__(self, base, version="2.1.284 (Claude Code)\n", marketplaces=None):
+        self.plugin, self.home, self.llamadas, self.version = AQUI.parent.parent.parent, base / "home", [], version
+        if marketplaces is not None:
+            (self.home / ".claude" / "plugins").mkdir(parents=True)
+            (self.home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(marketplaces), encoding="utf-8")
+
+    def ejecutar(self, args, cwd=None):
+        self.llamadas.append(tuple(args))
+        return (0, self.version) if self.version else (None, "")
+
+
+def test_el_puerto_del_doctor_da_la_version_de_claude_y_el_marketplace_como_antes():
+    doctor = importlib.import_module("doctor")
+    with Temporal() as base:
+        ctx = Ctx(base, marketplaces={"odd-workspace-template": {}})
+        claude, instalado = m().version(ctx, doctor.NUCLEO)
+        assert (claude.id, claude.estado, claude.detalle, instalado) == ("claude", "OK", "2.1.284", True), claude
+        assert [(r.id, r.estado, r.detalle) for r in m().chequeos(ctx, None, doctor.NUCLEO, doctor.NUCLEO.CLI_INSTALADO)] == [
+            ("marketplace", "OK", "odd-workspace-template registrado")]
+        assert ctx.llamadas == [("claude", "--version")], ctx.llamadas
+    with Temporal() as base:
+        ctx = Ctx(base, version="2.1.200 (Claude Code)\n")
+        claude, instalado = m().version(ctx, doctor.NUCLEO)
+        assert (claude.estado, claude.ayuda, instalado) == ("FALTA", "Actualizá Claude Code a 2.1.284 o superior.", True), claude
+        for cli in (doctor.NUCLEO.CLI_INSTALADO, doctor.NUCLEO.CLI_AUSENTE):
+            [marketplace] = m().chequeos(ctx, None, doctor.NUCLEO, cli)
+            assert marketplace.estado == "FALTA" and marketplace.comando == [
+                "claude", "plugin", "marketplace", "add", "https://github.com/sebasgc0399/odd-workspace-template.git"], (cli, marketplace)
+        [marketplace] = m().chequeos(ctx, None, doctor.NUCLEO, doctor.NUCLEO.CLI_DE_OTRO_HOST)
+        assert (marketplace.id, marketplace.estado, marketplace.detalle, marketplace.comando) == (
+            "marketplace", "NO APLICA", "claude no está instalado", None), marketplace
+    with Temporal() as base:
+        claude, instalado = m().version(Ctx(base, version=None), doctor.NUCLEO)
+        assert (claude.estado, claude.detalle, instalado) == ("FALTA", "claude no está instalado", False), claude
+
+
+def test_los_hooks_registrados_de_claude_code_son_command_y_args_de_hooks_json():
+    with Temporal() as base:
+        registrados = list(m().hooks_registrados(Ctx(base), None))
+        assert len(registrados) == 7 and all(propio for _, _, propio in registrados), registrados
+        assert registrados[0] == ("hooks/hooks.json SessionStart[0][0]",
+                                  ["python", "${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], True), registrados[0]
+        ctx = Ctx(base)
+        ctx.plugin = base / "sin-plugin"
+        assert list(m().hooks_registrados(ctx, None)) == [("hooks/hooks.json", None, True)]
+        (ctx.plugin / "hooks").mkdir(parents=True)
+        (ctx.plugin / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "python w.py --host codex"}, {"type": "command", "command": "python", "args": ["w.py", 3]}]}]}}),
+            encoding="utf-8")
+        assert list(m().hooks_registrados(ctx, None)) == [("hooks/hooks.json Stop[0][0]", ["python", "w.py", "--host", "codex"], True),
+                                                         ("hooks/hooks.json Stop[0][1]", ["python"], True)]
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

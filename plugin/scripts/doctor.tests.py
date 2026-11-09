@@ -63,7 +63,7 @@ class Falso:
         (self.plugin / "scripts").mkdir(parents=True, exist_ok=True)
         (self.plugin / "scripts" / "reglas.py").write_text("", encoding="utf-8")
         plugins = self.home / ".claude" / "plugins"
-        plugins.mkdir(parents=True)
+        plugins.mkdir(parents=True, exist_ok=True)
         if marketplace is not None:
             conocidos = {"claude-plugins-official": {}, **({"odd-workspace-template": {}} if marketplace else {})}
             (plugins / "known_marketplaces.json").write_text(json.dumps(conocidos), encoding="utf-8")
@@ -989,6 +989,687 @@ def test_instancia_plugin_con_settings_roto_es_falta_sin_arreglo():
             codigo, salida = correr([], ctx)
             assert codigo == 1, salida
             assert (raiz / ".claude" / "settings.json").read_bytes() == (malo if isinstance(malo, bytes) else malo.encode("utf-8"))
+
+
+CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
+CLAVES_DE_CODEX = [CLAVE_PLUGIN + ":hooks/hooks.codex.json:" + clave for clave in (
+    "session_start:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0", "subagent_stop:0:0")]
+ITEMS_DE_CODEX = ["codex", "codex-plugin", "codex-hooks", "codex-proyecto", "codex-config", "codex-agentes"]
+ITEMS_DE_CLAUDE = {"claude", "marketplace", "instancia-plugin", "agentes-skills", "agentes-hooks"}
+
+
+def ba():
+    return importlib.import_module("bootstrap_agentes")
+
+
+def cx():
+    return importlib.import_module("odd_ws.hosts.codex")
+
+
+def con_hosts(raiz, hosts):
+    ruta = raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["hosts"] = hosts
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+    return raiz
+
+
+def con_hooks_del_plugin(ctx):
+    shutil.copytree(AQUI.parent / "hooks", ctx.plugin / "hooks", dirs_exist_ok=True)
+    return ctx
+
+
+def falso_de_codex(e, raiz, version="codex-cli 0.167.0\n", **extra):
+    respuestas = {**extra.pop("respuestas", {}), ("codex", "--version"): (0, version) if version else None}
+    return con_hooks_del_plugin(Falso(e.base, cwd=raiz, respuestas=respuestas, **extra))
+
+
+def texto_toml(valor):
+    return json.dumps(valor)
+
+
+def poner_config_de_codex(ctx, plugin=True, claves=CLAVES_DE_CODEX, proyecto=None, extra="", carpeta=None):
+    partes = []
+    if plugin is not None:
+        partes.append('[plugins."%s"]\n%s' % (CLAVE_PLUGIN, "" if plugin is True else "enabled = %s\n" % plugin))
+    if proyecto is not None:
+        ruta, nivel = proyecto
+        partes.append('[projects.%s]\ntrust_level = "%s"\n' % (texto_toml(str(ruta)), nivel))
+    partes += ['[hooks.state."%s"]\ntrusted_hash = "sha256:abc"\n' % clave for clave in claves]
+    return poner(carpeta or ctx.home / ".codex", "config.toml", "\n".join(partes) + extra)
+
+
+def poner_cache_de_codex(ctx, *versiones):
+    for version in versiones or ("0.3.0",):
+        (ctx.home / ".codex" / "plugins" / "cache" / "odd-workspace-template" / "odd-ws" / version).mkdir(parents=True)
+
+
+def poner_agentes(raiz, capa="sql"):
+    poner(raiz, ".claude/agents/writer-%s.md" % capa, pw().generar(capa))
+    poner(raiz, ".claude/agents/revisor-%s.md" % capa, ba().generar_revisor(capa))
+    poner(raiz, ".claude/agents/revisor-diseno.md", ba().generar_revisor_diseno())
+
+
+def toml_de_la_plantilla(nombre):
+    if nombre == "revisor-diseno":
+        armado = ba().generar_revisor_diseno(host="codex")
+    elif nombre.startswith("writer-"):
+        armado = pw().generar(nombre[len("writer-"):], host="codex")
+    else:
+        armado = ba().generar_revisor(nombre[len("revisor-"):], host="codex")
+    return cx().toml(pw().agente(armado))
+
+
+def toml_en(raiz, nombre):
+    return raiz / ".codex" / "agents" / ("%s.toml" % nombre)
+
+
+def resellar_toml(texto):
+    lineas = texto.split("\n")
+    sello = cx().huella(texto)
+    return "\n".join("# odd-ws-hash: " + sello if linea.startswith("# odd-ws-hash:") else linea for linea in lineas)
+
+
+def instancia_codex_sana(e, hosts=("codex",)):
+    raiz = con_hosts(e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")})), list(hosts))
+    poner_agentes(raiz)
+    for nombre in ("writer-sql", "revisor-sql", "revisor-diseno"):
+        poner(raiz, ".codex/agents/%s.toml" % nombre, toml_de_la_plantilla(nombre))
+    poner(raiz, ".codex/config.toml", cx().CONFIG_DEL_PROYECTO)
+    ctx = falso_de_codex(e, raiz)
+    poner_cache_de_codex(ctx)
+    poner_config_de_codex(ctx, proyecto=(raiz, "trusted"))
+    return raiz, ctx
+
+
+def test_con_hosts_claude_code_la_salida_es_la_misma_que_sin_la_clave():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner(raiz, ".claude/agents/writer-sql.md", pw().generar("sql").replace("Nunca reviertas", "Revierte", 1))
+        ctx = Falso(e.base, cwd=raiz)
+        sin = [correr(argv, ctx) for argv in ([], ["--arreglar", "writer-sql"], ["--arreglar", "no-existe"])]
+        ids_sin = [r.id for r in d().diagnosticar(ctx)]
+        con_hosts(raiz, ["claude-code"])
+        con = [correr(argv, ctx) for argv in ([], ["--arreglar", "writer-sql"], ["--arreglar", "no-existe"])]
+        assert con == sin, (con, sin)
+        assert [r.id for r in d().diagnosticar(ctx)] == ids_sin == [i for i in ANTES_EN_INSTANCIA[:3]] + list(NUEVOS) + ANTES_EN_INSTANCIA[3:], ids_sin
+        assert not [i for i in ids_sin if i.startswith("codex") or i in ("hosts", "hooks-host")], ids_sin
+
+
+def test_sin_claude_code_declarado_sus_items_no_salen_y_claude_ausente_no_hace_fallar():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        ctx.respuestas[("claude", "--version")] = None
+        ids = [r.id for r in d().diagnosticar(ctx)]
+        assert not ITEMS_DE_CLAUDE & set(ids), ids
+        codigo, salida = correr([], ctx)
+        assert codigo == 0 and not [l for l in salida.splitlines() if l.split(" ", 1)[0] in ITEMS_DE_CLAUDE], salida
+        codigo, salida = correr(["--arreglar", "claude"], ctx)
+        assert codigo == 2 and "no existe el ítem «claude»" in salida, salida
+
+
+def test_con_los_dos_hosts_salen_los_de_claude_code_y_los_de_codex_en_su_orden():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+        ids = [r.id for r in d().diagnosticar(ctx)]
+        assert ITEMS_DE_CLAUDE <= set(ids), ids
+        assert ids[ids.index("claude"):ids.index("claude") + 9] == ["claude", "marketplace", *ITEMS_DE_CODEX, "hooks-host"], ids
+        con_hosts(raiz, ["codex", "claude-code"])
+        ids = [r.id for r in d().diagnosticar(ctx)]
+        assert ids[ids.index("codex"):ids.index("codex") + 9] == [*ITEMS_DE_CODEX, "claude", "marketplace", "hooks-host"], ids
+
+
+def test_hosts_invalido_es_una_falta_clara_y_no_revienta():
+    for malo, rastro in ((["gemini"], "'gemini' no es un host conocido"), ([], "lista no vacía"), (["codex", "codex"], "repetido"),
+                         ("codex", "lista no vacía")):
+        with Escenario() as e:
+            raiz = con_hosts(instancia_sana(e), malo)
+            ctx = con_hooks_del_plugin(Falso(e.base, cwd=raiz))
+            r = por_id(ctx)
+            assert r["hosts"].estado == "FALTA" and rastro in r["hosts"].detalle and r["hosts"].arreglo is None and r["hosts"].ayuda, (malo, r["hosts"])
+            assert not [i for i in r if i.startswith("codex") or i in ITEMS_DE_CLAUDE or i == "hooks-host"], (malo, list(r))
+            assert r["config"].estado == "OK", r["config"]
+            codigo, salida = correr([], ctx)
+            assert codigo == 1 and "hosts" in salida, salida
+            codigo, salida = correr(["--arreglar", "hosts"], ctx)
+            assert codigo == 2 and "workspace.config.json" in salida, salida
+
+
+def test_config_ilegible_sigue_con_los_items_de_claude_code_como_antes():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        (raiz / "workspace.config.json").write_text("{roto", encoding="utf-8")
+        ids = list(por_id(Falso(e.base, cwd=raiz)))
+        assert "claude" in ids and "marketplace" in ids and "hosts" not in ids and "hooks-host" not in ids, ids
+
+
+def test_una_instancia_codex_sana_da_ok_en_todos_sus_items():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        r = por_id(ctx)
+        assert all(r[i].estado == "OK" for i in ITEMS_DE_CODEX + ["hooks-host"]), {i: r[i] for i in ITEMS_DE_CODEX + ["hooks-host"]}
+        assert r["codex"].detalle == "0.167.0", r["codex"]
+        assert "frescura" in r["codex-hooks"].detalle and "no se verifica" in r["codex-hooks"].detalle, r["codex-hooks"]
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+
+
+def test_codex_por_version_ausente_o_vieja_y_sin_codex_lo_de_la_maquina_no_aplica():
+    with Escenario() as e:
+        raiz, _ = instancia_codex_sana(e)
+        r = por_id(falso_de_codex(e, raiz, version="codex-cli 0.143.9\n"))["codex"]
+        assert r.estado == "FALTA" and "0.143.9" in r.detalle and "0.144.0" in r.detalle and r.ayuda, r
+        assert por_id(falso_de_codex(e, raiz, version="codex-cli 0.144.0\n"))["codex"].estado == "OK"
+        ctx = falso_de_codex(e, raiz, version=None)
+        r = por_id(ctx)
+        assert r["codex"].estado == "FALTA" and "no está instalado" in r["codex"].detalle, r["codex"]
+        assert all(r[i].estado == "NO APLICA" for i in ("codex-plugin", "codex-hooks", "codex-proyecto")), r
+        assert r["codex-config"].estado == "OK" and r["codex-agentes"].estado == "OK", r
+
+
+def test_codex_se_corre_por_la_ruta_que_da_which_para_alcanzar_un_cmd():
+    with Escenario() as e:
+        raiz, _ = instancia_codex_sana(e)
+        ruta = "C:/npm/codex.CMD"
+        ctx = falso_de_codex(e, raiz, respuestas={(ruta, "--version"): (0, "codex-cli 0.150.1\n")}, which={"codex": ruta})
+        assert por_id(ctx)["codex"].detalle == "0.150.1"
+        assert (ruta, "--version") in ctx.llamadas, ctx.llamadas
+
+
+def test_codex_plugin_sale_del_cache_y_de_plugins_y_respeta_codex_home():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        cache = ctx.home / ".codex" / "plugins" / "cache"
+        shutil.rmtree(cache)
+        r = por_id(ctx)["codex-plugin"]
+        assert r.estado == "FALTA" and "no está instalado" in r.detalle and r.arreglo is None and r.ayuda, r
+        poner_cache_de_codex(ctx, "0.2.2", "0.3.0")
+        for plugin, rastro in ((None, "no está en [plugins]"), ("false", "enabled = false")):
+            poner_config_de_codex(ctx, plugin=plugin, proyecto=(raiz, "trusted"))
+            r = por_id(ctx)["codex-plugin"]
+            assert r.estado == "FALTA" and rastro in r.detalle and r.ayuda, (plugin, r)
+        poner_config_de_codex(ctx, plugin="true", proyecto=(raiz, "trusted"))
+        r = por_id(ctx)["codex-plugin"]
+        assert r.estado == "OK" and "0.2.2" in r.detalle and "0.3.0" in r.detalle, r
+        poner(ctx.home, ".codex/config.toml", "[plugins\nroto")
+        r = por_id(ctx)
+        assert r["codex-plugin"].estado == "FALTA" and "TOML" in r["codex-plugin"].detalle, r["codex-plugin"]
+        assert r["codex-hooks"].estado == "AVISO" and r["codex-proyecto"].estado == "AVISO", r
+        otra = e.base / "otro-codex-home"
+        shutil.move(str(ctx.home / ".codex"), str(otra))
+        poner_config_de_codex(ctx, plugin="true", proyecto=(raiz, "trusted"), carpeta=otra)
+        ctx.entorno = {"CODEX_HOME": str(otra)}
+        r = por_id(ctx)
+        assert r["codex-plugin"].estado == "OK" and str(otra) in r["codex-plugin"].detalle, r["codex-plugin"]
+        assert not (ctx.home / ".codex").exists()
+
+
+def test_codex_hooks_pide_la_clave_exacta_de_cada_handler_con_trusted_hash():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        assert por_id(ctx)["codex-hooks"].estado == "OK"
+        for falta in CLAVES_DE_CODEX:
+            poner_config_de_codex(ctx, claves=[c for c in CLAVES_DE_CODEX if c != falta], proyecto=(raiz, "trusted"))
+            r = por_id(ctx)["codex-hooks"]
+            assert r.estado == "AVISO" and "1 de 6" in r.detalle and falta.split("json:")[1] in r.detalle, (falta, r)
+            assert "/hooks" in r.ayuda and r.arreglo is None and "no se verifica" in r.detalle, r
+        claves = [c for c in CLAVES_DE_CODEX if c != CLAVES_DE_CODEX[2]]
+        poner_config_de_codex(ctx, claves=claves, proyecto=(raiz, "trusted"),
+                              extra='\n[hooks.state."%s"]\nenabled = false\ntrusted_hash = "sha256:abc"\n' % CLAVES_DE_CODEX[2])
+        r = por_id(ctx)["codex-hooks"]
+        assert r.estado == "AVISO" and "enabled = false" in r.detalle and "pre_tool_use:1:0" in r.detalle, r
+        poner_config_de_codex(ctx, claves=[c.replace("hooks.codex.json", "hooks.json") for c in CLAVES_DE_CODEX], proyecto=(raiz, "trusted"))
+        assert por_id(ctx)["codex-hooks"].estado == "AVISO"
+        assert correr([], ctx)[0] == 0
+
+
+def test_codex_proyecto_busca_la_raiz_y_su_repo_en_projects():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        assert por_id(ctx)["codex-proyecto"].estado == "OK"
+        for proyecto in (None, (raiz, "untrusted"), (e.base / "otra", "trusted")):
+            poner_config_de_codex(ctx, proyecto=proyecto)
+            r = por_id(ctx)["codex-proyecto"]
+            assert r.estado == "AVISO" and ".codex/" in r.detalle and r.ayuda and r.arreglo is None, (proyecto, r)
+        poner_config_de_codex(ctx, proyecto=(str(raiz).upper() if os.name == "nt" else str(raiz), "trusted"))
+        assert por_id(ctx)["codex-proyecto"].estado == "OK"
+
+
+def test_codex_proyecto_compara_la_clave_como_codex_sin_normalizar_barras_ni_la_barra_final():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        malas = [str(raiz) + os.sep] + ([str(raiz).replace("\\", "/"), str(raiz).replace("\\", "/") + "/"] if os.name == "nt" else [])
+        for clave in malas:
+            poner_config_de_codex(ctx, proyecto=(clave, "trusted"))
+            r = por_id(ctx)["codex-proyecto"]
+            assert r.estado == "AVISO" and r.ayuda, (clave, r)
+        for clave in (str(raiz), os.path.realpath(raiz)) + ((str(raiz).upper(), str(raiz).lower()) if os.name == "nt" else ()):
+            poner_config_de_codex(ctx, proyecto=(clave, "trusted"))
+            assert por_id(ctx)["codex-proyecto"].estado == "OK", clave
+
+
+def test_codex_proyecto_solo_ignora_las_mayusculas_ascii_como_codex():
+    codex = cx()
+    proyectos = {"C:\\Árbol\\Inst": "trusted", "c:\\otra": "untrusted"}
+    assert codex.confianza_del_proyecto(proyectos, ["c:\\Árbol\\inst"], True) == ("C:\\Árbol\\Inst", "trusted")
+    assert codex.confianza_del_proyecto(proyectos, ["c:\\árbol\\inst"], True) is None
+    assert codex.confianza_del_proyecto(proyectos, ["c:\\Árbol\\inst"], False) is None
+    assert codex.confianza_del_proyecto(proyectos, ["C:\\Árbol\\Inst"], False) == ("C:\\Árbol\\Inst", "trusted")
+    assert codex.confianza_del_proyecto({"C:\\X": "untrusted", "c:\\x": "trusted"}, ["c:\\x"], True) == ("c:\\x", "trusted")
+    assert codex.confianza_del_proyecto({"C:\\X": "untrusted", "C:\\x": "trusted"}, ["c:\\x"], True) == ("C:\\X", "untrusted")
+
+
+def test_la_ayuda_de_codex_proyecto_da_una_tabla_toml_que_codex_reconoce():
+    import tomllib
+
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        poner_config_de_codex(ctx, proyecto=None)
+        r = por_id(ctx)["codex-proyecto"]
+        tabla = re.search(r"(\[projects\..*?\]) con (trust_level = \"trusted\")", r.ayuda)
+        assert tabla and "'" in tabla.group(1), r.ayuda
+        datos = tomllib.loads("%s\n%s\n" % tabla.groups())
+        assert list(datos["projects"]) == [os.path.realpath(raiz)], datos
+        poner_config_de_codex(ctx, proyecto=None, extra="\n%s\n%s\n" % tabla.groups())
+        assert por_id(ctx)["codex-proyecto"].estado == "OK"
+
+
+def test_codex_proyecto_acepta_la_confianza_del_repo_que_contiene_la_instancia():
+    with Escenario() as e:
+        repo = e.base / "repo"
+        repo.mkdir()
+        git_en(repo, "init", "-q")
+        raiz = con_hosts(e.instancia(), ["codex"])
+        destino = repo / "instancia"
+        shutil.move(str(raiz), str(destino))
+        ctx = falso_de_codex(e, destino, git_real=True)
+        poner_cache_de_codex(ctx)
+        poner_config_de_codex(ctx, proyecto=(repo, "trusted"))
+        assert por_id(ctx)["codex-proyecto"].estado == "OK"
+        poner_config_de_codex(ctx, proyecto=(repo, "trusted"), extra='\n[projects.%s]\ntrust_level = "untrusted"\n' % texto_toml(str(destino)))
+        assert por_id(ctx)["codex-proyecto"].estado == "AVISO"
+
+
+def test_codex_config_que_falta_se_crea_y_la_que_existe_no_se_pisa():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        ruta = raiz / ".codex" / "config.toml"
+        ruta.unlink()
+        r = por_id(ctx)["codex-config"]
+        assert r.estado == "FALTA" and r.arreglo is not None, r
+        codigo, salida = correr(["--arreglar", "codex-config"], ctx)
+        assert codigo == 0 and "codex-config: OK" in salida, salida
+        assert ruta.read_bytes() == b'project_doc_fallback_filenames = ["CLAUDE.md"]\n'
+        for propio in ('model = "propio"\n', 'project_doc_fallback_filenames = ["OTRO.md"]\n', "roto = [\n"):
+            ruta.write_bytes(propio.encode("utf-8"))
+            r = por_id(ctx)["codex-config"]
+            assert r.estado == "FALTA" and r.arreglo is None and r.ayuda, (propio, r)
+            if "roto" not in propio:
+                assert 'project_doc_fallback_filenames = ["CLAUDE.md"]' in r.ayuda, r
+            codigo, salida = correr(["--arreglar", "codex-config"], ctx)
+            assert codigo == 2 and ruta.read_bytes() == propio.encode("utf-8"), salida
+        ruta.write_bytes(b'model = "propio"\nproject_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md"]\n')
+        assert por_id(ctx)["codex-config"].estado == "OK"
+
+
+def test_codex_agentes_que_faltan_son_falta_y_arreglar_los_deriva_de_su_md():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        shutil.rmtree(raiz / ".codex" / "agents")
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "FALTA" and r.arreglo is not None and ".codex/agents/writer-sql.toml" in r.detalle, r
+        codigo, salida = correr(["--arreglar", "codex-agentes"], ctx)
+        assert codigo == 0 and "codex-agentes: OK" in salida, salida
+        for nombre in ("writer-sql", "revisor-sql", "revisor-diseno"):
+            crudo = toml_en(raiz, nombre).read_bytes()
+            assert crudo == toml_de_la_plantilla(nombre).encode("utf-8") and b"\r\n" not in crudo, nombre
+
+
+def test_codex_agentes_lleva_al_toml_la_description_y_los_bloques_del_md():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        md = raiz / ".claude" / "agents" / "writer-sql.md"
+        propio = pw().generar("sql", re.sub(r"(?m)^description:.*$", 'description: "Writer propio de capa-a"',
+                                            pw().generar("sql").replace("<!-- /instancia:limites -->", "- REGLA PROPIA.\n<!-- /instancia:limites -->", 1), count=1))
+        md.write_bytes(propio.encode("utf-8"))
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "FALTA" and "writer-sql.toml" in r.detalle and "revisor" not in r.detalle and r.arreglo, r
+        codigo, salida = correr(["--arreglar", "codex-agentes"], ctx)
+        assert codigo == 0, salida
+        nuevo = toml_en(raiz, "writer-sql").read_text(encoding="utf-8")
+        assert 'description = "Writer propio de capa-a"' in nuevo and "- REGLA PROPIA." in nuevo, nuevo
+        assert md.read_bytes() == propio.encode("utf-8")
+
+
+def test_codex_agentes_compara_contra_la_derivacion_y_no_contra_la_version():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        ruta = toml_en(raiz, "writer-sql")
+        viejo = resellar_toml(ruta.read_text(encoding="utf-8").replace("`apply_patch`", "`apply-patch`"))
+        assert "# odd-ws-plantilla: %d" % pw().version() in viejo
+        ruta.write_bytes(viejo.encode("utf-8"))
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "FALTA" and "writer-sql.toml" in r.detalle and r.arreglo, r
+        assert correr(["--arreglar", "codex-agentes"], ctx)[0] == 0
+        assert ruta.read_bytes() == toml_de_la_plantilla("writer-sql").encode("utf-8")
+
+
+def test_codex_agentes_editado_a_mano_es_aviso_y_arreglar_no_lo_pisa():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        editado = toml_en(raiz, "revisor-sql").read_text(encoding="utf-8").replace("description = \"", "description = \"Mío: ", 1)
+        toml_en(raiz, "revisor-sql").write_bytes(editado.encode("utf-8"))
+        ajeno = 'name = "revisor-diseno"\ndescription = "a mano"\ndeveloper_instructions = "x"\n'
+        toml_en(raiz, "revisor-diseno").write_bytes(ajeno.encode("utf-8"))
+        toml_en(raiz, "writer-sql").unlink()
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "FALTA" and "revisor-sql.toml" in r.detalle and "revisor-diseno.toml" in r.detalle and r.ayuda, r
+        assert ".md" in r.ayuda, r
+        codigo, salida = correr(["--arreglar", "codex-agentes"], ctx)
+        assert codigo == 0 and "codex-agentes: AVISO" in salida, salida
+        assert toml_en(raiz, "revisor-sql").read_bytes() == editado.encode("utf-8")
+        assert toml_en(raiz, "revisor-diseno").read_bytes() == ajeno.encode("utf-8")
+        assert toml_en(raiz, "writer-sql").read_bytes() == toml_de_la_plantilla("writer-sql").encode("utf-8")
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "AVISO" and r.arreglo is None and "writer-sql" not in r.detalle, r
+        assert correr([], ctx)[0] == 0
+
+
+def test_codex_agentes_al_dia_aunque_el_checkout_lo_deje_en_crlf_o_con_bom():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        ruta = toml_en(raiz, "writer-sql")
+        ruta.write_bytes(b"\xef\xbb\xbf" + ruta.read_bytes().replace(b"\n", b"\r\n"))
+        assert por_id(ctx)["codex-agentes"].estado == "OK"
+
+
+def test_codex_agentes_avisa_del_toml_de_un_agente_que_ya_no_existe_sin_borrarlo():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        viejo = toml_de_la_plantilla("writer-sql").replace("writer-sql", "writer-vieja")
+        poner(raiz, ".codex/agents/writer-vieja.toml", viejo)
+        poner(raiz, ".codex/agents/propio.toml", 'name = "propio"\ndescription = "mío"\ndeveloper_instructions = "x"\n')
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "AVISO" and "writer-vieja.toml" in r.detalle and "propio" not in r.detalle and r.arreglo is None, r
+        (raiz / ".claude" / "agents" / "revisor-sql.md").unlink()
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "AVISO" and "revisor-sql.toml" in r.detalle, r
+        codigo, salida = correr(["--arreglar", "codex-agentes"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert toml_en(raiz, "writer-vieja").read_bytes() == viejo.encode("utf-8") and toml_en(raiz, "revisor-sql").is_file()
+
+
+def test_codex_agentes_no_deriva_de_un_md_editado_fuera_de_sus_bloques():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        md = raiz / ".claude" / "agents" / "revisor-sql.md"
+        md.write_bytes(md.read_bytes().replace(b"1. **Lee la entrada.**", b"1. **Lee todo.**", 1))
+        toml_en(raiz, "revisor-sql").unlink()
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "AVISO" and ".claude/agents/revisor-sql.md" in r.detalle and r.arreglo is None, r
+        assert not toml_en(raiz, "revisor-sql").exists()
+
+
+def test_codex_agentes_con_la_config_rota_es_una_sola_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        (raiz / "workspace.config.json").write_text('{"schema_version": 1, "layers": {}, "hosts": ["codex"]}', encoding="utf-8")
+        r = por_id(ctx)["codex-agentes"]
+        assert r.estado == "FALTA" and "layers" in r.detalle and r.arreglo is None and r.ayuda, r
+
+
+def test_arreglar_un_writer_sigue_igual_en_una_instancia_con_codex():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+        (raiz / ".claude" / "agents" / "writer-sql.md").unlink()
+        codigo, salida = correr(["--arreglar", "writer-sql"], ctx)
+        assert codigo == 0 and "writer-sql: OK" in salida, salida
+        assert por_id(ctx)["codex-agentes"].estado == "OK"
+
+
+def poner_hooks_de_codex_del_usuario(ctx, comando, script="writer_guard.py"):
+    agregar_hook_de_codex(ctx, comando % ('python "C:/x/scripts/%s"' % script))
+
+
+def agregar_hook_de_codex(ctx, linea, campo="command"):
+    texto = (ctx.home / ".codex" / "config.toml").read_text(encoding="utf-8")
+    texto += '\n[[hooks.PreToolUse]]\nmatcher = "Bash"\n[[hooks.PreToolUse.hooks]]\ntype = "command"\n'
+    if campo != "command":
+        texto += 'command = "echo ok"\n'
+    texto += "%s = %s\n" % (campo, texto_toml(linea))
+    poner(ctx.home, ".codex/config.toml", texto)
+
+
+def test_hooks_host_marca_un_host_desconocido_vacio_o_ausente_en_los_hooks_de_codex():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        base = (ctx.home / ".codex" / "config.toml").read_text(encoding="utf-8")
+        for comando, rastro in (("%s --host gemini", "gemini"), ("%s --host=", "vacío"), ("%s --host", "vacío"), ("%s --plazo 8", "sin --host"),
+                                ("%s --host claude-code", "claude-code")):
+            poner(ctx.home, ".codex/config.toml", base)
+            poner_hooks_de_codex_del_usuario(ctx, comando)
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and rastro in r.detalle and "writer_guard.py" in r.detalle and "PreToolUse" in r.detalle, (comando, r)
+            assert r.arreglo is None and r.ayuda, r
+        for comando in ("%s --host codex", "%s --host=codex"):
+            poner(ctx.home, ".codex/config.toml", base)
+            poner_hooks_de_codex_del_usuario(ctx, comando)
+            assert por_id(ctx)["hooks-host"].estado == "OK", comando
+        poner(ctx.home, ".codex/config.toml", base)
+        poner_hooks_de_codex_del_usuario(ctx, "%s --host gemini", script="otro_script.py")
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+
+
+def test_hooks_host_revisa_los_archivos_de_hooks_del_plugin_de_cada_host_declarado():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        archivo = ctx.plugin / "hooks" / "hooks.codex.json"
+        original = archivo.read_text(encoding="utf-8")
+        archivo.write_text(original.replace("writer_stop.py\\\" --plazo 50 --host codex", "writer_stop.py\\\" --plazo 50 --host codex2"), encoding="utf-8")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "hooks/hooks.codex.json SubagentStop" in r.detalle and "codex2" in r.detalle, r
+        archivo.write_text(original, encoding="utf-8")
+        claude = ctx.plugin / "hooks" / "hooks.json"
+        datos = json.loads(claude.read_text(encoding="utf-8"))
+        datos["hooks"]["PostToolUse"][1]["hooks"][0]["args"] += ["--host", "codex"]
+        claude.write_text(json.dumps(datos), encoding="utf-8")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "hooks/hooks.json PostToolUse[1]" in r.detalle and "verificar_capa.py" in r.detalle, r
+        con_hosts(raiz, ["codex"])
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        archivo.unlink()
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "hooks/hooks.codex.json" in r.detalle, r
+
+
+def instancia_de_los_dos(e, claude=True, codex=True, marketplace=True):
+    raiz, _ = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+    poner(raiz, ".claude/skills/criterios/SKILL.md", skill_con("criterios"))
+    poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql"))
+    respuestas = {} if claude is True else {("claude", "--version"): claude}
+    return raiz, falso_de_codex(e, raiz, version="codex-cli 0.167.0\n" if codex else None, respuestas=respuestas, marketplace=marketplace)
+
+
+def test_con_los_dos_hosts_y_los_dos_cli_instalados_sus_versiones_son_ok():
+    with Escenario() as e:
+        _, ctx = instancia_de_los_dos(e)
+        r = por_id(ctx)
+        assert (r["claude"].estado, r["codex"].estado) == ("OK", "OK"), (r["claude"], r["codex"])
+        assert correr([], ctx)[0] == 0
+
+
+def test_con_los_dos_hosts_y_solo_claude_instalado_codex_es_aviso_y_no_hace_fallar():
+    with Escenario() as e:
+        _, ctx = instancia_de_los_dos(e, codex=False)
+        r = por_id(ctx)
+        assert r["claude"].estado == "OK", r["claude"]
+        assert r["codex"].estado == "AVISO" and r["codex"].detalle.startswith("codex no está instalado") and "claude-code" in r["codex"].detalle, r["codex"]
+        assert r["codex"].ayuda and r["codex"].arreglo is None, r["codex"]
+        assert all(r[i].estado == "NO APLICA" for i in ("codex-plugin", "codex-hooks", "codex-proyecto")), r
+        assert r["codex-config"].estado == "OK" and r["codex-agentes"].estado == "OK", r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+
+
+def test_con_los_dos_hosts_y_solo_codex_instalado_claude_es_aviso_y_no_hace_fallar():
+    with Escenario() as e:
+        raiz, ctx = instancia_de_los_dos(e, claude=None, marketplace=False)
+        poner(raiz, ".claude/agents/revisor.md", agente_con("revisor", "skills: [personal]\n"))
+        r = por_id(ctx)
+        assert r["codex"].estado == "OK", r["codex"]
+        assert r["claude"].estado == "AVISO" and r["claude"].detalle.startswith("claude no está instalado") and "codex" in r["claude"].detalle, r["claude"]
+        for item in ("marketplace", "agentes-skills"):
+            assert (r[item].estado, r[item].detalle) == ("NO APLICA", "claude no está instalado"), r[item]
+            assert r[item].arreglo is None and r[item].comando is None, r[item]
+        assert r["agentes-hooks"].estado == "OK" and r["instancia-plugin"].estado == "AVISO", (r["agentes-hooks"], r["instancia-plugin"])
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+        codigo, salida = correr(["--arreglar", "marketplace"], ctx)
+        assert codigo == 0 and "NO APLICA" in salida and not [l for l in ctx.llamadas if l[:4] == ("claude", "plugin", "marketplace", "add")], salida
+
+
+def test_lo_de_claude_que_depende_del_cli_sigue_como_hoy_si_claude_esta_o_si_no_hay_ningun_cli():
+    for claude, codex in ((True, True), (True, False), (None, False)):
+        with Escenario() as e:
+            raiz, ctx = instancia_de_los_dos(e, claude=claude, codex=codex, marketplace=False)
+            poner(raiz, ".claude/agents/revisor.md", agente_con("revisor", "skills: [personal]\n"))
+            r = por_id(ctx)
+            assert r["marketplace"].estado == "FALTA" and r["marketplace"].comando, (claude, codex, r["marketplace"])
+            assert r["agentes-skills"].estado == "FALTA" and "personal" in r["agentes-skills"].detalle, (claude, codex, r["agentes-skills"])
+
+
+def test_con_los_dos_hosts_y_ningun_cli_instalado_los_dos_son_falta():
+    with Escenario() as e:
+        _, ctx = instancia_de_los_dos(e, claude=None, codex=False)
+        r = por_id(ctx)
+        assert (r["claude"].estado, r["claude"].detalle) == ("FALTA", "claude no está instalado"), r["claude"]
+        assert (r["codex"].estado, r["codex"].detalle) == ("FALTA", "codex no está instalado"), r["codex"]
+        assert correr([], ctx)[0] == 1
+
+
+def test_un_cli_instalado_pero_viejo_sigue_en_falta_aunque_el_otro_este_instalado():
+    with Escenario() as e:
+        raiz, ctx = instancia_de_los_dos(e, claude=(0, "2.1.200 (Claude Code)\n"))
+        r = por_id(ctx)
+        assert r["claude"].estado == "FALTA" and "2.1.200" in r["claude"].detalle and r["codex"].estado == "OK", (r["claude"], r["codex"])
+        r = por_id(falso_de_codex(e, raiz, version="codex-cli 0.143.0\n"))
+        assert r["codex"].estado == "FALTA" and "0.143.0" in r["codex"].detalle and r["claude"].estado == "OK", (r["claude"], r["codex"])
+
+
+def test_con_un_solo_host_declarado_el_cli_que_falta_sigue_en_falta_como_hoy():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz, respuestas={("claude", "--version"): None})
+        sin = correr([], ctx)
+        r = por_id(ctx)["claude"]
+        assert (r.estado, r.detalle) == ("FALTA", "claude no está instalado"), r
+        con_hosts(raiz, ["claude-code"])
+        assert correr([], ctx) == sin and sin[0] == 1, (sin, correr([], ctx))
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner(raiz, ".claude/agents/revisor.md", agente_con("revisor", "skills: [personal]\n"))
+        ctx = Falso(e.base, cwd=raiz, respuestas={("claude", "--version"): None}, marketplace=False)
+        sin = correr([], ctx)
+        r = por_id(ctx)
+        assert r["marketplace"].estado == "FALTA" and r["agentes-skills"].estado == "FALTA", (r["marketplace"], r["agentes-skills"])
+        con_hosts(raiz, ["claude-code"])
+        assert correr([], ctx) == sin, (sin, correr([], ctx))
+    with Escenario() as e:
+        raiz, _ = instancia_codex_sana(e)
+        r = por_id(falso_de_codex(e, raiz, version=None))["codex"]
+        assert (r.estado, r.detalle) == ("FALTA", "codex no está instalado"), r
+
+
+def test_hooks_host_revisa_tambien_los_hooks_json_que_carga_codex():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        hook = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command", "command": 'python "C:/x/scripts/guard_comandos.py" --host gemini'}]}]}}
+        for carpeta, rastro in ((ctx.home / ".codex", str(ctx.home / ".codex" / "hooks.json")), (raiz / ".codex", ".codex/hooks.json")):
+            poner(carpeta, "hooks.json", json.dumps(hook))
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and rastro + " PreToolUse[0][0]" in r.detalle and "gemini" in r.detalle, (rastro, r)
+            (carpeta / "hooks.json").unlink()
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        poner(raiz / ".codex", "hooks.json", "{roto")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "AVISO" and ".codex/hooks.json no se puede leer" in r.detalle, r
+
+
+def test_hooks_host_ve_el_alias_command_windows_y_las_rutas_de_windows_sin_comillas():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        base = (ctx.home / ".codex" / "config.toml").read_text(encoding="utf-8")
+        agregar_hook_de_codex(ctx, r"python C:\x\scripts\guard_comandos.py --host gemini")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "guard_comandos.py con --host 'gemini'" in r.detalle, r
+        poner(ctx.home, ".codex/config.toml", base)
+        agregar_hook_de_codex(ctx, r"python C:\x\scripts\writer_stop.py --host=", campo="command_windows")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "PreToolUse[0][0] (commandWindows)" in r.detalle and "writer_stop.py con --host vacío" in r.detalle, r
+
+
+@contextlib.contextmanager
+def sin_tomllib():
+    previo = sys.modules.get("tomllib", importlib)
+    sys.modules["tomllib"] = None
+    try:
+        yield
+    finally:
+        if previo is importlib:
+            del sys.modules["tomllib"]
+        else:
+            sys.modules["tomllib"] = previo
+
+
+def test_sin_tomllib_lo_que_lee_toml_da_una_falta_clara_y_no_revienta():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        with sin_tomllib():
+            r = por_id(ctx)
+            codigo, salida = correr([], ctx)
+        assert codigo == 1, salida
+        for item in ("codex-plugin", "codex-config"):
+            assert r[item].estado == "FALTA" and "requiere Python 3.11 o más para leer la config de Codex" in r[item].detalle, r[item]
+            assert "3.11" in r[item].ayuda and r[item].arreglo is None, r[item]
+        for item in ("codex-hooks", "codex-proyecto"):
+            assert r[item].estado == "AVISO" and "3.11" in r[item].detalle, r[item]
+        assert r["hooks-host"].estado == "AVISO" and "config.toml no se puede leer" in r["hooks-host"].detalle, r["hooks-host"]
+        assert r["codex-agentes"].estado == "OK" and r["codex"].estado == "OK", (r["codex-agentes"], r["codex"])
+
+
+def test_arreglar_codex_agentes_con_un_toml_atrasado_de_solo_lectura_no_revienta():
+    with Escenario() as e:
+        raiz, ctx = instancia_codex_sana(e)
+        ruta = toml_en(raiz, "writer-sql")
+        viejo = resellar_toml(ruta.read_text(encoding="utf-8").replace("`apply_patch`", "`apply-patch`"))
+        ruta.write_bytes(viejo.encode("utf-8"))
+        os.chmod(ruta, stat.S_IREAD)
+        try:
+            codigo, salida = correr(["--arreglar", "codex-agentes"], ctx)
+        finally:
+            os.chmod(ruta, stat.S_IWRITE | stat.S_IREAD)
+        assert codigo == 1 and "no se pudo escribir" in salida and "codex-agentes: FALTA" in salida, salida
+        assert ruta.read_bytes() == viejo.encode("utf-8")
+
+
+def test_codex_que_existe_pero_no_se_puede_ejecutar_no_dice_que_no_esta_instalado():
+    with Escenario() as e:
+        raiz, _ = instancia_codex_sana(e)
+        ruta = "C:/npm/codex.CMD"
+        ctx = falso_de_codex(e, raiz, respuestas={(ruta, "--version"): None}, which={"codex": ruta})
+        r = por_id(ctx)
+        assert r["codex"].estado == "FALTA" and r["codex"].detalle == "C:/npm/codex.CMD no se pudo ejecutar", r["codex"]
+        assert r["codex-plugin"].estado == "NO APLICA", r["codex-plugin"]
+
+
+def test_hooks_host_no_sale_en_una_instancia_solo_de_claude_code():
+    with Escenario() as e:
+        ctx = con_hooks_del_plugin(Falso(e.base, cwd=instancia_sana(e)))
+        assert "hooks-host" not in por_id(ctx)
+        assert "hooks-host" not in por_id(Falso(e.base))
 
 
 def main():

@@ -687,6 +687,44 @@ def test_lo_derivado_de_un_archivo_que_ya_existia_no_se_crea_y_lo_deriva_el_doct
         assert lineas[-1] == "resumen: 5 creados, 1 ya existían, 1 los deriva el doctor", lineas
 
 
+def test_lo_derivado_con_su_arreglo_nombra_el_id_que_le_pasa_al_doctor():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "fuente").mkdir()
+        (raiz / "fuente" / "vieja.md").write_bytes(b"propia\n")
+        derivada = b().AccionDerivada
+        alta = ("derivados", generador_de(
+            derivada("derivados/con-id.toml", "x\n", "fuente/vieja.md", "codex-agentes"),
+            derivada("derivados/sin-id.toml", "y\n", "fuente/vieja.md"),
+        ))
+        with generadores_temporales(alta):
+            plan = b().planificar(e.spec(), raiz)
+        ensayo = b().informe(plan, None, raiz, True)
+        assert ("no se crearía derivados/con-id.toml: fuente/vieja.md ya existe, así que lo deriva de ahí el doctor "
+                "(doctor --arreglar codex-agentes)") in ensayo, ensayo
+        assert ("no se crearía derivados/sin-id.toml: fuente/vieja.md ya existe, así que lo deriva de ahí el doctor "
+                "(doctor --arreglar)") in ensayo, ensayo
+        resultados = b().aplicar(plan, raiz)
+        lineas = b().informe(plan, resultados, raiz, False)
+        assert ("no se creó derivados/con-id.toml: fuente/vieja.md ya existía, así que lo deriva de ahí el doctor "
+                "(doctor --arreglar codex-agentes)") in lineas, lineas
+        assert not (raiz / "derivados" / "con-id.toml").exists()
+
+
+def test_una_accion_derivada_con_un_arreglo_invalido_rechaza_el_plan():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        for arreglo in ("", "con espacio", "--arreglar", "Mayus", 3, "a;b"):
+            alta = ("derivados", generador_de(b().AccionDerivada("d/x.toml", "x\n", "f.md", arreglo)))
+            with generadores_temporales(alta):
+                try:
+                    b().planificar(e.spec(), raiz)
+                except b().ErrorDePlan:
+                    continue
+            raise AssertionError("aceptó el arreglo %r" % (arreglo,))
+        assert arbol(raiz) == {}
+
+
 def test_una_accion_derivada_con_una_fuente_invalida_rechaza_el_plan():
     with Escenario() as e:
         raiz = e.crear_raiz()

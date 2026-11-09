@@ -55,7 +55,7 @@ Se desarrolla y se prueba en Windows.
 | Herramienta | Para qué | ¿Obligatoria? |
 |---|---|---|
 | Claude Code ≥ 2.1.284 | El plugin, sus skills y sus hooks | Sí |
-| Python 3, invocable como `python` | Todos los hooks y scripts del plugin | Sí |
+| Python 3, invocable como `python` | Todos los hooks y scripts del plugin; el doctor necesita 3.11 o más para leer la config de Codex | Sí |
 | Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
 | Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
@@ -106,6 +106,8 @@ claude --add-dir D:/code/mi-repo
 
 - Muestra una tabla OK / FALTA / AVISO / NO APLICA, con el arreglo de cada ítem. Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna.
 - Arregla de a un ítem, solo con tu sí (`doctor.py --arreglar <id>`).
+- Revisa cada CLI solo si la instancia lo declara en `hosts` (sin la clave, Claude Code). Con `codex` suma la versión de Codex (0.144 o más), el plugin instalado y habilitado, la confianza de los hooks y del proyecto, `.codex/config.toml` y que cada `.codex/agents/<agente>.toml` sea el que sale de su `.md` (`codex-agentes`), además de `hooks-host`, que ningún hook lleve un `--host` desconocido, vacío o de otro host. No escribe en la carpeta de Codex, y no verifica que el hash de la confianza siga fresco.
+- **Sumar Codex a una instancia que ya existe:** agrega `"codex"` a `hosts` y corre `doctor.py --arreglar codex-config` y `doctor.py --arreglar codex-agentes`. Los TOML salen de los `.md` de `.claude/agents`, con su `description` y sus bloques; uno editado a mano queda en AVISO y no se pisa.
 - Sin el plugin instalado, se corre desde un clon: `python plugin/scripts/doctor.py`.
 
 ### `/odd-ws:abrir`
@@ -180,7 +182,7 @@ Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por q
 | `.githooks/pre-commit` | Corre las pruebas de las reglas de cada capa (`reglas.py --test`) |
 | `.claude/settings.json` | El `enabledPlugins` de la raíz |
 | `.gitignore`, `git init` y `core.hooksPath` | Para que el pre-commit corra desde el primer commit |
-| `.codex/` | Solo si `hosts` declara `codex`: un `agents/<agente>.toml` por agente, derivado de su `.md` en `.claude/agents` (que es donde se edita), y `config.toml` para que Codex lea los `CLAUDE.md`. Codex los carga solo si el proyecto tiene su confianza. En una instancia que ya existía, el TOML de un agente que ya tenía su `.md` no lo crea el bootstrap: lo genera el doctor |
+| `.codex/` | Solo si `hosts` declara `codex`: un `agents/<agente>.toml` por agente, derivado de su `.md` en `.claude/agents` (que es donde se edita), y `config.toml` para que Codex lea los `CLAUDE.md`. Codex los carga solo si el proyecto tiene su confianza. En una instancia que ya existía, el TOML de un agente que ya tenía su `.md` no lo crea el bootstrap: lo genera el doctor (`--arreglar codex-agentes`) |
 
 No los genera: la carpeta de docs de `knowledge`, el estado de ejecución (`.claude/estado/`, ignorado por git) ni las carpetas `revision/` de cada ticket.
 

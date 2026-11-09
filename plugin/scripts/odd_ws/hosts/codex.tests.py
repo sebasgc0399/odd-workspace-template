@@ -434,6 +434,99 @@ def test_archivos_da_un_toml_por_agente_y_la_config_del_proyecto_al_final():
     assert m().archivos([]) == [archivo(capas.CODEX_CONFIG, 'project_doc_fallback_filenames = ["CLAUDE.md"]\n', None)]
 
 
+def test_los_toml_derivados_llevan_el_arreglo_del_doctor_y_la_config_no():
+    archivos = m().archivos([agente(), agente(nombre="revisor-sql")])
+    assert [a.arreglo for a in archivos] == ["codex-agentes", "codex-agentes", None], archivos
+    assert m().ID_AGENTES == "codex-agentes"
+
+
+def test_las_claves_de_confianza_son_las_de_codex_para_cada_handler_de_hooks_codex_json():
+    datos = json.loads((PLUGIN / "hooks" / "hooks.codex.json").read_text(encoding="utf-8"))
+    prefijo = "odd-ws@odd-workspace-template:hooks/hooks.codex.json:"
+    assert m().claves_de_confianza(datos, "odd-ws@odd-workspace-template") == [prefijo + clave for clave in (
+        "session_start:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0", "subagent_stop:0:0")]
+    dos = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "a"}, {"type": "command", "command": "b"}]}],
+                     "UserPromptSubmit": [{"hooks": []}, {"hooks": [{"type": "command", "command": "c"}]}]}}
+    assert m().claves_de_confianza(dos, "p@m") == ["p@m:hooks/hooks.codex.json:pre_tool_use:0:0", "p@m:hooks/hooks.codex.json:pre_tool_use:0:1",
+                                                   "p@m:hooks/hooks.codex.json:user_prompt_submit:1:0"]
+    assert m().claves_de_confianza({"hooks": "roto"}, "p@m") == [] and m().claves_de_confianza(None, "p@m") == []
+
+
+def test_el_archivo_de_hooks_es_el_que_declara_el_manifiesto_de_codex():
+    manifiesto = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert os.path.normpath(manifiesto["hooks"]) == os.path.normpath(m().ARCHIVO_DE_HOOKS)
+    assert (PLUGIN / m().ARCHIVO_DE_HOOKS).is_file()
+
+
+class Ctx:
+    def __init__(self, plugin, home, entorno=None, windows=True):
+        self.plugin, self.home, self.entorno, self.windows = Path(plugin), Path(home), entorno or {}, windows
+
+
+def test_los_hooks_json_de_codex_home_y_de_la_instancia_tambien_se_registran():
+    with temporal() as base:
+        hook = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python w.py --host codex"}]}]}}
+        raiz = base / "instancia"
+        for carpeta in (base / "home" / ".codex", raiz / ".codex"):
+            carpeta.mkdir(parents=True)
+            (carpeta / "hooks.json").write_text(json.dumps(hook), encoding="utf-8")
+        (raiz / ".codex" / "config.toml").write_text('model = "x"\n', encoding="utf-8")
+        resto = list(m().hooks_registrados(Ctx(PLUGIN, base / "home"), raiz))[6:]
+        assert resto == [
+            ("%s Stop[0][0]" % (base / "home" / ".codex" / "hooks.json"), ["python", "w.py", "--host", "codex"], False),
+            (".codex/hooks.json Stop[0][0]", ["python", "w.py", "--host", "codex"], False),
+        ], resto
+        (raiz / ".codex" / "hooks.json").write_text("{roto", encoding="utf-8")
+        assert list(m().hooks_registrados(Ctx(PLUGIN, base / "home"), raiz))[-1] == (".codex/hooks.json", None, False)
+
+
+def test_los_comandos_de_windows_se_parten_sin_comerse_las_barras_y_command_windows_es_alias():
+    with temporal() as base:
+        usuario = base / "home" / ".codex" / "config.toml"
+        usuario.parent.mkdir(parents=True)
+        usuario.write_text('[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n'
+                           'command = %s\ncommand_windows = %s\n' % (json.dumps(r"python C:\x\y\guard_comandos.py --host gemini"),
+                                                                     json.dumps(r'py "C:\a b\w.py" --host=')), encoding="utf-8")
+        en_windows = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=True), None))[6:]
+        assert en_windows == [
+            ("%s Stop[0][0]" % usuario, ["python", "C:/x/y/guard_comandos.py", "--host", "gemini"], False),
+            ("%s Stop[0][0] (commandWindows)" % usuario, ["py", "C:/a b/w.py", "--host="], False),
+        ], en_windows
+        en_posix = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", windows=False), None))[6:]
+        assert en_posix[0][1] == ["python", "C:xyguard_comandos.py", "--host", "gemini"], en_posix
+        assert en_posix[1] == en_windows[1], en_posix
+
+
+def test_los_hooks_registrados_salen_del_plugin_y_de_cada_config_toml_de_codex():
+    with temporal() as base:
+        ctx = Ctx(PLUGIN, base / "home")
+        propios = list(m().hooks_registrados(ctx, None))
+        assert len(propios) == 6 and all(propio for _, _, propio in propios), propios
+        origen, tokens, _ = propios[-1]
+        assert origen == "hooks/hooks.codex.json SubagentStop[0][0]", origen
+        assert tokens == ["python", "${PLUGIN_ROOT}/scripts/writer_stop.py", "--plazo", "50", "--host", "codex"], tokens
+        usuario = base / "home" / ".codex" / "config.toml"
+        usuario.parent.mkdir(parents=True)
+        usuario.write_text('[hooks.state."x"]\ntrusted_hash = "h"\n\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n'
+                           'command = "python \\"C:/a b/w.py\\" --host=codex"\ncommandWindows = "py w.py --host"\n', encoding="utf-8")
+        raiz = base / "instancia"
+        (raiz / ".codex").mkdir(parents=True)
+        (raiz / ".codex" / "config.toml").write_text("roto = [\n", encoding="utf-8")
+        resto = list(m().hooks_registrados(ctx, raiz))[6:]
+        assert resto == [
+            ("%s Stop[0][0]" % usuario, ["python", "C:/a b/w.py", "--host=codex"], False),
+            ("%s Stop[0][0] (commandWindows)" % usuario, ["py", "w.py", "--host"], False),
+            (".codex/config.toml", None, False),
+        ], resto
+        sin_plugin = list(m().hooks_registrados(Ctx(base / "sin-plugin", base / "home"), None))
+        assert sin_plugin[0] == ("hooks/hooks.codex.json", None, True), sin_plugin
+        otra = base / "otra"
+        otra.mkdir()
+        (otra / "config.toml").write_text('[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "x \'sin cerrar"\n', encoding="utf-8")
+        de_otra = list(m().hooks_registrados(Ctx(PLUGIN, base / "home", {"CODEX_HOME": str(otra)}), None))[6:]
+        assert de_otra == [("%s Stop[0][0]" % (otra / "config.toml"), ["x", "'sin", "cerrar"], False)], de_otra
+
+
 def test_el_toml_de_un_agente_tiene_solo_sus_tres_claves_y_un_encabezado_comentado():
     texto = m().toml(agente())
     datos = toml_de(texto)
@@ -475,6 +568,17 @@ def test_el_toml_rechaza_un_agente_sin_nombre_description_o_instrucciones():
         try:
             m().toml(agente(**cambio))
         except ValueError:
+            continue
+        raise AssertionError("armó un TOML con %r" % (cambio,))
+
+
+def test_el_error_de_un_agente_sin_textos_concuerda_en_genero_y_numero():
+    for cambio, mensaje in (({"descripcion": " "}, "el agente necesita una description no vacía para su TOML de Codex"),
+                            ({"instrucciones": ""}, "el agente necesita instrucciones no vacías para su TOML de Codex")):
+        try:
+            m().toml(agente(**cambio))
+        except ValueError as error:
+            assert str(error) == mensaje, str(error)
             continue
         raise AssertionError("armó un TOML con %r" % (cambio,))
 

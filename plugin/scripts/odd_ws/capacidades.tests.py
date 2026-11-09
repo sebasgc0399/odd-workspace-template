@@ -299,6 +299,15 @@ def test_cada_adaptador_tiene_su_puerto_de_generacion_con_los_mismos_marcadores(
     assert importlib.import_module("odd_ws.hosts").FUENTE == "claude-code"
 
 
+def test_cada_adaptador_tiene_su_puerto_del_doctor_con_su_archivo_de_hooks_en_el_plugin():
+    archivos = {}
+    for nombre, adaptador in adaptadores():
+        assert callable(adaptador.version) and callable(adaptador.chequeos) and callable(adaptador.hooks_registrados), nombre
+        assert (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).is_file(), (nombre, adaptador.ARCHIVO_DE_HOOKS)
+        archivos[nombre] = adaptador.ARCHIVO_DE_HOOKS
+    assert archivos == {"claude_code": "hooks/hooks.json", "codex": "hooks/hooks.codex.json"}, archivos
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

@@ -323,7 +323,7 @@ def test_b1_sumar_codex_a_una_instancia_existente_no_crea_toml_de_la_plantilla_y
         assert codigo == 0 and errores == "" and sin_git(arbol(e.raiz)) == antes, (codigo, errores)
         lineas = salida.splitlines()
         for toml, fuente in de_agentes.items():
-            assert f"no se crearía {toml}: {fuente} ya existe, así que lo deriva de ahí el doctor (doctor --arreglar)" in lineas, lineas
+            assert f"no se crearía {toml}: {fuente} ya existe, así que lo deriva de ahí el doctor (doctor --arreglar codex-agentes)" in lineas, lineas
         assert f"crearía {c.CODEX_CONFIG}" in lineas, lineas
         total = len(archivos_esperados())
         assert lineas[-1] == f"ensayo: 1 se crearían, {total} ya existen, 3 los derivaría el doctor, no se escribió nada", lineas[-1]
@@ -331,7 +331,7 @@ def test_b1_sumar_codex_a_una_instancia_existente_no_crea_toml_de_la_plantilla_y
         assert codigo == 0 and errores == "", (codigo, errores)
         lineas = salida.splitlines()
         for toml, fuente in de_agentes.items():
-            assert f"no se creó {toml}: {fuente} ya existía, así que lo deriva de ahí el doctor (doctor --arreglar)" in lineas, lineas
+            assert f"no se creó {toml}: {fuente} ya existía, así que lo deriva de ahí el doctor (doctor --arreglar codex-agentes)" in lineas, lineas
             assert not (e.raiz / toml).exists(), toml
         assert f"creado {c.CODEX_CONFIG}" in lineas and (e.raiz / c.CODEX_CONFIG).is_file(), lineas
         assert lineas[-1] == f"resumen: 1 creados, {total} ya existían, 3 los deriva el doctor", lineas[-1]

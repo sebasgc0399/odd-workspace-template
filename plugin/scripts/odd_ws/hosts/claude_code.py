@@ -1,12 +1,16 @@
 import json
+from pathlib import Path
 
 from odd_ws import transcripcion
 from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
-from odd_ws.hosts import base
+from odd_ws.hosts import base, leer_hooks, manejadores, tokens_de
 
 cargar = base.cargar
+ARCHIVO_DE_HOOKS = "hooks/hooks.json"
+VERSION_MINIMA = (2, 1, 284)
+AYUDA_CLAUDE = "Actualizá Claude Code a 2.1.284 o superior."
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {}
 BITACORA = False
@@ -156,6 +160,44 @@ def comandos_de_shell(transcript):
 
 def archivos(agentes):
     return []
+
+
+def version(ctx, nucleo):
+    return nucleo.chequear_version(ctx, "claude", ["claude", "--version"], VERSION_MINIMA, AYUDA_CLAUDE)
+
+
+def chequeos(ctx, raiz, nucleo, cli):
+    if cli == nucleo.CLI_DE_OTRO_HOST:
+        return [nucleo.resultado("marketplace", nucleo.NO_APLICA, "claude no está instalado")]
+    return [_marketplace(ctx, nucleo)]
+
+
+def _marketplace(ctx, nucleo):
+    try:
+        datos = json.loads((ctx.home / ".claude" / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        datos = None
+    if isinstance(datos, dict) and nucleo.MARKETPLACE in datos:
+        return nucleo.resultado("marketplace", nucleo.OK, f"{nucleo.MARKETPLACE} registrado")
+    return nucleo.resultado("marketplace", nucleo.FALTA, f"{nucleo.MARKETPLACE} no está registrado",
+                            ["claude", "plugin", "marketplace", "add", nucleo.URL_MARKETPLACE])
+
+
+def hooks_registrados(ctx, raiz):
+    datos = leer_hooks(Path(ctx.plugin) / ARCHIVO_DE_HOOKS)
+    if datos is None:
+        yield ARCHIVO_DE_HOOKS, None, True
+        return
+    for evento, grupo, indice, manejador in manejadores(datos):
+        comando = manejador.get("command") if isinstance(manejador, dict) else None
+        if not isinstance(comando, str):
+            continue
+        argumentos = manejador.get("args")
+        if isinstance(argumentos, list) and all(isinstance(argumento, str) for argumento in argumentos):
+            tokens = [comando, *argumentos]
+        else:
+            tokens = tokens_de(comando)
+        yield "%s %s[%d][%d]" % (ARCHIVO_DE_HOOKS, evento, grupo, indice), tokens, True
 
 
 def archivos_del_writer(evento, fotos):

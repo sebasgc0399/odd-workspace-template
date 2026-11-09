@@ -17,7 +17,9 @@ USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo]"
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
-LO_DERIVADO = "{verbo} {ruta}: {fuente} ya {existe}, así que lo deriva de ahí el doctor (doctor --arreglar)"
+LO_DERIVADO = "{verbo} {ruta}: {fuente} ya {existe}, así que lo deriva de ahí el doctor ({comando})"
+COMANDO_DEL_DOCTOR = "doctor --arreglar"
+ARREGLO_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 CLAVES_BASE = ("spec_version",)
 LINEAS_DE_GITIGNORE = (config_loader.NOMBRE_LOCAL, convencion.ESTADO + "/")
 CARACTERES_INVALIDOS = frozenset('<>:"|?*')
@@ -35,9 +37,9 @@ GIT_INIT, GIT_HOOKS = "init", "hooks_path"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
-Accion = namedtuple("Accion", "ruta contenido modo permisos fuente", defaults=(None, None))
+Accion = namedtuple("Accion", "ruta contenido modo permisos fuente arreglo", defaults=(None, None, None))
 AccionDeGit = namedtuple("AccionDeGit", "tipo valor")
-AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente")
+AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente arreglo", defaults=(None,))
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
@@ -305,14 +307,22 @@ def _revisar_raiz(raiz):
     return raiz
 
 
-def _sumar_accion(raiz, valor, generador, vistas, acciones, fuente=None):
+def _arreglo(valor, ruta):
+    if valor is None:
+        return None
+    if not isinstance(valor, str) or not ARREGLO_RE.fullmatch(valor):
+        raise ErrorDePlan(f"el arreglo de {ruta} debe ser el id de un ítem del doctor, no {valor!r}")
+    return valor
+
+
+def _sumar_accion(raiz, valor, generador, vistas, acciones, fuente=None, arreglo=None):
     ruta, contenido, permisos = _accion(valor, generador)
     clave = ruta.casefold()
     if clave in vistas:
         raise ErrorDePlan(f"la ruta {ruta} está repetida (generadores {vistas[clave][1]} y {generador})")
     vistas[clave] = (ruta, generador)
     _revisar_destino(raiz, ruta)
-    acciones.append((ruta, contenido, permisos, fuente))
+    acciones.append((ruta, contenido, permisos, fuente, _arreglo(arreglo, ruta)))
 
 
 def _modo(raiz, ruta, fuente):
@@ -325,7 +335,8 @@ def _modo(raiz, ruta, fuente):
 
 def _armar_plan(raiz, acciones, vistas):
     _revisar_choques(vistas)
-    plan = Plan(Accion(ruta, contenido, _modo(raiz, ruta, fuente), permisos, fuente) for ruta, contenido, permisos, fuente in acciones)
+    plan = Plan(Accion(ruta, contenido, _modo(raiz, ruta, fuente), permisos, fuente, arreglo)
+                for ruta, contenido, permisos, fuente, arreglo in acciones)
     plan.raiz_real = os.path.realpath(raiz)
     return plan
 
@@ -344,7 +355,7 @@ def planificar(spec, raiz):
                 continue
             if isinstance(valor, AccionDerivada):
                 fuente = _ruta_relativa(valor.fuente)
-                _sumar_accion(raiz, (valor.ruta, valor.contenido), generador.nombre, vistas, acciones, fuente)
+                _sumar_accion(raiz, (valor.ruta, valor.contenido), generador.nombre, vistas, acciones, fuente, valor.arreglo)
                 continue
             _sumar_accion(raiz, valor, generador.nombre, vistas, acciones)
     plan = _armar_plan(raiz, acciones, vistas)
@@ -609,6 +620,7 @@ def _motivo(error, destino):
 def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     contenidos = {a.ruta: a.contenido for a in plan}
     fuentes = {a.ruta: a.fuente for a in plan}
+    arreglos = {a.ruta: a.arreglo for a in plan}
     if ensayo:
         hechos = [(a.ruta, a.modo == YA_EXISTE, a.modo == LO_DERIVA_EL_DOCTOR) for a in plan]
         fraseo = ("crearía", "ya existe")
@@ -619,8 +631,9 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
     lineas = []
     for ruta, existe, derivado in hechos:
         if derivado:
+            comando = " ".join(filter(None, (COMANDO_DEL_DOCTOR, arreglos.get(ruta))))
             lineas.append(LO_DERIVADO.format(verbo="no se crearía" if ensayo else "no se creó", ruta=ruta, fuente=fuentes.get(ruta),
-                                             existe="existe" if ensayo else "existía"))
+                                             existe="existe" if ensayo else "existía", comando=comando))
             continue
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
         if EN_WINDOWS and not existe and ruta in ejecutables:

@@ -6,6 +6,7 @@ import statistics
 import subprocess
 import sys
 import time
+import types
 from collections import namedtuple
 from pathlib import Path
 
@@ -13,7 +14,8 @@ import config_loader
 import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
-from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks
+from odd_ws import hosts as registro_de_hosts
+from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, host_de
 
 MARKETPLACE = "odd-workspace-template"
 URL_MARKETPLACE = "https://github.com/sebasgc0399/odd-workspace-template.git"
@@ -29,7 +31,6 @@ AYUDA_LISTA = "Creá ~/.odd-ws/denylist.txt en UTF-8, un término por línea (o 
 AYUDA_PYTHON = ("Desactivá el alias de ejecución de python.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
                 "Alias de ejecución de aplicaciones) o poné %LOCALAPPDATA%\\Python\\bin antes de WindowsApps en el PATH de usuario.")
 AYUDA_CREDENCIALES = "Instalá Git for Windows con Git Credential Manager, o corré git config --global credential.helper manager."
-AYUDA_CLAUDE = "Actualizá Claude Code a 2.1.284 o superior."
 AYUDA_GENTLE = "Instalá o actualizá gentle-ai (en Windows: go install github.com/gentleman-programming/gentle-ai/v4/cmd/gentle-ai@latest) y corré sync con Claude Code cerrado."
 AYUDA_RDD = "D3: el RDD nativo no ve el dominio (su reviewer corre sin herramientas); la plantilla trae el propio. Solo se apaga si lo pedís con --arreglar rdd."
 AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
@@ -64,6 +65,11 @@ HOOKS_PATH = ".githooks"
 PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
                 "y reiniciá Claude Code.")
+AYUDA_HOOKS_HOST = ("Cada hook lleva el --host de su archivo (los de hooks.json pueden no llevarlo: es claude-code). Corregí el "
+                    "comando: con un --host desconocido o vacío el hook calla o bloquea todo, y en Codex uno sin --host codex falla abierto.")
+CLAUDE_CODE = registro_de_hosts.FUENTE
+CLI_INSTALADO, CLI_AUSENTE, CLI_DE_OTRO_HOST = "instalado", "ausente", "ausente con otro host declarado instalado"
+SIN_CLAUDE = "claude no está instalado"
 CON_CENTINELA = re.compile(r"criterios|capa-.+")
 SIN_INVOCACION = re.compile(r"disable-model-invocation\s*:\s*(?:true|True|TRUE)\s*(?:#.*)?$")
 
@@ -191,11 +197,31 @@ def chequear_plugin_root(ctx):
     return resultado("plugin-root", OK, f"plugin_root = {anotado}")
 
 
+def hosts_declarados(raiz):
+    if raiz is None:
+        return list(config_loader.HOSTS_POR_DEFECTO), None
+    texto = leer_texto(raiz / config_loader.NOMBRE)
+    try:
+        datos = json.loads(texto) if texto is not None else None
+    except ValueError:
+        datos = None
+    try:
+        return config_loader.hosts_de(datos if isinstance(datos, dict) else {}), None
+    except config_loader.ConfigRota as error:
+        return None, str(error)
+
+
+def declara_claude_code(raiz):
+    declarados, _ = hosts_declarados(raiz)
+    return declarados is not None and CLAUDE_CODE in declarados
+
+
 def chequear_instancia(ctx):
     raiz = raiz_de_instancia(ctx)
     if raiz is None:
         return []
-    return [chequear_config(raiz), chequear_hooks_de_instancia(ctx, raiz), chequear_plugin_habilitado(raiz)]
+    resultados = [chequear_config(raiz), chequear_hooks_de_instancia(ctx, raiz)]
+    return resultados + [chequear_plugin_habilitado(raiz)] if declara_claude_code(raiz) else resultados
 
 
 def chequear_config(raiz):
@@ -320,13 +346,17 @@ def declara(cabecera, patron):
     return any(re.match(patron, linea) for linea in cabecera)
 
 
-def chequear_agentes(ctx):
+def chequear_agentes(ctx, versiones=None):
     raiz = raiz_de_instancia(ctx)
-    if raiz is None:
+    if raiz is None or not declara_claude_code(raiz):
         return []
     carpeta = raiz / convencion.AGENTES
     agentes = [(ruta, leer_texto(ruta)) for ruta in sorted(carpeta.glob("*.md"))] if carpeta.is_dir() else []
-    return [chequear_skills_precargadas(ctx, raiz, agentes), chequear_hooks_de_agentes(agentes)]
+    if (versiones or {}).get(CLAUDE_CODE, (None, None))[1] == CLI_DE_OTRO_HOST:
+        skills = resultado("agentes-skills", NO_APLICA, SIN_CLAUDE)
+    else:
+        skills = chequear_skills_precargadas(ctx, raiz, agentes)
+    return [skills, chequear_hooks_de_agentes(agentes)]
 
 
 def problemas_de_skill(nombre, ruta):
@@ -422,16 +452,6 @@ def chequear_version(ctx, id, args, minimo, ayuda, opcional=False):
     return resultado(id, OK, texto_version(version)), True
 
 
-def chequear_marketplace(ctx):
-    try:
-        datos = json.loads((ctx.home / ".claude" / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        datos = None
-    if isinstance(datos, dict) and MARKETPLACE in datos:
-        return resultado("marketplace", OK, f"{MARKETPLACE} registrado")
-    return resultado("marketplace", FALTA, f"{MARKETPLACE} no está registrado", ["claude", "plugin", "marketplace", "add", URL_MARKETPLACE])
-
-
 def chequear_rdd(ctx, hay_gentle):
     if not hay_gentle:
         return resultado("rdd", NO_APLICA, "gentle-ai no está instalado")
@@ -454,9 +474,93 @@ def chequear_telemetria(ctx, hay_gentle):
     return resultado("telemetria", AVISO, estado or "no se pudo leer el estado de la telemetría", None, AYUDA_TELEMETRIA)
 
 
+def _argumentos_del_script(tokens, scripts):
+    for posicion, token in enumerate(tokens):
+        script = os.path.basename(token.replace("\\", "/"))
+        if script in scripts:
+            return script, tokens[posicion + 1:]
+    return None, None
+
+
+def _con_host(valor, argumentos):
+    if not any(argumento == "--host" or argumento.startswith("--host=") for argumento in argumentos):
+        return f"sin --host (corre como {CLAUDE_CODE})"
+    if valor is None:
+        return "con --host vacío"
+    if valor not in registro_de_hosts.NOMBRES:
+        return f"con --host {valor!r}, que no es un host conocido"
+    return f"con --host {valor}"
+
+
+def chequear_hooks_host(ctx, raiz, declarados):
+    id = "hooks-host"
+    registrados = [(nombre, *registrado) for nombre in declarados
+                   for registrado in registro_de_hosts.adaptador(nombre).hooks_registrados(ctx, raiz)]
+    scripts = {os.path.basename(token.replace("\\", "/")) for _, _, tokens, propio in registrados if propio and tokens
+               for token in tokens if token.endswith(".py")}
+    malos, avisos, revisados = [], [], 0
+    for nombre, origen, tokens, propio in registrados:
+        if tokens is None:
+            (malos if propio else avisos).append(f"{origen} no se puede leer")
+            continue
+        script, argumentos = _argumentos_del_script(tokens, scripts)
+        if script is None:
+            continue
+        revisados += 1
+        valor = host_de(argumentos)
+        if valor != nombre:
+            malos.append(f"{origen}: {script} {_con_host(valor, argumentos)}, y el hook es de {nombre}")
+    if malos:
+        return resultado(id, FALTA, "; ".join(malos + avisos), None, AYUDA_HOOKS_HOST)
+    if avisos:
+        return resultado(id, AVISO, "; ".join(avisos), None, AYUDA_HOOKS_HOST)
+    return resultado(id, OK, f"{revisados} hooks de {', '.join(declarados)}, cada uno con el --host de su archivo")
+
+
+def versiones_de_los_hosts(ctx):
+    declarados, _ = hosts_declarados(raiz_de_instancia(ctx))
+    if declarados is None:
+        return {}
+    versiones = {nombre: registro_de_hosts.adaptador(nombre).version(ctx, NUCLEO) for nombre in declarados}
+    instalados = [nombre for nombre in declarados if versiones[nombre][1]]
+    estados = {}
+    for nombre in declarados:
+        version, instalado = versiones[nombre]
+        if instalado:
+            estados[nombre] = (version, CLI_INSTALADO)
+        elif instalados:
+            estados[nombre] = (version._replace(estado=AVISO, detalle=f"{version.detalle}: esta máquina trabaja con {', '.join(instalados)}, "
+                                                                        "que la instancia también declara"), CLI_DE_OTRO_HOST)
+        else:
+            estados[nombre] = (version, CLI_AUSENTE)
+    return estados
+
+
+def chequear_hosts(ctx, versiones=None):
+    raiz = raiz_de_instancia(ctx)
+    declarados, error = hosts_declarados(raiz)
+    if declarados is None:
+        return [resultado("hosts", FALTA, f"no se pueden revisar los hosts: {error}", None, AYUDA_CONFIG)]
+    versiones = versiones_de_los_hosts(ctx) if versiones is None else versiones
+    resultados = []
+    for nombre in declarados:
+        version, cli = versiones[nombre]
+        resultados += [version, *registro_de_hosts.adaptador(nombre).chequeos(ctx, raiz, NUCLEO, cli)]
+    if declarados != list(config_loader.HOSTS_POR_DEFECTO):
+        resultados.append(chequear_hooks_host(ctx, raiz, declarados))
+    return resultados
+
+
+NUCLEO = types.SimpleNamespace(
+    OK=OK, FALTA=FALTA, AVISO=AVISO, NO_APLICA=NO_APLICA, MARKETPLACE=MARKETPLACE, URL_MARKETPLACE=URL_MARKETPLACE, PLUGIN=PLUGIN,
+    CLAVE_PLUGIN=CLAVE_PLUGIN, AYUDA_CONFIG=AYUDA_CONFIG, CLI_INSTALADO=CLI_INSTALADO, CLI_AUSENTE=CLI_AUSENTE,
+    CLI_DE_OTRO_HOST=CLI_DE_OTRO_HOST, resultado=resultado, chequear_version=chequear_version, raiz_del_repo_de=raiz_del_repo_de,
+)
+
+
 def diagnosticar(ctx):
     raiz = raiz_del_clon(ctx)
-    claude, _ = chequear_version(ctx, "claude", ["claude", "--version"], (2, 1, 284), AYUDA_CLAUDE)
+    versiones = versiones_de_los_hosts(ctx)
     gentle, hay_gentle = chequear_version(ctx, "gentle-ai", ["gentle-ai", "version"], (4, 2, 0), AYUDA_GENTLE, opcional=True)
     engram, _ = chequear_version(ctx, "engram", ["engram", "version"], (3, 5, 0), AYUDA_ENGRAM, opcional=True)
     jq, _ = chequear_version(ctx, "jq", ["jq", "--version"], None, AYUDA_JQ, opcional=True)
@@ -466,11 +570,10 @@ def diagnosticar(ctx):
         chequear_plugin_root(ctx),
         *chequear_instancia(ctx),
         *chequear_writers(ctx),
-        *chequear_agentes(ctx),
+        *chequear_agentes(ctx, versiones),
         chequear_python(ctx),
         chequear_credenciales(ctx),
-        claude,
-        chequear_marketplace(ctx),
+        *chequear_hosts(ctx, versiones),
         gentle,
         chequear_rdd(ctx, hay_gentle),
         chequear_telemetria(ctx, hay_gentle),
