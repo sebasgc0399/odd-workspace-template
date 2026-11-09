@@ -15,6 +15,7 @@ cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {PRE: {Preguntar: Bloquear}}
 BITACORA = True
+PRECARGA_SKILLS = False
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, clear, compact y fork"),
     "P2": (SOPORTADO, "PreToolUse de apply_patch: permissionDecision deny por JSON con exit 0, con las rutas sacadas del "

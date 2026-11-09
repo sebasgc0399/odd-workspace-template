@@ -27,6 +27,7 @@ TOPE_DEL_MOTIVO = 200
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 _LIMITE = None
+_HOST = HOST_POR_DEFECTO
 
 
 def _restante(tope):
@@ -314,7 +315,7 @@ def skills_del_frontmatter(texto):
 
 def _precarga(evento, capa, raiz):
     tipo = evento.agente
-    if not id_valido(tipo):
+    if not id_valido(tipo) or not getattr(hosts.adaptador(_HOST), "PRECARGA_SKILLS", False):
         return False
     try:
         with open(os.path.join(raiz, convencion.agente(tipo)), encoding="utf-8-sig") as f:
@@ -420,8 +421,9 @@ def _manejador(evento):
     return None
 
 
-def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
-    global _LIMITE
+def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
+    global _LIMITE, _HOST
+    _HOST = host
     try:
         manejador = _manejador(evento)
         if manejador is None:
@@ -439,11 +441,12 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO):
         return manejador(evento, estado.config)
     finally:
         _LIMITE = None
+        _HOST = HOST_POR_DEFECTO
 
 
 def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
-        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo))
+        return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, host))
     except (Exception, SystemExit):
         return SILENCIO
 

@@ -207,6 +207,12 @@ def test_soportado_implica_que_el_adaptador_expresa_lo_que_pide_sin_degradarlo()
                 assert nota.strip(), "%s: %s es %s y su nota no explica por qué" % (nombre, clave, estado)
 
 
+def test_cada_adaptador_dice_si_su_cli_precarga_skills():
+    for nombre, adaptador in adaptadores():
+        assert isinstance(getattr(adaptador, "PRECARGA_SKILLS", None), bool), (
+            "%s: PRECARGA_SKILLS decide si verificar_capa saltea el primer toque de un agente que precarga la skill" % nombre)
+
+
 def test_p5_soportado_implica_saber_que_toco_el_writer():
     C = cap()
     for nombre, adaptador in adaptadores():

@@ -60,8 +60,9 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F1b | S2, S4 | `writer_stop` en Codex. `writer_guard` anota en `.claude/estado` las rutas y los comandos de cada writer, y el adaptador de Codex lee esa bitácora en vez del transcript (la alternativa neutral de S2). Claude Code sigue con su transcript. Hasta F1b, P5 de Codex queda `no disponible` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: `writer_guard` y `writer_stop`) | hecho (`c3736ff`, L14) |
 | F1c | S2–S4 | Empaquetado y bloqueo por JSON (L15). Detalle:<br>• `.codex-plugin/plugin.json` con la misma versión que `.claude-plugin`, `"hooks": "./hooks/hooks.codex.json"`, sin `skills` (Codex descubre `skills/`) y sin `plugin.json` en la raíz<br>• `hooks/hooks.codex.json`: comandos como string, `python "${PLUGIN_ROOT}/scripts/<x>.py" --plazo N --host codex`, con matchers `apply_patch` y `Bash`, sin `Read` ni `PowerShell`<br>• `writer_stop` se registra con `--host codex`, y `writer_guard` va en `apply_patch` y en `Bash`, porque sin él la compuerta no ve nada (L14)<br>• el adaptador de Codex bloquea por JSON y exit 0, nunca con exit 2<br>• un test de paridad entre los dos `hooks*.json` | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 2: el bloqueo de los guards en Codex) | hecho (`167132d`, L16) |
 | F1d1 | S2, S5, S6, S8 | Generación (la ex F0c), solo para los hosts declarados en `hosts` (S8, L17). Detalle:<br>• `hosts` en `workspace.config.json`, validado contra el registro<br>• un puerto de generación por adaptador<br>• marcadores por host en las plantillas, que en Claude Code valen el texto de hoy<br>• `.codex/agents/*.toml` derivados del `.md`<br>• `.codex/config.toml` con `project_doc_fallback_filenames = ["CLAUDE.md"]`, sin ningún `AGENTS.md`<br><br>Claude Code genera lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5: el bootstrap es el instalador de la instancia) | hecho (`932d733`, L19) |
-| F1d2 | S2–S4, S8 | Doctor por host (L17):<br>• Codex: la versión, el plugin instalado y la confianza de los hooks y del proyecto<br>• `codex-agentes` (L18): cada TOML se compara con el que sale del `.md` actual. Si falta, se genera; si está atrasado y su huella coincide, da `FALTA` y `--arreglar` lo re-deriva; si fue editado a mano, da `AVISO` sin pisarlo y pide editar el `.md`. Se compara contra la derivación completa y no contra `# odd-ws-plantilla: N`, que no sube cuando cambian los textos de Codex (A5 del verificador de F1d1)<br>• `hooks-host` en todos los hosts: ningún hook con un `--host` desconocido o vacío (A5 de L14, A2 de L16)<br>• `claude` no es `FALTA` si la instancia no lo declara<br>• el bootstrap ya promete «lo deriva de ahí el doctor (doctor --arreglar)»: F1d2 la cumple, e idealmente suma el id del arreglo a esa línea (A6 de L19) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5) | hecho (L20) |
-| F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks) y entrega `0.3.0` | necesita el sí del usuario: usa su cuenta de Codex | pendiente |
+| F1d2 | S2–S4, S8 | Doctor por host (L17):<br>• Codex: la versión, el plugin instalado y la confianza de los hooks y del proyecto<br>• `codex-agentes` (L18): cada TOML se compara con el que sale del `.md` actual. Si falta, se genera; si está atrasado y su huella coincide, da `FALTA` y `--arreglar` lo re-deriva; si fue editado a mano, da `AVISO` sin pisarlo y pide editar el `.md`. Se compara contra la derivación completa y no contra `# odd-ws-plantilla: N`, que no sube cuando cambian los textos de Codex (A5 del verificador de F1d1)<br>• `hooks-host` en todos los hosts: ningún hook con un `--host` desconocido o vacío (A5 de L14, A2 de L16)<br>• `claude` no es `FALTA` si la instancia no lo declara<br>• el bootstrap ya promete «lo deriva de ahí el doctor (doctor --arreglar)»: F1d2 la cumple, e idealmente suma el id del arreglo a esa línea (A6 de L19) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítem 5) | hecho (`39f46e4`, L20) |
+| F1f | S4, S5 | Lo que encontró el humo (L23):<br>• A: en Codex, el primer toque no se saltea por las skills del frontmatter, porque Codex no las precarga<br>• D: documentar la config de Codex que necesita un writer en Windows<br>• B pasó a X7 (L25) | inline; después, un verificador (ítem 2: `verificar_capa`) | hecho (L26) |
+| F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | en curso |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -71,6 +72,7 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | X3 | — | Fuera del alcance: con la config rota, `SessionStart` con `fork` no avisa (`ORIGENES_DEL_AVISO` de `verificar_capa.py`); conviene tratarlo como `resume` (aviso 3 de L13) | inline, aparte | pendiente |
 | X4 | — | Fuera del alcance, ya estaba en `f8a9b88`: en Claude Code, un transcript ilegible, o con una ruta con un surrogate suelto, da «nada tocado» sin dejar falta (A9 de L14). S5 no dejaba cambiarlo en F1b | inline, aparte | pendiente |
 | X5 | — | Fuera del alcance: un writer puede borrar su propia bitácora, o su transcript en Claude Code, con una llamada permitida, y la compuerta calla (paridad con la base); y un enlace duro plantado en lugar de la bitácora hace que el hook anote en otro archivo. Propuesta: proteger `.claude/estado/writers` de los writers en `writer_guard`, y un `lstat` antes del append (A1 y A2 de L14) | inline, aparte | pendiente |
+| X7 | — | Hallazgo B de la prueba de humo (L24): con Codex 0.167 en Windows y `[windows] sandbox = "unelevated"`, `writer_stop` mide 0/0 las líneas de un writer. La foto es correcta, y el mismo código fuera de Codex da 1/1, así que el entorno de los hooks hace que `git diff --no-index` no vea la diferencia. Para cerrarlo: instrumentar el hook en una instancia de prueba y ver qué devuelve `git` ahí. Afecta solo la medición de líneas, no los bloqueos | inline, aparte | pendiente |
 | X6 | — | Fuera del alcance, ya estaba en la base: un borrado no suma líneas, porque `lineas_reales` salta lo que no existe aunque la `.foto` tenga el contenido previo. En Codex se alcanza con `*** Delete File:` (A6 de L14) | inline, aparte | pendiente |
 
 ## Log
@@ -354,4 +356,58 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **A6:** `enabled = "false"` como string y `[plugins._default]` en 0.167. Fuera de dominio.
     - **A8:** `codex-hooks` lee el `hooks.codex.json` del plugin que corre el doctor, no el del caché de Codex.
     - **A10:** el CRLF del working copy lo normaliza git con `eol=lf`.
-- **Siguiente paso:** F1e, la prueba de humo en el Codex local y la versión `0.3.0`. Necesita el sí del usuario, porque usa su cuenta de Codex.
+- **L21 (2026-11-09), arranque de F1e.** F1d2 quedó en `39f46e4`.
+  - **El usuario:** «Si arranquemos».
+  - **La pregunta:** dónde se instala el plugin de esta rama para la prueba.
+  - **Su respuesta:** «Codex aparte (Recomendado)». La prueba usa un `CODEX_HOME` en el scratch, con el repo como marketplace local, y no toca `~/.codex` ni la 0.2.2 instalada.
+  - **Lo que hace el usuario:** el `codex login` en esa carpeta y la confianza de los 6 hooks en `/hooks`.
+  - **La entrega de `0.3.0`** (versión, tag y push) se confirma aparte, después de la prueba.
+- **L22 (2026-11-09), prueba de humo en Codex 0.144 (Windows).** El `CODEX_HOME` aparte quedó en `D:\dev-cache\codex-prueba-odd-ws`, porque dentro del temp del sistema Codex no crea sus binarios auxiliares. El plugin se instaló desde el repo como marketplace local, y el workspace de prueba salió del bootstrap con `["claude-code","codex"]`. El usuario hizo el login y confió los hooks en `/hooks`.
+  - **Doctor:** 0 FALTA, y los 7 ítems de Codex en OK. `codex-hooks` confirma, contra el Codex real, la clave de confianza que calcula el doctor.
+  - **Humo 1, `git push --force`:** bloqueado por `guard_comandos` con un `deny` por JSON a través de PowerShell («Command blocked by PreToolUse hook: guard-comandos bloqueó el comando…»).
+  - **Humo 2, primer toque con `apply_patch` en la capa:** bloqueado con los no negociables, y el archivo quedó intacto. Los hooks corren también dentro de un subagente.
+  - **Humo 3, un writer por rol:** no se pudo, por límites de Codex 0.144 y no de odd-ws.
+    - **El rol:** en v2 (el modelo por defecto, `gpt-5.6-terra`), `[features.multi_agent_v2] hide_spawn_agent_metadata` vale `true` y oculta `agent_type`. Ponerlo en `false` hace que la API rechace el pedido: «Function 'collaboration.spawn_agent' is reserved for use by this model and must match the configured schema». Además, `fork_turns` omitido vale `all`, y en 0.144 eso rechaza `agent_type`.
+    - **Con `gpt-5.6-luna` (v1):** el modelo pasa `agent_type = 'writer-capa-a'`, pero Codex falla con «spawn_agent could not resolve the child model for service tier validation».
+    - **El sandbox:** en Windows, Codex baja `workspace-write` a solo lectura si falta `[windows] sandbox = "unelevated"` (o `"elevated"`). Con eso, más `sandbox_mode = "workspace-write"` y `writable_roots` absolutos en el `.codex/config.toml` del proyecto, la sesión queda en `workspace-write`.
+    - **Las rutas relativas** en la config del proyecto se resuelven contra `.codex/`.
+    - **Herencia:** el subagente hereda el sandbox del padre y el rol no lo cambia, ni en 0.144 ni en 0.167.
+  - **Lo que dice el código de 0.167:** con roles definidos por el usuario, `spawn_agent` v2 expone `agent_type` (`expose_agent_type = !agent_roles.is_empty()`), y el fork completo acepta el rol. Así que los writers por rol probablemente funcionen en 0.167. Falta probarlo.
+- **L23 (2026-11-09), humo 3 con Codex 0.167 (npx), desde la TUI del usuario.**
+  - **El usuario:** sobre cómo seguir, eligió «0.167 con npx (Recomendado)». Después, como `codex exec` se colgaba con el sandbox `unelevated`, eligió «Desde tu Codex abierto (Recomendado)».
+  - **Lo que pasó:**
+    - **El rol:** el writer se lanzó con `agent_type: "writer-capa-a"`, aun con `fork_turns: "all"`.
+    - **El formato:** devolvió `## Resultado` con el formato de la plantilla.
+    - **El cambio:** `a.ext` quedó en `valor = 2`.
+    - **La compuerta:** `writer_stop` corrió en `SubagentStop`. Sacó el archivo de la bitácora, dio `formato_ok` y dejó cerrar.
+    - **Las instrucciones:** el fallback a `CLAUDE.md` funciona, porque Codex lo inyecta como «AGENTS.md instructions».
+    - **Los hooks:** el log de Codex (`logs_2.sqlite`) muestra que los de pre del `apply_patch` terminaron antes de aplicar el parche, y el de post después.
+  - **Hallazgo A:** el primer toque no frenó al writer de Codex. `verificar_capa._precarga` lo saltea cuando el `.md` del agente precarga la skill de la capa. Eso vale en Claude Code, pero Codex no precarga skills (P7 degradado). El writer leyó el `SKILL.md` solo porque sus instrucciones se lo piden, y nada lo obliga.
+  - **Hallazgo B:** `writer_stop` midió `a.ext` con 0 agregadas y 0 quitadas, sobre la base de su `.foto`, aunque cambió una línea. Con el mismo `git diff --no-index --numstat --ignore-cr-at-eol` fuera de Codex da 1 y 1, así que la foto ya tenía el contenido nuevo. Falta la causa; la foto se borró cuando la compuerta dejó cerrar.
+  - **Hallazgo C (de Codex):** con `codex exec` (sin pantalla) y `[windows] sandbox = "unelevated"`, la 0.167 se cuelga en el primer comando de shell. En la TUI, los comandos tardan unos 30 s.
+  - **Hallazgo D (de generación):** para que un writer de Codex escriba en Windows hace falta, en la config de Codex, `sandbox_mode = "workspace-write"`, `[windows] sandbox` y `writable_roots` absolutos con los repos de las capas. Las rutas son de cada máquina, y la decisión toca el aislamiento del usuario.
+- **L24 (2026-11-09), F1f en curso.**
+  - **A, resuelto inline:**
+    - **El cambio:** `PRECARGA_SKILLS` en cada adaptador (`True` en Claude Code, `False` en Codex). `verificar_capa.decidir` recibe el host y `_precarga` lo consulta.
+    - **La prueba:** RED del test `test_codex_no_precarga_skills_y_el_writer_tiene_su_primer_toque` y GREEN después. Las suites `verificar_capa` 70/70, `codex` 40/40, `claude_code` 24/24 y `capacidades` 20/20 pasan, y `diseno.md` quedó actualizado.
+    - **Riesgo:** ítem 2, porque cambia un guard.
+  - **En Codex 0.167, el pre se respeta en modo código:** la TUI del usuario bloqueó un `apply_patch` del agente principal por primer toque, y el archivo quedó intacto.
+  - **B, acotado:** un vigilante copió `.claude/estado/writers` cada 0,2 s durante una segunda corrida del writer (`valor = 2` a `valor = 3`).
+    - **La foto estaba bien:** `writer_guard` la sacó con `valor = 2\r\n` antes del parche, y la bitácora tenía la ruta.
+    - **El hook midió mal:** `writer_stop` volvió a medir 0/0. Con el mismo código del caché del plugin y la misma foto, fuera de Codex, `lineas_reales` da 1/1, y `git diff --no-index` da rc 1 con «1 1».
+    - **Conclusión:** la diferencia está en el entorno con el que Codex corre los hooks: probablemente el sandbox `unelevated` o variables del entorno. La causa exacta sigue abierta.
+- **L25 (2026-11-09), decisión sobre B.** La pregunta: si seguir con B ahora o registrarlo y cerrar A. El usuario: «Registrar y cerrar A (Recomendado)». B pasa a X7. F1f cierra A y D, con su verificador.
+- **L26 (2026-11-09), F1f.**
+  - **El verificador:** sin blockers, con S4 (A), S5 y D cumplidos.
+    - **Claude Code:** 4510 de 4510 pasos con estado iguales a `39f46e4`, sin flag, con `--host claude-code` y con `--host=claude-code`. Por el CLI real, 700 de 700.
+    - **Codex:** un oráculo cruzado, el candidato con precarga contra la base sin precarga, da 3060 de 3060 iguales. El post no cambia.
+    - **Estado global:** `_HOST` se restaura en todos los casos (25 de 25).
+    - **Mutantes:** murieron los tres pedidos.
+    - **Suites:** 41 de 41.
+  - **Avisos aplicados:**
+    - A1: la redacción de X7 en `diseno.md`;
+    - A2: un test de paridad que exige `PRECARGA_SKILLS` en cada adaptador.
+  - **Avisos que quedan:**
+    - A3: restaurar `_HOST` en el `finally` es defensivo;
+    - A4: la marca de la sesión principal es compartida, igual que en la base.
+- **Siguiente paso:** la decisión del usuario sobre la `0.3.0`.

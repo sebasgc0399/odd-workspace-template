@@ -1230,6 +1230,21 @@ def bloqueado_en_codex(salida):
     return datos.get("reason") if set(datos) == {"decision", "reason"} and datos["decision"] == "block" else None
 
 
+def test_codex_no_precarga_skills_y_el_writer_tiene_su_primer_toque():
+    with git_aislado(), Toque() as w:
+        w.agente("writer-sql", "---\nname: writer-sql\nskills:\n  - criterios\n  - capa-sql\n---\ncuerpo\n")
+        texto = parche_codex("*** Update File: %s" % w.sql, "@@", "-a", "+b")
+        e = codex(texto, agent_type="writer-sql", agent_id="a1")
+        motivo = negado_en_codex(M.correr(e, raiz=w.raiz, plazo=25, host="codex"))
+        assert motivo is not None and motivo.startswith("primer toque (capa-sql)"), motivo
+        assert w.marcas() == ["s1/a1.sql"], w.marcas()
+        assert M.correr(e, raiz=w.raiz, plazo=25, host="codex") == (0, "", b""), "el reintento pasa"
+        claude = a_escribir(w.sql, "Edit", agente="a2")
+        claude["agent_type"] = "writer-sql"
+        assert w.correr(claude) == (0, "", b""), "en Claude Code la skill precargada sigue salteando el primer toque"
+        assert w.marcas() == ["s1/a1.sql"], w.marcas()
+
+
 def test_codex_un_parche_de_dos_capas_bloquea_una_vez_con_los_dos_primeros_toques():
     with git_aislado(), Toque() as w:
         texto = parche_codex("*** Update File: %s" % w.sql, "@@", "-a", "+b", "*** Add File: %s" % w.cs, "+int a;",

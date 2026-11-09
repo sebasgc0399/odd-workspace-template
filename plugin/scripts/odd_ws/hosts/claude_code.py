@@ -14,6 +14,7 @@ AYUDA_CLAUDE = "Actualizá Claude Code a 2.1.284 o superior."
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
 DEGRADACIONES = {}
 BITACORA = False
+PRECARGA_SKILLS = True
 MANIFIESTO = {
     "P1": (SOPORTADO, "SessionStart con additionalContext en startup, resume, compact y clear"),
     "P2": (SOPORTADO, "PreToolUse de Edit y Write: exit 2 con el motivo en stderr"),
