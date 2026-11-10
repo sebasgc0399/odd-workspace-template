@@ -4,17 +4,31 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 ## 0.3.1
 
-- **macOS y Linux.** Los hooks arrancan con `python3`, el único que traen de fábrica macOS, Ubuntu y Debian.
-  - En Claude Code 2.1.295 o más van con `onFailure: "block"`: si Python no arranca, la herramienta se bloquea con el error en vez de pasar sin el chequeo.
+**Soporte para macOS y Linux.** Hasta esta versión, los hooks llamaban a `python`, que macOS, Ubuntu y Debian no traen de fábrica: ahí no arrancaban, y los guards dejaban pasar sin el chequeo. Por ahora lo prueba el CI; nadie lo probó a mano todavía.
+
+### Lo que cambia para ti
+
+- **macOS y Linux:** los hooks arrancan con `python3`, el único que traen de fábrica macOS, Ubuntu y Debian. Los guards cierran además formas de esquivarlos propias de esos sistemas (el detalle, abajo).
+- **Si Python no arranca, Claude Code bloquea.** Con Claude Code 2.1.295 o más, la herramienta se bloquea con el error en vez de pasar sin el chequeo.
+- **Windows con el instalador clásico de python.org, winget o choco:** no crean `python3`, así que en Claude Code las herramientas quedan bloqueadas hasta que lo instales con el Python install manager o la Microsoft Store. `/odd-ws:doctor` te dice qué falta y cómo arreglarlo.
+- **`/odd-ws:conocimiento --claims` funciona en macOS,** y rechaza formas de `uniq` y `sort` que escribían archivos, también en Windows.
+- **`/odd-ws:doctor` en macOS** ya no marca FALTA en `plugin-root` cuando la ruta apunta al mismo plugin escrito de otra forma.
+- **Si tu instancia ya existe y usas macOS, Ubuntu o Debian:** su `.githooks/pre-commit` sigue llamando a `python`. Copia encima el de `plugin/plantillas/pre-commit`, que prueba `python3`, `python` y `py`.
+
+### Detalle técnico
+
+- **El arranque de los hooks:**
+  - En Claude Code 2.1.295 o más, los hooks de pre y post van con `onFailure: "block"`.
   - Codex lanza `python3`, y `python` en Windows.
-- **Windows con el instalador clásico de python.org, winget o choco:** no crean `python3`, así que en Claude Code los hooks de pre y post bloquean hasta que lo haya. Lo crean el Python install manager y la Microsoft Store. `/odd-ws:doctor` revisa el intérprete que lanza cada host declarado y da el arreglo.
+  - `/odd-ws:doctor` revisa el intérprete que lanza cada host declarado y da el arreglo.
 - **Los guards en macOS y Linux:**
   - En macOS, un push o un commit sobre un repo protegido escrito con otras mayúsculas o en otra forma Unicode ya no pasa.
   - La excepción del scratch reconoce el de Claude Code en cada sistema: `/tmp/claude-<uid>` en macOS y `<TMPDIR>/claude-<uid>` en Linux. Un borrado ya no se escapa del scratch por un enlace seguido de `..` ni por `.\.`.
   - `git -C //<repo>` ya no esquiva la capa 2.
-- **`/odd-ws:conocimiento --claims` en macOS:** las afirmaciones corren sin `/usr/bin/timeout`. La lista blanca cierra formas de `uniq` y `sort` que, con el getopt de BSD (también el de Git for Windows), escribían archivos.
-- `auditar_lecturas` ve una lectura prohibida aunque la ruta pase por un enlace, y el doctor y `scriptdom.ps1` funcionan fuera de Windows.
-- **Instancias existentes:** su `.githooks/pre-commit` sigue llamando a `python`. En macOS, Ubuntu o Debian, copia encima el de `plugin/plantillas/pre-commit`, que prueba `python3`, `python` y `py`.
+- **`/odd-ws:conocimiento --claims`:** en macOS, las afirmaciones corren sin `/usr/bin/timeout`. La lista blanca cierra formas de `uniq` y `sort` que, con el getopt de BSD (también el de Git for Windows), escribían archivos.
+- **`auditar_lecturas`** ve una lectura prohibida aunque la ruta pase por un enlace.
+- **El doctor:** `plugin-root` compara la forma canónica y, si no alcanza, `samefile`.
+- **Fuera de Windows:** `scriptdom.ps1` ya no busca la DLL en `C:\Program Files`. Sin `-Dll`, sale con 3 (falta la DLL) en vez de un error.
 
 ## 0.3.0
 
