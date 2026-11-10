@@ -65,7 +65,7 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | hecho (L22–L24 y L27) |
 | M1 | S4 | Un CI que corra todas las suites en Windows, Linux y macOS (L30). Hoy las suites solo corren en el pre-commit de una máquina Windows, y el único workflow es `release.yml` | inline | hecho (L34) |
 | M2 | S4 | Un arranque de Python portable. Los 13 hooks llaman a `python`, que no existe en una Mac típica, y entonces el hook no arranca y los guards fallan abiertos. En Codex: `command` con `python3` y `commandWindows` con `python`. En Claude Code: por investigar (L30) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítems 2, 3 y 5) | hecho (L34) |
-| M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job (L35: ya lo crea) | delegado: M3a, M3b y M3c en paralelo (Writer trigger a); el padre, `writer_guard.tests` y `verificar_capa.tests`. M3c `1cfd042`, M3b `04d0674` y M3a en el commit que cierra M3; M3a y M3b con verificador independiente y rechequeo cerrado (L39-L42) | hecho, falta el CI en verde |
+| M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job (L35: ya lo crea) | delegado: M3a, M3b y M3c en paralelo (Writer trigger a); el padre, `writer_guard.tests` y `verificar_capa.tests`. M3c `1cfd042`, M3b `04d0674` y M3a en el commit que cierra M3; M3a y M3b con verificador independiente y rechequeo cerrado (L39-L42) | hecho (CI verde, L43) |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -633,4 +633,12 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **PowerShell:** `\` sigue separando.
     - **Windows:** el diferencial da 46 468 filas idénticas.
     - **X12 (advisory, fuera de dominio):** en PowerShell sobre POSIX, `Remove-Item <scratch>/dentro/../../x`, con un enlace interno, podría salir del scratch si pwsh resuelve `..` como texto. Hoy ningún host da una herramienta PowerShell en POSIX.
+- **L43 (2026-11-10), M3 cerrado y la entrega `0.3.1`.**
+  - **Commits:** M3a quedó en `0a1af09`.
+  - **El CI:** la corrida `42821303293` sobre `0a1af09` da todas las suites en verde en Ubuntu, Windows y macOS. S4 y S5 quedan cumplidos.
+  - **La `0.3.1`** (autorizada en L32):
+    - los dos manifiestos y el README pasan a `0.3.1`;
+    - el CHANGELOG lleva el efecto de bloqueo en Windows con el instalador clásico y el pre-commit de las instancias existentes (A8);
+    - etiqueta `odd-ws--v0.3.1`, y `main` avanza por fast-forward hasta el commit de la entrega.
+  - **Siguiente paso:** F2, gentle-shell (Pi). Los seguimientos X1-X12 quedan abiertos.
   - **`Doc/diseno.md`:** el padre integró las notas de M3a: el scratch por OS en los dos guards, `..` y `\` en POSIX, el plegado en macOS y `//`.
