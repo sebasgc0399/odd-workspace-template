@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import os
 import sys
@@ -70,6 +71,32 @@ def test_el_corte_por_comodin_deja_la_carpeta_anterior():
     assert m().antes_del_comodin("C:/repos/c++/x") is None
     assert m().antes_del_comodin("C:/repos/c++") == "C:/repos/"
     assert m().antes_del_comodin("C:/repos/db") is None
+
+
+@contextlib.contextmanager
+def plataforma(nombre):
+    previa = m().PLATAFORMA
+    m().PLATAFORMA = nombre
+    try:
+        yield
+    finally:
+        m().PLATAFORMA = previa
+
+
+def test_en_macos_plegar_ignora_las_mayusculas_y_la_forma_unicode_como_apfs():
+    nfd = "/Users/Ana/A\u0303n\u0303o"
+    with plataforma("darwin"):
+        assert m().plegar("/USERS/ana/ÃÑO") == m().plegar(nfd) == "/users/ana/ãño", m().plegar(nfd)
+
+
+def test_en_windows_y_en_linux_plegar_deja_la_ruta_como_esta():
+    for nombre in ("win32", "linux"):
+        with plataforma(nombre):
+            assert m().plegar("/Users/Ana/A\u0303n\u0303o") == "/Users/Ana/A\u0303n\u0303o", nombre
+
+
+def test_la_plataforma_por_defecto_es_la_del_proceso():
+    assert m().PLATAFORMA == sys.platform
 
 
 def main():

@@ -1,7 +1,10 @@
 import os
 import posixpath
 import re
+import sys
+import unicodedata
 
+PLATAFORMA = sys.platform
 DRIVE = re.compile(r"^[a-z]:")
 UNIDAD_ABSOLUTA = re.compile(r"^[a-z]:/")
 UNIDAD_SOLA = re.compile(r"[A-Za-z]:")
@@ -25,6 +28,10 @@ def es_relativa(r):
 
 def caso(r):
     return r.lower() if os.name == "nt" else r
+
+
+def plegar(r):
+    return unicodedata.normalize("NFC", r).lower() if PLATAFORMA == "darwin" else r
 
 
 def _valor(nombre, cwd, de_entorno, variable):

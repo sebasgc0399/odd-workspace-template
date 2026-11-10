@@ -10,8 +10,8 @@ import time
 import config_loader
 from odd_ws import hosts, rutas
 from odd_ws.capacidades import PRE
-from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, correr_hook, host_de, plazo_de, raiz_de_instancia,
-                          temporal)
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, carpeta_scratch, correr_hook, host_de, plazo_de,
+                          raiz_de_instancia)
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir, Preguntar
 
 EMITE = {PRE: (Bloquear, Preguntar)}
@@ -77,6 +77,7 @@ ENVOLTORIO = re.compile(r"(?i)^[$({!@&`%]*(?:[^\\/]*[\\/])*(sudo|doas|xargs|comm
                         r"stdbuf|ionice|watch|winpty|busybox|powershell|pwsh|if|then|else|elif|do|while|until|cmd|foreach-object|"
                         r"foreach|invoke-command|start-job|-exec|-execdir|-ok|-okdir)(\.exe)?$")
 BORRAN = ("rm", "remove-item", "ri", "del", "erase", "rd", "rmdir")
+SOLO_DE_POWERSHELL = ("remove-item", "ri", "del", "erase", "rd")
 
 GIT_LECTURA = ("status", "log", "diff", "show", "grep", "ls-tree", "ls-files", "ls-remote", "rev-parse", "rev-list",
                "cat-file", "blame", "annotate", "describe", "shortlog", "merge-base", "name-rev", "for-each-ref", "show-ref",
@@ -303,8 +304,11 @@ def _push_forzado(texto):
     return None
 
 
-def _bajo_scratch(pieza, scratch, casa):
+def _bajo_scratch(pieza, scratch, casa, barra_separa):
     if PROHIBIDOS.search(pieza):
+        return False
+    posix = rutas.PLATAFORMA != "win32"
+    if posix and not barra_separa and "\\" in pieza:
         return False
     ruta = pieza.replace("\\", "/")
     m = TILDE.match(ruta)
@@ -312,30 +316,38 @@ def _bajo_scratch(pieza, scratch, casa):
         if not casa:
             return False
         ruta = casa.replace("\\", "/").rstrip("/") + "/" + m.group(1)
-    m = UNIDAD.match(ruta)
-    if m:
-        unidad, resto = m.group(1), m.group(2)
-    else:
-        m = GIT_BASH.match(ruta)
-        if not m:
+    if posix:
+        if not ruta.startswith("/"):
             return False
-        unidad, resto = m.group(1), m.group(3) or ""
+        raiz, resto = "/", ruta
+    else:
+        m = UNIDAD.match(ruta)
+        if m:
+            unidad, resto = m.group(1), m.group(2)
+        else:
+            m = GIT_BASH.match(ruta)
+            if not m:
+                return False
+            unidad, resto = m.group(1), m.group(3) or ""
+        raiz = unidad + ":/"
     pila = []
     for parte in resto.split("/"):
         if parte in ("", "."):
             continue
         if parte == "..":
-            if pila:
+            if posix:
+                pila.append(parte)
+            elif pila:
                 pila.pop()
             continue
         if PUNTOS.match(parte) or (parte.startswith(".") and "*" in parte):
             return False
         pila.append(parte)
-    destino = config_loader.canonica(unidad + ":/" + "/".join(pila))
+    destino = config_loader.canonica(raiz + "/".join(pila))
     return destino != scratch and config_loader._dentro(destino, scratch)
 
 
-def _solo_scratch(segmentos, palabras, scratch, casa):
+def _solo_scratch(segmentos, palabras, scratch, casa, powershell=False):
     if segmentos.ambiguo or scratch is None:
         return False
     hallado = False
@@ -346,6 +358,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa):
         hallado = True
         if indice != 0 or tras_tubo:
             return False
+        barra_separa = powershell or _palabra(tokens[0][0]).lower() in SOLO_DE_POWERSHELL
         destinos, fin_de_opciones, k = 0, False, 1
         while k < len(tokens):
             t, citado = tokens[k]
@@ -379,7 +392,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa):
             for pieza in valor.split(","):
                 if pieza == "":
                     continue
-                if not _bajo_scratch(pieza, scratch, casa):
+                if not _bajo_scratch(pieza, scratch, casa, barra_separa):
                     return False
                 destinos += 1
         if destinos == 0:
@@ -434,7 +447,7 @@ def _base(comando):
     return comando if alimenta else HEREDOC.sub(" ", comando)
 
 
-def _capa_1(base, entorno):
+def _capa_1(base, entorno, powershell=False):
     _vigente()
     scan = SIMPLES.sub(" ", DOBLES.sub(" ", base))
     if GIT.search(scan) and PUSH.search(scan) and (FORCE.search(scan) or FORCE_CORTO.search(scan)) and not LEASE.search(scan):
@@ -446,11 +459,11 @@ def _capa_1(base, entorno):
         return "git reset --hard descarta sin vuelta atrás el trabajo sin commitear"
     if GIT.search(scan) and CLEAN.search(scan) and CLEAN_F.search(scan):
         return "git clean -f borra sin vuelta atrás los archivos sin trackear"
-    carpeta = temporal(entorno)
-    scratch = config_loader.canonica(os.path.join(carpeta, "claude")) if carpeta else None
+    carpeta = carpeta_scratch(entorno)
+    scratch = config_loader.canonica(carpeta) if carpeta else None
     casa = entorno.get("HOME") or entorno.get("USERPROFILE")
     pista = " (solo pasa si todos los destinos son rutas absolutas literales dentro de %s)" % (
-        os.path.join(carpeta, "claude").replace("\\", "/") if carpeta else "<temporal>/claude")
+        carpeta.replace("\\", "/") if carpeta else "<temporal>/claude")
     partes = []
 
     def segmentos():
@@ -460,7 +473,7 @@ def _capa_1(base, entorno):
 
     def solo_scratch(palabras):
         try:
-            return _solo_scratch(segmentos(), palabras, scratch, casa)
+            return _solo_scratch(segmentos(), palabras, scratch, casa, powershell)
         except _SinTiempo:
             raise
         except Exception:
@@ -504,7 +517,7 @@ class Protegidos:
 
     def _canonica(self, ruta):
         ruta = PREFIJO_LARGO.sub("", ruta)
-        if ruta.startswith("//"):
+        if rutas.PLATAFORMA == "win32" and ruta.startswith("//"):
             return os.path.normcase(ruta)
         pendientes, actual = [], ruta
         while actual not in self._reales:
@@ -519,7 +532,7 @@ class Protegidos:
             actual = padre
         canonica = self._reales[actual]
         for camino, nombre in reversed(pendientes):
-            canonica = os.path.join(canonica, os.path.normcase(nombre))
+            canonica = os.path.join(canonica, rutas.plegar(os.path.normcase(nombre)))
             self._reales[camino] = canonica
         return self._reales[ruta]
 
@@ -882,12 +895,13 @@ def analizar(comando, cwd=None, entorno=None, protegidos=None, herramienta=None)
     if os.name == "nt":
         entorno = {k.upper(): v for k, v in entorno.items()}
     base = _base(comando)
-    motivo = _capa_1(base, entorno)
+    powershell = herramienta in ("PowerShell", POWERSHELL)
+    motivo = _capa_1(base, entorno, powershell)
     if motivo:
         return "block", motivo
     if protegidos is not None and protegidos.activa:
         variable = (lambda nombre: entorno.get(nombre.upper())) if os.name == "nt" else entorno.get
-        motivo = _capa_2(comando, base, cwd, variable, protegidos, herramienta not in ("PowerShell", POWERSHELL))
+        motivo = _capa_2(comando, base, cwd, variable, protegidos, not powershell)
         if motivo:
             return "ask", motivo
     return None, None

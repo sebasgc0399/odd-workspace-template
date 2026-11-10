@@ -78,8 +78,16 @@ DB, WEB, MOVIL = EQUIPO / "db", EQUIPO / "web", EQUIPO / "movil"
 WT = EQUIPO / "worktrees" / "movil--x"
 INST = BASE / "inst"
 TMPD = BASE / "tmp"
-SCRATCH_BASE = TMPD / "claude"
+MACOS = sys.platform == "darwin"
+if NT:
+    SCRATCH_BASE = TMPD / "claude"
+else:
+    SCRATCH_BASE = (Path("/tmp") if MACOS else TMPD) / ("claude-%d" % os.getuid())
 TALLER_DIR = INST / "tickets" / "T-123-x" / "SQL"
+
+
+def desde_el_scratch(destino, dentro=""):
+    return fw(SCRATCH_BASE) + "/" + dentro + fw(os.path.relpath(destino, SCRATCH_BASE))
 
 CONFIG = {
     "schema_version": 1,
@@ -497,12 +505,12 @@ def test_sin_instancia_o_con_la_config_rota_calla():
 def test_e2_el_scratchpad_se_decide_con_la_ruta_normalizada():
     base = fw(SCRATCH_BASE)
     bloquea = [
-        "echo x > " + base + "/../../equipo/db/x",
-        "echo x > " + bw(base) + "\\..\\..\\equipo\\db\\x",
-        "echo x > " + gb(base) + "/../../equipo/db/x.sql",
-        "echo x > " + base + "/c--x/s/scratchpad/../../../../../inst/tickets/T-123-x/SQL/esq.Proc_A.sql",
-        "cp a.txt " + base + "/../../equipo/movil/app/src/main/java/com/x/A.java",
-        "Set-Content " + bw(base) + "\\..\\..\\equipo\\db\\x -Value a",
+        "echo x > " + desde_el_scratch(DB / "x"),
+        "echo x > " + bw(desde_el_scratch(DB / "x")),
+        "echo x > " + gb(desde_el_scratch(DB / "x.sql")),
+        "echo x > " + desde_el_scratch(TALLER_DIR / "esq.Proc_A.sql", "c--x/s/scratchpad/../../../"),
+        "cp a.txt " + desde_el_scratch(MOVIL / "app/src/main/java/com/x/A.java"),
+        "Set-Content " + bw(desde_el_scratch(DB / "x")) + " -Value a",
     ]
     pasa = [
         "echo x > " + base + "/c--x/s/scratchpad/u1/../u2/salida.txt",
@@ -720,13 +728,15 @@ def test_s13_iex_invoke_expression_y_start_process():
 
 
 def test_s13_el_scratchpad_exige_que_la_ruta_empiece_por_el_scratch_real():
+    nombre = SCRATCH_BASE.name
+    otro = BASE / "otro" / "tmp" / nombre / "c--x/s/x.txt"
     comprobar(tabla([
-        "echo x > " + fw(DB) + "/tmp/claude/x.sql", "Set-Content " + bw(DB) + "\\tmp\\claude\\x.sql x",
-        "cp a.txt " + fw(MOVIL) + "/tmp/claude/A.java",
-        "echo x > " + gb(DB) + "/tmp/claude/x.sql", "echo x > " + fw(SCRATCH_BASE) + "X/../../equipo/db/x",
+        "echo x > " + fw(DB) + "/tmp/%s/x.sql" % nombre, "Set-Content " + bw(DB) + "\\tmp\\%s\\x.sql x" % nombre,
+        "cp a.txt " + fw(MOVIL) + "/tmp/%s/A.java" % nombre,
+        "echo x > " + gb(DB) + "/tmp/%s/x.sql" % nombre, "echo x > " + fw(SCRATCH_BASE) + "X/" + fw(os.path.relpath(DB / "x", SCRATCH_BASE)),
     ], True), tabla([
         "echo x > " + SCRATCH, "echo x > " + SCRATCH_FW, "Set-Content " + SCRATCH + " x", "cp " + CS + " " + SCRATCH,
-        "echo x > " + fw(BASE / "otro/tmp/claude/c--x/s/x.txt"), "echo x > " + gb(BASE / "otro/tmp/claude/c--x/s/x.txt"),
+        "echo x > " + fw(otro), "echo x > " + gb(otro),
     ], False))
 
 
@@ -861,10 +871,59 @@ def test_la_foto_no_se_pisa_aunque_otro_proceso_la_escriba_en_el_medio():
         assert foto.read_bytes() == b"original\n"
 
 
+@contextlib.contextmanager
+def en_sistema(nombre, uid=501):
+    from odd_ws import comun, rutas
+    previo = rutas.PLATAFORMA, comun._uid
+    rutas.PLATAFORMA, comun._uid = nombre, (lambda: uid)
+    try:
+        yield
+    finally:
+        rutas.PLATAFORMA, comun._uid = previo
+
+
+def test_en_posix_el_scratch_es_el_de_claude_code():
+    entorno = dict(ENTORNO, TMPDIR=str(TMPD))
+    duda = "[IO.File]::WriteAllText((Join-Path '%s' $n), 'x')"
+    with en_sistema("linux", uid=1000):
+        zonas = G.Zonas(config_loader.cargar(INST), entorno)
+        assert zonas.es_scratch(fw(TMPD / "claude-1000/x")), "en Linux cuelga de TMPDIR con el uid"
+        for otra in (TMPD / "claude/x", TMPD / "claude-1001/x"):
+            assert not zonas.es_scratch(fw(otra)), otra
+        comprobar(tabla([duda % bw(TMPD / "claude-1000/c--x")], False, REPO_CWD, zonas),
+                  tabla([duda % bw(TMPD / "claude/c--x")], True, REPO_CWD, zonas))
+    with en_sistema("darwin", uid=501):
+        zonas = G.Zonas(config_loader.cargar(INST), entorno)
+        assert zonas.es_scratch("/tmp/claude-501/x"), "en macOS vive en /tmp aunque haya TMPDIR"
+        assert not zonas.es_scratch(fw(TMPD / "claude-501/x"))
+
+
+def test_en_macos_otras_mayusculas_o_la_forma_nfd_no_esconden_un_repo():
+    with instancia_temporal() as raiz:
+        repo = raiz / "año" / "db"
+        repo.mkdir(parents=True)
+        config = {"schema_version": 1, "repos": {"db": {}}, "layers": {"sql": {"extensions": [".sql"], "repos": ["db"]}}}
+        (raiz / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+        (raiz / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(repo)}}}), encoding="utf-8")
+        nfd = fw(repo).replace("ñ", "n\u0303")
+        with en_sistema("darwin"):
+            zonas = G.Zonas(config_loader.cargar(raiz), ENTORNO)
+            comprobar(tabla(["echo x > %s/x" % nfd, "echo x > %s/x" % fw(repo).upper()], True, None, zonas))
+        with en_sistema("linux"):
+            zonas = G.Zonas(config_loader.cargar(raiz), ENTORNO)
+            comprobar(tabla(["echo x > %s/x" % nfd], False, None, zonas))
+
+
 def test_el_scratch_gana_aunque_caiga_dentro_de_una_zona():
-    adentro = G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TEMP=str(DB / "tmp"), TMP=str(DB / "tmp"), TMPDIR=str(DB / "tmp")))
-    comprobar(tabla(["echo x > " + fw(DB / "tmp/claude/s/x.sql"), "rm -rf " + fw(DB / "tmp/claude/s")], False, None, adentro),
-              tabla(["echo x > " + fw(DB / "x.sql"), "echo x > " + fw(DB / "tmp/claude/../x.sql")], True, None, adentro))
+    dentro = dict(ENTORNO, TEMP=str(DB / "tmp"), TMP=str(DB / "tmp"), TMPDIR=str(DB / "tmp"))
+    scratch = DB / "tmp" / SCRATCH_BASE.name
+    with en_sistema("linux", uid=os.getuid()) if MACOS else contextlib.nullcontext():
+        adentro = G.Zonas(config_loader.cargar(INST), dentro)
+        comprobar(tabla(["echo x > " + fw(scratch / "s/x.sql"), "rm -rf " + fw(scratch / "s")], False, None, adentro),
+                  tabla(["echo x > " + fw(DB / "x.sql"), "echo x > " + fw(scratch) + "/../x.sql"], True, None, adentro))
+    if MACOS:
+        real = G.Zonas(config_loader.cargar(INST), dentro)
+        comprobar(tabla(["echo x > " + fw(scratch / "s/x.sql")], True, None, real))
 
 
 def test_destinos_no_inventa_rutas_de_capa():
@@ -934,13 +993,22 @@ def test_el_scratch_sale_del_entorno():
     duda = "[IO.File]::WriteAllText((Join-Path '" + bw(SCRATCH_BASE / "c--x") + "' $n), 'x')"
     sin_temporal = {k: v for k, v in ENTORNO.items() if k not in ("TEMP", "TMP", "TMPDIR")}
     otra = G.Zonas(config_loader.cargar(INST), sin_temporal)
-    comprobar(con_cwd([duda], REPO_CWD, False), tabla([duda], True, REPO_CWD, otra))
+    if MACOS:
+        comprobar(con_cwd([duda], REPO_CWD, False), tabla([duda], False, REPO_CWD, otra))
+        movido = G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TMPDIR=str(BASE / "otro")))
+        assert movido.es_scratch(SCRATCH_FW), "en macOS el scratch no sale del entorno: sin temporal, sigue en /tmp"
+        assert not movido.es_scratch(fw(BASE / "otro" / SCRATCH_BASE.name / "x"))
+    else:
+        comprobar(con_cwd([duda], REPO_CWD, False), tabla([duda], True, REPO_CWD, otra))
     if NT:
         assert G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TMP=str(BASE / "otro"))).es_scratch(SCRATCH_FW)
         assert not G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TEMP=str(BASE / "otro"))).es_scratch(SCRATCH_FW)
         assert G.Zonas(config_loader.cargar(INST), dict(sin_temporal, SYSTEMROOT=str(BASE))).es_scratch(fw(BASE / "temp/claude/x"))
     else:
-        assert G.Zonas(config_loader.cargar(INST), sin_temporal).es_scratch("/tmp/claude/x")
+        assert G.Zonas(config_loader.cargar(INST), sin_temporal).es_scratch("/tmp/%s/x" % SCRATCH_BASE.name)
+        if not MACOS:
+            assert G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TMPDIR=str(BASE / "otro"))).es_scratch(
+                fw(BASE / "otro" / SCRATCH_BASE.name / "x")), "en Linux el scratch sale de TMPDIR"
     assert not ZONAS.es_scratch(fw(SCRATCH_BASE) + "X/y") and not ZONAS.es_scratch(None)
 
 
@@ -956,8 +1024,8 @@ def test_la_carpeta_padre_del_taller_es_zona():
 
 
 def test_un_plazo_vencido_calla():
-    assert correr(evento_bash("echo x > " + CS), plazo=1e-9) == (0, "", b"")
-    assert correr(evento_bash("git commit -m x"), plazo=1e-9) == (0, "", b"")
+    assert correr(evento_bash("echo x > " + CS), plazo=-1) == (0, "", b"")
+    assert correr(evento_bash("git commit -m x"), plazo=-1) == (0, "", b"")
     assert G.analizar("echo x > " + CS, None, ZONAS), "el limite de una corrida no queda para la siguiente"
     assert correr(evento_bash("echo x > " + CS), plazo=8)[0] == 2
 

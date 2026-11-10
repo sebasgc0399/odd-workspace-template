@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from odd_ws import hosts as registro_de_hosts
+from odd_ws import rutas
 
 NOMBRE = "workspace.config.json"
 NOMBRE_LOCAL = "workspace.local.json"
@@ -30,7 +31,7 @@ def inicio_de_sesion(entorno, cwd):
 
 
 def canonica(ruta):
-    return os.path.normcase(os.path.realpath(ruta))
+    return rutas.plegar(os.path.normcase(os.path.realpath(ruta)))
 
 
 def encontrar_raiz(inicio):

@@ -65,7 +65,7 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | F1e | S1 | Prueba de humo en el Codex local (0.144 sirve para los hooks), con un `CODEX_HOME` aparte (L21), y entrega `0.3.0` | inline; el usuario hace el login y la confianza en `/hooks` | hecho (L22–L24 y L27) |
 | M1 | S4 | Un CI que corra todas las suites en Windows, Linux y macOS (L30). Hoy las suites solo corren en el pre-commit de una máquina Windows, y el único workflow es `release.yml` | inline | hecho (L34) |
 | M2 | S4 | Un arranque de Python portable. Los 13 hooks llaman a `python`, que no existe en una Mac típica, y entonces el hook no arranca y los guards fallan abiertos. En Codex: `command` con `python3` y `commandWindows` con `python`. En Claude Code: por investigar (L30) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítems 2, 3 y 5) | hecho (L34) |
-| M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job | por decidir | pendiente |
+| M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job (L35: ya lo crea) | delegado: M3a, M3b y M3c en paralelo (Writer trigger a); el padre, `writer_guard.tests` y `verificar_capa.tests`. M3c `1cfd042`, M3b `04d0674` y M3a en el commit que cierra M3; M3a y M3b con verificador independiente y rechequeo cerrado (L39-L42) | hecho, falta el CI en verde |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -527,3 +527,110 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - **A8:** las instancias existentes conservan el pre-commit viejo, que llama a `python`.
     - **Las skills y el README:** unas 25 líneas todavía dicen `python` a secas (pasan a M3).
 - **Siguiente paso:** M3 en unidades: guard (P1, P4), afirmaciones (P3), el resto (P2, P5, P6 y los T), las skills y el README con `python3`, y `windows-2022` en el CI. Después, la `0.3.1` y F2.
+- **L35 (2026-11-09), el CI sobre `f287253` y el arranque de M3.**
+  - **El push:** `feat/multi-host` quedó en `origin`, con upstream `origin/feat/multi-host`. Corrida `42697491803`.
+  - **Windows:** GitHub creó el job esta vez, así que no hace falta fijar `windows-2022`.
+  - **Suites en rojo:** 4 en Windows, 5 en Ubuntu y 11 en macOS.
+  - **Lo nuevo de Windows, que el triaje no vio:**
+    - **Python 3.12 en el CI contra 3.14 local:** antes de la 3.13, `time.monotonic()` en Windows salta de a 15,6 ms. Con `plazo=1e-9` el plazo nunca vence. Es del test: pasa a `plazo=-1`, un plazo ya vencido. `writer_guard.tests` lo arregla el padre, y `guard_comandos.tests` se suma a M3a. RED emulado con un reloj constante.
+    - **Ruta 8.3 del temporal (`RUNNER~1`):** `realpath` la expande. Afecta a `recibo.tests` y al test `codex_proyecto` del doctor, y se suma a M3c.
+  - **Lo nuevo de macOS:** `verificar_capa.tests` `test_no_escribe_nada_en_disco` ve un `maintenance.lock`: el `commit` del fixture dispara el mantenimiento automático de git en segundo plano. El helper `git` del test pasa `-c maintenance.auto=false`. Sin RED local: lo prueba el CI.
+  - **Las unidades:** M3a, M3b y M3c corren en paralelo, como writers acotados con superficies disjuntas.
+- **L36 (2026-11-09), M3b y M3c de vuelta.**
+  - **M3b, las afirmaciones:**
+    - **P3:** el `timeout` externo va solo en Windows, donde es el de Git for Windows. Fuera de Windows, el plazo exacto lo pone Python: `start_new_session` y, al vencer, `killpg` del grupo.
+    - **Lo descartado:**
+      - Buscar `timeout` o `gtimeout` en el PATH: rompe la regla de no confiar en el PATH, y en una Mac limpia igual falta.
+      - Prescindir del `timeout` también en Windows: medido, `taskkill /T` deja vivo un descendiente MSYS.
+    - **`GREP_OPTIONS`:** el test usa `/usr/bin/env` como instrumento.
+    - **Además, `uniq`:** el de macOS no permuta (`getopt_long` con `+`) y escribe en el segundo operando. Arreglar P3 volvía alcanzable ese agujero, así que ahora se cuentan los operandos como GNU y como macOS. Sobre 2 380 formas, 532 pasan a rechazarse y ninguna se acepta de más.
+    - **Pruebas:** 6 mutantes muertos. `afirmaciones` 106/106 y `conocimiento` 112/112. El padre corrió la suite tres veces más, todas 106/106; antes había dado una vez 105/106, con los otros writers cargando la máquina.
+    - **Risk:** ítems 2, 4 y 6. Lleva verificador independiente, que está corriendo.
+  - **M3c, el resto:**
+    - **P2:** `auditar_lecturas` pasa por `canonica` las rutas de esta máquina.
+    - **P5:** el `plugin-root` del doctor usa `canonica`, y si no alcanza, `samefile`.
+    - **P6:** `scriptdom.ps1` busca la DLL en `C:\Program Files` solo en Windows, y si no, sale con 3.
+    - **Los T:** el 8.3 y `/private/var` en `recibo.tests` (`realpath` de `mkdtemp`); `ticket.tests` usa `unlink`; `bootstrap.tests` hace `chmod 0o755`.
+    - **El doctor contra Codex:** es del test. Codex escribe la clave canónica de `[projects]`.
+    - **Los textos:** 27 líneas pasan a `python3`, con una oración por skill para Codex en Windows.
+    - **Pruebas:** 8 suites en verde, con TEMP normal y con TEMP 8.3. El padre repitió el doctor: 131/131.
+    - **Risk:** none.
+  - **Avisos nuevos:**
+    - **X8:** una clave de `[projects]` escrita a mano con un alias de la raíz del repo da un AVISO falso, que falla cerrado. Arreglarlo es tocar `hosts/codex.py` `_proyecto`.
+    - **A2:** `instancia-hooks` del doctor compara con `canonica`, así que en macOS depende de lo que haga M3a con las mayúsculas.
+    - **Previo:** `grep -r` sin operando lee el working tree.
+- **L37 (2026-11-09), M3a de vuelta.**
+  - **P1:**
+    - **Cómo:** `rutas.plegar` pasa a minúsculas y NFC solo en darwin, después de `realpath`, en `canonica` y en la cola inexistente de `Protegidos._canonica`. `caso` no cambia.
+    - **Por qué plegar siempre y no sondear el volumen:** sondear cuesta llamadas dentro del plazo, falla con los montajes y no se puede probar desde Windows.
+    - **El costo:** en un APFS sensible a mayúsculas, los guards quedan más estrictos.
+    - **Consumidores de `canonica`:** 9, contados con `git grep`, y ninguno se afloja en APFS normal.
+    - **`comun._misma_carpeta`:** usa `canonica`.
+  - **P4:**
+    - **El scratch por OS:** `comun.carpeta_scratch` da `<TEMP>\claude` en Windows, `<TMPDIR|/tmp>/claude-<uid>` en Linux y `/tmp/claude-<uid>` en macOS. Sale de la doc de `CLAUDE_CODE_TMPDIR`.
+    - **`_bajo_scratch`:** fuera de Windows solo acepta `/…`, lo que cierra el borde de `/c/…`.
+  - **Una falla abierta más:** en POSIX, `git -C //<repo> push` pasaba, porque `//` se trataba como UNC en todos los OS. Ahora es solo de Windows. El test la escondía al mutilar la ruta.
+  - **Pruebas:**
+    - **S5:** diferencial en Windows contra `f287253` sobre 415 casos, idéntico.
+    - **Suites:** rutas 11, config_loader 83, guard_comandos 49 y comun 62, más 21 consumidoras en verde. El padre repitió guard_comandos: 49/49.
+  - **Risk:** ítems 2, 3 y 6.
+  - **Pendiente, en curso:** el scratch de `writer_guard` todavía es `<temporal>/claude` en POSIX. Se le devolvió a M3a.
+  - **Avisos nuevos:**
+    - `CLAUDE_CODE_TMPDIR` no se honra; con la variable puesta, la excepción del scratch falla cerrada.
+    - `comun.temporal` en POSIX lee solo `TMPDIR`.
+    - `clave_foto` no pliega en macOS: sobrecuenta, que es el lado estricto.
+- **L38 (2026-11-09), M3c commiteado (`1cfd042`) y empujado.**
+  - **El CI** (corrida `42707595845`) solo deja en rojo las suites de las unidades sin commitear:
+    - macOS: `afirmaciones`, `guard_comandos` y `conocimiento`;
+    - Ubuntu: `afirmaciones` y `guard_comandos`;
+    - Windows: `guard_comandos` y `writer_guard` (el `plazo=-1` va con M3a).
+  - **En verde en los tres OS:** las 8 suites de M3c y `verificar_capa`.
+  - **Pendiente:** M3a y M3b esperan a su verificador independiente.
+- **L39 (2026-11-09), el verificador de M3b: S4 parcial, S5 cumple.**
+  - **B1 (blocker):** `uniq -i-ignore-cas - escrito.txt` pasa la lista blanca y escribe en el repo medido.
+    - El getopt_long BSD lee un `-` en medio de un grupo corto como el comienzo de una opción larga. Lo hacen macOS y también el `uniq.exe` de Git for Windows, que usa el getopt de Cygwin.
+    - En Windows ya estaba en la base. En macOS lo vuelve alcanzable M3b.
+  - **A1:** `sort -u-t=DIR` crea temporales en DIR. Es la misma causa y se cierra con el mismo arreglo.
+  - **A2 (S5):** en Windows, `--claims` cambia en 4 formas de `uniq` (`uniq - -c`, `uniq alfa.txt -c`, `uniq -c alfa.txt -u` y `uniq alfa.txt --`), que pasan a FAIL del lint. Es la regla nueva de M3b, **aceptada por el padre**: en macOS esas formas escriben.
+  - **A3:** el 105/106 era un glob `afirmaciones-*.sh` sobre el temporal compartido, que choca con otros procesos que corren afirmaciones. No es de tiempo.
+  - **A5:** el camino POSIX con `killpg` está bien, leído en el código.
+  - **La corrección:** una tanda para B1, A1 y A3, más las sondas como tests de regresión, devuelta al writer de M3b. Después, un rechequeo limitado a B1.
+- **L40 (2026-11-09), el verificador de M3a: S4 parcial, S5 cumple.**
+  - **Lo que cumple:**
+    - **S5:** en Windows, 46 468 filas idénticas a la base, y el arranque en frío también es igual.
+    - **P1:** cumple en la capa 2 y en `writer_guard`.
+    - **`//` en POSIX:** cumple.
+    - **Consumidores de `canonica`:** 9 módulos, más `auditar_lecturas` de M3c, y ninguno se afloja en APFS normal.
+  - **B1 (blocker):** en POSIX, un enlace dentro del scratch más `..` (`rm -rf <scratch>/enlace/../x`) borra fuera. El guard colapsa `..` como texto antes del `realpath`. En la base POSIX bloqueaba.
+  - **B2 (blocker):** en POSIX, `rm -rf <scratch>/.\./.\./fuera` pasa, porque bash lee `\` como escape y el guard como separador. En la base POSIX bloqueaba.
+  - **Seguimientos (advisories):**
+    - **X9:** B2 ya estaba en la base de Windows con Git Bash. S5 congela Windows, así que queda para después.
+    - **X10:** tres escapes del scratch de `writer_guard`, ya en la base: `.\.`, `enlace/..` y `Join-Path` con `..`.
+    - **X11:** la capa 2 en POSIX colapsa `..` como texto en `ubicar` (`git -C /tmp/l/.. push`). Ya estaba en la base.
+    - **A4 y A5:** en un APFS sensible a mayúsculas, el plegado afloja el scratch, y `lower()` no es el case folding de APFS. Ambos, fuera de dominio.
+  - **La corrección:** una tanda para B1 y B2, más 5 tests de regresión, devuelta al writer de M3a. Después, un rechequeo limitado a B1 y B2.
+- **L41 (2026-11-09), la corrección de M3b y su rechequeo.**
+  - **La regla nueva:** `_guion_en_grupo_corto` rechaza, en `sort` y `uniq`, un `-` dentro de un grupo de opciones cortas antes del primer carácter que lleva argumento.
+  - **A3:** los tests del guion temporal fijan `tempfile.tempdir` a una carpeta propia.
+  - **Pruebas del writer:** 3 mutantes muertos; `afirmaciones` 109/109 y `conocimiento` 112/112. El padre repitió `afirmaciones`: 109/109.
+  - **El rechequeo (limitado a B1 y A1): cerrados.**
+    - En el port del getopt de Apple, las formas que escriben bajan de 286 a 0.
+    - Con el `uniq.exe` real, 0 de 1476 formas aceptadas escriben.
+    - De punta a punta, no se escribe ningún archivo.
+    - La regla no acepta nada que la base rechazara.
+    - Siguen valiendo `sort -t-` y `uniq -f-1`.
+  - **`Doc/diseno.md`:** el padre integró las notas de M3b: el plazo por OS, `uniq` contado de dos maneras, el `-` en un grupo corto, el test de `GREP_OPTIONS` y lo que no ve.
+  - **Commit:** M3b quedó en `04d0674`.
+- **L42 (2026-11-10), la corrección de M3a.**
+  - **B1:** fuera de Windows, `_bajo_scratch` le pasa los `..` a `canonica`, y `realpath` los resuelve después de los enlaces.
+  - **B2:** en Bash, en POSIX, una pieza con `\` no cuenta como scratch. `\` separa solo en el dialecto PowerShell y en sus cmdlets.
+  - **Tests de regresión:** los 5 que pidió el verificador. El del enlace real de B1 solo corre en el CI de POSIX.
+  - **Pruebas:** en Windows, diferencial idéntico a `f287253`. guard_comandos 51/51, writer_guard 112/112, comun 62/62, rutas 11/11 y config_loader 83/83. El padre repitió guard_comandos: 51/51.
+  - **N1, que trae el writer:** `rutas.ubicar` colapsa `..` como texto, así que en POSIX la capa 2 y `writer_guard` siguen ciegos al `enlace/..`. Es el A2 y A3 del verificador, previo a M3: el padre lo deja como seguimiento X10 y X11, sin otra tanda.
+  - **El rechequeo, limitado a B1 y B2: cerrados.**
+    - **Cómo se midió:** POSIX emulado, con `os.path = posixpath` y `lstat`/`readlink` falsos, para que `realpath` resuelva `..` de forma física. Sobre la primera versión de M3a, 28 de esas sondas fallaban.
+    - **Bloquean:** enlaces anidados y relativos, `..` en el medio, varias piezas, `.\.` y `\` en otras posiciones.
+    - **PowerShell:** `\` sigue separando.
+    - **Windows:** el diferencial da 46 468 filas idénticas.
+    - **X12 (advisory, fuera de dominio):** en PowerShell sobre POSIX, `Remove-Item <scratch>/dentro/../../x`, con un enlace interno, podría salir del scratch si pwsh resuelve `..` como texto. Hoy ningún host da una herramienta PowerShell en POSIX.
+  - **`Doc/diseno.md`:** el padre integró las notas de M3a: el scratch por OS en los dos guards, `..` y `\` en POSIX, el plegado en macOS y `//`.

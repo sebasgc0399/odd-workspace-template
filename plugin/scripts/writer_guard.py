@@ -22,8 +22,8 @@ from odd_ws import capas as convencion
 from odd_ws import hosts
 from odd_ws import rutas
 from odd_ws.capacidades import PRE
-from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, anotar_en_bitacora, clave_foto, correr_hook, host_de,
-                          id_valido, plazo_de, por_ruta, raiz_de_instancia, temporal)
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, anotar_en_bitacora, carpeta_scratch, clave_foto,
+                          correr_hook, host_de, id_valido, plazo_de, por_ruta, raiz_de_instancia)
 from odd_ws.eventos import POWERSHELL, Bloquear, Herramienta, Permitir
 
 EMITE = {PRE: (Bloquear,)}
@@ -142,8 +142,8 @@ class Zonas:
                 self.padres.append("/".join(partes[:-1]))
                 if partes[-1] == "**":
                     self.padres.append(patron)
-        carpeta = temporal(self.entorno)
-        self.scratch = config_loader.canonica(os.path.join(carpeta, "claude")) if carpeta else None
+        carpeta = carpeta_scratch(self.entorno)
+        self.scratch = config_loader.canonica(carpeta) if carpeta else None
         self._archivos, self._carpetas = {}, {}
 
     def variable(self, nombre):

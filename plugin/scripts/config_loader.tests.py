@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import json
 import os
@@ -561,6 +562,32 @@ def test_el_repo_declarado_por_junction_reconoce_la_ruta_real():
         (i.raiz / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(atajo)}}}), encoding="utf-8")
         cargada = m().cargar(i.raiz)
         assert m().clasificar(i.repo / "sp" / "Uno.sql", cargada) == ("sql", "db")
+
+
+@contextlib.contextmanager
+def plataforma(nombre):
+    rutas = importlib.import_module("odd_ws.rutas")
+    previa = rutas.PLATAFORMA
+    rutas.PLATAFORMA = nombre
+    try:
+        yield
+    finally:
+        rutas.PLATAFORMA = previa
+
+
+def test_en_macos_la_forma_canonica_pliega_mayusculas_y_nfd_como_apfs():
+    with Instancia() as i:
+        carpeta = i.base / "Año"
+        carpeta.mkdir()
+        real = str(carpeta / "x.sql")
+        variantes = (real.upper(), real.replace("ñ", "n\u0303"))
+        with plataforma("darwin"):
+            for variante in variantes:
+                assert m().canonica(variante) == m().canonica(real), variante
+            cargada = m().cargar(i.raiz)
+            assert m().clasificar(str(i.repo / "sp" / "Uno.sql").upper(), cargada) == ("sql", "db")
+        with plataforma("linux"):
+            assert m().canonica(variantes[1]) != m().canonica(real), "fuera de macOS, la forma NFD es otro nombre"
 
 
 KNOWLEDGE_POR_DEFECTO = {"docs": None, "index": "CLAUDE.md", "index_max_lines": 200, "scan": [], "quantities": [], "claims": None}

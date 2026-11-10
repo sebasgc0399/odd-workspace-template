@@ -3,11 +3,13 @@ import importlib.util
 import json
 import math
 import os
+import posixpath
 import re
 import sys
 from collections import namedtuple
 from dataclasses import replace
 
+from odd_ws import rutas
 from odd_ws.capas import BITACORA
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, Permitir, Preguntar
 
@@ -46,7 +48,9 @@ def _ruta_de_git(texto, raiz):
 
 
 def _misma_carpeta(a, b):
-    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    from config_loader import canonica
+
+    return canonica(a) == canonica(b)
 
 
 def decidir_hooks(raiz, salida):
@@ -116,7 +120,23 @@ def temporal(entorno):
     if os.name == "nt":
         sistema = entorno.get("SYSTEMROOT") or entorno.get("WINDIR")
         return entorno.get("TEMP") or entorno.get("TMP") or (os.path.join(sistema, "temp") if sistema else None)
+    return _temporal_posix(entorno)
+
+
+def _temporal_posix(entorno):
     return entorno.get("TMPDIR") or "/tmp"
+
+
+def _uid():
+    return os.getuid()
+
+
+def carpeta_scratch(entorno):
+    if rutas.PLATAFORMA == "win32":
+        carpeta = temporal(entorno)
+        return os.path.join(carpeta, "claude") if carpeta else None
+    carpeta = "/tmp" if rutas.PLATAFORMA == "darwin" else _temporal_posix(entorno)
+    return posixpath.join(carpeta, "claude-%d" % _uid())
 
 
 def id_valido(valor):

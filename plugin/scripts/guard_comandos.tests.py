@@ -16,6 +16,7 @@ _RUTA = AQUI / "guard_comandos.py"
 sys.path.insert(0, str(AQUI))
 SOBRANTES = []
 NT = os.name == "nt"
+PLIEGA = NT or sys.platform == "darwin"
 
 import config_loader  # noqa: E402
 from odd_ws.comun import plazo_de  # noqa: E402
@@ -68,25 +69,56 @@ def bw(p):
     return str(p).replace("/", "\\")
 
 
-TEMP = "C:\\Users\\ana\\AppData\\Local\\Temp"
-ENTORNO = {"TEMP": TEMP, "TMP": TEMP, "HOME": "C:\\Users\\ana", "USERPROFILE": "C:\\Users\\ana", "SYSTEMROOT": "C:\\Windows"}
-AREA = "C:/Users/ana/AppData/Local/Temp/claude/proy-x"
+def otra_grafia(p):
+    p = fw(p)
+    return "/" + p[0].lower() + p[2:] if NT else "/" + p
+
+
+def para_bash(p):
+    return otra_grafia(p) if NT else fw(p)
+
+
+def sin_raiz(p):
+    return fw(p)[3:] if NT else fw(p)[1:]
+
+
+if NT:
+    TEMP = "C:\\Users\\ana\\AppData\\Local\\Temp"
+    ENTORNO = {"TEMP": TEMP, "TMP": TEMP, "HOME": "C:\\Users\\ana", "USERPROFILE": "C:\\Users\\ana", "SYSTEMROOT": "C:\\Windows"}
+    RAIZ_SCRATCH = "C:/Users/ana/AppData/Local/Temp/claude"
+    PROYECTO = "C:\\proyecto"
+else:
+    ENTORNO = {"HOME": "/datos/ana"}
+    RAIZ_SCRATCH = "/tmp/claude-%d" % os.getuid()
+    PROYECTO = "/proyecto"
+AREA = RAIZ_SCRATCH + "/proy-x"
+AREA_MEZCLADA = "c:/users/ANA/appdata/LOCAL/temp/Claude/proy-x" if NT else AREA.title()
 SCR = AREA + "/a0b1c2d3/scratchpad"
-EQUIPO_SINTETICO = "C:\\sintetico\\equipo"
+EQUIPO_SINTETICO = "C:\\sintetico\\equipo" if NT else "/sintetico/equipo"
+UNIDAD_EN_TEXTO = re.compile(r"(?i)(?<![\w/\\])[a-z]:(?=[\\/])")
 
 
 def valores(equipo):
-    equipo = bw(equipo)
+    eq = bw(equipo) if NT else str(equipo)
     return {
-        "AREA": AREA, "AREA^": AREA.upper(), "AREA~": "c:/users/ANA/appdata/LOCAL/temp/Claude/proy-x", "AREAW": bw(AREA),
-        "SCR": SCR, "SCRB": "/c" + SCR[2:], "SCRW": bw(SCR), "SCRW^": bw(SCR).upper(),
-        "EQ": equipo, "EQ^": equipo.upper(), "EQ_": equipo.lower(), "EQF": fw(equipo), "EQF^": fw(equipo).upper(),
+        "AREA": AREA, "AREA^": AREA.upper(), "AREA~": AREA_MEZCLADA, "AREAW": bw(AREA),
+        "SCR": SCR, "SCRB": otra_grafia(SCR), "SCRW": bw(SCR), "SCRW^": bw(SCR).upper(),
+        "EQ": eq, "EQ^": eq.upper(), "EQ_": eq.lower() if NT else eq.title(), "EQF": fw(equipo), "EQF^": fw(equipo).upper(),
         "DB": fw(equipo) + "/db",
     }
 
 
-def _r(texto, tabla):
-    return None if texto is None else re.sub(r"«([A-Z]+[\^_~]?)»", lambda m: tabla[m.group(1)], texto)
+def _r(texto, tabla=None):
+    if texto is None:
+        return None
+    if not NT:
+        texto = UNIDAD_EN_TEXTO.sub("", texto)
+    return texto if tabla is None else re.sub(r"«([A-Z]+[\^_~]?)»", lambda m: tabla[m.group(1)], texto)
+
+
+def _cwd(texto, tabla):
+    texto = _r(texto, tabla)
+    return texto if texto is None or NT else texto.replace("\\", "/")
 
 
 CASOS = [
@@ -530,20 +562,38 @@ def mundo(bandera=True, fuera=False):
 
 
 ESPERADO = {"allow": None, "ask": "ask", "block": "block"}
+SIN_PLEGAR = {
+    "ruta sin distinguir mayúsculas": "block",
+    "PUSH de MASTER con -C en mayúsculas": "allow",
+    "Git Push a secas con el cwd en mayúsculas": "allow",
+    "GIT SWITCH con la ruta de -C en minúsculas": "allow",
+    "checkout con el cwd de un worktree en mayúsculas pregunta": "allow",
+    "RM -RF del scratch en mayúsculas": "block",
+    "REMOVE-ITEM del scratch en mayúsculas": "block",
+}
+
+
+def esperado_en_esta_plataforma(nombre, esperado):
+    return esperado if PLIEGA else SIN_PLEGAR.get(nombre, esperado)
 
 
 def test_casos_del_origen_con_la_decision_exacta():
     with mundo() as m:
         tabla = valores(m.equipo)
+        if not PLIEGA:
+            pares = (("AREA^", "AREA"), ("AREA~", "AREA"), ("SCRW^", "SCRW"), ("EQ^", "EQ"), ("EQ_", "EQ"), ("EQF^", "EQF"))
+            assert all(tabla[a] != tabla[b] for a, b in pares), "control: cada variante cambia alguna mayúscula"
         prot = m.protegidos()
         assert prot.activa and prot.rota is None, prot.rota
         fallos = []
         for nombre, comando, cwd, esperado in CASOS:
-            resultado, motivo = G.analizar(_r(comando, tabla), _r(cwd, tabla), ENTORNO, prot)
+            esperado = esperado_en_esta_plataforma(nombre, esperado)
+            resultado, motivo = G.analizar(_r(comando, tabla), _cwd(cwd, tabla), ENTORNO, prot)
             if resultado != ESPERADO[esperado]:
                 fallos.append("  %s: esperado %s, salio %s (%s)" % (nombre, esperado, resultado, motivo))
     conteo = {d: sum(1 for c in CASOS if c[3] == d) for d in ESPERADO}
     assert len(CASOS) == 370 and conteo == {"allow": 92, "ask": 190, "block": 88}, conteo
+    assert set(SIN_PLEGAR) <= {c[0] for c in CASOS}, set(SIN_PLEGAR) - {c[0] for c in CASOS}
     assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
 
 
@@ -554,7 +604,8 @@ def test_sin_la_bandera_lo_que_preguntaba_pasa_y_la_capa_1_sigue():
             prot = m.protegidos()
             assert not prot.activa and prot.rota is None, (bandera, prot.rota)
             for nombre, comando, cwd, esperado in CASOS:
-                resultado = G.analizar(_r(comando, tabla), _r(cwd, tabla), ENTORNO, prot)[0]
+                esperado = esperado_en_esta_plataforma(nombre, esperado)
+                resultado = G.analizar(_r(comando, tabla), _cwd(cwd, tabla), ENTORNO, prot)[0]
                 assert resultado == ("block" if esperado == "block" else None), (bandera, nombre, resultado)
 
 
@@ -617,7 +668,7 @@ def test_cada_regla_da_su_propio_motivo():
              ("Remove-Item -Recurse -Force C:/fuera/x", "Remove-Item -Recurse -Force fuera del scratch"),
              ("rm -r C:/fuera/x", "borrado recursivo")]
     for comando, inicio in casos:
-        resultado, motivo = G.analizar(comando, None, ENTORNO)
+        resultado, motivo = G.analizar(_r(comando), None, ENTORNO)
         assert resultado == "block" and motivo.startswith(inicio), (comando, motivo)
 
 
@@ -639,13 +690,13 @@ def test_el_motivo_nombra_el_repo_y_la_bandera_sin_dominio():
         for comando, parte in casos:
             resultado, motivo = capa_2(m, comando, m.repos["db"])
             assert resultado == "ask" and parte in motivo and "«db»" in motivo, (comando, motivo)
-            assert capa_2(m, comando, "C:\\proyecto") == (None, None), "fuera de un repo protegido, %s pasa" % comando
+            assert capa_2(m, comando, PROYECTO) == (None, None), "fuera de un repo protegido, %s pasa" % comando
 
 
 def test_un_worktree_registrado_cuenta_como_su_repo_y_una_copia_no():
     with mundo(fuera=True) as m:
         assert capa_2(m, "git commit -m x", m.fuera)[0] == "ask"
-        assert "«db»" in capa_2(m, "git -C %s commit -m x" % fw(m.fuera), "C:\\proyecto")[1]
+        assert "«db»" in capa_2(m, "git -C %s commit -m x" % fw(m.fuera), PROYECTO)[1]
         copia = m.base / "afuera" / "copia"
         copia.mkdir()
         m.git(copia, "init", "-q")
@@ -660,18 +711,37 @@ def test_protege_por_contencion_y_no_por_el_nombre():
         homonimo = m.base / "otro" / "equipo" / "db"
         homonimo.mkdir(parents=True)
         assert capa_2(m, "git commit -m x", homonimo) == (None, None)
-        assert capa_2(m, "git -C %s push" % fw(homonimo), "C:\\proyecto") == (None, None)
-        assert capa_2(m, "git -C %s push" % str(m.repos["db"]).upper(), "C:\\proyecto")[0] == "ask"
-        assert capa_2(m, "git -C /%s%s push" % (fw(m.repos["db"])[0].lower(), fw(m.repos["db"])[2:]), "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, "git -C %s push" % fw(homonimo), PROYECTO) == (None, None)
+        mayusculas = capa_2(m, "git -C %s push" % str(m.repos["db"]).upper(), PROYECTO)[0]
+        assert mayusculas == ("ask" if PLIEGA else None), "las mayúsculas cuentan donde el sistema no las distingue: %s" % mayusculas
+        assert capa_2(m, "git -C %s push" % otra_grafia(m.repos["db"]), PROYECTO)[0] == "ask", otra_grafia(m.repos["db"])
+        enlace = m.base / "enlace"
         if NT:
-            enlace = m.base / "enlace"
             r = subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(m.repos["db"])], capture_output=True)
             assert r.returncode == 0, r
-            try:
-                assert capa_2(m, "git commit -m x", enlace)[0] == "ask"
-                assert capa_2(m, "git -C %s commit -m x" % fw(enlace), "C:\\proyecto")[0] == "ask"
-            finally:
-                os.rmdir(enlace)
+        else:
+            os.symlink(m.repos["db"], enlace, target_is_directory=True)
+        try:
+            assert capa_2(m, "git commit -m x", enlace)[0] == "ask"
+            assert capa_2(m, "git -C %s commit -m x" % fw(enlace), PROYECTO)[0] == "ask"
+        finally:
+            (os.rmdir if NT else os.unlink)(enlace)
+
+
+def test_en_macos_otras_mayusculas_o_la_forma_nfd_no_esconden_un_repo_protegido():
+    with carpeta() as base:
+        repo = base / "año" / "db"
+        repo.mkdir(parents=True)
+        nfd = fw(repo).replace("ñ", "n\u0303")
+        config = {"repos": {"db": {"path": str(repo), "worktrees": [], "agent_readonly": True}}}
+        with en_sistema("darwin"):
+            prot = G.Protegidos(config)
+            for variante in (nfd, fw(repo).upper()):
+                assert G.analizar("git -C %s push" % variante, PROYECTO, ENTORNO, prot)[0] == "ask", variante
+                assert G.analizar("git commit -m x", variante, ENTORNO, prot)[0] == "ask", variante
+        with en_sistema("linux"):
+            prot = G.Protegidos(config)
+            assert G.analizar("git -C %s push" % nfd, PROYECTO, ENTORNO, prot) == (None, None), "fuera de macOS, NFD es otra carpeta"
 
 
 def test_el_cwd_cuenta_solo_si_esta_dentro_de_un_repo_protegido():
@@ -686,10 +756,10 @@ def test_una_mencion_que_contiene_un_repo_protegido_tambien_toca():
         eq = fw(m.equipo)
         for comando in ("cd %s; cd db; git commit -m x" % eq, "cd %s && git -C db commit -m x" % eq,
                         "cd %s/web && git -C api push" % eq, "Push-Location %s; git commit -m x" % bw(m.equipo)):
-            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
+            assert capa_2(m, comando, PROYECTO)[0] == "ask", comando
         assert capa_2(m, "git add .", m.equipo)[0] == "ask", "costo aceptado en L53"
-        assert capa_2(m, "cd %s/../otro && git commit -m x" % eq, "C:\\proyecto") == (None, None)
-        assert capa_2(m, "cd %s/web/apis && git commit -m x" % eq, "C:\\proyecto") == (None, None)
+        assert capa_2(m, "cd %s/../otro && git commit -m x" % eq, PROYECTO) == (None, None)
+        assert capa_2(m, "cd %s/web/apis && git commit -m x" % eq, PROYECTO) == (None, None)
 
 
 def test_las_menciones_salen_del_token_del_igual_de_la_opcion_y_de_las_comas():
@@ -699,10 +769,10 @@ def test_las_menciones_salen_del_token_del_igual_de_la_opcion_y_de_las_comas():
                         "Set-Location -Path:%s; git commit -m x" % bw(m.repos["db"]), "ls a,%s; git commit -m x" % db,
                         "(cd %s) ; git commit -m x" % db, "$(cd %s); git commit -m x" % db, "echo x >%s/y; git commit -m x" % db,
                         "eval \"cd %s\"; git commit -m x" % db, "bash -c \"ls '%s'\"; git commit -m x" % db):
-            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
-        assert capa_2(m, 'git commit -m "docs: %s es de solo lectura"' % db, "C:\\proyecto") == (None, None)
-        assert capa_2(m, "git commit -m %s" % db, "C:\\proyecto")[0] == "ask", "sin espacio, la mención cuenta (como el origen)"
-        assert capa_2(m, "echo x/%s; git commit -m x" % db, "C:\\proyecto") == (None, None), "una ruta pegada en medio no se ve"
+            assert capa_2(m, comando, PROYECTO)[0] == "ask", comando
+        assert capa_2(m, 'git commit -m "docs: %s es de solo lectura"' % db, PROYECTO) == (None, None)
+        assert capa_2(m, "git commit -m %s" % db, PROYECTO)[0] == "ask", "sin espacio, la mención cuenta (como el origen)"
+        assert capa_2(m, "echo x/%s; git commit -m x" % db, PROYECTO) == (None, None), "una ruta pegada en medio no se ve"
 
 
 def test_una_ruta_con_espacios_escapados_con_barra_tambien_toca():
@@ -710,31 +780,30 @@ def test_una_ruta_con_espacios_escapados_con_barra_tambien_toca():
         repo = base / "con espacio" / "repo x"
         repo.mkdir(parents=True)
         prot = G.Protegidos({"repos": {"esp": {"path": str(repo), "worktrees": [], "agent_readonly": True}}})
-        gb = "/" + fw(repo)[0].lower() + fw(repo)[2:]
-        escapada = gb.replace(" ", "\\ ")
+        escapada = para_bash(repo).replace(" ", "\\ ")
         for comando in ("cd %s && git commit -m x" % escapada, "git -C %s commit -m x" % escapada,
                         "pushd %s; git commit -m x" % escapada, "cd %s/ && git add ." % escapada,
                         "git -C %s push" % fw(repo).replace(" ", "\\ ")):
-            resultado, motivo = G.analizar(comando, "C:\\proyecto", ENTORNO, prot)
+            resultado, motivo = G.analizar(comando, PROYECTO, ENTORNO, prot)
             assert resultado == "ask" and "«esp»" in motivo, (comando, motivo)
-        assert G.analizar("git -C %s status" % escapada, "C:\\proyecto", ENTORNO, prot) == (None, None)
+        assert G.analizar("git -C %s status" % escapada, PROYECTO, ENTORNO, prot) == (None, None)
         for comando in ("git -C C:\\proyecto\\ commit -m x", "cd C:\\otra\\ carpeta && git commit -m x"):
-            assert G.analizar(comando, "C:\\proyecto", ENTORNO, prot) == (None, None), comando
+            assert G.analizar(comando, PROYECTO, ENTORNO, prot) == (None, None), comando
         en_ps = "cd %s && git commit -m x" % escapada
-        assert G.analizar(en_ps, "C:\\proyecto", ENTORNO, prot, "PowerShell") == (None, None), "en PowerShell la barra no escapa"
-        assert G.analizar('bash -c "%s"' % en_ps, "C:\\proyecto", ENTORNO, prot, "PowerShell")[0] == "ask"
-        assert G.analizar(en_ps, "C:\\proyecto", ENTORNO, prot, "Bash")[0] == "ask"
+        assert G.analizar(en_ps, PROYECTO, ENTORNO, prot, "PowerShell") == (None, None), "en PowerShell la barra no escapa"
+        assert G.analizar('bash -c "%s"' % en_ps, PROYECTO, ENTORNO, prot, "PowerShell")[0] == "ask"
+        assert G.analizar(en_ps, PROYECTO, ENTORNO, prot, "Bash")[0] == "ask"
         dentro = str(repo / "sub")
         for comando, herramienta in (("git --git-dir C:\\ blame f.sql", "PowerShell"),
                                      ("powershell -NoProfile -Command 'git -C C:\\ -C D:/x for-each-ref'", "Bash")):
             assert G.analizar(comando, dentro, ENTORNO, prot, herramienta) == (None, None), (comando, herramienta)
         assert G.analizar("git --git-dir C:\\ blame f.sql", dentro, ENTORNO, prot, "Bash")[0] == "ask", "bash lee C:\\ blame como una ruta"
-        codigo, salida, _ = G.correr(evento(en_ps, cwd="C:\\proyecto", herramienta="PowerShell"), entorno=ENTORNO)
+        codigo, salida, _ = G.correr(evento(en_ps, cwd=PROYECTO, herramienta="PowerShell"), entorno=ENTORNO)
         assert (codigo, salida) == (0, ""), "sin instancia calla"
         igual = base / "a=b" / "repo"
         igual.mkdir(parents=True)
         prot = G.Protegidos({"repos": {"igual": {"path": str(igual), "worktrees": [], "agent_readonly": True}}})
-        assert G.analizar("export R=%s; git commit -m x" % fw(igual), "C:\\proyecto", ENTORNO, prot)[0] == "ask"
+        assert G.analizar("export R=%s; git commit -m x" % fw(igual), PROYECTO, ENTORNO, prot)[0] == "ask"
 
 
 def test_la_forma_canonica_rapida_es_la_misma_que_la_de_config_loader():
@@ -742,23 +811,28 @@ def test_la_forma_canonica_rapida_es_la_misma_que_la_de_config_loader():
         prot = m.protegidos()
         rutas_ = [m.repos["db"], m.repos["db"] / "no" / "existe.sql", m.worktree / "x", m.equipo, m.equipo / "nada" / "db",
                   m.base / "db.", m.repos["db"].parent / "db." / "x", m.base]
+        enlace = m.base / "enlace"
         if NT:
-            enlace = m.base / "enlace"
             subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(m.repos["db"])], capture_output=True, check=True)
-            rutas_ += [enlace, enlace / "sub" / "x.sql"]
+        else:
+            os.symlink(m.repos["db"], enlace, target_is_directory=True)
+            rutas_ += [otra_grafia(m.repos["db"]), otra_grafia(m.repos["db"] / "no" / "existe.sql")]
+        rutas_ += [enlace, enlace / "sub" / "x.sql"]
+        raiz, otra = ("C:/", "D:/x") if NT else ("/", "/x")
         try:
             for ruta in rutas_:
                 r = G.rutas.ubicar(str(ruta), None)
                 assert prot._canonica(r) == G.config_loader.canonica(r), (r, prot._canonica(r), G.config_loader.canonica(r))
-                for arbol, _ in prot.arboles + [(G.config_loader.canonica("C:/"), "raiz"), (G.config_loader.canonica("D:/x"), "otra")]:
+                for arbol, _ in prot.arboles + [(G.config_loader.canonica(raiz), "raiz"), (G.config_loader.canonica(otra), "otra")]:
                     c = prot._canonica(r)
                     assert G._bajo(c, arbol) == G.config_loader._dentro(c, arbol), (c, arbol)
                     assert G._bajo(arbol, c) == G.config_loader._dentro(arbol, c), (arbol, c)
             hondo = G.rutas.ubicar(fw(m.base) + "/" + "/".join("s%d" % i for i in range(1500)), None)
             assert prot._canonica(hondo) == G.config_loader.canonica(hondo)
-        finally:
             if NT:
-                os.rmdir(enlace)
+                assert prot._canonica("//Servidor/Recurso/X") == "\\\\servidor\\recurso\\x", "una ruta UNC no toca la red"
+        finally:
+            (os.rmdir if NT else os.unlink)(enlace)
 
 
 def test_los_candidatos_de_un_token_largo_respetan_el_plazo():
@@ -778,8 +852,8 @@ def test_los_candidatos_de_un_token_largo_respetan_el_plazo():
 def test_un_separador_escapado_no_se_lee_como_la_raiz_de_la_unidad():
     with mundo() as m:
         for comando in ("find . -exec git stash pop \\;", 'echo \\"; git commit -m x', "git ls-files | xargs -I{} echo {}\\; git push"):
-            assert capa_2(m, comando, "C:\\proyecto") == (None, None), comando
-        assert capa_2(m, "cd / && git -C %s commit -m x" % fw(m.repos["db"])[3:], "C:\\proyecto")[0] == "ask", "la raíz literal sí cuenta"
+            assert capa_2(m, comando, PROYECTO) == (None, None), comando
+        assert capa_2(m, "cd / && git -C %s commit -m x" % sin_raiz(m.repos["db"]), PROYECTO)[0] == "ask", "la raíz literal sí cuenta"
 
 
 def test_variables_y_comodines_en_una_mencion_cortan_en_la_carpeta_conocida():
@@ -787,30 +861,37 @@ def test_variables_y_comodines_en_una_mencion_cortan_en_la_carpeta_conocida():
         entorno = dict(ENTORNO, REPOS=str(m.equipo))
         eq = fw(m.equipo)
         for comando in ("cd $REPOS/db && git commit -m x", "cd ${REPOS}/web/api && git push", "cd %REPOS%\\db && git commit -m x",
-                        "cd $env:REPOS\\db; git commit -m x", "cd $env:repos\\db; git commit -m x", "cd %s/$NADA && git commit -m x" % eq,
+                        "cd $env:REPOS\\db; git commit -m x", "cd %s/$NADA && git commit -m x" % eq,
                         "cd %s/d* && git commit -m x" % eq, "cd %s/{db,web} && git commit -m x" % eq):
-            assert capa_2(m, comando, "C:\\proyecto", entorno)[0] == "ask", comando
-        assert capa_2(m, "cd $NADA/db && git commit -m x", "C:\\proyecto", entorno) == (None, None)
+            assert capa_2(m, comando, PROYECTO, entorno)[0] == "ask", comando
+        minusculas = capa_2(m, "cd $env:repos\\db; git commit -m x", PROYECTO, entorno)[0]
+        assert minusculas == ("ask" if NT else None), "solo Windows ignora las mayúsculas del nombre de la variable"
+        assert capa_2(m, "cd $NADA/db && git commit -m x", PROYECTO, entorno) == (None, None)
         assert capa_2(m, "cd $PWD/db && git commit -m x", m.equipo, entorno)[0] == "ask"
-        assert capa_2(m, "cd $PWD/db && git commit -m x", "C:\\proyecto", entorno) == (None, None)
+        assert capa_2(m, "cd $PWD/db && git commit -m x", PROYECTO, entorno) == (None, None)
 
 
 def test_la_ruta_propia_absoluta_decide_sola_y_las_relativas_se_encadenan():
     with mundo() as m:
         db = m.repos["db"]
-        assert capa_2(m, "git -C C:/proyecto commit -m x", db) == (None, None)
-        assert capa_2(m, "git --git-dir=C:/proyecto/.git commit -m x", db) == (None, None)
-        assert capa_2(m, "git -C %s -C db commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
-        assert capa_2(m, "git -C %s/web -C api --work-tree . commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
-        assert capa_2(m, "git -C C:/proyecto -C sub commit -m x", db) == (None, None)
+        assert capa_2(m, _r("git -C C:/proyecto commit -m x"), db) == (None, None)
+        assert capa_2(m, _r("git --git-dir=C:/proyecto/.git commit -m x"), db) == (None, None)
+        assert capa_2(m, "git -C %s -C db commit -m x" % fw(m.equipo), PROYECTO)[0] == "ask"
+        assert capa_2(m, "git -C %s/web -C api --work-tree . commit -m x" % fw(m.equipo), PROYECTO)[0] == "ask"
+        assert capa_2(m, _r("git -C C:/proyecto -C sub commit -m x"), db) == (None, None)
         assert capa_2(m, "git -C sub commit -m x", db)[0] == "ask", "relativa sin base: decide el ambiente"
         assert capa_2(m, "git -C C:x commit -m x", db)[0] == "ask", "relativa a la unidad: no es absoluta"
-        assert capa_2(m, "git -C %s/$NADA commit -m x" % fw(m.equipo), "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, "git -C %s/$NADA commit -m x" % fw(m.equipo), PROYECTO)[0] == "ask"
         otra = fw(m.base / "otra")
-        assert capa_2(m, "git -C %s -C ../equipo/db commit -m x" % otra, "C:\\proyecto")[0] == "ask", "la cadena llega al repo"
-        assert capa_2(m, "git -C %s -C ../afuera commit -m x" % otra, "C:\\proyecto") == (None, None)
-        for prefijo in ("\\\\?\\", "\\\\.\\"):
-            assert capa_2(m, "git -C %s%s commit -m x" % (prefijo, bw(db)), "C:\\proyecto")[0] == "ask", prefijo
+        assert capa_2(m, "git -C %s -C ../equipo/db commit -m x" % otra, PROYECTO)[0] == "ask", "la cadena llega al repo"
+        assert capa_2(m, "git -C %s -C ../afuera commit -m x" % otra, PROYECTO) == (None, None)
+        if NT:
+            for prefijo in ("\\\\?\\", "\\\\.\\"):
+                assert capa_2(m, "git -C %s%s commit -m x" % (prefijo, bw(db)), PROYECTO)[0] == "ask", prefijo
+        else:
+            assert capa_2(m, "git -C %s commit -m x" % otra_grafia(db), PROYECTO)[0] == "ask", "con doble barra inicial"
+            assert capa_2(m, "cd %s && git commit -m x" % otra_grafia(db), PROYECTO)[0] == "ask", "cd con doble barra inicial"
+            assert capa_2(m, "git commit -m x", otra_grafia(db))[0] == "ask", "cwd con doble barra inicial"
 
 
 def test_redirecciones_y_cierres_no_se_leen_como_el_subcomando():
@@ -832,7 +913,7 @@ def test_un_token_que_no_es_una_ruta_no_llega_a_realpath():
         try:
             for comando in ('echo "a\x00b"; git commit -m x', 'echo "a\nb c"; git commit -m x',
                             "echo " + "x/" * 2100 + "; git commit -m x"):
-                assert G.analizar(comando, "C:\\proyecto", ENTORNO, prot) == (None, None), comando[:40]
+                assert G.analizar(comando, PROYECTO, ENTORNO, prot) == (None, None), comando[:40]
         finally:
             G.config_loader.canonica, G._existe = original, existe
         assert vistas and not [r for r in vistas if "\x00" in r or "\n" in r or len(r) > G.MAX_RUTA], [r[:60] for r in vistas]
@@ -842,16 +923,16 @@ def test_la_compuerta_tambien_se_abre_por_una_mencion():
     with mundo() as m:
         db = fw(m.repos["db"])
         for comando in ("cd %s && GIT_SSH_COMMAND=x git fetch" % db, 'cd %s; echo \\"; git status' % db):
-            assert capa_2(m, comando, "C:\\proyecto")[0] == "ask", comando
-            assert capa_2(m, comando.replace(db, "C:/proyecto/sub"), "C:\\proyecto") == (None, None), comando
+            assert capa_2(m, comando, PROYECTO)[0] == "ask", comando
+            assert capa_2(m, comando.replace(db, "C:/proyecto/sub"), PROYECTO) == (None, None), comando
 
 
 def test_un_heredoc_a_un_shell_hace_codigo_tambien_al_otro_heredoc_como_el_origen():
     with mundo() as m:
         db = fw(m.repos["db"])
         commit = "git commit -F - <<'EOF'\nnota %s git push\nEOF\n" % db
-        assert capa_2(m, commit + "ls", "C:\\proyecto") == (None, None)
-        assert capa_2(m, commit + "cat <<'X' | bash\necho hola\nX", "C:\\proyecto")[0] == "ask"
+        assert capa_2(m, commit + "ls", PROYECTO) == (None, None)
+        assert capa_2(m, commit + "cat <<'X' | bash\necho hola\nX", PROYECTO)[0] == "ask"
 
 
 def test_cada_subcomando_de_git_escribe_de_writer_guard_pregunta():
@@ -863,7 +944,7 @@ def test_cada_subcomando_de_git_escribe_de_writer_guard_pregunta():
         db = m.repos["db"]
         for sub in sorted(w.GIT_ESCRIBE):
             assert capa_2(m, "git %s" % sub, db)[0] == "ask", sub
-            assert capa_2(m, "git -C %s %s x" % (fw(db), sub), "C:\\proyecto")[0] == "ask", sub
+            assert capa_2(m, "git -C %s %s x" % (fw(db), sub), PROYECTO)[0] == "ask", sub
         assert capa_2(m, "git branch -d x", db)[0] == "ask"
 
 
@@ -892,16 +973,16 @@ def test_con_la_config_rota_todo_git_que_no_es_de_lectura_pregunta_en_cualquier_
         prot = G.Protegidos.de_instancia(inst)
         assert prot.activa and "db" in prot.rota, prot.rota
         for comando in ("git commit -m x", "git -C C:/proyecto push", "git add ."):
-            resultado = G.correr(evento(comando, cwd="C:\\proyecto"), entorno=entorno_de(inst))
+            resultado = G.correr(evento(comando, cwd=PROYECTO), entorno=entorno_de(inst))
             razon = _razon(resultado)
             assert resultado[0] == 0 and razon and "configuración de la instancia rota" in razon and "falta la ruta del repo 'db'" in razon, (comando, resultado)
         for comando in ("git status", "git log --oneline", "ls"):
-            assert G.correr(evento(comando, cwd="C:\\proyecto"), entorno=entorno_de(inst)) == (0, "", b""), comando
-        assert G.correr(evento("git reset --hard", cwd="C:\\proyecto"), entorno=entorno_de(inst))[0] == 2
+            assert G.correr(evento(comando, cwd=PROYECTO), entorno=entorno_de(inst)) == (0, "", b""), comando
+        assert G.correr(evento("git reset --hard", cwd=PROYECTO), entorno=entorno_de(inst))[0] == 2
     with mundo("true") as m:
         prot = m.protegidos()
         assert "agent_readonly" in prot.rota, prot.rota
-        assert "agent_readonly" in _razon(G.correr(evento("git commit -m x", cwd="C:\\proyecto"), entorno=entorno_de(m.inst)))
+        assert "agent_readonly" in _razon(G.correr(evento("git commit -m x", cwd=PROYECTO), entorno=entorno_de(m.inst)))
 
 
 def test_una_config_que_revienta_al_leerse_cuenta_como_rota():
@@ -928,14 +1009,14 @@ def test_el_hook_lee_el_escape_segun_la_herramienta_del_evento():
 
 def test_con_el_plazo_vencido_pregunta_si_hay_repos_marcados():
     with mundo() as m:
-        resultado = G.correr(evento("git status", cwd=str(m.base)), entorno=entorno_de(m.inst), plazo=1e-9)
+        resultado = G.correr(evento("git status", cwd=str(m.base)), entorno=entorno_de(m.inst), plazo=-1)
         assert resultado[0] == 0 and "no terminó dentro del plazo" in _razon(resultado), resultado
         assert G.correr(evento("git status", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=8) == (0, "", b"")
     with mundo(False) as m:
-        assert G.correr(evento("git commit -m x", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=1e-9) == (0, "", b"")
+        assert G.correr(evento("git commit -m x", cwd=str(m.repos["db"])), entorno=entorno_de(m.inst), plazo=-1) == (0, "", b"")
     with carpeta() as base:
         inst = instancia(base, "{ rota")
-        razon = _razon(G.correr(evento("ls"), entorno=entorno_de(inst), plazo=1e-9))
+        razon = _razon(G.correr(evento("ls"), entorno=entorno_de(inst), plazo=-1))
         assert "no terminó dentro del plazo" in razon and "no se puede leer como JSON" in razon, razon
 
 
@@ -1015,10 +1096,10 @@ def test_bloquea_con_exit_2_y_el_mensaje_en_bytes_utf8():
 def test_el_mensaje_de_un_borrado_nombra_el_scratch_del_entorno():
     with carpeta() as base:
         inst = instancia(base)
-        codigo, _, error = G.correr(evento("rm -rf C:/fuera/x"), entorno=entorno_de(inst))
+        codigo, _, error = G.correr(evento(_r("rm -rf C:/fuera/x")), entorno=entorno_de(inst))
         assert codigo == 2
         assert "rm -rf fuera del scratch" in error.decode("utf-8"), error
-        assert "C:/Users/ana/AppData/Local/Temp/claude" in error.decode("utf-8"), error
+        assert "dentro de %s)" % RAIZ_SCRATCH in error.decode("utf-8"), error
 
 
 def test_lo_que_no_bloquea_pasa_en_silencio():
@@ -1058,25 +1139,106 @@ def test_sin_hook_event_name_o_con_cualquier_herramienta_el_comando_se_analiza()
 def test_con_el_plazo_vencido_calla_y_el_limite_no_queda_para_la_siguiente():
     with carpeta() as base:
         inst = instancia(base)
-        assert G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), plazo=1e-9) == (0, "", b"")
+        assert G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), plazo=-1) == (0, "", b"")
         assert G.analizar("git push --force origin main", None, ENTORNO)[0] == "block"
         assert G.correr(evento("git push --force origin main"), entorno=entorno_de(inst), plazo=8)[0] == 2
 
 
+@contextlib.contextmanager
+def en_sistema(nombre, uid=501):
+    from odd_ws import comun, rutas
+    previo = rutas.PLATAFORMA, comun._uid
+    rutas.PLATAFORMA, comun._uid = nombre, (lambda: uid)
+    try:
+        yield
+    finally:
+        rutas.PLATAFORMA, comun._uid = previo
+
+
 def test_el_scratch_sale_del_temporal_del_entorno():
+    if not NT:
+        en_tmpdir, en_tmp = ("rm -rf %s/claude-%d/x" % (base, os.getuid()) for base in ("/datos/beto/tmp", "/tmp"))
+        propio = {"TMPDIR": "/datos/beto/tmp"}
+        if sys.platform == "darwin":
+            assert decision(en_tmp, propio) is None, "en macOS el scratch vive en /tmp aunque haya TMPDIR"
+            assert decision(en_tmpdir, propio) == "block"
+        else:
+            assert decision(en_tmpdir, propio) is None
+            assert decision(en_tmp, propio) == "block"
+        assert decision(en_tmp, {}) is None
+        return
     otro = {"TEMP": "C:\\Users\\beto\\AppData\\Local\\Temp", "SYSTEMROOT": "C:\\Windows"}
     assert decision("rm -rf C:/Users/beto/AppData/Local/Temp/claude/x", otro) is None
     assert decision("rm -rf C:/Users/ana/AppData/Local/Temp/claude/x", otro) == "block"
     solo_tmp = {"TMP": "C:\\Users\\beto\\AppData\\Local\\Temp", "SYSTEMROOT": "C:\\Windows"}
     assert decision("rm -rf C:/Users/beto/AppData/Local/Temp/claude/x", solo_tmp) is None
+    assert decision("rm -rf C:/Users/beto/AppData/Local/Temp/claude/x", {"temp": "C:\\Users\\beto\\AppData\\Local\\Temp"}) is None
+    sistema = {"SYSTEMROOT": "C:\\Windows"}
+    assert decision("rm -rf C:/Windows/temp/claude/x", sistema) is None
+    assert decision("rm -rf C:/Windows/temp/claude/x", {}) == "block"
+
+
+def test_en_posix_el_scratch_es_el_de_claude_code_y_una_barra_no_es_una_unidad():
+    with en_sistema("linux", uid=1000):
+        assert decision("rm -rf /datos/tmp/claude-1000/x", {"TMPDIR": "/datos/tmp"}) is None
+        assert decision("rm -rf /tmp/claude-1000/x", {"TMPDIR": "/datos/tmp"}) == "block"
+        assert decision("rm -rf /tmp/claude-1000/x", {}) is None
+        assert decision("Remove-Item -Recurse -Force \\tmp\\claude-1000\\x", {}) is None
+        assert decision("rm -rf ~/claude-1000/x", {"HOME": "/tmp"}) is None
+        for otro in ("/tmp/claude-1001/x", "/tmp/claude/x", "/tmp/claude-1000", "/tmp/claude-1000/x/..", "tmp/claude-1000/x"):
+            assert decision("rm -rf " + otro, {}) == "block", otro
+        assert decision("rm -rf /c/t/claude-1000/x", {"TMPDIR": "c:/t"}) == "block", "en POSIX, /c/ no es la unidad C:"
+        assert decision("rm -rf /datos/tmp/claude-10000/x", {"TMPDIR": "/datos/tmp"}) == "block", "un hermano con el mismo prefijo"
+    with en_sistema("darwin", uid=501):
+        assert decision("rm -rf /tmp/claude-501/x", {"TMPDIR": "/var/folders/x/T/"}) is None
+        assert decision("rm -rf /var/folders/x/T/claude-501/x", {"TMPDIR": "/var/folders/x/T/"}) == "block"
+
+
+def test_en_posix_una_barra_invertida_de_bash_no_cuenta_como_scratch():
+    for sistema, uid in (("linux", 1000), ("darwin", 501)):
+        raiz = "/tmp/claude-%d" % uid
+        with en_sistema(sistema, uid=uid):
+            for destino in (raiz + "/.\\./.\\./fuera/x", raiz + "/.\\./.\\./fuera"):
+                for comando in ("rm -rf ", "rm -r "):
+                    assert decision(comando + destino, {}) == "block", "bash lee .\\. como ..: %s %s" % (sistema, comando + destino)
+            assert decision("Remove-Item -Recurse -Force %s\\x" % bw(raiz), {}) is None, "en un cmdlet de PowerShell la barra separa"
+            assert G.analizar("rm -rf %s/x\\y" % raiz, None, {}, None, "PowerShell")[0] is None, "PowerShell no escapa con la barra"
+
+
+def test_en_posix_un_enlace_del_scratch_seguido_de_dos_puntos_no_se_lee_como_texto():
     if NT:
-        assert decision("rm -rf C:/Users/beto/AppData/Local/Temp/claude/x", {"temp": "C:\\Users\\beto\\AppData\\Local\\Temp"}) is None
-        sistema = {"SYSTEMROOT": "C:\\Windows"}
-        assert decision("rm -rf C:/Windows/temp/claude/x", sistema) is None
-        assert decision("rm -rf C:/Windows/temp/claude/x", {}) == "block"
+        print("      (en Windows la ruta se normaliza antes de resolver los enlaces: lo prueba el CI de POSIX)")
+        return
+    with carpeta() as base:
+        repo = base / "repo"
+        (repo / "sub").mkdir(parents=True)
+        uid = 900000000 + os.getpid()
+        for sistema, temporal, entorno in (("linux", base / "tmp", {"TMPDIR": str(base / "tmp")}), ("darwin", Path("/tmp"), {})):
+            scratch = temporal / ("claude-%d" % uid)
+            try:
+                scratch.mkdir(parents=True)
+            except FileExistsError:
+                print("      (%s ya existe: se omite %s)" % (scratch, sistema))
+                continue
+            enlace = scratch / "jdb"
+            try:
+                os.symlink(repo / "sub", enlace, target_is_directory=True)
+                with en_sistema(sistema, uid=uid):
+                    for comando in ("rm -rf %s/jdb/../x", "rm -r %s/jdb/../x", "Remove-Item -Recurse -Force %s/jdb/../x"):
+                        assert decision(comando % fw(scratch), entorno) == "block", (sistema, comando)
+                    assert decision("rm -rf %s/x/../y" % fw(scratch), entorno) is None, "sin enlace, x/../y sigue en el scratch"
+            finally:
+                if enlace.is_symlink():
+                    os.unlink(enlace)
+                os.rmdir(scratch)
 
 
 def test_el_scratch_de_otro_usuario_o_de_otra_unidad_bloquea():
+    if not NT:
+        assert decision("rm -rf %s/x" % RAIZ_SCRATCH) is None
+        for otro in ("/tmp/claude-%d/x" % (os.getuid() + 1), "/tmp/claude/x", "/otra/tmp/claude-%d/x" % os.getuid()):
+            assert decision("rm -rf " + otro) == "block", otro
+        return
     assert decision("rm -rf C:/Users/ana/AppData/Local/Temp/claude/x") is None
     assert decision("rm -rf C:/Users/beto/AppData/Local/Temp/claude/x") == "block"
     assert decision("rm -rf D:/Users/ana/AppData/Local/Temp/claude/x") == "block"
@@ -1085,37 +1247,44 @@ def test_el_scratch_de_otro_usuario_o_de_otra_unidad_bloquea():
 
 
 def test_la_raiz_del_scratch_no_se_puede_borrar():
-    for destino in ("C:/Users/ana/AppData/Local/Temp/claude", "C:/Users/ana/AppData/Local/Temp/claude/",
-                    "C:/Users/ana/AppData/Local/Temp/claude/.", "C:/Users/ana/AppData/Local/Temp/claude/x/..",
-                    "C:/Users/ana/AppData/Local/Temp"):
+    for destino in (RAIZ_SCRATCH, RAIZ_SCRATCH + "/", RAIZ_SCRATCH + "/.", RAIZ_SCRATCH + "/x/..", RAIZ_SCRATCH.rsplit("/", 1)[0]):
         assert decision("rm -rf " + destino) == "block", destino
-    assert decision("rm -rf C:/Users/ana/AppData/Local/Temp/claude/x/../y") is None
+    assert decision("rm -rf %s/x/../y" % RAIZ_SCRATCH) is None
 
 
 def test_la_tilde_usa_la_carpeta_del_usuario_del_entorno():
-    assert decision("rm -rf ~/AppData/Local/Temp/claude/x") is None
-    assert decision("rm -rf ~/x") == "block"
-    assert decision("rm -rf ~beto/AppData/Local/Temp/claude/x") == "block"
-    sin_casa = {k: v for k, v in ENTORNO.items() if k not in ("HOME", "USERPROFILE")}
-    assert decision("rm -rf ~/AppData/Local/Temp/claude/x", sin_casa) == "block"
-    assert decision("rm -rf ~/AppData/Local/Temp/claude/x", dict(ENTORNO, HOME="/c/Users/ana")) is None
+    if NT:
+        casa, sufijo = ENTORNO, "AppData/Local/Temp/claude"
+    else:
+        casa, sufijo = {"HOME": "/tmp"}, "claude-%d" % os.getuid()
+    assert decision("rm -rf ~/%s/x" % sufijo, casa) is None
+    assert decision("rm -rf ~/x", casa) == "block"
+    assert decision("rm -rf ~beto/%s/x" % sufijo, casa) == "block"
+    sin_casa = {k: v for k, v in casa.items() if k not in ("HOME", "USERPROFILE")}
+    assert decision("rm -rf ~/%s/x" % sufijo, sin_casa) == "block"
+    if NT:
+        assert decision("rm -rf ~/AppData/Local/Temp/claude/x", dict(ENTORNO, HOME="/c/Users/ana")) is None
 
 
-def test_una_junction_del_scratch_hacia_afuera_bloquea():
-    if not NT:
-        return
+def test_un_enlace_del_scratch_hacia_afuera_bloquea():
     with carpeta() as base:
         temp = base / "tmp"
-        (temp / "claude" / "k").mkdir(parents=True)
+        nombre = "claude" if NT else "claude-%d" % os.getuid()
+        (temp / nombre / "k").mkdir(parents=True)
         fuera = base / "fuera"
         fuera.mkdir()
-        enlace = temp / "claude" / "j"
-        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(fuera)], capture_output=True)
-        assert r.returncode == 0 and enlace.exists(), r
-        entorno = {"TEMP": str(temp), "SYSTEMROOT": "C:\\Windows"}
-        assert decision("rm -rf %s/k/x" % fw(temp / "claude"), entorno) is None
-        assert decision("rm -rf %s/j/x" % fw(temp / "claude"), entorno) == "block"
-        assert decision("Remove-Item -Recurse -Force %s\\j" % bw(temp / "claude"), entorno) == "block"
+        enlace = temp / nombre / "j"
+        if NT:
+            r = subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace), str(fuera)], capture_output=True)
+            assert r.returncode == 0 and enlace.exists(), r
+            entorno, sistema = {"TEMP": str(temp), "SYSTEMROOT": "C:\\Windows"}, contextlib.nullcontext()
+        else:
+            os.symlink(fuera, enlace, target_is_directory=True)
+            entorno, sistema = {"TMPDIR": str(temp)}, en_sistema("linux", uid=os.getuid())
+        with sistema:
+            assert decision("rm -rf %s/k/x" % fw(temp / nombre), entorno) is None
+            assert decision("rm -rf %s/j/x" % fw(temp / nombre), entorno) == "block"
+            assert decision("Remove-Item -Recurse -Force %s\\j" % bw(temp / nombre), entorno) == "block"
 
 
 def test_el_hook_real_como_proceso():

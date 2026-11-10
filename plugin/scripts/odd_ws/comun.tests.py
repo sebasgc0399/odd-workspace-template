@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import importlib
 import io
@@ -360,9 +361,45 @@ def test_temporal_sigue_el_orden_de_os_tmpdir_de_node():
         assert m().temporal({"TEMP": "/b"}) == "/tmp"
 
 
-def test_los_dos_guards_usan_el_mismo_temporal():
-    for nombre in ("writer_guard", "guard_comandos"):
-        assert importlib.import_module(nombre).temporal is m().temporal, nombre
+def test_los_guards_sacan_el_scratch_de_comun():
+    assert importlib.import_module("writer_guard").carpeta_scratch is m().carpeta_scratch
+    assert importlib.import_module("guard_comandos").carpeta_scratch is m().carpeta_scratch
+
+
+@contextlib.contextmanager
+def plataforma(nombre, uid=501):
+    rutas = importlib.import_module("odd_ws.rutas")
+    previa = rutas.PLATAFORMA, m()._uid
+    rutas.PLATAFORMA, m()._uid = nombre, (lambda: uid)
+    try:
+        yield
+    finally:
+        rutas.PLATAFORMA, m()._uid = previa
+
+
+def test_el_scratch_es_el_que_documenta_claude_code_en_cada_sistema():
+    entorno = {"TEMP": "C:\\a", "TMPDIR": "/var/folders/x/T/", "SYSTEMROOT": "C:\\w"}
+    with plataforma("win32"):
+        assert m().carpeta_scratch(entorno) == os.path.join(m().temporal(entorno), "claude")
+        if os.name == "nt":
+            assert m().carpeta_scratch({}) is None
+    with plataforma("darwin"):
+        assert m().carpeta_scratch(entorno) == "/tmp/claude-501", "en macOS vive en /tmp aunque haya TMPDIR"
+    with plataforma("linux", uid=1000):
+        assert m().carpeta_scratch({"TMPDIR": "/home/ana/tmp"}) == "/home/ana/tmp/claude-1000"
+        assert m().carpeta_scratch({"TEMP": "/b"}) == "/tmp/claude-1000"
+
+
+def test_en_macos_el_git_dir_y_el_comun_con_otra_caja_o_en_nfd_no_son_un_worktree():
+    with Temporal() as base:
+        raiz = repo_con_hooks(base / "Año", {})
+        nfc = str(raiz / ".git")
+        nfd = nfc.replace("ñ", "n\u0303")
+        with plataforma("darwin"):
+            for comun in (nfc.upper(), nfd):
+                assert decidir(raiz, salida_de_git(".git/hooks", ".git", comun)).puede is True, comun
+        with plataforma("linux"):
+            assert decidir(raiz, salida_de_git(".git/hooks", ".git", nfd)).puede is False, "fuera de macOS, NFD es otra carpeta"
 
 
 def capas():
