@@ -17,7 +17,13 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
 |---|---|---|---|---|
 | U1 | S2, S3, S6 | `guard_comandos`: el backtick de PowerShell (X2) y `.\.` en Bash en Windows (X9) | delegado: writer en paralelo con U2 (Writer trigger a, superficies disjuntas), con el respaldo de contexto | hecho (L4) |
 | U2 | S4, S5, S6 | `rutas.ubicar` resuelve `..` con `realpath` en POSIX (X11), y los escapes del scratch de `writer_guard` (X10) | delegado: writer en paralelo con U1 | hecho (L2, L3) |
-| V | S1-S6 | Un verificador independiente sobre las dos unidades, con las sondas de punta a punta de la capa 2 en POSIX (`git -C <enlace>/.. push`) | delegado (ítem 2) | pendiente |
+| V | S1-S6 | Un verificador independiente sobre las dos unidades, con las sondas de punta a punta de la capa 2 en POSIX (`git -C <enlace>/.. push`) | delegado (ítem 2) | hecho: B1 y B2 corregidos y cerrados en el rechequeo (L5-L7) |
+| Y1 | — | Seguimiento: formas del modo físico que el parser no ve (`set -eo physical`, `set -euo pipefail -P`, `bash -P -c`, `bash -o physical -c`) | inline, aparte | pendiente |
+| Y2 | — | Seguimiento: `CDPATH` no se modela (`CDPATH=<x> cd <nombre>`). Previo | inline, aparte | pendiente |
+| Y3 | — | Seguimiento: la capa 2 no sigue cadenas de `cd` (`cd <repo>/out && cd .. && git commit`). Previo | inline, aparte | pendiente |
+| Y4 | — | Seguimiento: `\\` sin comillas en las lecturas de Bash cuenta como dos `\` (bloquea de más `\\srv\…`) | inline, aparte | pendiente |
+| Y5 | — | Seguimiento: `test_u6g_muchos_heredocs_en_una_linea_cuestan_lineal` es inestable con la máquina cargada (tope de 2 s, tardó 2.6 s). Previo | inline, aparte | pendiente |
+| Y6 | — | A decidir con el usuario, el modelo de amenaza. Las ofuscaciones previas sin cubrir: `& 'git'`, `gi''t`, `g\it`, `--fo"rce"`, `iex`, `bash -c`, `$g`, `Start-Process`, las comillas escapadas que esconden el comando (B3), las sustituciones entre comillas dobles y la capa 2 a través de los escapes | decisión | pendiente |
 
 ## Log
 
@@ -61,3 +67,41 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
     - `Start-Process git`;
     - la capa 2 a través de los escapes.
   - **Un falso permitido previo:** `Remove-Item … /c/Users/<u>/…/claude/x` en PowerShell resuelve a `C:\c\Users\…`. Todo esto queda para decidir el modelo de amenaza con el usuario.
+  - **Commit:** U1 quedó en `338be1b`.
+- **L5 (2026-11-12), el verificador independiente: S1 y S3 cumplen, S2, S4 y S5 parciales, S6 no cumple.**
+  - **B1 (nuevo, blocker):** el `cd` de Bash es lógico, porque quita el `..` como texto antes de seguir enlaces, pero U2 lo dejó físico. En POSIX, `cd <enlace>/.. && echo x > repo/f` pasa en `writer_guard`, y `cd <repo>/<enlace>/.. && git push --force-with-lease` deja de preguntar en la capa 2. En macOS aparece sin preparar nada, por `/tmp`. Un test fijaba el error (`cd afuera/.. && echo x > db/x`).
+  - **B2 (previo, de la clase de S4, blocker por el brief):** `cd` con `.\.` hacia una carpeta que no es zona, seguido de una escritura relativa con `..`, pasa. `_cd` solo toma una lectura alternativa si cae en una zona.
+  - **B3 (previo):** las comillas escapadas (`` `' `` o `\'`) alrededor de un `git push --force` lo esconden de la capa 1. Lo bajó a advisory el padre: es la clase del recorte de comillas, no la del escape, y la forma sin backtick también pasa. Va a la decisión del modelo de amenaza.
+  - **Advisories previos:**
+    - una sustitución entre comillas dobles (`"$(git push --force …)"`);
+    - los avisos de U1;
+    - las rutas relativas a una unidad y las variables en `Combine` y `Join-Path`;
+    - `Set-Content -Path (Join-Path …)`;
+    - `` `u{66} `` en pwsh 7, sin verificar.
+  - **El diferencial propio:**
+    - Windows: 260 cambios, todos más estrictos y todos de S3 o S4.
+    - POSIX: 1154 más estrictos; las 506 más laxas son la semántica del kernel, salvo 114 con `cd`/`pushd`, que son B1.
+  - **Suites:** 42 de 42 en verde.
+  - **La corrección:** una tanda para B1 y B2, con sus sondas como tests, devuelta al writer de U2, que ahora toma también `guard_comandos`. Después, un rechequeo limitado a B1 y B2.
+- **L6 (2026-11-12), la corrección de B1 y B2.**
+  - **B1:**
+    - `rutas.ubicar` y `resolver` reciben `logica=False`;
+    - `_cd` de `writer_guard` es lógico, salvo con `-P` o después de `set -P` o `set -o physical`;
+    - en la capa 2, las menciones preguntan con la lectura física o con la lógica, y `git -C` sigue físico;
+    - los tres casos de test que fijaban el error quedaron corregidos.
+  - **B2:** el cwd ambiguo, con las carpetas posibles, protege si alguna protege. Falla cerrada con el tope de lecturas o con más de 64 carpetas.
+  - **Decisión del padre:** la primera reproducción de B2 en Windows no llega al repo, porque contando los niveles cae en `C:/Users/Proyecto`. Se fijó la variante con 4 `..`, que sí llega. Se eligen las carpetas posibles y no la falla cerrada simple: 8 filas de Windows bloquean de más, contra 148.
+  - **Pruebas:**
+    - 15 mutantes muertos;
+    - en el corpus del verificador, las filas de B1 dan igual que `f012ca0`, y en Windows cambian solo 8 filas de B2, todas a bloquear;
+    - `rutas` 15/15, `guard_comandos` 62/62 y `writer_guard` 120/120.
+  - **Seguimientos:**
+    - `\\` sin comillas en las lecturas de Bash cuenta como dos `\`, y bloquea de más `\\srv\…`;
+    - `test_u6g_muchos_heredocs_en_una_linea_cuestan_lineal` tiene un tope de 2 s, y con la máquina cargada tardó 2.6 s (inestable, previo).
+  - **`Doc/diseno.md`:** el padre sumó el `cd` lógico, `set -P`, el cwd ambiguo y la doble lectura de la capa 2.
+- **L7 (2026-11-12), el rechequeo, limitado a B1 y B2: cerrados.**
+  - **B1:** todas las sondas, en Linux y darwin, en `writer_guard` y en la capa 2, dan lo mismo que la base. Las 123 filas de B1 vuelven a dar igual que `f012ca0`. Ninguna fila con `cd` se afloja frente a la base, y las 371 más laxas son la clase del kernel, ya aceptada.
+  - **B2:** bloquea la variante con 4 `..` y las demás reproducciones. Los casos legítimos del scratch siguen pasando.
+  - **Lo que confirmó:** el verificador da por buena la cuenta del writer. La primera reproducción de Windows cae en `C:/Users/Proyecto`, fuera del repo.
+  - **Suites:** `rutas` 15/15, `writer_guard` 120/120 y `guard_comandos` 62/62.
+  - **Avisos previos:** pasan a Y1, Y2 y Y3. B3 y las ofuscaciones, a Y6.

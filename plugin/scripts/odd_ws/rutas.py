@@ -67,7 +67,7 @@ def unidad(cwd):
     return c[:2] if UNIDAD_ABSOLUTA.match(c.lower()) else None
 
 
-def ubicar(ruta, cwd):
+def ubicar(ruta, cwd, logica=False):
     r = normalizar(ruta)
     if es_relativa(r):
         if not cwd:
@@ -80,7 +80,7 @@ def ubicar(ruta, cwd):
         r = letra + r
     if not absoluta(r):
         return None
-    if PLATAFORMA == "win32" or not r.startswith("/") or ".." not in r.split("/"):
+    if logica or PLATAFORMA == "win32" or not r.startswith("/") or ".." not in r.split("/"):
         r = posixpath.normpath(r)
     if UNIDAD_SOLA.fullmatch(r):
         r += "/"
@@ -91,9 +91,9 @@ def absoluta(r):
     return r.startswith("/") or UNIDAD_ABSOLUTA.match(r.lower()) is not None
 
 
-def resolver(ruta, cwd, variable):
+def resolver(ruta, cwd, variable, logica=False):
     expandida, _ = expandir(ruta.strip(), cwd, variable)
-    return None if expandida is None else ubicar(expandida, cwd)
+    return None if expandida is None else ubicar(expandida, cwd, logica)
 
 
 def antes_del_comodin(ruta):

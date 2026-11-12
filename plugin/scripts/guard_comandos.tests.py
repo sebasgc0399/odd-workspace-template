@@ -1261,7 +1261,7 @@ def test_en_posix_un_enlace_del_scratch_seguido_de_dos_puntos_no_se_lee_como_tex
 
 
 @contextlib.contextmanager
-def posix_emulado(enlaces, carpetas):
+def posix_emulado(enlaces, carpetas, plataforma="linux"):
     import posixpath
     from odd_ws import comun, rutas
 
@@ -1294,11 +1294,49 @@ def posix_emulado(enlaces, carpetas):
 
     previo = os.name, os.sep, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid
     os.name, os.sep, os.path, os.lstat, os.readlink = "posix", "/", posixpath, lstat, (lambda ruta: enlaces[os.fspath(ruta)])
-    rutas.PLATAFORMA, comun._uid = "linux", (lambda: 1000)
+    rutas.PLATAFORMA, comun._uid = plataforma, (lambda: 1000)
     try:
         yield
     finally:
         os.name, os.sep, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid = previo
+
+
+SONDAS_CD_LOGICO = [
+    ("cd /home/u/ws/mi_repo/out/.. && git push --force-with-lease", "ask"),
+    ("cd /home/u/ws/mi_repo/out/.. && git reset HEAD~1", "ask"),
+    ("cd /home/u/ws/lnk/.. && git -C mi_repo push", "ask"),
+    ("pushd /home/u/ws/lnk/.. && git -C mi_repo commit -m x", "ask"),
+    ("git -C /home/u/ws/mi_repo/out/.. push", None),
+    ("cd /opt/data/sub/.. && git push", None),
+]
+
+
+def test_en_posix_una_mencion_con_dos_puntos_pregunta_si_la_lectura_del_kernel_o_la_del_cd_toca_un_repo():
+    enlaces = {"/home/u/ws/lnk": "/opt/data/sub", "/home/u/ws/mi_repo/out": "/opt/data/sub"}
+    carpetas = {"/home", "/home/u", "/home/u/ws", "/home/u/ws/mi_repo", "/opt", "/opt/data", "/opt/data/sub"}
+    fallos = []
+    with posix_emulado(enlaces, carpetas):
+        prot = G.Protegidos({"repos": {"mi_repo": {"path": "/home/u/ws/mi_repo", "worktrees": [], "agent_readonly": True}}})
+        for comando, esperado in SONDAS_CD_LOGICO:
+            resultado, motivo = G.analizar(comando, "/opt/data", {}, prot)
+            if resultado != esperado:
+                fallos.append("  %s: esperado %s, salio %s (%s)" % (comando, esperado, resultado, motivo))
+    carpetas = {"/private", "/private/tmp", "/Users", "/Users/u", "/Users/u/ws", "/Users/u/ws/mi_repo"}
+    with posix_emulado({"/tmp": "private/tmp"}, carpetas, plataforma="darwin"):
+        prot = G.Protegidos({"repos": {"mi_repo": {"path": "/Users/u/ws/mi_repo", "worktrees": [], "agent_readonly": True}}})
+        for comando, esperado in (("cd /tmp/.. && git -C Users/u/ws/mi_repo push", "ask"), ("cd /tmp && git push", None)):
+            resultado, motivo = G.analizar(comando, "/private", {}, prot)
+            if resultado != esperado:
+                fallos.append("  darwin %s: esperado %s, salio %s (%s)" % (comando, esperado, resultado, motivo))
+    assert not fallos, "\n" + "\n".join(fallos)
+
+
+def test_en_bash_una_barra_invertida_fuera_de_las_comillas_cuenta_aunque_el_resto_vaya_entre_comillas():
+    for herramienta in (None, "Bash"):
+        resultado = G.analizar("rm -rf '%s/.'\\./fuera" % SCR, None, ENTORNO, None, herramienta)[0]
+        assert resultado == "block", "bash lee '.'\\. como ..: %s" % resultado
+        resultado = G.analizar('rm -rf "%s/.\\./.\\./fuera"' % SCR, None, ENTORNO, None, herramienta)[0]
+        assert resultado == (None if NT else "block"), "entre comillas dobles la barra queda literal: %s" % resultado
 
 
 SONDAS_DOS_PUNTOS = [

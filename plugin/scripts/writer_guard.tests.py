@@ -954,7 +954,7 @@ def test_x10_en_bash_una_barra_invertida_junto_a_un_punto_no_saca_un_repo_del_sc
 
 
 @contextlib.contextmanager
-def posix_simulado(enlaces, uid=1000):
+def posix_simulado(enlaces, uid=1000, plataforma="linux"):
     import posixpath
     from odd_ws import comun, rutas
 
@@ -965,7 +965,7 @@ def posix_simulado(enlaces, uid=1000):
 
     previo = os.name, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid
     os.name, os.path, os.lstat, os.readlink = "posix", posixpath, lstat, (lambda ruta: enlaces[os.fspath(ruta)])
-    rutas.PLATAFORMA, comun._uid = "linux", (lambda: uid)
+    rutas.PLATAFORMA, comun._uid = plataforma, (lambda: uid)
     try:
         yield
     finally:
@@ -980,13 +980,13 @@ def test_x10_x11_en_posix_un_enlace_seguido_de_dos_puntos_se_resuelve_despues_de
         assert zonas.scratch == "/tmp/claude-1000", zonas.scratch
         scratch, equipo = "/tmp/claude-1000", "/home/u/equipo"
         unir = "[IO.File]::WriteAllText((Join-Path '%s' '%s'), 'x')"
-        comprobar(tabla(["echo x > jdb/../x", "cp a.txt jdb/../x.sql", "rm -rf jdb/..", "cd jdb/.. && echo x > y"], True, scratch, zonas),
+        comprobar(tabla(["echo x > jdb/../x", "cp a.txt jdb/../x.sql", "rm -rf jdb/..", "cd -P jdb/.. && echo x > y"], True, scratch, zonas),
                   tabla(["echo x > %s/jdb/../x" % scratch, "rm -rf %s/jdb/.." % scratch, unir % (scratch, "jdb/../x"),
                          unir % (scratch, "../../home/u/equipo/db/x"), "echo x > %s/.\\./.\\./home/u/equipo/db/x" % scratch], True, None, zonas),
-                  tabla(["echo x > x/../y", "echo x > jdb/../../../../../tmp/claude-1000/y"], False, scratch, zonas),
+                  tabla(["echo x > x/../y", "echo x > jdb/../../../../../tmp/claude-1000/y", "cd jdb/.. && echo x > y"], False, scratch, zonas),
                   tabla(["echo x > %s/x/../y" % scratch, unir % (scratch, "x/../y")], False, None, zonas),
-                  tabla(["echo x > db/no-existe/../x", "echo x > db/x"], True, equipo, zonas),
-                  tabla(["echo x > afuera/../db/x", "cd afuera/.. && echo x > db/x"], False, equipo, zonas))
+                  tabla(["echo x > db/no-existe/../x", "echo x > db/x", "cd afuera/.. && echo x > db/x"], True, equipo, zonas),
+                  tabla(["echo x > afuera/../db/x", "cd -P afuera/.. && echo x > db/x"], False, equipo, zonas))
 
 
 def test_x10_en_posix_un_enlace_real_del_scratch_hacia_un_repo_seguido_de_dos_puntos_bloquea():
@@ -1004,13 +1004,77 @@ def test_x10_en_posix_un_enlace_real_del_scratch_hacia_un_repo_seguido_de_dos_pu
         with en_sistema("linux", uid=uid):
             zonas = G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TMPDIR=str(TMPD)))
             comprobar(tabla(["echo x > %s/jdb/../x" % fw(scratch), "rm -rf %s/jdb/.." % fw(scratch),
-                             "cd %s/jdb/.. && echo x > y" % fw(scratch)], True, None, zonas),
-                      tabla(["echo x > %s/x/../y" % fw(scratch), "echo x > %s/y" % fw(scratch)], False, None, zonas))
+                             "cd -P %s/jdb/.. && echo x > y" % fw(scratch)], True, None, zonas),
+                      tabla(["echo x > %s/x/../y" % fw(scratch), "echo x > %s/y" % fw(scratch),
+                             "cd %s/jdb/.. && echo x > y" % fw(scratch)], False, None, zonas))
     finally:
         if enlace.is_symlink():
             os.unlink(enlace)
         os.rmdir(scratch)
         os.rmdir(destino)
+
+
+CONFIG_WS = {"raiz": "/home/u/inst", "repos": {"mi_repo": {"path": "/home/u/ws/mi_repo"}},
+             "layers": {"sql": {"extensions": [".sql"], "repos": ["mi_repo"]}}}
+
+
+def test_b1_en_posix_el_cd_quita_los_dos_puntos_como_texto_salvo_con_p_y_el_kernel_no():
+    with posix_simulado({"/home/u/ws/lnk": "/opt/data/sub", "/home/u/ws/mi_repo/out": "/opt/data/sub"}):
+        zonas = G.Zonas(CONFIG_WS, {"TMPDIR": "/tmp"})
+        comprobar(tabla(["cd /home/u/ws/lnk && cd .. && echo x > mi_repo/f", "cd /home/u/ws/lnk; cd ..; echo x > mi_repo/f",
+                         "cd /home/u/ws/lnk/.. && echo x > mi_repo/f", "pushd /home/u/ws/lnk/.. && echo x > mi_repo/f",
+                         "cd /home/u/ws/mi_repo/out/.. && echo x > f", "cd /home/u/ws/mi_repo/out/.. && cp a.txt f",
+                         "cd /home/u/ws && cd lnk/.. && echo x > mi_repo/f", "cd -L /home/u/ws/lnk/.. && echo x > mi_repo/f",
+                         "cd /home/u/ws/lnk && echo x > ../../../home/u/ws/mi_repo/f",
+                         "cd -P /home/u/ws/lnk && cd .. && echo x > ../../home/u/ws/mi_repo/f"], True, None, zonas),
+                  tabla(["cd -P /home/u/ws/mi_repo/out/.. && echo x > f", "cd -LP /home/u/ws/mi_repo/out/.. && echo x > f",
+                         "cd /home/u/ws/lnk && echo x > ../x", "cd /home/u/ws/lnk/.. && echo x > f"], False, None, zonas),
+                  tabla(["set -P; cd /home/u/ws/lnk && cd .. && echo x > ../../home/u/ws/mi_repo/f",
+                         "set -o physical; cd /home/u/ws/lnk && cd .. && echo x > ../../home/u/ws/mi_repo/f",
+                         "set -eP && cd /home/u/ws/lnk && cd .. && echo x > ../../home/u/ws/mi_repo/f",
+                         "set -P; cd -L /home/u/ws/lnk/.. && echo x > mi_repo/f", "set -P; set +P; cd /home/u/ws/lnk/.. && echo x > mi_repo/f",
+                         "set -o physical; set +o physical; cd /home/u/ws/lnk/.. && echo x > mi_repo/f"], True, None, zonas),
+                  tabla(["set -P; cd /home/u/ws/mi_repo/out/.. && echo x > f", "set -e; cd /home/u/ws/lnk/.. && echo x > f"], False, None, zonas))
+    with posix_simulado({"/tmp": "private/tmp", "/var": "private/var"}, plataforma="darwin"):
+        zonas = G.Zonas(dict(CONFIG_WS, raiz="/Users/u/inst", repos={"mi_repo": {"path": "/Users/u/ws/mi_repo"}}), {})
+        comprobar(tabla(["cd /tmp/.. && echo x > Users/u/ws/mi_repo/f", "cd /tmp && cd .. && echo x > Users/u/ws/mi_repo/f"], True, None, zonas),
+                  tabla(["echo x > /tmp/claude-1000/x/../y", "cd -P /tmp/.. && echo x > Users/u/ws/mi_repo/f"], False, None, zonas))
+
+
+def test_b2_un_cd_cuyas_lecturas_de_bash_llevan_a_carpetas_distintas_deja_el_cwd_ambiguo():
+    base, rel = fw(SCRATCH_BASE), fw(os.path.relpath(DB / "x", SCRATCH_BASE.parent / "x"))
+    comprobar(tabla(["cd %s/.\\./x && echo x > %s" % (base, rel), "cd %s && cd .\\./x && echo x > %s" % (base, rel),
+                     "cd %s/.\\./x && cd sub && echo x > ../%s" % (base, rel),
+                     "cd %s/.\\./%s && ls | xargs rm" % (base, fw(os.path.relpath(DB, SCRATCH_BASE.parent))),
+                     "cd %s/.\\./%s && find -delete" % (base, fw(os.path.relpath(DB, SCRATCH_BASE.parent))),
+                     "cd %s/a/b/c/d/.%s && echo x > y" % (base, "\\." * 7),
+                     "cd %s/a/b/c/d/e/f/.%s && cd g/h/i/j/k/l/.%s && echo x > y" % (base, "\\." * 6, "\\." * 6)], True),
+              tabla(["cd %s/.\\./x && echo x > %s/y" % (base, base), "cd %s/u1 && echo x > salida.txt" % base,
+                     "cd %s && echo x > salida.txt" % bw(SCRATCH_BASE / "u1"), "cd %s/.\\./x && echo x > nul" % base,
+                     "cd %s/.\\./x && echo x > /dev/null" % base], False),
+              tabla(["cd %s/.\\./x && echo x > y" % base], False, herramienta="PowerShell"))
+    with posix_simulado({}):
+        zonas = G.Zonas(CONFIG_WS, {"TMPDIR": "/tmp"})
+        comprobar(tabla(["cd /tmp/claude-1000/.\\./.\\./home/u/otro && echo x > ../ws/mi_repo/f",
+                         "cd /tmp/claude-1000/.\\./.\\./home/u/otro && cd ../ws && echo x > mi_repo/f",
+                         "cd /tmp/claude-1000/.\\./.\\./home/u/otro && echo x > $PWD/../ws/mi_repo/f"], True, None, zonas),
+                  tabla(["cd /tmp/claude-1000/x && echo x > ../y", "cd /tmp/claude-1000/.\\./.\\./home/u/otro && echo x > y",
+                         'cd "/tmp/claude-1000/x\\y" && echo x > y'], False, None, zonas))
+
+
+def test_b2_en_windows_el_cwd_ambiguo_decide_con_cada_carpeta_posible():
+    if not NT:
+        print("      (rutas de Windows: lo prueba el CI de Windows)")
+        return
+    config = {"raiz": "C:\\Proyecto\\inst", "repos": {"mi_repo": {"path": "C:\\Proyecto\\mi_repo"}},
+              "layers": {"sql": {"extensions": [".sql"], "repos": ["mi_repo"]}}}
+    zonas = G.Zonas(config, {"TEMP": "C:\\Users\\u\\AppData\\Local\\Temp", "SYSTEMROOT": "C:\\Windows"})
+    scratch = "C:/Users/u/AppData/Local/Temp/claude"
+    comprobar(tabla(["cd %s/.\\./.\\. && echo x > ../../../../Proyecto/mi_repo/f" % scratch,
+                     "cd %s && cd .\\./.\\./.\\./.\\. && echo x > ../../Proyecto/mi_repo/x" % scratch,
+                     "cd ..\\x && cd .. && echo x > mi_repo/f"], True, "C:\\Proyecto", zonas),
+              tabla(["cd %s/.\\./.\\. && echo x > ../../../Proyecto/mi_repo/f" % scratch, "cd %s/.\\./.\\. && echo x > y" % scratch,
+                     'cd "%s\\x" && echo x > y' % scratch.replace("/", "\\"), "cd C:\\Users\\u\\proj && echo x > f"], False, None, zonas))
 
 
 def test_x10_join_path_con_dos_puntos_decide_el_scratch_con_la_ruta_unida():

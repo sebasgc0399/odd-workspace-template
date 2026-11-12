@@ -105,6 +105,9 @@ SED_EN_SITIO = re.compile(r"^-[A-Za-z]*i")
 ASIGNACION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 DOS_PUNTOS = re.compile(r"(?:^|[\\/])\.\.(?:[\\/]|$)")
 MAX_BARRAS_JUNTO_A_UN_PUNTO = 6
+CD_OPCIONES = re.compile(r"-[LPe@]+")
+SET_OPCIONES = re.compile(r"[-+][A-Za-z]+")
+MAX_CWDS = 64
 
 _COLECTOR = None
 _UNIR = False
@@ -473,8 +476,8 @@ def _expandir(ruta, cwd):
     return rutas.expandir(ruta, cwd, _variable)
 
 
-def _resolver(ruta, cwd):
-    return rutas.resolver(ruta, cwd, _variable)
+def _resolver(ruta, cwd, logica=False):
+    return rutas.resolver(ruta, cwd, _variable, logica)
 
 
 def _recoger(ruta, cwd):
@@ -519,6 +522,10 @@ def _lecturas(ruta):
 def _decidir(ruta, cwd):
     if not ruta or ruta.startswith("&") or _ZONAS is None:
         return False
+    if isinstance(cwd, _CwdAmbiguo) and _resolver(ruta, None) is None:
+        if cwd.carpetas is None:
+            return ruta.strip().lower() not in NULOS
+        return any(_decidir(ruta, carpeta) for carpeta in cwd.carpetas)
     lecturas = _lecturas(ruta)
     return lecturas is None or any(_decidir_lectura(lectura, cwd) for lectura in lecturas)
 
@@ -541,6 +548,10 @@ def _decidir_lectura(ruta, cwd):
 def _zona(ruta, cwd):
     if not ruta:
         return False
+    if isinstance(ruta, _CwdAmbiguo):
+        return ruta.carpetas is None or any(_zona(carpeta, None) for carpeta in ruta.carpetas)
+    if isinstance(cwd, _CwdAmbiguo) and _resolver(ruta, None) is None:
+        return cwd.carpetas is None or any(_zona(ruta, carpeta) for carpeta in cwd.carpetas)
     if _decidir(ruta, cwd):
         return True
     for lectura in _lecturas(ruta) or [ruta]:
@@ -550,12 +561,68 @@ def _zona(ruta, cwd):
     return False
 
 
-def _cd(destino, cwd):
-    for lectura in (_lecturas(destino) or [destino])[1:]:
-        r = _resolver(lectura, cwd)
-        if r is not None and _zona(r, None):
-            return r
-    return _resolver(destino, cwd)
+def _cd_fisico(rest, fisico=False):
+    for t in rest:
+        if not t.startswith("-"):
+            break
+        letras = [c for c in t if c in "LP"] if CD_OPCIONES.fullmatch(t) else []
+        if letras:
+            fisico = letras[-1] == "P"
+    return fisico
+
+
+def _set_fisico(rest, fisico):
+    i = 0
+    while i < len(rest) and rest[i][:1] in ("-", "+"):
+        t = rest[i]
+        if t in ("-o", "+o") and i + 1 < len(rest):
+            fisico = t == "-o" if rest[i + 1] == "physical" else fisico
+            i += 2
+            continue
+        if SET_OPCIONES.fullmatch(t) and "P" in t:
+            fisico = t[0] == "-"
+        i += 1
+    return fisico
+
+
+class _CwdAmbiguo(str):
+    carpetas = None
+
+
+def _ambiguo(carpetas):
+    cwd = _CwdAmbiguo("<cwd ambiguo>")
+    cwd.carpetas = carpetas
+    return cwd
+
+
+def _juntar(opciones):
+    carpetas = []
+    for opcion in opciones:
+        if isinstance(opcion, _CwdAmbiguo) and opcion.carpetas is None:
+            return opcion
+        for carpeta in opcion.carpetas if isinstance(opcion, _CwdAmbiguo) else [opcion]:
+            if carpeta is not None and carpeta not in carpetas:
+                carpetas.append(carpeta)
+    if len(carpetas) > MAX_CWDS:
+        return _ambiguo(None)
+    if len(carpetas) > 1:
+        return _ambiguo(carpetas)
+    return carpetas[0] if carpetas else None
+
+
+def _cd(destino, cwd, fisico=False):
+    if isinstance(cwd, _CwdAmbiguo) and _resolver(destino, None) is None:
+        return cwd if cwd.carpetas is None else _juntar([_cd(destino, carpeta, fisico) for carpeta in cwd.carpetas])
+    lecturas = [destino] if _COLECTOR is not None else _lecturas(destino)
+    if lecturas is None:
+        return _ambiguo(None)
+    carpetas = []
+    for lectura in lecturas:
+        r = _resolver(lectura, cwd, not fisico)
+        if r is not None and fisico and rutas.PLATAFORMA != "win32":
+            r = os.path.realpath(r)
+        carpetas.append(r)
+    return _juntar(carpetas)
 
 
 def _git(rest):
@@ -1035,7 +1102,10 @@ def _analizar_en(texto, estado, profundidad, escape):
         elif cmd in CAMBIAR_DIR:
             if not any(_nombre_comando(t) in NO_MUEVEN_CWD for t in seg["tokens"][:i]):
                 destino = next((t for t in rest if not t.startswith("-")), None)
-                estado["cwd"] = _cd(destino, estado["cwd"]) if destino else None
+                fisico = _BASH and _cd_fisico(rest, estado.get("fisico", False))
+                estado["cwd"] = _cd(destino, estado["cwd"], fisico) if destino else None
+        elif cmd == "set" and _BASH:
+            estado["fisico"] = _set_fisico(rest, estado.get("fisico", False))
         elif cmd in ("iex", "invoke-expression"):
             motivo = _analizar(" ".join(t for t in rest if not t.startswith("-")), estado, profundidad + 1,
                                ESCAPE_DE_SHELL["powershell"])

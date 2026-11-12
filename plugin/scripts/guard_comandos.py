@@ -587,20 +587,25 @@ class Protegidos:
             self._carpetas[ruta] = next((clave for arbol, clave in self.arboles if _bajo(c, arbol) or _bajo(arbol, c)), None)
         return self._carpetas[ruta]
 
-    def _toca(self, texto, cwd, base, variable):
+    def _clave(self, ruta, base, logica):
+        clave = self._carpeta(rutas.ubicar(ruta, base))
+        if clave is None and logica:
+            clave = self._carpeta(rutas.ubicar(ruta, base, logica=True))
+        return clave
+
+    def _toca(self, texto, cwd, base, variable, logica=False):
         if not texto or len(texto) > MAX_RUTA or NO_ES_RUTA.search(texto):
             return None
         expandida, prefijo = rutas.expandir(texto.strip(), cwd, variable)
         if expandida is None:
-            return self._carpeta(rutas.ubicar(prefijo, base)) if prefijo else None
-        r = rutas.ubicar(expandida, base)
-        if r is None:
+            return self._clave(prefijo, base, logica) if prefijo else None
+        if rutas.ubicar(expandida, base) is None:
             return None
-        clave = self._carpeta(r)
+        clave = self._clave(expandida, base, logica)
         if clave is None:
             prefijo = rutas.antes_del_comodin(expandida)
             if prefijo is not None:
-                clave = self._carpeta(rutas.ubicar(prefijo, base))
+                clave = self._clave(prefijo, base, logica)
         return clave
 
     def del_cwd(self, cwd):
@@ -622,7 +627,7 @@ class Protegidos:
 
     def _mencion(self, texto, cwd, variable, profundidad):
         for candidato in _candidatos(texto):
-            clave = self._toca(candidato, cwd, cwd, variable)
+            clave = self._toca(candidato, cwd, cwd, variable, True)
             if clave is not None:
                 return clave
         if profundidad < MAX_PROFUNDIDAD_MENCION and SEPARA.search(texto):

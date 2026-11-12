@@ -115,6 +115,17 @@ def test_en_posix_una_ruta_sin_dos_puntos_se_normaliza_como_antes():
             assert m().ubicar("C:/../x.sql", "D:/base") is None, nombre
 
 
+def test_la_lectura_logica_de_un_cd_quita_los_dos_puntos_como_texto_en_todas_las_plataformas():
+    for nombre in ("linux", "darwin", "win32"):
+        with plataforma(nombre):
+            assert m().ubicar("l/..", "/home/u/ws", logica=True) == m().caso("/home/u/ws"), nombre
+            assert m().ubicar("./l//../x", "/home/u/ws", logica=True) == m().caso("/home/u/ws/x"), nombre
+            assert m().resolver(" $SUB/.. ", "/home/u/ws", entorno(SUB="lnk"), logica=True) == m().caso("/home/u/ws"), nombre
+            assert m().ubicar("x/../y", "C:/Proyecto", logica=True) == m().caso("C:/Proyecto/y"), nombre
+            assert m().ubicar("C:/../x", "D:/base", logica=True) is None, nombre
+            assert m().ubicar("l/..", None, logica=True) is None, nombre
+
+
 def test_en_windows_los_dos_puntos_se_colapsan_como_texto():
     with plataforma("win32"):
         assert m().ubicar("l/../x", "C:/Proyecto") == m().caso("C:/Proyecto/x")
