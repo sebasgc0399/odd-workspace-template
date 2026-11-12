@@ -80,7 +80,8 @@ def ubicar(ruta, cwd):
         r = letra + r
     if not absoluta(r):
         return None
-    r = posixpath.normpath(r)
+    if PLATAFORMA == "win32" or not r.startswith("/") or ".." not in r.split("/"):
+        r = posixpath.normpath(r)
     if UNIDAD_SOLA.fullmatch(r):
         r += "/"
     return caso(r) if absoluta(r) else None

@@ -95,6 +95,33 @@ def test_en_windows_y_en_linux_plegar_deja_la_ruta_como_esta():
             assert m().plegar("/Users/Ana/A\u0303n\u0303o") == "/Users/Ana/A\u0303n\u0303o", nombre
 
 
+def test_en_posix_ubicar_deja_los_dos_puntos_para_que_los_resuelva_realpath():
+    for nombre in ("linux", "darwin"):
+        with plataforma(nombre):
+            assert m().ubicar("l/../x", "/home/u/mi_repo") == m().caso("/home/u/mi_repo/l/../x"), nombre
+            assert m().ubicar("./l//..", "/home/u/mi_repo") == m().caso("/home/u/mi_repo/./l//.."), nombre
+            assert m().resolver(" $SUB/../x ", "/home/u/mi_repo", entorno(SUB="l")) == m().caso("/home/u/mi_repo/l/../x"), nombre
+            if not NT:
+                assert m().ubicar("/tmp/l/..", None) == "/tmp/l/..", nombre
+                assert m().ubicar("/../x", None) == "/../x", nombre
+
+
+def test_en_posix_una_ruta_sin_dos_puntos_se_normaliza_como_antes():
+    for nombre in ("linux", "darwin"):
+        with plataforma(nombre):
+            assert m().ubicar("a//./b/", "/home/u/mi_repo") == m().caso("/home/u/mi_repo/a/b"), nombre
+            assert m().ubicar("a..b/./x", "/home/u/mi_repo") == m().caso("/home/u/mi_repo/a..b/x"), nombre
+            assert m().ubicar("x/../y.sql", "C:/Proyecto") == m().caso("C:/Proyecto/y.sql"), nombre
+            assert m().ubicar("C:/../x.sql", "D:/base") is None, nombre
+
+
+def test_en_windows_los_dos_puntos_se_colapsan_como_texto():
+    with plataforma("win32"):
+        assert m().ubicar("l/../x", "C:/Proyecto") == m().caso("C:/Proyecto/x")
+        assert m().ubicar("l/..", "C:/Proyecto") == m().caso("C:/Proyecto")
+        assert m().ubicar("l/../x", "/home/u/mi_repo") == m().caso("/home/u/mi_repo/x")
+
+
 def test_la_plataforma_por_defecto_es_la_del_proceso():
     assert m().PLATAFORMA == sys.platform
 

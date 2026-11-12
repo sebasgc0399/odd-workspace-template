@@ -926,6 +926,121 @@ def test_el_scratch_gana_aunque_caiga_dentro_de_una_zona():
         comprobar(tabla(["echo x > " + fw(scratch / "s/x.sql")], True, None, real))
 
 
+def test_x10_en_bash_una_barra_invertida_junto_a_un_punto_no_saca_un_repo_del_scratch():
+    base, rel = fw(SCRATCH_BASE), fw(os.path.relpath(DB / "x", SCRATCH_BASE))
+    bloquea = [
+        "echo x > %s/%s" % (base, rel.replace("..", ".\\.")),
+        "echo x > %s/%s" % (base, rel.replace("..", "\\.\\.")),
+        "cp a.txt %s/%s" % (base, rel.replace("..", ".\\.")),
+        "echo x > %s/a/b/..\\.\\./%s" % (base, rel),
+        "echo x > %s/a/b/c/d/.%s" % (base, "\\." * 7),
+        "cd %s && echo x > %s" % (base, rel.replace("..", ".\\.")),
+        "cd %s/%s && echo x > f" % (base, fw(os.path.relpath(DB, SCRATCH_BASE)).replace("..", ".\\.")),
+        "cd %s/%s && echo x > db/f" % (base, fw(os.path.relpath(EQUIPO, SCRATCH_BASE)).replace("..", ".\\.")),
+        "bash -c \"echo x > %s/%s\"" % (base, rel.replace("..", ".\\.")),
+        "find %s/%s -delete" % (base, fw(os.path.relpath(TALLER_DIR, SCRATCH_BASE)).replace("..", ".\\.")),
+    ]
+    if NT:
+        bloquea.append("echo x > '%s'/%s" % (bw(SCRATCH_BASE), rel.replace("..", ".\\.")))
+    pasa = [
+        "echo x > %s/u1\\salida.txt" % base, "echo x > %s/a\\..\\b.txt" % base, "echo x > %s/a/b/c/d/.%s" % (base, "\\." * 6),
+    ]
+    en_powershell = [
+        "echo x > %s/%s" % (base, rel.replace("..", ".\\.")),
+        "[IO.File]::WriteAllText('%s/%s', 'x')" % (base, rel.replace("..", ".\\.")),
+    ]
+    comprobar(tabla(bloquea, True), tabla(pasa, False), tabla(en_powershell, False, herramienta="PowerShell"),
+              tabla(en_powershell[1:], False))
+
+
+@contextlib.contextmanager
+def posix_simulado(enlaces, uid=1000):
+    import posixpath
+    from odd_ws import comun, rutas
+
+    def lstat(ruta):
+        if os.fspath(ruta) in enlaces:
+            return os.stat_result((stat.S_IFLNK | 0o777,) + (0,) * 9)
+        raise FileNotFoundError(ruta)
+
+    previo = os.name, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid
+    os.name, os.path, os.lstat, os.readlink = "posix", posixpath, lstat, (lambda ruta: enlaces[os.fspath(ruta)])
+    rutas.PLATAFORMA, comun._uid = "linux", (lambda: uid)
+    try:
+        yield
+    finally:
+        os.name, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid = previo
+
+
+def test_x10_x11_en_posix_un_enlace_seguido_de_dos_puntos_se_resuelve_despues_del_enlace():
+    config = {"raiz": "/home/u/inst", "repos": {"db": {"path": "/home/u/equipo/db"}},
+              "layers": {"sql": {"extensions": [".sql"], "repos": ["db"]}}}
+    with posix_simulado({"/tmp/claude-1000/jdb": "/home/u/equipo/db/sub", "/home/u/equipo/afuera": "/tmp/otra"}):
+        zonas = G.Zonas(config, {"TMPDIR": "/tmp"})
+        assert zonas.scratch == "/tmp/claude-1000", zonas.scratch
+        scratch, equipo = "/tmp/claude-1000", "/home/u/equipo"
+        unir = "[IO.File]::WriteAllText((Join-Path '%s' '%s'), 'x')"
+        comprobar(tabla(["echo x > jdb/../x", "cp a.txt jdb/../x.sql", "rm -rf jdb/..", "cd jdb/.. && echo x > y"], True, scratch, zonas),
+                  tabla(["echo x > %s/jdb/../x" % scratch, "rm -rf %s/jdb/.." % scratch, unir % (scratch, "jdb/../x"),
+                         unir % (scratch, "../../home/u/equipo/db/x"), "echo x > %s/.\\./.\\./home/u/equipo/db/x" % scratch], True, None, zonas),
+                  tabla(["echo x > x/../y", "echo x > jdb/../../../../../tmp/claude-1000/y"], False, scratch, zonas),
+                  tabla(["echo x > %s/x/../y" % scratch, unir % (scratch, "x/../y")], False, None, zonas),
+                  tabla(["echo x > db/no-existe/../x", "echo x > db/x"], True, equipo, zonas),
+                  tabla(["echo x > afuera/../db/x", "cd afuera/.. && echo x > db/x"], False, equipo, zonas))
+
+
+def test_x10_en_posix_un_enlace_real_del_scratch_hacia_un_repo_seguido_de_dos_puntos_bloquea():
+    if NT:
+        print("      (en Windows el .. se resuelve como texto antes de seguir el enlace: lo prueba el CI de POSIX)")
+        return
+    uid = 900000000 + os.getpid()
+    scratch = TMPD / ("claude-%d" % uid)
+    destino = DB / "x10"
+    scratch.mkdir()
+    destino.mkdir()
+    enlace = scratch / "jdb"
+    try:
+        os.symlink(destino, enlace, target_is_directory=True)
+        with en_sistema("linux", uid=uid):
+            zonas = G.Zonas(config_loader.cargar(INST), dict(ENTORNO, TMPDIR=str(TMPD)))
+            comprobar(tabla(["echo x > %s/jdb/../x" % fw(scratch), "rm -rf %s/jdb/.." % fw(scratch),
+                             "cd %s/jdb/.. && echo x > y" % fw(scratch)], True, None, zonas),
+                      tabla(["echo x > %s/x/../y" % fw(scratch), "echo x > %s/y" % fw(scratch)], False, None, zonas))
+    finally:
+        if enlace.is_symlink():
+            os.unlink(enlace)
+        os.rmdir(scratch)
+        os.rmdir(destino)
+
+
+def test_x10_join_path_con_dos_puntos_decide_el_scratch_con_la_ruta_unida():
+    rel = fw(os.path.relpath(DB / "x", SCRATCH_BASE))
+    unir = "[IO.File]::WriteAllText((Join-Path '%s' '%s'), 'x')"
+    bloquea = [unir % (fw(SCRATCH_BASE), rel), "[IO.File]::Copy('a.txt', (Join-Path '%s' '%s'))" % (fw(SCRATCH_BASE), rel),
+               "[IO.File]::WriteAllText((Join-Path '%s' 'u1' '../%s'), 'x')" % (fw(SCRATCH_BASE), rel)]
+    if NT:
+        bloquea.append(unir % (bw(SCRATCH_BASE), bw(rel)))
+    comprobar(tabla(bloquea, True), tabla(bloquea, True, herramienta="PowerShell"),
+              con_cwd([unir % (fw(SCRATCH_BASE), "$n/../x")], REPO_CWD, True),
+              con_cwd([unir % (fw(SCRATCH_BASE), "u1/../salida.txt"), unir % (fw(SCRATCH_BASE / "a/.."), "x.txt"),
+                       unir % (fw(SCRATCH_BASE), "x.txt"), "[IO.File]::WriteAllText((Join-Path '%s' $n), 'x')" % fw(SCRATCH_BASE)],
+                      REPO_CWD, False))
+
+
+def test_x10_combine_con_un_hijo_absoluto_decide_el_scratch_con_ese_hijo():
+    base = fw(SCRATCH_BASE)
+    combinar = "[IO.File]::WriteAllText([IO.Path]::Combine('%s', '%s'), 'x')"
+    bloquea = [combinar % (base, fw(DB / "x")), combinar % (base, fw(TALLER_DIR / "esq.Proc_A.sql")),
+               "[IO.File]::Copy('a.txt', [System.IO.Path]::Combine('%s', 'u1', '%s'))" % (base, fw(DB / "x")),
+               "[IO.File]::WriteAllText([IO.Path]::Combine('%s', \"$env:REPOS/db/x\"), 'x')" % base]
+    if NT:
+        bloquea.append(combinar % (bw(SCRATCH_BASE), bw(DB / "x.sql")))
+    pasa = [combinar % (base, "u1/x.txt"), combinar % (fw(DB), base + "/x.txt"),
+            "[IO.File]::WriteAllText((Join-Path '%s' '%s'), 'x')" % (base, fw(DB / "x"))]
+    comprobar(tabla(bloquea, True), tabla(bloquea, True, herramienta="PowerShell"), tabla(pasa, False),
+              con_cwd([combinar % (base, "u1/x.txt"), "[IO.File]::WriteAllText([IO.Path]::Combine('%s', $n), 'x')" % base], REPO_CWD, False))
+
+
 def test_destinos_no_inventa_rutas_de_capa():
     assert G.destinos("robocopy a " + fw(DB / "sub") + " /E") == [fw(DB / "sub")]
     assert G.destinos("xcopy /Y a.txt " + fw(DB / "sub")) == [fw(DB / "sub")]

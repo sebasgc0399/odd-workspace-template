@@ -82,6 +82,7 @@ CLR_LLAMADA = re.compile(
 CLR_LITERAL = re.compile(r"^\s*(?:'([^']*)'|\"([^\"$`]*)\")\s*$", re.DOTALL)
 CLR_VARIABLE = re.compile(r"^\s*\$(\w+)\s*$")
 CLR_COMILLADO = re.compile(r"'([^']*)'|\"([^\"]*)\"")
+CLR_COMBINAR = re.compile(r"\[(?:System\.)?IO\.Path\]::Combine\s*\(", re.IGNORECASE)
 SP_CON_VALOR = {"-workingdirectory", "-windowstyle", "-verb", "-redirectstandardinput", "-redirectstandardoutput",
                 "-redirectstandarderror", "-credential", "-environment"}
 FIND_FIN_EXEC = {"+", ";", "\\"}
@@ -102,10 +103,13 @@ PY_OPCIONES_CON_VALOR = {"-X", "-W"}
 OPCIONES_DESTINO = {"-destination", "-t", "--target-directory", "-dest"}
 SED_EN_SITIO = re.compile(r"^-[A-Za-z]*i")
 ASIGNACION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+DOS_PUNTOS = re.compile(r"(?:^|[\\/])\.\.(?:[\\/]|$)")
+MAX_BARRAS_JUNTO_A_UN_PUNTO = 6
 
 _COLECTOR = None
 _UNIR = False
 _CUERPOS = False
+_BASH = False
 _ZONAS = None
 _LIMITE = None
 _VERIFICAR = []
@@ -493,9 +497,33 @@ def _protegida(ruta, cwd):
     return _decidir(ruta, cwd)
 
 
+def _lecturas(ruta):
+    if not _BASH or "\\" not in ruta:
+        return [ruta]
+    partes = ruta.split("\\")
+    junto_a_un_punto = [k for k in range(1, len(partes)) if partes[k - 1].endswith(".") or partes[k].startswith(".")]
+    if len(junto_a_un_punto) > MAX_BARRAS_JUNTO_A_UN_PUNTO:
+        return None
+    lecturas = [ruta]
+    for resto in ("\\", ""):
+        for bits in range(1 << len(junto_a_un_punto)):
+            barras = [resto] * len(partes)
+            for j, k in enumerate(junto_a_un_punto):
+                barras[k] = "\\" if bits >> j & 1 else ""
+            lectura = partes[0] + "".join(barras[k] + partes[k] for k in range(1, len(partes)))
+            if lectura not in lecturas:
+                lecturas.append(lectura)
+    return lecturas
+
+
 def _decidir(ruta, cwd):
     if not ruta or ruta.startswith("&") or _ZONAS is None:
         return False
+    lecturas = _lecturas(ruta)
+    return lecturas is None or any(_decidir_lectura(lectura, cwd) for lectura in lecturas)
+
+
+def _decidir_lectura(ruta, cwd):
     expandida, prefijo = _expandir(ruta.strip(), cwd)
     if expandida is None:
         carpeta = _ubicar(prefijo, cwd) if prefijo else None
@@ -515,8 +543,19 @@ def _zona(ruta, cwd):
         return False
     if _decidir(ruta, cwd):
         return True
-    r = _resolver(ruta.rstrip("\\/"), cwd)
-    return r is not None and _ZONAS is not None and _ZONAS.carpeta(r)
+    for lectura in _lecturas(ruta) or [ruta]:
+        r = _resolver(lectura.rstrip("\\/"), cwd)
+        if r is not None and _ZONAS is not None and _ZONAS.carpeta(r):
+            return True
+    return False
+
+
+def _cd(destino, cwd):
+    for lectura in (_lecturas(destino) or [destino])[1:]:
+        r = _resolver(lectura, cwd)
+        if r is not None and _zona(r, None):
+            return r
+    return _resolver(destino, cwd)
 
 
 def _git(rest):
@@ -769,6 +808,10 @@ def _argumentos(texto, desde, maximo=2):
     return args
 
 
+def _con_raiz(literal):
+    return _absoluta(_normalizar(literal)) or literal.startswith("$") and _resolver(literal, None) is not None
+
+
 def _clr_destino(expresion, cwd, texto=""):
     variable = CLR_VARIABLE.match(expresion)
     if variable:
@@ -782,9 +825,17 @@ def _clr_destino(expresion, cwd, texto=""):
     if _COLECTOR is not None:
         return None
     literales = [a or b for a, b in CLR_COMILLADO.findall(expresion)]
-    if _ZONAS is not None and any(_ZONAS.es_scratch(_resolver(l, None)) for l in literales):
-        return None
     candidatos = literales + (["/".join(l.strip("\\/") for l in literales)] if len(literales) > 1 else [])
+    exentas = literales
+    combinar = len(literales) > 1 and CLR_COMBINAR.search(expresion) is not None
+    if len(literales) > 1 and (any(DOS_PUNTOS.search(l) for l in literales) or combinar and any(map(_con_raiz, literales[1:]))):
+        unida = literales[0]
+        for l in literales[1:]:
+            unida = l if combinar and _con_raiz(l) else unida.rstrip("\\/") + "/" + l.strip("\\/")
+        exentas = [unida]
+        candidatos += exentas
+    if _ZONAS is not None and any(_ZONAS.es_scratch(_resolver(l, None)) for l in exentas):
+        return None
     if any(_zona(c, cwd) for c in candidatos):
         return expresion.strip()
     return expresion.strip() if cwd and _zona(cwd, None) else None
@@ -934,6 +985,16 @@ def _graves_fuera_de_simples(texto):
 
 
 def _analizar(texto, estado, profundidad, escape):
+    global _BASH
+    previo, _BASH = _BASH, False
+    try:
+        return _analizar_en(texto, estado, profundidad, escape)
+    finally:
+        _BASH = previo
+
+
+def _analizar_en(texto, estado, profundidad, escape):
+    global _BASH
     if profundidad > PROFUNDIDAD_MAX:
         return None
     _vigente()
@@ -942,6 +1003,7 @@ def _analizar(texto, estado, profundidad, escape):
     motivo = _clr(_graves_fuera_de_simples(texto) if leer == "`" else texto, estado["cwd"])
     if motivo and parar:
         return motivo
+    _BASH = escape == "\\"
     segmentos, subs = _segmentar(texto, leer, escape if _CUERPOS else None, profundidad >= PROFUNDIDAD_MAX)
     cache = []
 
@@ -973,7 +1035,7 @@ def _analizar(texto, estado, profundidad, escape):
         elif cmd in CAMBIAR_DIR:
             if not any(_nombre_comando(t) in NO_MUEVEN_CWD for t in seg["tokens"][:i]):
                 destino = next((t for t in rest if not t.startswith("-")), None)
-                estado["cwd"] = _resolver(destino, estado["cwd"]) if destino else None
+                estado["cwd"] = _cd(destino, estado["cwd"]) if destino else None
         elif cmd in ("iex", "invoke-expression"):
             motivo = _analizar(" ".join(t for t in rest if not t.startswith("-")), estado, profundidad + 1,
                                ESCAPE_DE_SHELL["powershell"])
