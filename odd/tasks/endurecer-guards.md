@@ -15,7 +15,7 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
 
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
-| U1 | S2, S3, S6 | `guard_comandos`: el backtick de PowerShell (X2) y `.\.` en Bash en Windows (X9) | delegado: writer en paralelo con U2 (Writer trigger a, superficies disjuntas), con el respaldo de contexto | pendiente |
+| U1 | S2, S3, S6 | `guard_comandos`: el backtick de PowerShell (X2) y `.\.` en Bash en Windows (X9) | delegado: writer en paralelo con U2 (Writer trigger a, superficies disjuntas), con el respaldo de contexto | hecho (L4) |
 | U2 | S4, S5, S6 | `rutas.ubicar` resuelve `..` con `realpath` en POSIX (X11), y los escapes del scratch de `writer_guard` (X10) | delegado: writer en paralelo con U1 | hecho (L2, L3) |
 | V | S1-S6 | Un verificador independiente sobre las dos unidades, con las sondas de punta a punta de la capa 2 en POSIX (`git -C <enlace>/.. push`) | delegado (ítem 2) | pendiente |
 
@@ -41,3 +41,23 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
     - el diferencial suma filas de `Combine`, y las 62 208 filas anteriores en Windows y las 52 306 en POSIX no cambian, con 0 sin explicar;
     - `writer_guard` 117/117 y `rutas` 14/14.
   - **Un borde en la dirección segura:** `_con_raiz` no ve las comillas, así que puede bloquear de más, nunca de menos.
+  - **Commit:** U2 quedó en `4cee24f`.
+- **L4 (2026-11-12), U1 de vuelta.**
+  - **S2 (X2):** una segunda pasada de la capa 1 sobre el texto sin los escapes de PowerShell. Solo suma bloqueos, y respeta las comillas simples, las curvas, los here-strings y los escapes especiales. Medido en `powershell.exe` 5.1.
+  - **S3 (X9):** en Bash, una pieza con `\` fuera de comillas no cuenta como scratch, en cualquier sistema. Entre comillas dobles, en Windows, sigue separando, porque Bash la deja literal y MSYS la lee como separador. Medido en el `bash.exe` de Git for Windows.
+    - Se descartó (b), fallar ante toda `\`, porque bloquearía `rm -rf "C:\…\Temp\claude\x"`: 1944 filas legítimas.
+  - **La costura con U2:** el parche léxico de U2 lo tumbó el oráculo, porque un `..` léxico sobre una cola inexistente diverge de `realpath` si después viene un enlace. Tampoco servía el caché de prefijos. El arreglo: en POSIX, toda ruta con `..` va directo a `config_loader.canonica`, sin caché.
+  - **Pruebas:**
+    - 9 sondas de punta a punta de la capa 2 en POSIX emulado, más una con un enlace real que en Windows se saltea;
+    - 17 de 18 mutantes muertos; el vivo era equivalente y se quitó el chequeo redundante;
+    - el diferencial da 139 701 filas, 6052 distintas y 0 inesperadas: 5164 de S2 y 888 de S3. La capa 2 en POSIX da 0 diferencias contra el oráculo;
+    - `guard_comandos` 60/60, `comun` 62/62, `codex` 41/41 y `claude_code` 37/37. El padre repitió `rutas`, `writer_guard` y `guard_comandos`: 14/14, 117/117 y 60/60.
+  - **Ofuscaciones previas que siguen sin cubrir, avisos de U1:**
+    - `& 'git' push --force`;
+    - en Bash, `"git" push --force`, `gi''t push --force` y `g\it push --force`;
+    - ``git push --fo"rce"``;
+    - `iex '…'`, `Invoke-Expression` y `bash -c "…"` en la capa 1;
+    - `$g='git'; & $g`;
+    - `Start-Process git`;
+    - la capa 2 a través de los escapes.
+  - **Un falso permitido previo:** `Remove-Item … /c/Users/<u>/…/claude/x` en PowerShell resuelve a `C:\c\Users\…`. Todo esto queda para decidir el modelo de amenaza con el usuario.

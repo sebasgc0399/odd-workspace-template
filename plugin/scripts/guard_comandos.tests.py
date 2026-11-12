@@ -526,8 +526,10 @@ class Mundo:
     def __init__(self, base, bandera, fuera):
         self.base = base
         self.equipo = base / "equipo"
-        self.git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(base / "gitconfig"))
-        for clave in [k for k in self.git_env if k.upper().startswith("GIT_") and k.upper() not in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")]:
+        self.git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(base / "gitconfig"),
+                            GIT_CONFIG_SYSTEM=str(base / "gitconfig-sistema"))
+        propias = ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+        for clave in [k for k in self.git_env if k.upper().startswith("GIT_") and k.upper() not in propias]:
             del self.git_env[clave]
         (base / "gitconfig").write_text("[user]\n\tname = prueba\n\temail = prueba@example.com\n", encoding="utf-8")
         self.repos = {"db": self.equipo / "db", "api": self.equipo / "web" / "api", "movil": self.equipo / "web" / "movil"}
@@ -1205,6 +1207,31 @@ def test_en_posix_una_barra_invertida_de_bash_no_cuenta_como_scratch():
             assert G.analizar("rm -rf %s/x\\y" % raiz, None, {}, None, "PowerShell")[0] is None, "PowerShell no escapa con la barra"
 
 
+def test_en_bash_una_barra_invertida_sin_comillas_no_cuenta_como_scratch_tampoco_en_windows():
+    for destino in (SCR + "/.\\./.\\./fuera/x", SCR + "/.\\./.\\./fuera", bw(SCR) + "\\x"):
+        for comando in ("rm -rf ", "rm -r ", "rm -r -Path "):
+            for herramienta in (None, "Bash"):
+                resultado = G.analizar(comando + destino, None, ENTORNO, None, herramienta)[0]
+                assert resultado == "block", "bash lee \\. como . y C:\\x como C:x: %s (%s)" % (comando + destino, herramienta)
+    for comando in ("rm -rf %s/.\\./.\\./x" % SCR, "Remove-Item -Recurse -Force %s/.\\./.\\./x" % SCR):
+        assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] is None, "en PowerShell la barra separa: %s" % comando
+
+
+def test_en_windows_la_barra_invertida_de_bash_entre_comillas_sigue_separando():
+    esperado = None if NT else "block"
+    for destino in ('"%s\\x"' % bw(SCR), "'%s\\x'" % bw(SCR), '"%s/.\\./.\\./x"' % SCR, '"%s\\\\x"' % bw(SCR)):
+        for herramienta in (None, "Bash"):
+            resultado = G.analizar("rm -rf " + destino, None, ENTORNO, None, herramienta)[0]
+            assert resultado == esperado, "entre comillas bash deja la barra literal: %s (%s): %s" % (destino, herramienta, resultado)
+
+
+def test_los_borrados_dentro_del_scratch_con_barras_normales_siguen_pasando():
+    for destino in (SCR + "/tmp", '"%s/tmp dir"' % SCR, "'%s/tmp'" % SCR, SCR + "/x/../y", "%s/a %s/b" % (SCR, SCR)):
+        for comando in ("rm -rf ", "rm -r "):
+            for herramienta in (None, "Bash", "PowerShell"):
+                assert G.analizar(comando + destino, None, ENTORNO, None, herramienta)[0] is None, (comando + destino, herramienta)
+
+
 def test_en_posix_un_enlace_del_scratch_seguido_de_dos_puntos_no_se_lee_como_texto():
     if NT:
         print("      (en Windows la ruta se normaliza antes de resolver los enlaces: lo prueba el CI de POSIX)")
@@ -1231,6 +1258,97 @@ def test_en_posix_un_enlace_del_scratch_seguido_de_dos_puntos_no_se_lee_como_tex
                 if enlace.is_symlink():
                     os.unlink(enlace)
                 os.rmdir(scratch)
+
+
+@contextlib.contextmanager
+def posix_emulado(enlaces, carpetas):
+    import posixpath
+    from odd_ws import comun, rutas
+
+    def real(ruta, saltos=0):
+        if saltos > 40:
+            raise OSError("demasiados enlaces: %s" % ruta)
+        actual = "/"
+        for parte in ruta.split("/"):
+            camino = posixpath.join(actual, parte)
+            if parte in ("", "."):
+                continue
+            if parte == "..":
+                actual = posixpath.dirname(actual)
+            elif camino in enlaces:
+                actual = real(enlaces[camino], saltos + 1)
+            elif camino in carpetas:
+                actual = camino
+            else:
+                raise FileNotFoundError(ruta)
+        return actual
+
+    def lstat(ruta):
+        padre, nombre = posixpath.split(os.fspath(ruta))
+        final = posixpath.join(real(padre), nombre) if nombre not in ("", ".", "..") else real(os.fspath(ruta))
+        if final in enlaces:
+            return os.stat_result((stat.S_IFLNK | 0o777,) + (0,) * 9)
+        if final in carpetas:
+            return os.stat_result((stat.S_IFDIR | 0o755,) + (0,) * 9)
+        raise FileNotFoundError(ruta)
+
+    previo = os.name, os.sep, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid
+    os.name, os.sep, os.path, os.lstat, os.readlink = "posix", "/", posixpath, lstat, (lambda ruta: enlaces[os.fspath(ruta)])
+    rutas.PLATAFORMA, comun._uid = "linux", (lambda: 1000)
+    try:
+        yield
+    finally:
+        os.name, os.sep, os.path, os.lstat, os.readlink, rutas.PLATAFORMA, comun._uid = previo
+
+
+SONDAS_DOS_PUNTOS = [
+    ("git -C /home/u/afuera/l/.. push", "ask"),
+    ("git -C /home/u/noexiste/../equipo/db push", "ask"),
+    ("mkdir /home/u/n && git -C /home/u/n/../equipo/db push", "ask"),
+    ("mkdir /home/u/n && git -C /home/u/n/../afuera/l push", "ask"),
+    ("git -C /home/u/equipo/db/afuera/.. push", None),
+    ("git -C /home/u/hecha/../equipo/db/no/.. push", "ask"),
+    ("mkdir /home/u/n && cd /home/u/n/./../afuera/l/.. && git commit -m x", "ask"),
+    ("git -C /home/u/hecha/../noexiste/./x status", None),
+    ("cd /home/u/afuera/x/.. && git -C /home/u/afuera/x/../l push", "ask"),
+]
+
+
+def test_en_posix_la_capa_2_resuelve_los_dos_puntos_como_el_kernel():
+    enlaces = {"/home/u/afuera/l": "/home/u/equipo/db/sub", "/home/u/equipo/db/afuera": "/srv/otra"}
+    carpetas = {"/home", "/home/u", "/home/u/afuera", "/home/u/hecha", "/home/u/equipo", "/home/u/equipo/db",
+                "/home/u/equipo/db/sub", "/srv", "/srv/otra"}
+    fallos = []
+    with posix_emulado(enlaces, carpetas):
+        prot = G.Protegidos({"repos": {"db": {"path": "/home/u/equipo/db", "worktrees": [], "agent_readonly": True}}})
+        for comando, esperado in SONDAS_DOS_PUNTOS:
+            resultado, motivo = G.analizar(comando, "/srv/otra", {}, prot)
+            if resultado != esperado:
+                fallos.append("  %s: esperado %s, salio %s (%s)" % (comando, esperado, resultado, motivo))
+            for token in comando.split():
+                r = G.rutas.ubicar(token, None) if token.startswith("/") else None
+                if r is not None and prot._canonica(r) != G.config_loader.canonica(r):
+                    fallos.append("  %s: rápida %s, canonica %s" % (r, prot._canonica(r), G.config_loader.canonica(r)))
+    assert not fallos, "\n" + "\n".join(fallos)
+
+
+def test_en_posix_un_enlace_real_seguido_de_dos_puntos_en_la_capa_2():
+    if NT:
+        print("      (en Windows el .. se resuelve como texto antes de seguir el enlace: lo prueba el CI de POSIX)")
+        return
+    with carpeta() as base:
+        repo, afuera, otra = base / "equipo" / "db", base / "afuera", base / "otra"
+        for c in (repo / "sub", afuera, otra):
+            c.mkdir(parents=True)
+        os.symlink(repo / "sub", afuera / "l", target_is_directory=True)
+        os.symlink(otra, repo / "afuera", target_is_directory=True)
+        prot = G.Protegidos({"repos": {"db": {"path": str(repo), "worktrees": [], "agent_readonly": True}}})
+        b = fw(base)
+        for comando, esperado in (("git -C %s/afuera/l/.. push" % b, "ask"), ("git -C %s/noexiste/../equipo/db push" % b, "ask"),
+                                  ("mkdir %s/n && git -C %s/n/../equipo/db push" % (b, b), "ask"),
+                                  ("mkdir %s/n && git -C %s/n/../afuera/l push" % (b, b), "ask"),
+                                  ("git -C %s/equipo/db/afuera/.. push" % b, None)):
+            assert G.analizar(comando, str(otra), {}, prot)[0] == esperado, comando
 
 
 def test_el_scratch_de_otro_usuario_o_de_otra_unidad_bloquea():
@@ -1397,6 +1515,74 @@ def test_codex_preguntar_se_degrada_a_bloquear_y_el_dialecto_sale_de_la_platafor
         assert texto.startswith("guard-comandos pregunta antes de correr el comando: git ") and "«db»" in texto, texto
         assert texto.endswith("\nCodex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace "
                               "falta, pídele al usuario que lo corra él."), texto
+
+
+CURVAS_SIMPLES, CURVAS_DOBLES = (chr(0x2018), chr(0x2019)), (chr(0x201C), chr(0x201D))
+
+
+def en_powershell(comando):
+    return G.analizar(_r(comando), None, ENTORNO, None, "PowerShell")
+
+
+def test_en_powershell_un_backtick_que_escapa_bloquea_como_el_comando_sin_escapes():
+    pares = (("g`it push --force origin main", "git push --force origin main"),
+             ("git push --f`orce origin main", "git push --force origin main"),
+             ("g`it push origin `+main", "git push origin +main"),
+             ("git r`eset --har`d", "git reset --hard"),
+             ("git cl`ean -fd", "git clean -fd"),
+             ("r`m -r C:/fuera/x", "rm -r C:/fuera/x"),
+             ("Re`move-Item -Rec`urse -F`orce C:/fuera/x", "Remove-Item -Recurse -Force C:/fuera/x"),
+             ("& %sg`it%s push --force origin main" % CURVAS_DOBLES, "& %sgit%s push --force origin main" % CURVAS_DOBLES))
+    for escapado, plano in pares:
+        esperado = en_powershell(plano)
+        assert esperado[0] == "block", "control: %s" % plano
+        assert en_powershell(escapado) == esperado, (escapado, en_powershell(escapado), esperado)
+
+
+def test_el_backtick_de_powershell_bloquea_igual_en_claude_code_y_en_codex():
+    escapado, plano = "g`it push --force origin main", "git push --force origin main"
+    with carpeta() as base:
+        e = entorno_de(instancia(base))
+        claude = G.correr(evento(plano, herramienta="PowerShell"), entorno=e)
+        assert claude[0] == 2 and claude[2].decode("utf-8").startswith("guard-comandos bloqueó el comando: git push --force"), claude
+        assert G.correr(evento(escapado, herramienta="PowerShell"), entorno=e) == claude
+        with plataforma("nt"):
+            codex = G.correr(evento(plano), entorno=e, host="codex")
+            assert (negado_en_codex(codex) or "").startswith("guard-comandos bloqueó el comando: git push --force"), codex
+            assert G.correr(evento(escapado), entorno=e, host="codex") == codex
+        assert G.correr(evento(escapado, herramienta="Bash"), entorno=e) == (0, "", b""), "en Bash el backtick no es un escape"
+        with plataforma("posix"):
+            assert G.correr(evento(escapado), entorno=e, host="codex") == (0, "", b""), "Codex en POSIX habla Bash"
+
+
+def test_en_powershell_el_backtick_no_escapa_entre_comillas_simples_ni_afloja_lo_que_ya_bloqueaba():
+    assert en_powershell("git push --`force origin main")[0] is None, "`f es un salto de página: git no recibe --force"
+    assert en_powershell("git reset --ha`rd")[0] is None, "`r es un retorno de carro: git no recibe --hard"
+    assert en_powershell("rm C:/proyecto/x '-`R'")[0] is None, "entre comillas simples el backtick es literal"
+    assert en_powershell("& %sg`it%s push --force origin main" % CURVAS_SIMPLES)[0] is None, "también entre comillas simples curvas"
+    assert en_powershell('rm C:/proyecto/x "-`R"')[0] == "block", 'entre comillas dobles escapa, como rm C:/proyecto/x "-R"'
+    assert en_powershell("Write-Output \"it's\"; g`it push --force origin main")[0] == "block", "un ' entre comillas dobles es literal"
+    curvas = "Write-Output %sit's%s; g`it push --force origin main" % CURVAS_DOBLES
+    assert en_powershell(curvas)[0] == "block", "también entre comillas dobles curvas"
+    assert en_powershell("Write-Output @'\nit's ok\nr`m -r C:/x\n'@")[0] is None, "un here-string @'...'@ es literal"
+    doble = 'Write-Output @"\nsay "it\'s", ok\n"@; g`it push --force origin main'
+    assert en_powershell(doble)[0] == "block", 'las comillas dentro de un @"..."@ no cierran'
+    assert en_powershell("Remove-Item -Recurse -Force %s\\x`y" % bw(SCR))[0] == "block", "lo que ya bloqueaba sigue bloqueando"
+
+
+def test_en_powershell_los_casos_del_origen_dan_la_misma_decision():
+    if not NT:
+        print("      (el dialecto PowerShell fuera de Windows está fuera de dominio: lo prueba el CI de Windows)")
+        return
+    with mundo() as m:
+        tabla = valores(m.equipo)
+        prot = m.protegidos()
+        fallos = []
+        for nombre, comando, cwd, esperado in CASOS:
+            resultado, motivo = G.analizar(_r(comando, tabla), _cwd(cwd, tabla), ENTORNO, prot, "PowerShell")
+            if resultado != ESPERADO[esperado]:
+                fallos.append("  %s: esperado %s, salio %s (%s)" % (nombre, esperado, resultado, motivo))
+    assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
 
 
 def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():

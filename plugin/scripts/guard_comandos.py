@@ -140,6 +140,10 @@ ESCAPE_FINAL = re.compile(r"(?<!\\)\\$")
 SHELL_UNE = re.compile(r"(?i)^(?:[^\\/]*[\\/])*(bash|sh|zsh|dash|wsl|eval)(\.exe)?$")
 PREFIJO_LARGO = re.compile(r"^//(?:[?.]/)?(?=[a-z]:/)", re.IGNORECASE)
 NO_ES_RUTA = re.compile(r"[\x00\r\n]")
+DOS_PUNTOS = re.compile(r"(^|/)\.\.(/|$)")
+SIMPLES_PS = "'" + "".join(map(chr, (0x2018, 0x2019, 0x201A, 0x201B)))
+DOBLES_PS = '"' + "".join(map(chr, (0x201C, 0x201D, 0x201E)))
+QUEDA_ESCAPADO_PS = "0abfnrtv \t\r\n;|&(){}<>,$@`" + SIMPLES_PS + DOBLES_PS
 MAX_RUTA = 4096
 MAX_PROFUNDIDAD_MENCION = 3
 ROTA = object()
@@ -158,24 +162,26 @@ def _vigente():
 
 class Segmentos:
     def __init__(self, texto):
-        self.segmentos = []
+        self.segmentos, self.barras_sueltas = [], []
         self.ambiguo = AMBIGUO.search(texto) is not None
-        self._tokens, self._actual = [], []
-        self._en_token = self._citado = self._tras_tubo = False
+        self._tokens, self._actual, self._sueltas = [], [], []
+        self._en_token = self._citado = self._tras_tubo = self._suelta = False
         self._leer(texto)
 
     def _token(self):
         if self._en_token:
             self._tokens.append(("".join(self._actual), self._citado))
+            self._sueltas.append(self._suelta)
         self._actual = []
-        self._en_token = self._citado = False
+        self._en_token = self._citado = self._suelta = False
 
     def _cerrar(self, tubo):
         _vigente()
         self._token()
         if self._tokens:
             self.segmentos.append((self._tokens, self._tras_tubo))
-            self._tokens = []
+            self.barras_sueltas.append(self._sueltas)
+            self._tokens, self._sueltas = [], []
             self._tras_tubo = tubo
         else:
             self._tras_tubo = self._tras_tubo or tubo
@@ -224,6 +230,7 @@ class Segmentos:
             else:
                 self._actual.append(c)
                 self._en_token = True
+                self._suelta = self._suelta or c == "\\"
                 i += 1
         if comilla:
             self.ambiguo = True
@@ -304,11 +311,11 @@ def _push_forzado(texto):
     return None
 
 
-def _bajo_scratch(pieza, scratch, casa, barra_separa):
+def _bajo_scratch(pieza, scratch, casa, barra_separa, suelta):
     if PROHIBIDOS.search(pieza):
         return False
     posix = rutas.PLATAFORMA != "win32"
-    if posix and not barra_separa and "\\" in pieza:
+    if not barra_separa and "\\" in pieza and (posix or suelta):
         return False
     ruta = pieza.replace("\\", "/")
     m = TILDE.match(ruta)
@@ -351,7 +358,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa, powershell=False):
     if segmentos.ambiguo or scratch is None:
         return False
     hallado = False
-    for tokens, tras_tubo in segmentos.segmentos:
+    for (tokens, tras_tubo), sueltas in zip(segmentos.segmentos, segmentos.barras_sueltas):
         indice = next((k for k, (t, _) in enumerate(tokens) if _es_comando(t, palabras)), -1)
         if indice < 0:
             continue
@@ -362,6 +369,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa, powershell=False):
         destinos, fin_de_opciones, k = 0, False, 1
         while k < len(tokens):
             t, citado = tokens[k]
+            suelta = sueltas[k]
             if not citado and REDIRIGE.match(t):
                 k += 2 if REDIRIGE_SOLA.match(t) else 1
                 continue
@@ -376,7 +384,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa, powershell=False):
                     valor = m.group(2)
                     k += 1
                 elif RUTA_SUELTA.match(t):
-                    valor = tokens[k + 1][0] if k + 1 < len(tokens) else None
+                    valor, suelta = (tokens[k + 1][0], sueltas[k + 1]) if k + 1 < len(tokens) else (None, False)
                     k += 2
                 elif PS_CON_VALOR.match(t):
                     k += 2
@@ -392,7 +400,7 @@ def _solo_scratch(segmentos, palabras, scratch, casa, powershell=False):
             for pieza in valor.split(","):
                 if pieza == "":
                     continue
-                if not _bajo_scratch(pieza, scratch, casa, barra_separa):
+                if not _bajo_scratch(pieza, scratch, casa, barra_separa, suelta):
                     return False
                 destinos += 1
         if destinos == 0:
@@ -445,6 +453,36 @@ def _base(comando):
     m = HEREDOC_ABRE.match(comando)
     alimenta = m is not None and ALIMENTA_SHELL.search(m.group(1)) is not None
     return comando if alimenta else HEREDOC.sub(" ", comando)
+
+
+def _sin_escapes_de_powershell(texto, comillas=True):
+    salida, i, n, dentro = [], 0, len(texto), None
+    while i < n:
+        _vigente()
+        c = texto[i]
+        if dentro == "'":
+            salida.append(c)
+            dentro = None if c in SIMPLES_PS else dentro
+            i += 1
+            continue
+        if c == "`" and i + 1 < n:
+            sig = texto[i + 1]
+            salida.append(c + sig if sig in QUEDA_ESCAPADO_PS else sig)
+            i += 2
+            continue
+        m = HERE_STRING.match(texto, i) if comillas and dentro is None and c == "@" else None
+        if m:
+            cuerpo = m.group(2) if m.group(1) == "'" else _sin_escapes_de_powershell(m.group(2), False)
+            salida.append(texto[i:m.start(2)] + cuerpo + texto[m.end(2):m.end()])
+            i = m.end()
+            continue
+        if comillas and c in DOBLES_PS:
+            dentro = None if dentro == '"' else '"'
+        elif comillas and dentro is None and c in SIMPLES_PS:
+            dentro = "'"
+        salida.append(c)
+        i += 1
+    return "".join(salida)
 
 
 def _capa_1(base, entorno, powershell=False):
@@ -519,6 +557,10 @@ class Protegidos:
         ruta = PREFIJO_LARGO.sub("", ruta)
         if rutas.PLATAFORMA == "win32" and ruta.startswith("//"):
             return os.path.normcase(ruta)
+        if DOS_PUNTOS.search(ruta):
+            if ruta not in self._reales:
+                self._reales[ruta] = config_loader.canonica(ruta)
+            return self._reales[ruta]
         pendientes, actual = [], ruta
         while actual not in self._reales:
             _vigente()
@@ -897,6 +939,8 @@ def analizar(comando, cwd=None, entorno=None, protegidos=None, herramienta=None)
     base = _base(comando)
     powershell = herramienta in ("PowerShell", POWERSHELL)
     motivo = _capa_1(base, entorno, powershell)
+    if not motivo and powershell and "`" in base:
+        motivo = _capa_1(_sin_escapes_de_powershell(base), entorno, powershell)
     if motivo:
         return "block", motivo
     if protegidos is not None and protegidos.activa:
