@@ -6,7 +6,7 @@ from collections import namedtuple
 from pathlib import Path
 
 from odd_ws import capas
-from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
+from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
 from odd_ws.hosts import Archivo, base, leer_hooks, manejadores, tokens_de
@@ -68,6 +68,9 @@ TEXTOS = {
     "{{host:leida-con}}": "leída con la herramienta de shell",
     "{{host:la-busqueda}}": "el comando de búsqueda",
 }
+MEMORIAS = (NO_DISPONIBLE, "la memoria en archivos de Claude Code no aplica en Codex; Codex tiene su propia memoria local, apagada "
+                           "por defecto, bajo CODEX_HOME y sin formato documentado, que memorias.py no lee: es un supuesto a verificar, "
+                           "y la fuente que queda es engram, si está")
 CONFIG_DEL_PROYECTO = 'project_doc_fallback_filenames = ["CLAUDE.md"]\n'
 NOMBRE_DE_AGENTE = re.compile(r"[a-z0-9][a-z0-9-]*")
 ENCABEZADO = "# Lo genera odd-ws desde %s, que es la fuente: los cambios van en ese .md, no acá."

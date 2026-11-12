@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -387,6 +388,198 @@ def test_los_hooks_registrados_de_claude_code_son_command_y_args_de_hooks_json()
             encoding="utf-8")
         assert list(m().hooks_registrados(ctx, None)) == [("hooks/hooks.json Stop[0][0]", ["python", "w.py", "--host", "codex"], True),
                                                          ("hooks/hooks.json Stop[0][1]", ["python"], True)]
+
+
+def base_de_hosts():
+    return importlib.import_module("odd_ws.hosts.base")
+
+
+def carpeta(*partes):
+    ruta = Path(*partes)
+    ruta.mkdir(parents=True, exist_ok=True)
+    return ruta
+
+
+def repo_falso(*partes):
+    raiz = carpeta(*partes)
+    (raiz / ".git").mkdir()
+    return raiz
+
+
+def real(base):
+    return Path(os.path.realpath(base))
+
+
+def resolver(entorno, home, raiz, windows=False, pasado=None):
+    return m().directorio_de_memorias(entorno, home, raiz, windows, pasado)
+
+
+def sin_memorias(entorno, home, raiz, windows=False, pasado=None):
+    try:
+        resolver(entorno, home, raiz, windows, pasado)
+    except base_de_hosts().SinMemorias as error:
+        return str(error)
+    raise AssertionError("se esperaba SinMemorias")
+
+
+def git_aislado(cwd, scratch, *argumentos):
+    entorno = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    entorno.update(GIT_CONFIG_GLOBAL=str(Path(scratch) / "gitconfig-global"), GIT_CONFIG_SYSTEM=str(Path(scratch) / "gitconfig-sistema"),
+                   GIT_CONFIG_NOSYSTEM="1")
+    comando = ["git", "-c", "init.defaultBranch=main", "-c", "user.name=prueba", "-c", "user.email=prueba@example.invalid",
+               "-c", "commit.gpgsign=false", "-c", "core.hooksPath=", *argumentos]
+    resultado = subprocess.run(comando, cwd=str(cwd), env=entorno, capture_output=True)
+    assert resultado.returncode == 0, (comando, resultado.stderr)
+
+
+def test_el_nombre_del_proyecto_cambia_por_guion_todo_lo_que_no_es_alfanumerico_ascii():
+    nombre = m().nombre_de_proyecto
+    assert nombre("C:\\Proyecto") == "C--Proyecto"
+    assert nombre("c:\\Repos\\mi_app") == "c--Repos-mi-app"
+    assert nombre("/home/u/mi_repo.git") == "-home-u-mi-repo-git"
+    assert nombre("/srv/año/x") == "-srv-a-o-x"
+    assert nombre("/srv/\U0001F600/x") == "-srv----x", "un carácter fuera del BMP son dos unidades de UTF-16, como en Claude Code"
+
+
+def test_la_memoria_derivada_sale_de_la_raiz_del_repo_aunque_la_instancia_este_en_una_subcarpeta():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "repo")
+        instancia = carpeta(repo, "instancia")
+        config = carpeta(base, "config")
+        esperado = config / "projects" / m().nombre_de_proyecto(repo) / "memory"
+        for raiz in (repo, instancia):
+            resultado = resolver({"CLAUDE_CONFIG_DIR": str(config)}, base / "casa", raiz)
+            assert resultado == (esperado, "derivada", "projects", str(repo)), resultado
+
+
+def test_sin_claude_config_dir_la_configuracion_es_punto_claude_en_el_home():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "repo")
+        resultado = resolver({}, base / "casa", repo)
+        assert resultado.ruta == base / "casa" / ".claude" / "projects" / m().nombre_de_proyecto(repo) / "memory", resultado
+        assert resultado.origen == "derivada", resultado
+
+
+def test_fuera_de_un_repo_git_cuenta_la_raiz_de_la_instancia():
+    with Temporal() as base:
+        base = real(base)
+        assert not any((padre / ".git").exists() for padre in (base, *base.parents)), "el temporal no puede estar dentro de un repo"
+        instancia = carpeta(base, "instancia")
+        resultado = resolver({"CLAUDE_CONFIG_DIR": str(base / "config")}, base, instancia)
+        assert resultado.ruta == base / "config" / "projects" / m().nombre_de_proyecto(instancia) / "memory", resultado
+        assert resultado.detalle == str(instancia), resultado
+
+
+def test_un_worktree_enlazado_comparte_la_memoria_del_repo_principal():
+    with Temporal() as base:
+        base = real(base)
+        principal = carpeta(base, "principal")
+        git_aislado(principal, base, "init", "-q")
+        git_aislado(principal, base, "commit", "-q", "--allow-empty", "-m", "inicio")
+        git_aislado(principal, base, "worktree", "add", "-q", str(base / "enlazado"))
+        carpeta(base, "enlazado", "instancia")
+        entorno = {"CLAUDE_CONFIG_DIR": str(base / "config")}
+        del_principal = resolver(entorno, base, principal)
+        assert del_principal.ruta.parent.name == m().nombre_de_proyecto(principal), del_principal
+        for raiz in (base / "enlazado", base / "enlazado" / "instancia"):
+            assert resolver(entorno, base, raiz) == del_principal, (raiz, resolver(entorno, base, raiz), del_principal)
+
+
+def test_un_gitdir_sin_commondir_como_el_de_un_submodulo_es_su_propio_proyecto():
+    with Temporal() as base:
+        base = real(base)
+        carpeta(base, "externo", "modulos", "sub")
+        sub = carpeta(base, "repo", "sub")
+        (sub / ".git").write_text("gitdir: ../../externo/modulos/sub\n", encoding="utf-8")
+        resultado = resolver({"CLAUDE_CONFIG_DIR": str(base / "config")}, base, sub)
+        assert resultado.ruta.parent.name == m().nombre_de_proyecto(sub), resultado
+
+
+def test_un_nombre_de_proyecto_de_mas_de_200_caracteres_no_se_adivina():
+    with Temporal() as base:
+        base = real(base)
+        largo = 200 - len(str(base)) - len(os.sep)
+        assert largo > 0, base
+        justo = repo_falso(base, "a" * largo)
+        assert len(m().nombre_de_proyecto(justo)) == 200
+        assert resolver({"CLAUDE_CONFIG_DIR": str(base / "config")}, base, justo).ruta.parent.name == m().nombre_de_proyecto(justo)
+        largo_de_mas = repo_falso(base, "b" * (largo + 1))
+        motivo = sin_memorias({"CLAUDE_CONFIG_DIR": str(base / "config")}, base, largo_de_mas)
+        assert "201" in motivo and "200" in motivo and "--memorias" in motivo, motivo
+
+
+def test_en_windows_la_carpeta_del_proyecto_tolera_otra_mayuscula_y_la_exacta_gana():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "Repo")
+        config = base / "config"
+        nombre = m().nombre_de_proyecto(repo)
+        carpeta(config, "projects", nombre.swapcase(), "memory")
+        entorno = {"CLAUDE_CONFIG_DIR": str(config)}
+        assert resolver(entorno, base, repo, windows=True).ruta == config / "projects" / nombre.swapcase() / "memory"
+        assert resolver(entorno, base, repo, windows=False).ruta == config / "projects" / nombre / "memory"
+
+
+def escribir_settings(ruta, datos):
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(datos if isinstance(datos, bytes) else json.dumps(datos).encode("utf-8"))
+    return ruta
+
+
+def test_auto_memory_directory_de_los_settings_con_su_precedencia():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "repo")
+        config, casa = base / "config", base / "casa"
+        entorno = {"CLAUDE_CONFIG_DIR": str(config)}
+        usuario = escribir_settings(config / "settings.json", b"\xef\xbb\xbf" + json.dumps({"autoMemoryDirectory": "~/mem-usuario"}).encode())
+        assert resolver(entorno, casa, repo) == (casa / "mem-usuario", "derivada", "autoMemoryDirectory", str(usuario))
+        absoluta = str(base / "mem-proyecto")
+        proyecto = escribir_settings(repo / ".claude" / "settings.json", {"autoMemoryDirectory": absoluta})
+        assert resolver(entorno, casa, repo) == (Path(absoluta), "derivada", "autoMemoryDirectory", str(proyecto))
+        local = escribir_settings(repo / ".claude" / "settings.local.json", {"autoMemoryDirectory": "~/mem-local"})
+        assert resolver(entorno, casa, repo) == (casa / "mem-local", "derivada", "autoMemoryDirectory", str(local))
+        escribir_settings(local, b"{esto no es json")
+        assert resolver(entorno, casa, repo).detalle == str(proyecto), "un settings roto no cuenta, como en Claude Code"
+        escribir_settings(local, {"autoMemoryDirectory": "relativa/mem"})
+        motivo = sin_memorias(entorno, casa, repo)
+        assert "relativa/mem" in motivo and str(local) in motivo and "--memorias" in motivo, motivo
+
+
+def test_claude_code_project_dir_name_vale_solo_con_claude_config_dir_y_un_nombre_valido():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "repo")
+        config, casa = base / "config", base / "casa"
+        derivado = config / "projects" / m().nombre_de_proyecto(repo) / "memory"
+        con_nombre = {"CLAUDE_CONFIG_DIR": str(config), "CLAUDE_CODE_PROJECT_DIR_NAME": "trabajo_1"}
+        assert resolver(con_nombre, casa, repo) == (config / "projects" / "trabajo_1" / "memory", "derivada",
+                                                   "CLAUDE_CODE_PROJECT_DIR_NAME", str(config))
+        assert resolver({"CLAUDE_CODE_PROJECT_DIR_NAME": "trabajo_1"}, casa, repo).ruta == (
+            casa / ".claude" / "projects" / m().nombre_de_proyecto(repo) / "memory")
+        for invalido in ("con", "NUL", "a/b", "x" * 65, ""):
+            entorno = {"CLAUDE_CONFIG_DIR": str(config), "CLAUDE_CODE_PROJECT_DIR_NAME": invalido}
+            assert resolver(entorno, casa, repo).ruta == derivado, invalido
+
+
+def test_memorias_pasada_gana_a_los_settings_y_a_la_derivacion():
+    with Temporal() as base:
+        base = real(base)
+        repo = repo_falso(base, "repo")
+        escribir_settings(repo / ".claude" / "settings.json", {"autoMemoryDirectory": str(base / "otra")})
+        resultado = resolver({"CLAUDE_CONFIG_DIR": str(base / "config")}, base, repo, pasado=str(base / "pasada"))
+        assert resultado == (base / "pasada", "pasada", "--memorias", None), resultado
+
+
+def test_el_puerto_de_memorias_se_declara_soportado_sin_tocar_el_manifiesto():
+    capacidades = importlib.import_module("odd_ws.capacidades")
+    estado, nota = m().MEMORIAS
+    assert estado == capacidades.SOPORTADO and nota.strip(), m().MEMORIAS
+    assert list(m().MANIFIESTO) == ["P%d" % n for n in range(1, 11)]
+    assert all(estado == capacidades.SOPORTADO for estado, _ in m().MANIFIESTO.values())
 
 
 def main():

@@ -346,6 +346,20 @@ def test_cada_adaptador_tiene_su_puerto_del_doctor_con_su_archivo_de_hooks_en_el
     assert archivos == {"claude_code": "hooks/hooks.json", "codex": "hooks/hooks.codex.json"}, archivos
 
 
+def test_cada_adaptador_declara_su_memoria_y_soportado_implica_el_puerto_que_la_resuelve():
+    C = cap()
+    estados = {}
+    for nombre, adaptador in adaptadores():
+        estado, nota = getattr(adaptador, "MEMORIAS", (None, None))
+        assert estado in C.ESTADOS and isinstance(nota, str) and nota.strip(), (
+            "%s: MEMORIAS dice si el host tiene la memoria en archivos que lee memorias.py, con su nota" % nombre)
+        resuelve = callable(getattr(adaptador, "directorio_de_memorias", None))
+        assert resuelve == (estado == C.SOPORTADO), "%s: MEMORIAS %s y directorio_de_memorias %s" % (
+            nombre, estado, "existe" if resuelve else "falta")
+        estados[nombre] = estado
+    assert estados == {"claude_code": C.SOPORTADO, "codex": C.NO_DISPONIBLE}, estados
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

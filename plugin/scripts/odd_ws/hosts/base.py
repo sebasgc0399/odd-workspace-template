@@ -1,6 +1,16 @@
 import json
+from collections import namedtuple
 
 from odd_ws.comun import SILENCIO
+
+PASADA = "pasada"
+DERIVADA = "derivada"
+
+DirectorioDeMemorias = namedtuple("DirectorioDeMemorias", "ruta origen fuente detalle")
+
+
+class SinMemorias(Exception):
+    pass
 
 
 def cargar(crudo):

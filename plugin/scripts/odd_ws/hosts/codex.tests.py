@@ -614,6 +614,14 @@ def test_el_manifiesto_ya_no_deja_p7_ni_p10_para_despues():
     assert "confianza" in m().MANIFIESTO["P7"][1] and "confianza" in m().MANIFIESTO["P10"][1]
 
 
+def test_la_memoria_de_claude_code_no_esta_disponible_en_codex_y_su_nota_lo_dice():
+    capacidades = importlib.import_module("odd_ws.capacidades")
+    estado, nota = m().MEMORIAS
+    assert estado == capacidades.NO_DISPONIBLE, m().MEMORIAS
+    assert "Claude Code" in nota and "supuesto" in nota, nota
+    assert not hasattr(m(), "directorio_de_memorias"), "un puerto no disponible no resuelve nada"
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

@@ -1,4 +1,6 @@
 import json
+import os
+import re
 from pathlib import Path
 
 from odd_ws import transcripcion
@@ -72,6 +74,15 @@ TEXTOS = {
     "{{host:leida-con}}": "leída con Read, Glob o Grep",
     "{{host:la-busqueda}}": "el Glob o el Grep",
 }
+MEMORIAS = (SOPORTADO, "memoria en archivos: --memorias, autoMemoryDirectory de los settings (local, proyecto y usuario), o "
+                       "CLAUDE_CONFIG_DIR (o ~/.claude) con projects/<proyecto>/memory, donde <proyecto> sale de la raíz del repo git")
+AUTO_MEMORIA = "autoMemoryDirectory"
+NOMBRE_PROPIO = "CLAUDE_CODE_PROJECT_DIR_NAME"
+PROYECTOS = "projects"
+SETTINGS_DEL_PROYECTO = (".claude/settings.local.json", ".claude/settings.json")
+LARGO_MAXIMO_DEL_PROYECTO = 200
+NOMBRE_PROPIO_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+DISPOSITIVOS = frozenset(["con", "prn", "aux", "nul"] + ["com%d" % n for n in range(1, 10)] + ["lpt%d" % n for n in range(1, 10)])
 
 
 def _herramienta(payload, fase):
@@ -216,3 +227,98 @@ def archivos_del_writer(evento, fotos):
 
 def comandos_del_writer(evento, fotos):
     return comandos_de_shell(evento.transcript)
+
+
+def nombre_de_proyecto(ruta):
+    return "".join(letra if letra.isascii() and letra.isalnum() else "-" * (2 if ord(letra) > 0xFFFF else 1) for letra in str(ruta))
+
+
+def _raiz_comun(carpeta, marca):
+    try:
+        texto = marca.read_text(encoding="utf-8-sig").strip()
+    except (OSError, ValueError):
+        return carpeta
+    if not texto.startswith("gitdir:"):
+        return carpeta
+    gitdir = os.path.normpath(os.path.join(carpeta, texto[len("gitdir:"):].strip()))
+    try:
+        comun = Path(gitdir, "commondir").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return carpeta
+    comun = Path(os.path.normpath(os.path.join(gitdir, comun)))
+    return comun.parent if comun.name == ".git" else carpeta
+
+
+def raiz_del_proyecto(raiz):
+    actual = Path(raiz)
+    for carpeta in (actual, *actual.parents):
+        marca = carpeta / ".git"
+        if marca.is_dir():
+            return carpeta
+        if marca.is_file():
+            return _raiz_comun(carpeta, marca)
+    return actual
+
+
+def carpeta_de_config(entorno, home):
+    valor = entorno.get("CLAUDE_CONFIG_DIR")
+    return Path(valor) if valor else Path(home) / ".claude"
+
+
+def _valor_de_settings(ruta):
+    try:
+        datos = json.loads(Path(ruta).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    return datos.get(AUTO_MEMORIA) if isinstance(datos, dict) else None
+
+
+def _auto_memoria(entorno, home, raiz):
+    candidatos = [Path(raiz) / relativa for relativa in SETTINGS_DEL_PROYECTO] + [carpeta_de_config(entorno, home) / "settings.json"]
+    for settings in candidatos:
+        valor = _valor_de_settings(settings)
+        if valor is None:
+            continue
+        if isinstance(valor, str) and valor.startswith("~/"):
+            return Path(home) / valor[2:], settings
+        if isinstance(valor, str) and os.path.isabs(valor):
+            return Path(valor), settings
+        raise base.SinMemorias("%s %r en %s no es una ruta absoluta ni empieza con ~/: corregilo o pasá --memorias <dir>"
+                               % (AUTO_MEMORIA, valor, settings))
+    return None
+
+
+def _nombre_propio(entorno):
+    valor = entorno.get(NOMBRE_PROPIO)
+    if not entorno.get("CLAUDE_CONFIG_DIR") or not valor or not NOMBRE_PROPIO_RE.fullmatch(valor) or valor.lower() in DISPOSITIVOS:
+        return None
+    return valor
+
+
+def _en_disco(proyectos, nombre, windows):
+    if not windows:
+        return proyectos / nombre
+    try:
+        iguales = sorted(entrada.name for entrada in os.scandir(proyectos) if entrada.name.lower() == nombre.lower())
+    except OSError:
+        iguales = []
+    return proyectos / (nombre if nombre in iguales or not iguales else iguales[0])
+
+
+def directorio_de_memorias(entorno, home, raiz, windows, pasado=None):
+    if pasado is not None:
+        return base.DirectorioDeMemorias(Path(pasado), base.PASADA, "--memorias", None)
+    ajuste = _auto_memoria(entorno, home, raiz)
+    if ajuste is not None:
+        return base.DirectorioDeMemorias(ajuste[0], base.DERIVADA, AUTO_MEMORIA, str(ajuste[1]))
+    config = carpeta_de_config(entorno, home)
+    propio = _nombre_propio(entorno)
+    if propio is not None:
+        return base.DirectorioDeMemorias(config / PROYECTOS / propio / "memory", base.DERIVADA, NOMBRE_PROPIO, str(config))
+    proyecto = raiz_del_proyecto(raiz)
+    nombre = nombre_de_proyecto(proyecto)
+    if len(nombre) > LARGO_MAXIMO_DEL_PROYECTO:
+        raise base.SinMemorias("la carpeta de %s en %s tendría %d caracteres, más de %d: Claude Code la corta y le agrega un hash "
+                               "que no está documentado, así que no se adivina; pasá --memorias <dir>"
+                               % (proyecto, config / PROYECTOS, len(nombre), LARGO_MAXIMO_DEL_PROYECTO))
+    return base.DirectorioDeMemorias(_en_disco(config / PROYECTOS, nombre, windows) / "memory", base.DERIVADA, PROYECTOS, str(proyecto))
