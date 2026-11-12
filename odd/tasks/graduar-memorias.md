@@ -117,4 +117,10 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
   - **Pruebas:** `memorias` 33/33, `entrega` 31/31, `notas` 11/11, `matriz` 51/51 y 21 links sin rotos. El padre repitió `memorias`: 33/33.
   - **El rechequeo (limitado a B1): cerrado.** Con la reproducción al pie de la letra, lo escrito en `matriz.csv`, `criterios` y `evidencia.md` es igual a lo mostrado, y el nombre y la frase literal no aparecen. Las variantes y la debilidad del test quedan como seguimientos X3 a X5: un hallazgo nuevo no abre otra tanda.
   - **La entrega:** el CHANGELOG lleva `## Sin publicar`, con el crédito a Denver2828. Al entregar se renombra a `## <versión>`, nunca se agrega una sección aparte.
+- **L7 (2026-11-12), la entrega `0.4.0`.**
+  - **El usuario:** «te autorizo», para empujar la rama, y «Si», a la pregunta «¿La publicamos como `0.4.0`?».
+  - **El CI de la rama:** la corrida `43271908575` sobre `6fcbb24` dio verde en Ubuntu, Windows y macOS.
+  - **La entrega:**
+    - los dos manifiestos y el README pasan a `0.4.0`, y `## Sin publicar` pasa a `## 0.4.0`, con el crédito a Denver2828;
+    - la etiqueta es `odd-ws--v0.4.0`, y `main` avanza por fast-forward desde `dec68d4`.
 - **La entrega:** el pronóstico es de unas 700 a 850 líneas, en tres commits de unidad. No hay PR: `main` avanza por fast-forward con autorización, como en la `0.3.1`. La revisión nativa de gentle-ai está apagada (`review mode status`: off, global), así que el riesgo lo cubre el verificador independiente de T3.
