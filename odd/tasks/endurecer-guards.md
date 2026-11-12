@@ -23,6 +23,7 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
 | Y3 | — | Seguimiento: la capa 2 no sigue cadenas de `cd` (`cd <repo>/out && cd .. && git commit`). Previo | inline, aparte | pendiente |
 | Y4 | — | Seguimiento: `\\` sin comillas en las lecturas de Bash cuenta como dos `\` (bloquea de más `\\srv\…`) | inline, aparte | pendiente |
 | Y5 | — | Seguimiento: `test_u6g_muchos_heredocs_en_una_linea_cuestan_lineal` es inestable con la máquina cargada (tope de 2 s, tardó 2.6 s). Previo | inline, aparte | pendiente |
+| Y7 | — | Seguimiento: el emulador de POSIX de los tests no es fiel en la capa 2 con enlaces (dio `None` donde el real da `ask`, L8) | inline, aparte | pendiente |
 | Y6 | — | A decidir con el usuario, el modelo de amenaza. Las ofuscaciones previas sin cubrir: `& 'git'`, `gi''t`, `g\it`, `--fo"rce"`, `iex`, `bash -c`, `$g`, `Start-Process`, las comillas escapadas que esconden el comando (B3), las sustituciones entre comillas dobles y la capa 2 a través de los escapes | decisión | pendiente |
 
 ## Log
@@ -105,3 +106,8 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
   - **Lo que confirmó:** el verificador da por buena la cuenta del writer. La primera reproducción de Windows cae en `C:/Users/Proyecto`, fuera del repo.
   - **Suites:** `rutas` 15/15, `writer_guard` 120/120 y `guard_comandos` 62/62.
   - **Avisos previos:** pasan a Y1, Y2 y Y3. B3 y las ofuscaciones, a Y6.
+- **L8 (2026-11-12), el CI de la rama.**
+  - **El rojo:** el push de `be6ea69` dio Windows en verde, pero en Ubuntu y macOS falló `test_en_posix_un_enlace_real_seguido_de_dos_puntos_en_la_capa_2`, que en Windows se saltea.
+  - **El diagnóstico:** con `34383d5`, el test informa su resultado. En POSIX real, `git -C <repo>/afuera/.. push`, con `afuera` apuntando afuera, da `ask`, porque el texto de `-C` también cuenta como mención y su lectura lógica cae en el repo.
+  - **La decisión del padre:** se acepta `ask`. Coincide con la base `f012ca0` y es el lado conservador, ya que git no entraría al repo. Se corrigen la expectativa del test y la frase de `Doc/diseno.md`.
+  - **Y7 (seguimiento):** el emulador de POSIX daba `None` para este caso y el POSIX real da `ask`, así que no es fiel ahí. Antes de confiar en una sonda emulada de la capa 2 con enlaces, hay que contrastarla con un enlace real en el CI.

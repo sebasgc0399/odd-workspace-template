@@ -1385,7 +1385,7 @@ def test_en_posix_un_enlace_real_seguido_de_dos_puntos_en_la_capa_2():
         for comando, esperado in (("git -C %s/afuera/l/.. push" % b, "ask"), ("git -C %s/noexiste/../equipo/db push" % b, "ask"),
                                   ("mkdir %s/n && git -C %s/n/../equipo/db push" % (b, b), "ask"),
                                   ("mkdir %s/n && git -C %s/n/../afuera/l push" % (b, b), "ask"),
-                                  ("git -C %s/equipo/db/afuera/.. push" % b, None)):
+                                  ("git -C %s/equipo/db/afuera/.. push" % b, "ask")):
             resultado = G.analizar(comando, str(otra), {}, prot)
             assert resultado[0] == esperado, (comando, resultado)
 
