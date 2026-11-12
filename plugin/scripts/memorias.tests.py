@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -30,6 +31,8 @@ M = _cargar() if _RUTA.exists() else None
 ENC = ["id", "origen", "tipo", "destino", "severidad", "numeros", "resumen", "motivo"]
 MATRIZ = ".claude/reglas/matriz.csv"
 CAPAS = {"sql": {"extensions": [".sql"], "rule_prefix": "SQL"}, "docs": {"extensions": [".md"]}}
+CASA_IMPOSIBLE = str(Path(__file__).resolve() / "casa")
+FECHA_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _quitar(func, ruta, _exc):
@@ -100,10 +103,31 @@ def memorias(base, archivos, indice=None, nombre="memoria"):
 
 
 def correr(*argv, entorno=None):
+    entorno = dict({} if entorno is None else entorno)
+    for clave in ("HOME", "USERPROFILE"):
+        entorno.setdefault(clave, CASA_IMPOSIBLE)
     salida, error = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
-        codigo = M.main(list(argv), entorno={} if entorno is None else entorno)
+        codigo = M.main(list(argv), entorno=entorno)
     return codigo, salida.getvalue(), error.getvalue()
+
+
+def con_registro(raiz, carpeta, registro, *argv):
+    return correr("--raiz", str(raiz), "--memorias", str(carpeta), "--registro", str(registro), *argv)
+
+
+def registrar(raiz, carpeta, registro, como, *slugs):
+    return con_registro(raiz, carpeta, registro, "--registrar", *slugs, "--como", como)
+
+
+def estados(raiz, carpeta, registro, *argv):
+    codigo, salida, error = con_registro(raiz, carpeta, registro, "--json", *argv)
+    assert codigo == 0, (codigo, salida, error)
+    return {dato["slug"]: dato["estado"] for dato in json.loads(salida)["memorias"]}
+
+
+def primeras_columnas(salida, desde, hasta):
+    return [linea.split()[0] for linea in lineas(salida)[desde:hasta]]
 
 
 def json_de(*argv, entorno=None):
@@ -351,10 +375,280 @@ def test_cli_utf8_en_consola_cp1252():
         carpeta = memorias(base, {"acento.md": memoria(descripcion="Señal de diseño")})
         entorno = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONPATH")}
         entorno["PYTHONIOENCODING"] = "cp1252"
+        entorno["HOME"] = entorno["USERPROFILE"] = str(base / "casa")
         r = subprocess.run([sys.executable, str(_RUTA), "--raiz", str(raiz), "--memorias", str(carpeta)], capture_output=True,
                            env=entorno, cwd=str(base))
         assert r.returncode == 0 and b"Traceback" not in r.stderr, r.stderr
         assert "Señal de diseño" in r.stdout.decode("utf-8"), r.stdout
+
+
+def test_sin_registro_la_tabla_el_json_y_los_codigos_de_salida_siguen_como_en_t1():
+    with temporal() as base:
+        raiz = instancia(base, [fila("SQL-01", "memoria:c")])
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": "roto", "c.md": memoria(), "u.md": memoria("user")})
+        codigo, salida, error = correr("--raiz", str(raiz), "--memorias", str(carpeta))
+        assert (codigo, error) == (0, ""), (codigo, error)
+        assert salida == "\n".join([
+            "ESTADO    TIPO      MEMORIA  DESCRIPCION",
+            "nueva     feedback  a        Lo que se aprendió",
+            "ilegible  -         b        no empieza con un frontmatter (---)",
+            "graduada  feedback  c        Lo que se aprendió [SQL-01]",
+            "EXCLUIDAS project=0 user=1 reference=0 otros=0",
+            "COBERTURA claude-code: completa (4, %s, pasada)" % carpeta]) + "\n", salida
+        buena = {"archivo": None, "nombre": "Una regla", "descripcion": "Lo que se aprendió", "tipo": "feedback",
+                 "modificada": "2026-11-01T10:00:00Z", "estado": "nueva", "motivo": None, "filas": []}
+        assert json_de("--raiz", str(raiz), "--memorias", str(carpeta)) == {
+            "host": "claude-code",
+            "cobertura": {"estado": "completa", "total": 4, "directorio": str(carpeta), "origen": "pasada", "fuente": "--memorias",
+                          "detalle": None},
+            "tipos": ["feedback"],
+            "memorias": [dict(buena, slug="a", archivo="a.md"),
+                         {"slug": "b", "archivo": "b.md", "nombre": None, "descripcion": None, "tipo": None, "modificada": None,
+                          "estado": "ilegible", "motivo": "no empieza con un frontmatter (---)", "filas": []},
+                         dict(buena, slug="c", archivo="c.md", estado="graduada", filas=["SQL-01"])],
+            "excluidas": {"project": 0, "user": 1, "reference": 0, "otros": 0},
+            "avisos": []}
+        falta = base / "falta"
+        assert correr("--raiz", str(raiz), "--memorias", str(falta)) == (
+            2, "", "memorias: el directorio de memoria %s no existe (pasado por --memorias)\n" % falta)
+        assert correr("--raiz", str(raiz), "--memorias", str(carpeta), "--sin-esa-opcion")[0] == 2
+
+
+def test_vista_y_descartada_salen_del_registro_con_el_mismo_modified():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": memoria(), "c.md": memoria()})
+        registro = base / "casa" / "registro.json"
+        codigo, salida, error = registrar(raiz, carpeta, registro, "vista", "a")
+        assert codigo == 0 and error == "", (codigo, salida, error)
+        assert registrar(raiz, carpeta, registro, "descartada", "b")[0] == 0
+        assert estados(raiz, carpeta, registro) == {"a": "vista", "b": "descartada", "c": "nueva"}
+        salida = con_registro(raiz, carpeta, registro)[1]
+        assert primeras_columnas(salida, 1, 4) == ["nueva", "vista", "descartada"], salida
+        assert lineas(salida)[-2] == "REGISTRO %s (2)" % registro, salida
+        assert registrar(raiz, carpeta, registro, "vista", "b")[0] == 0
+        assert estados(raiz, carpeta, registro) == {"a": "vista", "b": "vista", "c": "nueva"}
+
+
+def test_cambiada_cuando_el_modified_cambio_despues_de_verla_o_descartarla():
+    with temporal() as base:
+        raiz = instancia(base)
+        sin_fecha = "---\nname: x\ndescription: y\ntype: feedback\n---\n"
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": memoria(), "sin-fecha.md": sin_fecha})
+        registro = base / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "a", "sin-fecha")[0] == 0
+        assert registrar(raiz, carpeta, registro, "descartada", "b")[0] == 0
+        assert estados(raiz, carpeta, registro) == {"a": "vista", "b": "descartada", "sin-fecha": "vista"}
+        for archivo in ("a.md", "b.md", "sin-fecha.md"):
+            escribir(carpeta / archivo, memoria(modificada="2026-11-05T09:00:00Z"))
+        assert estados(raiz, carpeta, registro) == {"a": "cambiada", "b": "cambiada", "sin-fecha": "cambiada"}
+        assert registrar(raiz, carpeta, registro, "vista", "a")[0] == 0
+        assert estados(raiz, carpeta, registro)["a"] == "vista"
+        claves = list(json.loads(registro.read_bytes())["memorias"])
+        assert claves == ["a@2026-11-05T09:00:00Z", "b@2026-11-01T10:00:00Z", "sin-fecha@"], claves
+
+
+def test_graduada_e_ilegible_ganan_al_registro_y_la_tabla_va_en_orden():
+    with temporal() as base:
+        raiz = instancia(base, [fila("SQL-01", "memoria:g")])
+        incompleta = "---\nname: x\nmetadata:\n  type: feedback\n  modified: 2026-11-01\n---\n"
+        carpeta = memorias(base, {"g.md": memoria(), "i.md": incompleta, "n.md": memoria(), "c.md": memoria(), "v.md": memoria(),
+                                  "d.md": memoria()})
+        registro = base / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "g", "i", "c", "v")[0] == 0
+        assert registrar(raiz, carpeta, registro, "descartada", "d")[0] == 0
+        escribir(carpeta / "c.md", memoria(modificada="2026-11-05"))
+        assert estados(raiz, carpeta, registro) == {"g": "graduada", "i": "ilegible", "n": "nueva", "c": "cambiada", "v": "vista",
+                                                     "d": "descartada"}
+        salida = con_registro(raiz, carpeta, registro)[1]
+        assert primeras_columnas(salida, 1, 7) == ["nueva", "cambiada", "ilegible", "vista", "descartada", "graduada"], salida
+        escribir(carpeta / "g.md", memoria(modificada="2026-11-05"))
+        escribir(carpeta / "i.md", incompleta.replace("2026-11-01", "2026-11-05"))
+        resultado = estados(raiz, carpeta, registro)
+        assert (resultado["g"], resultado["i"]) == ("graduada", "ilegible"), resultado
+        assert M.PRECEDENCIA == ("graduada", "ilegible", "cambiada", "descartada", "vista", "nueva"), M.PRECEDENCIA
+
+
+def test_un_registro_ausente_es_vacio_todo_sale_nueva_y_no_se_crea():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": memoria()})
+        registro = base / "no-esta" / "registro.json"
+        codigo, salida, error = con_registro(raiz, carpeta, registro)
+        assert codigo == 0 and error == "", (codigo, error)
+        assert salida == correr("--raiz", str(raiz), "--memorias", str(carpeta))[1], salida
+        assert not any(linea.startswith("REGISTRO") for linea in lineas(salida)), salida
+        assert estados(raiz, carpeta, registro) == {"a": "nueva", "b": "nueva"}
+        assert not (base / "no-esta").exists()
+
+
+def test_un_registro_ilegible_sale_con_2_nombra_la_ruta_y_no_se_pisa():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria()})
+        registro = base / "registro.json"
+        entrada = {"slug": "a", "modified": "2026-11-01T10:00:00Z", "estado": "vista", "fecha": "2026-11-12"}
+        clave = "a@2026-11-01T10:00:00Z"
+
+        def forma(entradas, **extra):
+            return json.dumps(dict({"version": 1, "memorias": entradas}, **extra))
+
+        rotos = [b"", b"{roto", b"\xff\xfe{}", b"[]", forma({}, version=2), json.dumps({"version": 1}), forma([]),
+                 forma({}, otra=1), forma({clave: dict(entrada, estado="otra")}), forma({"a@otra-fecha": entrada}),
+                 forma({clave: dict(entrada, descripcion="x")}), forma({clave: dict(entrada, fecha=None)}),
+                 forma({clave: entrada, "a@2026-10-01": dict(entrada, modified="2026-10-01")})]
+        for crudo in rotos:
+            crudo = crudo if isinstance(crudo, bytes) else crudo.encode("utf-8")
+            escribir(registro, crudo)
+            for argv in ((), ("--json",), ("--registrar", "a", "--como", "descartada")):
+                codigo, salida, error = con_registro(raiz, carpeta, registro, *argv)
+                assert codigo == 2 and str(registro) in error and salida == "", (crudo, argv, codigo, salida, error)
+            assert registro.read_bytes() == crudo, crudo
+        escribir(registro, b"\xef\xbb\xbf" + forma({clave: entrada}).encode("utf-8"))
+        assert estados(raiz, carpeta, registro) == {"a": "vista"}, "control positivo: el mismo registro, bien formado, se lee"
+
+
+def test_registrar_una_memoria_que_no_existe_sale_con_2_y_no_escribe():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": memoria()})
+        registro = base / "casa" / "registro.json"
+        codigo, salida, error = registrar(raiz, carpeta, registro, "vista", "a", "no-esta")
+        assert codigo == 2 and "no-esta" in error and str(carpeta) in error and salida == "", (codigo, salida, error)
+        assert not (base / "casa").exists()
+        assert registrar(raiz, carpeta, registro, "vista", "b")[0] == 0
+        antes = registro.read_bytes()
+        for slugs in (("a", "no-esta"), ("a.md",), ("MEMORY",), ("../a",)):
+            codigo, salida, error = registrar(raiz, carpeta, registro, "descartada", *slugs)
+            assert codigo == 2 and salida == "", (slugs, codigo, salida, error)
+        assert registro.read_bytes() == antes and estados(raiz, carpeta, registro) == {"a": "nueva", "b": "vista"}
+
+
+def test_registrar_dos_veces_da_los_mismos_bytes_en_utf8_sin_bom_y_con_lf():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"b.md": memoria(), "señal.md": memoria(modificada="2026-10-02"), "a.md": memoria()})
+        registro = base / "casa" / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "señal", "b")[0] == 0
+        primero = registro.read_bytes()
+        assert registrar(raiz, carpeta, registro, "vista", "b", "señal", "b")[0] == 0
+        assert registro.read_bytes() == primero
+        assert not primero.startswith(b"\xef\xbb\xbf") and b"\r" not in primero and primero.endswith(b"}\n"), primero
+        assert "señal".encode("utf-8") in primero, primero
+        datos = json.loads(primero.decode("utf-8"))
+        fecha = datos["memorias"]["b@2026-11-01T10:00:00Z"]["fecha"]
+        assert FECHA_RE.fullmatch(fecha), fecha
+        assert datos == {"version": 1, "memorias": {
+            "b@2026-11-01T10:00:00Z": {"slug": "b", "modified": "2026-11-01T10:00:00Z", "estado": "vista", "fecha": fecha},
+            "señal@2026-10-02": {"slug": "señal", "modified": "2026-10-02", "estado": "vista", "fecha": fecha}}}, datos
+        assert list(datos) == ["version", "memorias"] and list(datos["memorias"]) == ["b@2026-11-01T10:00:00Z", "señal@2026-10-02"]
+        assert all(list(entrada) == ["slug", "modified", "estado", "fecha"] for entrada in datos["memorias"].values()), datos
+        assert registrar(raiz, carpeta, registro, "descartada", "a")[0] == 0
+        assert list(json.loads(registro.read_bytes())["memorias"])[0] == "a@2026-11-01T10:00:00Z"
+        assert os.listdir(registro.parent) == ["registro.json"], os.listdir(registro.parent)
+        antes, original = registro.read_bytes(), M.date
+
+        class OtroDia:
+            @staticmethod
+            def today():
+                return original(2099, 1, 2)
+
+        M.date = OtroDia
+        try:
+            assert registrar(raiz, carpeta, registro, "descartada", "a")[0] == 0
+            assert registro.read_bytes() == antes, "otro día, lo mismo: no cambia ni la fecha"
+            assert registrar(raiz, carpeta, registro, "vista", "a")[0] == 0
+        finally:
+            M.date = original
+        assert json.loads(registro.read_bytes())["memorias"]["a@2026-11-01T10:00:00Z"]["fecha"] == "2099-01-02"
+
+
+def test_la_escritura_del_registro_es_atomica():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria()})
+        registro = base / "casa" / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "a")[0] == 0
+        antes = registro.read_bytes()
+
+        def falla(*_):
+            raise OSError(13, "reemplazo simulado")
+
+        original, M.os.replace = M.os.replace, falla
+        try:
+            codigo, salida, error = registrar(raiz, carpeta, registro, "descartada", "a")
+        finally:
+            M.os.replace = original
+        assert codigo == 2 and str(registro) in error and "reemplazo simulado" in error and salida == "", (codigo, salida, error)
+        assert registro.read_bytes() == antes and os.listdir(registro.parent) == ["registro.json"], os.listdir(registro.parent)
+        archivo = escribir(base / "un-archivo", "x")
+        codigo, salida, error = registrar(raiz, carpeta, archivo / "registro.json", "vista", "a")
+        assert codigo == 2 and str(archivo) in error and salida == "", (codigo, salida, error)
+
+
+def test_el_registro_no_guarda_ni_la_descripcion_ni_el_nombre_ni_el_cuerpo():
+    with temporal() as base:
+        raiz = instancia(base)
+        contenido = memoria(nombre="Nombre inventado Qx", descripcion="Descripción inventada Qy").replace(
+            "Cuerpo de la memoria.", "Cuerpo inventado Qz")
+        carpeta = memorias(base, {"a.md": contenido})
+        registro = base / "registro.json"
+        assert registrar(raiz, carpeta, registro, "descartada", "a")[0] == 0
+        texto = registro.read_bytes().decode("utf-8")
+        for fragmento in ("Qx", "Qy", "Qz", "inventad", "feedback"):
+            assert fragmento not in texto, (fragmento, texto)
+        assert [list(entrada) for entrada in json.loads(texto)["memorias"].values()] == [["slug", "modified", "estado", "fecha"]], texto
+
+
+def test_sin_registrar_no_escribe_ni_la_memoria_ni_la_instancia_ni_el_registro():
+    with temporal() as base:
+        raiz = instancia(base, [fila("SQL-01", "memoria:a")])
+        (raiz / ".git").mkdir()
+        carpeta = memorias(base, {"a.md": memoria(), "b.md": memoria(), "c.md": "roto", "p.md": memoria("project")})
+        registro = base / "casa" / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "b")[0] == 0
+        antes = huella(carpeta, raiz, registro.parent)
+        for argv in ((), ("--json",), ("--con-project",), ("--json", "--con-project")):
+            assert con_registro(raiz, carpeta, registro, *argv)[0] == 0
+        assert huella(carpeta, raiz, registro.parent) == antes
+        casa = base / "casa-vacia"
+        entorno = {"HOME": str(casa), "USERPROFILE": str(casa)}
+        assert correr("--raiz", str(raiz), "--memorias", str(carpeta), "--json", entorno=entorno)[0] == 0
+        assert not casa.exists()
+
+
+def test_el_registro_por_defecto_vive_en_la_casa_con_el_nombre_del_repo_de_la_instancia():
+    with temporal() as base:
+        raiz = instancia(base)
+        (raiz / ".git").mkdir()
+        carpeta = memorias(base, {"a.md": memoria()})
+        casa = base / "casa"
+        entorno = {"HOME": str(casa), "USERPROFILE": str(casa)}
+        nombre = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(raiz)) + ".json"
+        codigo, salida, error = correr("--raiz", str(raiz), "--memorias", str(carpeta), "--registrar", "a", "--como", "vista",
+                                       entorno=entorno)
+        esperado = casa / ".odd-ws" / "memorias" / nombre
+        assert codigo == 0 and esperado.is_file() and "REGISTRO %s (1)" % esperado in lineas(salida), (codigo, salida, error)
+        assert os.listdir(esperado.parent) == [nombre], os.listdir(esperado.parent)
+        subcarpeta = instancia(raiz, nombre="sub")
+        datos = json_de("--raiz", str(subcarpeta), "--memorias", str(carpeta), entorno=entorno)
+        assert por_slug(datos)["a"]["estado"] == "vista", "una instancia dentro del repo usa el registro del repo"
+
+
+def test_registrar_y_como_van_juntos_y_codex_no_registra():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria()})
+        registro = base / "registro.json"
+        for argv in (("--como", "vista"), ("--registrar", "a"), ("--registrar", "a", "--como", "otra"),
+                     ("--registrar", "--como", "vista")):
+            codigo, salida, error = con_registro(raiz, carpeta, registro, *argv)
+            assert codigo == 2 and salida == "", (argv, codigo, salida, error)
+        assert not registro.exists()
+        for argv in (("--registrar", "a", "--como", "vista"), ("--registro", str(registro))):
+            codigo, salida, error = correr("--raiz", str(raiz), "--host", "codex", *argv)
+            assert codigo == 2 and "--host claude-code" in error and salida == "", (argv, codigo, salida, error)
+        assert not registro.exists()
 
 
 def main():

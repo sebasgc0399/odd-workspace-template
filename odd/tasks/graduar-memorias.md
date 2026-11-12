@@ -26,8 +26,8 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
 
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
-| T1 | S1, S3 | `memorias.py`: resolución del directorio en el adaptador de Claude Code, enumeración, frontmatter, estados `graduada` y `nueva` contra la matriz, filtro por tipo, cobertura y exit 2. Más sus tests | delegado: un writer, por el respaldo de contexto de una sesión larga | hecho (L3) |
-| T2 | S3, S4 | El registro local: `vista`, `descartada` y `cambiada`, y el subcomando para registrar. Más sus tests | delegado, por la misma razón | pendiente |
+| T1 | S1, S3 | `memorias.py`: resolución del directorio en el adaptador de Claude Code, enumeración, frontmatter, estados `graduada` y `nueva` contra la matriz, filtro por tipo, cobertura y exit 2. Más sus tests | delegado: un writer, por el respaldo de contexto de una sesión larga | hecho (`c1a1938`, L3) |
+| T2 | S3, S4 | El registro local: `vista`, `descartada` y `cambiada`, y el subcomando para registrar. Más sus tests | delegado, por la misma razón | hecho (L4) |
 | T3 | S2, S5, S6, S7 | La skill: el modo `memorias` de `cerrar`, el paso opcional de engram, las reglas de privacidad y el aviso del cierre de ticket. Los docs: `Doc/uso.md`, `Doc/diseno.md` y el CHANGELOG | delegado, por la misma razón; después, un verificador independiente (ítem 2: exposición de datos personales hacia un repo) | pendiente |
 
 ## Log
@@ -62,4 +62,24 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
     - el diferencial por AST de `hosts` contra `HEAD`: 0 definiciones cambiadas, solo agregados;
     - el padre repitió `memorias`: 15/15.
   - **Risk:** ninguno de los ítems altos. Agregar un puerto a `hosts` sin cambiar nada existente no es el ítem 3, así que no lleva verificador.
+- **L4 (2026-11-12), T2 hecha (S3 y S4).**
+  - **Las opciones nuevas:**
+    - `--registro ARCHIVO`, que por defecto es `~/.odd-ws/memorias/<proyecto>.json`, con el nombre de T1 sobre `raiz_del_proyecto`;
+    - `--registrar SLUG... --como vista|descartada`, la única escritura del script. Después de escribir, lista igual que sin la opción.
+  - **La precedencia:** `graduada` > `ilegible` > `cambiada` > `descartada` > `vista` > `nueva`. La tabla ordena primero lo accionable.
+  - **El registro:**
+    - `{"version": 1, "memorias": {"<slug>@<modified>": {slug, modified, estado, fecha}}}`, con una entrada por slug;
+    - la escritura es atómica e idempotente, y conserva la fecha si nada cambió;
+    - si falta, cuenta como vacío y no se crea; si está ilegible, sale con 2 sin pisarlo;
+    - un slug inexistente sale con 2 sin escribir.
+  - **Lo que no cambió:** sin registro, la salida es byte a byte la de T1. El diferencial da 12 de 13 casos iguales; la única diferencia es el `usage:` de argparse, que ahora lista las opciones nuevas.
+  - **Pruebas:**
+    - `memorias` 28/28, `claude_code` 37/37 y `matriz` 51/51;
+    - 16 mutantes, uno por regla, todos muertos;
+    - el padre repitió `memorias`: 28/28.
+  - **Pendientes para T3:**
+    - documentar las opciones nuevas;
+    - no hay opción para olvidar una entrada: se borra a mano;
+    - las entradas de memorias borradas siguen contando en `REGISTRO (n)`.
+  - **Risk:** none. Es un archivo local y nuevo, fuera del repo.
 - **La entrega:** el pronóstico es de unas 700 a 850 líneas, en tres commits de unidad. No hay PR: `main` avanza por fast-forward con autorización, como en la `0.3.1`. La revisión nativa de gentle-ai está apagada (`review mode status`: off, global), así que el riesgo lo cubre el verificador independiente de T3.

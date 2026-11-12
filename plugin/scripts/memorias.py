@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import re
+import tempfile
+from datetime import date
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -16,6 +18,7 @@ from odd_ws.capacidades import SOPORTADO
 from odd_ws.comun import raiz_de_instancia
 from odd_ws.hosts import NOMBRES, adaptador
 from odd_ws.hosts.base import SinMemorias
+from odd_ws.hosts.claude_code import nombre_de_proyecto, raiz_del_proyecto
 
 INDICE = "MEMORY.md"
 POR_DEFECTO = ("feedback",)
@@ -23,7 +26,13 @@ OPCIONAL = "project"
 NUNCA = ("user", "reference")
 OTROS = "otros"
 CAMPOS = ("name", "description", "type")
-ORDEN = ("nueva", "ilegible", "graduada")
+ORDEN = ("nueva", "cambiada", "ilegible", "vista", "descartada", "graduada")
+PRECEDENCIA = ("graduada", "ilegible", "cambiada", "descartada", "vista", "nueva")
+REGISTRABLES = ("vista", "descartada")
+CARPETA_DEL_REGISTRO = (".odd-ws", "memorias")
+VERSION_DEL_REGISTRO = 1
+CAMPOS_DEL_REGISTRO = ("slug", "modified", "estado", "fecha")
+FORMA_DEL_REGISTRO = '{"version": 1, "memorias": {"<slug>@<modified>": {"slug", "modified", "estado", "fecha"}}}'
 HOST_POR_DEFECTO = "claude-code"
 WINDOWS = os.name == "nt"
 CLAVE_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?")
@@ -192,7 +201,90 @@ def graduaciones(raiz):
     return citas, ["matriz fila %d: %s (no cuenta para graduada)" % (n, mensaje) for n, mensaje in errores]
 
 
-def analizar(directorio, citas, avisos_de_la_matriz, tipos, host):
+def ruta_del_registro(entorno, raiz, pasado=None):
+    if pasado:
+        return Path(os.path.abspath(pasado))
+    return _home(entorno).joinpath(*CARPETA_DEL_REGISTRO, nombre_de_proyecto(raiz_del_proyecto(raiz)) + ".json")
+
+
+def _clave(slug, modificada):
+    return "%s@%s" % (slug, modificada or "")
+
+
+def _entrada_valida(clave, entrada):
+    return (isinstance(entrada, dict) and set(entrada) == set(CAMPOS_DEL_REGISTRO) and isinstance(entrada["slug"], str)
+            and (entrada["modified"] is None or isinstance(entrada["modified"], str)) and entrada["estado"] in REGISTRABLES
+            and isinstance(entrada["fecha"], str) and clave == _clave(entrada["slug"], entrada["modified"]))
+
+
+def leer_registro(ruta):
+    try:
+        crudo = Path(ruta).read_bytes()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as error:
+        raise ErrorDeEntorno("no se puede leer el registro %s (%s): corregilo o pasá --registro <archivo>" % (ruta, error.strerror or error))
+    try:
+        datos = json.loads(crudo.decode("utf-8-sig"))
+    except ValueError:
+        raise ErrorDeEntorno("el registro %s es ilegible: no es JSON en UTF-8; corregilo o borralo" % ruta)
+    completo = isinstance(datos, dict) and set(datos) == {"version", "memorias"}
+    version, entradas = (datos["version"], datos["memorias"]) if completo else (None, None)
+    if (type(version) is not int or version != VERSION_DEL_REGISTRO or not isinstance(entradas, dict)
+            or not all(_entrada_valida(clave, entrada) for clave, entrada in entradas.items())):
+        raise ErrorDeEntorno("el registro %s es ilegible: no tiene la forma %s; corregilo o borralo" % (ruta, FORMA_DEL_REGISTRO))
+    registradas = {}
+    for entrada in entradas.values():
+        if entrada["slug"] in registradas:
+            raise ErrorDeEntorno("el registro %s es ilegible: tiene dos entradas para %s; corregilo o borralo" % (ruta, entrada["slug"]))
+        registradas[entrada["slug"]] = entrada
+    return registradas
+
+
+def escribir_registro(ruta, registradas):
+    entradas = {_clave(entrada["slug"], entrada["modified"]): {campo: entrada[campo] for campo in CAMPOS_DEL_REGISTRO}
+                for entrada in sorted(registradas.values(), key=lambda entrada: entrada["slug"])}
+    texto = json.dumps({"version": VERSION_DEL_REGISTRO, "memorias": entradas}, ensure_ascii=False, indent=2) + "\n"
+    temporal = None
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporal = tempfile.mkstemp(prefix=ruta.name + ".", suffix=".tmp", dir=ruta.parent)
+        with os.fdopen(descriptor, "wb") as archivo:
+            archivo.write(texto.encode("utf-8"))
+        os.replace(temporal, ruta)
+    except OSError as error:
+        if temporal is not None:
+            try:
+                os.unlink(temporal)
+            except OSError:
+                pass
+        raise ErrorDeEntorno("no se puede escribir el registro %s (%s): pasá --registro <archivo>" % (ruta, error.strerror or error))
+
+
+def registrar(ruta, registradas, directorio, slugs, estado, fecha):
+    archivos = {archivo[:-3]: archivo for archivo in enumerar(directorio.ruta)}
+    faltan = [slug for slug in slugs if slug not in archivos]
+    if faltan:
+        raise ErrorDeEntorno("no hay memoria %s en %s: no se registró nada" % (", ".join(faltan), directorio.ruta))
+    nuevas = dict(registradas or {})
+    for slug in dict.fromkeys(slugs):
+        modificada = leer_memoria(directorio.ruta, archivos[slug])["modificada"]
+        previa = nuevas.get(slug)
+        if previa is None or (previa["modified"], previa["estado"]) != (modificada, estado):
+            nuevas[slug] = {"slug": slug, "modified": modificada, "estado": estado, "fecha": fecha}
+    escribir_registro(ruta, nuevas)
+    return nuevas
+
+
+def estado_de(memoria, entrada):
+    aplica = {"graduada": bool(memoria["filas"]), "ilegible": memoria["motivo"] is not None,
+              "cambiada": entrada is not None and entrada["modified"] != memoria["modificada"],
+              "descartada": entrada is not None and entrada["estado"] == "descartada",
+              "vista": entrada is not None and entrada["estado"] == "vista", "nueva": True}
+    return next(estado for estado in PRECEDENCIA if aplica[estado])
+
+
+def analizar(directorio, citas, avisos_de_la_matriz, tipos, host, registradas=None):
     archivos = enumerar(directorio.ruta)
     memorias, excluidas = [], {OPCIONAL: 0, **{tipo: 0 for tipo in NUNCA}, OTROS: 0}
     for archivo in archivos:
@@ -202,7 +294,7 @@ def analizar(directorio, citas, avisos_de_la_matriz, tipos, host):
             excluidas[tipo if tipo in excluidas else OTROS] += 1
             continue
         registro["filas"] = list(citas.get(registro["slug"], []))
-        registro["estado"] = "graduada" if registro["filas"] else "ilegible" if registro["motivo"] else "nueva"
+        registro["estado"] = estado_de(registro, (registradas or {}).get(registro["slug"]))
         memorias.append(registro)
     cobertura = {"estado": "completa", "total": len(archivos), "directorio": str(directorio.ruta), "origen": directorio.origen,
                  "fuente": directorio.fuente, "detalle": directorio.detalle}
@@ -222,7 +314,7 @@ def _celdas(registro):
     return [registro["estado"], registro["tipo"] or "-", registro["slug"], detalle or ""]
 
 
-def formatear(informe):
+def formatear(informe, registro_local=None):
     cobertura = informe["cobertura"]
     if informe["memorias"] is None:
         return "COBERTURA %s: %s (%s)" % (informe["host"], cobertura["estado"], cobertura["motivo"])
@@ -234,6 +326,8 @@ def formatear(informe):
         salida.append("(ninguna memoria de tipo %s)" % " ni ".join(informe["tipos"]))
     salida += ["AVISO %s" % aviso for aviso in informe["avisos"]]
     salida.append("EXCLUIDAS " + " ".join("%s=%d" % (tipo, cuantas) for tipo, cuantas in informe["excluidas"].items()))
+    if registro_local is not None:
+        salida.append("REGISTRO %s (%d)" % registro_local)
     salida.append("COBERTURA %s: %s (%d, %s, %s)" % (informe["host"], cobertura["estado"], cobertura["total"],
                                                     cobertura["directorio"], cobertura["origen"]))
     return "\n".join(salida)
@@ -267,39 +361,57 @@ def _directorio(elegido, args, entorno, raiz):
 
 def construir_parser():
     p = argparse.ArgumentParser(prog="memorias.py", allow_abbrev=False,
-                                description="Lista las memorias del proyecto como candidatas a graduar a la matriz (solo lectura).")
+                                description="Lista las memorias del proyecto como candidatas a graduar a la matriz. "
+                                            "Solo escribe con --registrar, y solo en el registro local.",
+                                epilog="Estados, del que más pesa al que menos: %s." % ", ".join(PRECEDENCIA))
     p.add_argument("--memorias", metavar="DIR", help="directorio de memoria (por defecto, el que resuelve el host)")
     p.add_argument("--raiz", help="raíz de la instancia (por defecto, la de la sesión)")
     p.add_argument("--host", choices=sorted(NOMBRES), default=HOST_POR_DEFECTO, help="CLI cuya memoria se lee (por defecto, claude-code)")
     p.add_argument("--con-project", action="store_true", help="suma las memorias de tipo project; user y reference nunca entran")
     p.add_argument("--json", action="store_true", help="imprime el informe en JSON")
+    p.add_argument("--registro", metavar="ARCHIVO",
+                   help="registro local de lo visto o descartado (por defecto, ~/%s/<proyecto>.json)" % "/".join(CARPETA_DEL_REGISTRO))
+    p.add_argument("--registrar", nargs="+", metavar="SLUG",
+                   help="anota esas memorias en el registro, con su modified de hoy, y después lista; va con --como")
+    p.add_argument("--como", choices=REGISTRABLES, help="con --registrar: vista o descartada")
     return p
 
 
 def main(argv=None, entorno=None):
     entorno = os.environ if entorno is None else entorno
     try:
-        args = construir_parser().parse_args(argv)
+        parser = construir_parser()
+        args = parser.parse_args(argv)
+        if (args.registrar is None) != (args.como is None):
+            parser.error("--registrar y --como van juntos")
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
     elegido = adaptador(args.host)
     estado, nota = elegido.MEMORIAS
     tipos = POR_DEFECTO + ((OPCIONAL,) if args.con_project else ())
+    registro_local = None
     try:
         if estado != SOPORTADO:
-            if args.memorias:
-                raise ErrorDeEntorno("en %s la memoria de Claude Code está %s (%s): --memorias vale con --host claude-code"
-                                     % (args.host, estado, nota))
+            opcion = next((opcion for opcion, valor in (("--memorias", args.memorias), ("--registro", args.registro),
+                                                        ("--registrar", args.registrar)) if valor), None)
+            if opcion:
+                raise ErrorDeEntorno("en %s la memoria de Claude Code está %s (%s): %s vale con --host claude-code"
+                                     % (args.host, estado, nota, opcion))
             informe = no_disponible(args.host, nota, tipos)
         else:
             raiz = _raiz(args, entorno)
             directorio = _directorio(elegido, args, entorno, raiz)
             citas, avisos = graduaciones(raiz)
-            informe = analizar(directorio, citas, avisos, tipos, args.host)
+            ruta = ruta_del_registro(entorno, raiz, args.registro)
+            registradas = leer_registro(ruta)
+            if args.registrar:
+                registradas = registrar(ruta, registradas, directorio, args.registrar, args.como, date.today().isoformat())
+            informe = analizar(directorio, citas, avisos, tipos, args.host, registradas)
+            registro_local = None if registradas is None else (ruta, len(registradas))
     except (ErrorDeEntorno, SinMemorias) as exc:
         print("memorias: %s" % exc, file=sys.stderr)
         return 2
-    print(json.dumps(informe, ensure_ascii=False, indent=2) if args.json else formatear(informe))
+    print(json.dumps(informe, ensure_ascii=False, indent=2) if args.json else formatear(informe, registro_local))
     return 0
 
 
