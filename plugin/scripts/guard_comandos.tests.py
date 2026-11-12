@@ -1386,7 +1386,8 @@ def test_en_posix_un_enlace_real_seguido_de_dos_puntos_en_la_capa_2():
                                   ("mkdir %s/n && git -C %s/n/../equipo/db push" % (b, b), "ask"),
                                   ("mkdir %s/n && git -C %s/n/../afuera/l push" % (b, b), "ask"),
                                   ("git -C %s/equipo/db/afuera/.. push" % b, None)):
-            assert G.analizar(comando, str(otra), {}, prot)[0] == esperado, comando
+            resultado = G.analizar(comando, str(otra), {}, prot)
+            assert resultado[0] == esperado, (comando, resultado)
 
 
 def test_el_scratch_de_otro_usuario_o_de_otra_unidad_bloquea():
