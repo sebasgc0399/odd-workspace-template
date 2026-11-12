@@ -27,8 +27,15 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
 | T1 | S1, S3 | `memorias.py`: resolución del directorio en el adaptador de Claude Code, enumeración, frontmatter, estados `graduada` y `nueva` contra la matriz, filtro por tipo, cobertura y exit 2. Más sus tests | delegado: un writer, por el respaldo de contexto de una sesión larga | hecho (`c1a1938`, L3) |
-| T2 | S3, S4 | El registro local: `vista`, `descartada` y `cambiada`, y el subcomando para registrar. Más sus tests | delegado, por la misma razón | hecho (L4) |
-| T3 | S2, S5, S6, S7 | La skill: el modo `memorias` de `cerrar`, el paso opcional de engram, las reglas de privacidad y el aviso del cierre de ticket. Los docs: `Doc/uso.md`, `Doc/diseno.md` y el CHANGELOG | delegado, por la misma razón; después, un verificador independiente (ítem 2: exposición de datos personales hacia un repo) | pendiente |
+| T2 | S3, S4 | El registro local: `vista`, `descartada` y `cambiada`, y el subcomando para registrar. Más sus tests | delegado, por la misma razón | hecho (`e018699`, L4) |
+| T3 | S2, S5, S6, S7 | La skill: el modo `memorias` de `cerrar`, el paso opcional de engram, las reglas de privacidad y el aviso del cierre de ticket. Los docs: `Doc/uso.md`, `Doc/diseno.md` y el CHANGELOG | delegado, por la misma razón; después, un verificador independiente (ítem 2: exposición de datos personales hacia un repo) | hecho (L5, L6) |
+| X1 | S3 | Seguimiento (A7): una memoria `graduada` que cambia sigue `graduada`, sin aviso, y su fila puede quedar desfasada | inline, aparte | pendiente |
+| X2 | S3, S4 | Seguimiento (A11): `--registrar` acepta slugs `user` y `reference`; la frase «modified de hoy» del help; `autoMemoryDirectory` de policy y de `--settings`; exigir `name` y `description` | inline, aparte | pendiente |
+| X3 | S6 | Seguimiento (V1): si `matriz.py` pide corregir la fila, la regla o la evidencia, la corrección se escribe sin volver a mostrarse. Una línea en M4.1: mostrarla y pedir el sí | inline, aparte | pendiente |
+| X4 | S6 | Seguimiento (V2): M3.2 no dice cómo calcular el ID, y el script del paso 5 también mira `verificar_<capa>.py`. Una línea: calcularlo igual que el script | inline, aparte | pendiente |
+| X5 | S6 | Seguimiento: `test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia` deja vivos dos mutantes. Comprobar la primera oración de la regla 2, agregar M4.1 y sumar un control por mutación | inline, aparte | pendiente |
+| X6 | S5 | Seguimiento: Codex tiene su propia memoria (`$CODEX_HOME/memories_v2/`, apagada por defecto y sin formato documentado) | cuando se documente su formato | pendiente |
+| X7 | S1 | El lector del `ratchet-handoff/v1` de `gentle-contribution-skills` | cuando se acuerde el issue #1 | pendiente |
 
 ## Log
 
@@ -82,4 +89,32 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
     - no hay opción para olvidar una entrada: se borra a mano;
     - las entradas de memorias borradas siguen contando en `REGISTRO (n)`.
   - **Risk:** none. Es un archivo local y nuevo, fuera del repo.
+- **L5 (2026-11-12), T3 escrita y su verificador independiente.**
+  - **T3:**
+    - `cerrar/SKILL.md` suma el «Modo memorias» (M1 a M5), el paso 10 («N memorias sin triar») y un párrafo de entrada; los pasos 1 a 9 quedan byte a byte;
+    - `Doc/uso.md` y `Doc/diseno.md` cubren el modo y `memorias.py`;
+    - el CHANGELOG suma `## Sin publicar`, con el crédito a Denver2828.
+    - El replay sintético dio `graduada`, `vista` y Codex «no disponible».
+  - **El verificador:** S1 a S5 y S7 cumplen, y S6 es parcial.
+  - **B1:** la entrada de `evidencia.md` se escribe sin mostrarse en la propuesta, y ninguna regla le prohíbe nombres.
+  - **Advisories que entran en la corrección:**
+    - **A1:** la búsqueda de engram en la matriz es por subcadena (`engram-12` contra `engram-123`).
+    - **A2:** las herramientas `mem_*` pueden llegar diferidas detrás de ToolSearch.
+    - **A3:** `mem_current_project` sin la raíz de la instancia.
+    - **A4:** una observación sobre una persona cuenta como `user`.
+    - **A5:** «no la gradúes», sin inventar otro slug.
+    - **A6:** `cambiada` depende solo de `modified`.
+    - **A8:** el aviso dice `derivada` o `pasada`.
+    - **A9:** las excepciones del paso 5 en M4.1.
+    - **A10:** `descripcion` también es texto de la memoria.
+  - **Seguimientos:** A7 (una graduada que cambia sigue `graduada`) y A11 (detalles menores de T1 y T2).
+  - **La corrección:** una tanda para B1 y esos avisos, más las sondas del verificador como tests de regresión, devuelta al writer de T3. Después, un rechequeo limitado a B1.
+- **L6 (2026-11-12), la corrección de T3 y su rechequeo.**
+  - **La corrección:**
+    - B1 cerrado en la skill: la regla 2 cubre la fila, el destino y la evidencia, y nombra `descripcion`; la regla 4 y M3.2 muestran la evidencia; M4.1 escribe la misma.
+    - A1 a A6, A8 a A10 y la decisión 1, en la skill y en los docs.
+    - 6 tests nuevos de regresión, cada uno con su RED: el contrato de los comandos de la skill contra el parser, las claves del JSON, la evidencia en las reglas, el origen exacto de punta a punta, el límite de `modified`, y `## Sin publicar` en `entrega.tests`.
+  - **Pruebas:** `memorias` 33/33, `entrega` 31/31, `notas` 11/11, `matriz` 51/51 y 21 links sin rotos. El padre repitió `memorias`: 33/33.
+  - **El rechequeo (limitado a B1): cerrado.** Con la reproducción al pie de la letra, lo escrito en `matriz.csv`, `criterios` y `evidencia.md` es igual a lo mostrado, y el nombre y la frase literal no aparecen. Las variantes y la debilidad del test quedan como seguimientos X3 a X5: un hallazgo nuevo no abre otra tanda.
+  - **La entrega:** el CHANGELOG lleva `## Sin publicar`, con el crédito a Denver2828. Al entregar se renombra a `## <versión>`, nunca se agrega una sección aparte.
 - **La entrega:** el pronóstico es de unas 700 a 850 líneas, en tres commits de unidad. No hay PR: `main` avanza por fast-forward con autorización, como en la `0.3.1`. La revisión nativa de gentle-ai está apagada (`review mode status`: off, global), así que el riesgo lo cubre el verificador independiente de T3.

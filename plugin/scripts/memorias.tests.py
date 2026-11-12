@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -33,6 +34,13 @@ MATRIZ = ".claude/reglas/matriz.csv"
 CAPAS = {"sql": {"extensions": [".sql"], "rule_prefix": "SQL"}, "docs": {"extensions": [".md"]}}
 CASA_IMPOSIBLE = str(Path(__file__).resolve() / "casa")
 FECHA_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+SKILL_CERRAR = AQUI.parent / "skills" / "cerrar" / "SKILL.md"
+MARCADOR_RE = re.compile(r"<[^<>\s]+>")
+SUSTITUTOS = {"<dir>": "/home/u/memoria", "<slug>": "a"}
+OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+CODIGO_RE = re.compile(r"`([^`\n]+)`")
+RUTA_JSON_RE = re.compile(r"([a-z_]+)\.([a-z_]+)")
+EXTENSIONES = ("py", "md", "json", "csv")
 
 
 def _quitar(func, ruta, _exc):
@@ -649,6 +657,137 @@ def test_registrar_y_como_van_juntos_y_codex_no_registra():
             codigo, salida, error = correr("--raiz", str(raiz), "--host", "codex", *argv)
             assert codigo == 2 and "--host claude-code" in error and salida == "", (argv, codigo, salida, error)
         assert not registro.exists()
+
+
+def seccion_de(texto, titulo):
+    nivel = len(titulo) - len(titulo.lstrip("#"))
+    partes, dentro, en_bloque = [], False, False
+    for linea in texto.split("\n"):
+        if linea.lstrip().startswith("```"):
+            en_bloque = not en_bloque
+        elif not en_bloque and linea.startswith("#"):
+            if dentro and len(linea) - len(linea.lstrip("#")) <= nivel:
+                break
+            dentro = dentro or linea.startswith(titulo)
+        if dentro:
+            partes.append(linea)
+    assert partes, "la skill no tiene la sección %r" % titulo
+    return "\n".join(partes)
+
+
+def zona_de_memorias(texto):
+    return seccion_de(texto, "## 10.") + "\n" + seccion_de(texto, "## Modo memorias")
+
+
+def comandos_de_memorias(zona):
+    comandos, en_bloque = [], False
+    for linea in zona.split("\n"):
+        if linea.lstrip().startswith("```"):
+            en_bloque = not en_bloque
+        elif en_bloque and "memorias.py" in linea:
+            tokens = shlex.split(linea.strip())
+            posicion = next(i for i, token in enumerate(tokens) if token.endswith("memorias.py"))
+            comandos.append(tokens[posicion + 1:])
+    return comandos
+
+
+def problemas_de_los_comandos(texto):
+    zona = zona_de_memorias(texto)
+    parser = M.construir_parser()
+    opciones = {opcion for accion in parser._actions for opcion in accion.option_strings}
+    comandos = comandos_de_memorias(zona)
+    problemas = [] if len(comandos) >= 3 else ["la skill da %d comandos de memorias.py, se esperaban M1 y los dos de M4" % len(comandos)]
+    for argv in comandos:
+        desconocidos = [token for token in argv if MARCADOR_RE.fullmatch(token) and token not in SUSTITUTOS]
+        if desconocidos:
+            problemas.append("marcador sin valor sintético %s en %s" % (desconocidos, argv))
+            continue
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                args = parser.parse_args([SUSTITUTOS.get(token, token) for token in argv])
+        except SystemExit:
+            problemas.append("el parser de memorias.py rechaza %s" % argv)
+            continue
+        if (args.registrar is None) != (args.como is None):
+            problemas.append("--registrar y --como no van juntos en %s" % argv)
+    problemas += ["la skill nombra %s, que memorias.py no tiene" % opcion for opcion in sorted(set(OPCION_RE.findall(zona)) - opciones)]
+    return problemas
+
+
+def problemas_del_json(texto, datos, codex):
+    zona = zona_de_memorias(texto)
+    problemas, rutas = [], set()
+    for token in CODIGO_RE.findall(zona):
+        encontrada = RUTA_JSON_RE.fullmatch(token)
+        if encontrada and encontrada.group(1) in datos and encontrada.group(2) not in EXTENSIONES:
+            rutas.add(encontrada.groups())
+    if not rutas:
+        problemas.append("la skill no nombra ninguna clave anidada del JSON")
+    for primera, segunda in sorted(rutas):
+        if not any(isinstance(informe[primera], dict) and segunda in informe[primera] for informe in (datos, codex)):
+            problemas.append("la skill nombra %s.%s, que el JSON no trae" % (primera, segunda))
+    linea = next((linea for linea in zona.split("\n") if "**Cada memoria del JSON**" in linea), None)
+    if linea is None:
+        return problemas + ["la skill no dice qué trae cada memoria del JSON"]
+    claves = set(datos["memorias"][0])
+    nombradas = set(CODIGO_RE.findall(linea))
+    if not nombradas & claves:
+        problemas.append("la línea de cada memoria no nombra ninguna clave real")
+    problemas += ["la línea de cada memoria nombra %s, que no es clave, estado ni sección del JSON" % token
+                  for token in sorted(nombradas - claves - set(datos) - set(M.PRECEDENCIA))]
+    return problemas
+
+
+def test_los_comandos_de_memorias_py_que_da_la_skill_los_acepta_su_parser():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    assert problemas_de_los_comandos(texto) == [], problemas_de_los_comandos(texto)
+    mutada = texto.replace("--como vista", "--coma vista", 1)
+    assert mutada != texto and problemas_de_los_comandos(mutada), "control positivo: una opción que no existe se detecta"
+
+
+def test_las_claves_del_json_que_nombra_la_skill_existen_en_la_salida_real():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria()})
+        datos = json_de("--raiz", str(raiz), "--memorias", str(carpeta))
+        codex = json_de("--raiz", str(raiz), "--host", "codex")
+    assert problemas_del_json(texto, datos, codex) == [], problemas_del_json(texto, datos, codex)
+    mutada = texto.replace("`cobertura.origen`", "`cobertura.origin`", 1).replace("`tipo`, `descripcion`", "`tipo`, `descripción`", 1)
+    assert mutada != texto and len(problemas_del_json(mutada, datos, codex)) == 2, "control positivo: dos claves que no existen se detectan"
+
+
+def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    reglas = seccion_de(texto, "### Reglas duras del modo")
+    numeradas = {linea.split(".", 1)[0]: linea for linea in reglas.split("\n") if re.match(r"\d+\. ", linea)}
+    assert "evidencia" in numeradas.get("2", "") and "`descripcion`" in numeradas.get("2", ""), numeradas.get("2")
+    assert "evidencia.md" in numeradas.get("4", ""), numeradas.get("4")
+    assert "evidencia.md" in seccion_de(texto, "### M3."), "la propuesta muestra la entrada de evidencia.md"
+
+
+def test_de_punta_a_punta_solo_un_origen_exacto_y_valido_gradua():
+    with temporal() as base:
+        raiz = instancia(base, [fila("SQL-01", "memoria:graduable"), fila("SQL-02", "memoria:engram-123"),
+                                fila("SQL-03", "memoria:regla+rara")])
+        carpeta = memorias(base, {"graduable.md": memoria(), "engram-12.md": memoria(), "regla+rara.md": memoria()})
+        datos = json_de("--raiz", str(raiz), "--memorias", str(carpeta))
+        resultado = {slug: (registro["estado"], registro["filas"]) for slug, registro in por_slug(datos).items()}
+        assert resultado == {"graduable": ("graduada", ["SQL-01"]), "engram-12": ("nueva", []), "regla+rara": ("nueva", [])}, resultado
+        assert len(datos["avisos"]) == 1 and datos["avisos"][0].startswith("matriz fila 4:"), datos["avisos"]
+        assert "regla+rara" in datos["avisos"][0] and not any("engram" in aviso for aviso in datos["avisos"]), datos["avisos"]
+
+
+def test_un_cuerpo_que_cambia_sin_tocar_modified_sigue_vista_porque_solo_se_compara_modified():
+    with temporal() as base:
+        raiz = instancia(base)
+        carpeta = memorias(base, {"a.md": memoria()})
+        registro = base / "registro.json"
+        assert registrar(raiz, carpeta, registro, "vista", "a")[0] == 0
+        escribir(carpeta / "a.md", memoria().replace("Cuerpo de la memoria.", "Otro cuerpo, con otra regla."))
+        assert estados(raiz, carpeta, registro) == {"a": "vista"}, "el límite documentado: sin otro modified no vuelve"
+        escribir(carpeta / "a.md", memoria(modificada="2026-11-20T08:00:00Z"))
+        assert estados(raiz, carpeta, registro) == {"a": "cambiada"}
 
 
 def main():

@@ -643,10 +643,23 @@ Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: 
   - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado».
 - **Después de editar los docs**, corre `conocimiento.py`.
 - **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado, un `git add` explícito anclado con `:/` (nunca `-A`) y el sí. El worktree lo desarma el usuario, y la rama no se borra.
+- **Las memorias sin triar:** al final, una línea con cuántas quedan, sin triarlas (ver «Memorias»).
 - **Fuera de la T9:**
   - el chequeo mecánico de «graduado ⇒ candidatos vacíos», que la skill pide en prosa;
   - el buzón de `.claude/registro/`;
   - un `matriz.py --agregar` probado.
+
+### Memorias (`memorias.py` y `cerrar memorias`)
+
+Las memorias del proyecto son otra fuente de candidatos para graduar, en la línea de D6: las entradas vienen de afuera. Una memoria `feedback` guarda cómo quiere trabajar el usuario, casi siempre después de una corrección, y graduarla la vuelve un mecanismo en vez de un recordatorio (principio 1).
+
+- **Un modo aparte, no un paso del cierre.** `/odd-ws:cerrar memorias` reusa la clasificación, la propuesta con el sí, la fila de la matriz con sus chequeos y el commit, y salta lo que pide un ticket: el modo sombra, los relojes, la bitácora y el worktree. El cierre de un ticket solo avisa cuántas memorias quedan sin triar: triarlas ahí mezclaría dos revisiones en un mismo sí.
+- **Solo la matriz gradúa.** `memoria:<slug>` ya era un origen válido, y `memorias.py` marca `graduada` a la memoria que cita alguna fila. Por eso el modo no gradúa a un doc ni al `CLAUDE.md` raíz: sin fila no queda el origen, y la memoria volvería a salir.
+- **La cobertura se declara.** La memoria en archivos se lee entera: `completa (N, <dir>, pasada|derivada)`. Si el directorio no existe, el script sale con 2 y nombra la ruta que probó, nunca «0 candidatos» (principio 4). engram es parcial por construcción: `mem_search` devuelve como mucho 20, sin cursor ni fechas, así que la skill cuenta las consultas que llegaron al tope y nunca dice «no hay más». Lo consulta la skill y no el script, porque engram es una herramienta de la sesión.
+- **El registro, fuera del repo.** Lo visto y lo descartado va en `~/.odd-ws/memorias/<proyecto>.json`, con la clave `slug@modified`, así que una memoria cuyo `modified` cambia vuelve como `cambiada`; una edición que no lo actualiza no cuenta, porque solo se compara `modified`. Es estado de la máquina, no del proyecto: en el repo de la instancia ensuciaría cada commit y diría qué memorias tiene cada uno. Lo graduado no se registra, porque la matriz manda; lo de engram no se puede registrar, porque no tiene archivo, y puede volver a salir.
+- **La privacidad.** La matriz viaja en el repo de la instancia, y ahí no corre ningún barrido. Por eso las memorias `user` y `reference` nunca entran, la fila, su destino y su evidencia parafrasean la regla sin texto literal ni nombres de personas, el slug que va en el `origen` se revisa igual, y la propuesta muestra exactamente lo que queda escrito: la revisión del usuario es la única barrera.
+- **Codex** tiene su propia memoria local, en `$CODEX_HOME/memories_v2/`, apagada por defecto y sin formato documentado. `memorias.py --host codex` la declara no disponible y el modo sigue con engram. Leerla queda como seguimiento.
+- **Fuera de esta versión:** el lector del JSON de handoff que se propuso en `gentle-contribution-skills`, hasta que su formato se acuerde, y una opción para olvidar una entrada del registro, que hoy se borra a mano.
 
 ### Biblioteca T-SQL (`odd_ws.tsql`)
 

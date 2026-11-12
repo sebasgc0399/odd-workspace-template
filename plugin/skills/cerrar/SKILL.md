@@ -1,12 +1,14 @@
 ---
 name: cerrar
-description: Cierra un ticket de la instancia, graduando lo aprendido. Usar al terminar un ticket, para triar sus aprendizajes, subir lo general a los docs de dominio, a la raíz o a la matriz de reglas, actualizar los dos relojes del ticket y dejar el commit de cierre. Solo lo invoca el usuario.
+description: Cierra un ticket de la instancia, graduando lo aprendido. Usar al terminar un ticket, para triar sus aprendizajes, subir lo general a los docs de dominio, a la raíz o a la matriz de reglas, actualizar los dos relojes del ticket y dejar el commit de cierre. Con el argumento memorias, gradúa a la matriz las reglas que ya están en las memorias del proyecto. Solo lo invoca el usuario.
 disable-model-invocation: true
 ---
 
 # /odd-ws:cerrar
 
 Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta. Corre desde la raíz de la instancia (o desde dentro de la carpeta del ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<ticket>` es la carpeta del ticket y `<capa>` es una capa declarada en `workspace.config.json` con `rule_prefix`. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
+
+**Con el argumento `memorias`** (`/odd-ws:cerrar memorias`; en Codex, `$cerrar memorias`) no se cierra ningún ticket: seguí el «Modo memorias», al final, y no los pasos 1 a 10.
 
 ## Reglas duras
 
@@ -170,6 +172,104 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
 
    Si el pre-commit de la instancia falla, mostrá su salida: no lo saltees con `--no-verify`.
 
+## 10. Las memorias sin triar
+
+Un aviso de una línea, que no tría ni frena el cierre. Corré `memorias.py` como en el paso M1 del «Modo memorias», contá las memorias en `nueva` y `cambiada` y avisá «N memorias sin triar (<origen>): `/odd-ws:cerrar memorias`», con el `cobertura.origen` del JSON (`pasada` o `derivada`); por ejemplo, «0 memorias sin triar (derivada): `/odd-ws:cerrar memorias`». Si el script sale con 2, o la cobertura sale `no disponible` (Codex), decilo en esa línea, con el motivo, y seguí.
+
 ## Qué decir al final
 
-El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, lo de motor anotado, el estado de los dos relojes, el hash del commit y lo que le toca al usuario (desarmar el worktree, el `fetch` si quedó «no verificado»).
+El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, lo de motor anotado, el estado de los dos relojes, el hash del commit, el aviso de las memorias y lo que le toca al usuario (desarmar el worktree, el `fetch` si quedó «no verificado»).
+
+## Modo memorias
+
+`/odd-ws:cerrar memorias` gradúa a la matriz las reglas que ya están en las memorias del proyecto. Tiene dos fuentes: la memoria en archivos de Claude Code, que lee `memorias.py`, y engram, opcional, que consultás vos.
+
+### Qué reusa del cierre y qué salta
+
+| Del cierre de un ticket | En este modo |
+|---|---|
+| Reglas duras 1 a 3 | Rigen igual: nada se escribe antes del sí, solo se gradúa a lo que ya existe y los repos del equipo son de solo lectura. |
+| 1. Leer el ticket | Se salta: no hay ticket. |
+| 2. Triaje | Se reusa la clasificación de dominio o de motor. El destino es siempre una fila de la matriz: es el único lugar que guarda el origen `memoria:<slug>`, y `memorias.py` marca `graduada` solo a la memoria que una fila cita. Lo que es de dominio o de metodología no tiene fila: va con las «sin fila» de la propuesta. Lo de motor no tiene bitácora donde anotarse: va al resumen final. |
+| 3. El modo sombra | Se salta: es de un ticket. |
+| 4. La propuesta y el sí | Se reusa, con la forma de M3: sin relojes ni bitácora. |
+| 5. Promover | Se reusa: la fila con el script, la regla en su destino, la evidencia y los dos chequeos de `matriz.py`. |
+| 6 y 7. Los relojes y el worktree | Se saltan: no hay ticket. |
+| 8. El conocimiento | Se salta: este modo no edita los docs de `knowledge.docs`. |
+| 9. El commit | Se reusa, con su sí y el mensaje de M5. |
+| 10. Las memorias sin triar | Se salta: es este modo. |
+
+### Reglas duras del modo
+
+1. **Las memorias `user` no entran.** El script ya las excluye, junto con las `reference`. No las pidas ni abras sus archivos: leé solo los que lista el JSON.
+2. **La fila, el destino y la evidencia parafrasean la regla.** Nunca copian texto literal de la memoria ni nombres de personas. La `descripcion` del JSON también es texto de la memoria: sirve para juzgar, pero no se copia al `resumen`, al `motivo` ni a la evidencia.
+3. **El slug viaja en el `origen`.** Si el nombre del archivo trae el nombre de una persona o algo que no debe salir de la máquina, no la gradúes. Decilo en la propuesta, con dos salidas: que el usuario renombre la memoria (el archivo está fuera de la instancia, así que lo renombra él, con su link en `MEMORY.md`) y vuelva a correr el modo, o que quede como `vista`. Nunca inventes otro slug para el `origen`. Lo mismo si el slug tiene algo que no sea letra, dígito, `_`, `.` o `-`, porque `matriz.py` no lo acepta.
+4. **La propuesta muestra exactamente lo que va a quedar escrito:** la fila con todos sus campos, el texto de la regla en su destino y la entrada de `evidencia.md`.
+5. **Esta revisión es la única barrera.** La matriz viaja en el repo de la instancia, y ahí no corre ningún barrido de confidencialidad.
+
+### M1. Correr `memorias.py`
+
+```bash
+python3 "<S>/memorias.py" --json --memorias "<dir>"
+```
+
+- **`--memorias`** lleva la ruta de la memoria persistente que la sesión ya conoce (Claude Code la anuncia en el system prompt). Si no la conocés, sacá la opción y el script la deriva: `cobertura.origen` sale `derivada`.
+- **En Codex,** `--host codex` en lugar de `--memorias`. Sale con 0 y `cobertura.estado` `no disponible`: decilo en una línea («memoria en archivos: no disponible en Codex») y seguí con engram (M2).
+- **Si sale con 2,** mostrá el motivo, que va por stderr, y frená el modo. Nunca digas «no hay memorias»: el script no pudo mirar.
+- **Por defecto entran solo las `feedback`.** Las `project` se cuentan en `excluidas.project`, y entran solo si el usuario las pide, con `--con-project`.
+- **Cada memoria del JSON** trae `slug`, `tipo`, `descripcion`, `estado` y `filas` (los IDs de la matriz que la citan). Los candidatos salen de las `nueva` y las `cambiada`. Las `graduada`, `vista` y `descartada` no se vuelven a proponer, y una `ilegible` se nombra con su `motivo`, sin proponerla. Los `avisos` (huérfanas, links rotos, filas de la matriz con errores) se muestran tal cual.
+
+### M2. engram, opcional
+
+Lo consultás vos, no el script.
+
+- **Buscá las herramientas antes de darlas por ausentes.** En Claude Code, las `mem_*` pueden llegar diferidas: buscalas con ToolSearch (por ejemplo, `mem_search`). Solo si después de buscarlas no aparecen: «engram: no disponible», y seguí.
+- **Primero, `mem_current_project`,** con la raíz de la instancia como `cwd` (o `directory`) si su schema lo acepta. Si la `path` que devuelve no es la de la instancia, o el proyecto sale ambiguo (con `available_projects` o con la fuente `ambiguous`) o vacío, decilo y omití engram. No adivines el proyecto.
+- **Después, `mem_search`** con ese `project`, `scope: "project"` y `limit: 20`. Nunca `scope: "personal"` ni `all_projects`. Hacé una consulta por capa de la instancia y por tema (una convención, un error que se repitió). Para leer una observación entera, `mem_get_observation`.
+- **Una observación que describe a una persona** (su perfil, su rol, sus preferencias) cuenta como `user` y no entra.
+- **La cobertura es parcial, y se declara así:** «engram: parcial; N consultas, K llegaron al tope 20/20, puede haber más». Nunca «no hay más»: `mem_search` no tiene cursor.
+- **El origen** de lo que se gradúa desde engram es `memoria:engram-<id>`, con el id de la observación y sin otro `:` dentro del slug, porque la regex de `matriz.py` no lo admite.
+- **Si ya está graduada,** alguna pieza de un `origen` de la matriz, partido por `;`, es exactamente `memoria:engram-<id>`: no la propongas. Compará la pieza entera, nunca una subcadena (`memoria:engram-12` no es `memoria:engram-123`). Este comando imprime `True` si ya está:
+
+  ```bash
+  python3 -c "import csv, sys; filas = list(csv.reader(open('.claude/reglas/matriz.csv', encoding='utf-8', newline='')))[1:]; print(any(pieza == sys.argv[1] for fila in filas if len(fila) > 1 for pieza in fila[1].split(';')))" "memoria:engram-<id>"
+  ```
+
+- **El límite:** el registro local solo acepta slugs de archivos, así que lo de engram no se registra como `vista` ni `descartada`. Puede volver a proponerse en la próxima corrida; lo ya graduado se reconoce por su fila.
+
+### M3. La propuesta y el sí
+
+Juzgá cuáles de los candidatos suenan a regla (un criterio de revisión o una convención de una capa) y con qué destino. Mostrá, **antes de escribir nada**:
+
+1. **La cobertura de cada fuente:** la línea de la memoria en archivos (`completa`, con cuántas, el directorio y si fue `pasada` o `derivada`, o `no disponible`) y la de engram.
+2. **Los candidatos, uno por fila:** el slug (o `engram-<id>`); la fila exacta de la matriz con todos sus campos (el `id` que le va a tocar y `memoria:<slug>` como `origen`); el destino, con el texto exacto de la regla que va ahí; y la entrada de `.claude/reglas/evidencia.md`, con su texto exacto (salvo un `descarte`, que no lleva).
+3. **Las «sin fila»:** las `nueva` y `cambiada` que no suenan a regla, las de dominio o de metodología y las de motor, cada una con su slug y el porqué en pocas palabras.
+4. **El registro local:** qué slugs quedan como `vista` (lo mostrado que no se aprueba, las «sin fila» incluidas) y cuáles como `descartada` (lo que el usuario descarta explícitamente). Avisá que lo que queda `vista` o `descartada` no vuelve a proponerse mientras el `modified` de su memoria no cambie.
+5. **El commit** (M5): los archivos y el mensaje.
+
+Después pedí un sí explícito. Si el usuario aprueba solo algunos, descarta otros o corrige una fila, ajustá la propuesta y volvé a mostrarla.
+
+### M4. Con el sí
+
+1. **Lo aprobado se escribe como en el paso 5:** la fila con su script, con `memoria:<slug>` como `origen` y sin hash; la regla en su destino, con su ID, su severidad y sus números; la evidencia en `.claude/reglas/evidencia.md`, la misma que mostró la propuesta, que cita el ID y dice que sale de la memoria `<slug>`, sin copiarla; y los dos chequeos de `matriz.py` por capa, con 0 fallas. Rigen las excepciones del paso 5: con destino `evidencia`, el ID aparece una sola vez en `evidencia.md`, y un `descarte` no lleva evidencia ni aparece en ningún destino.
+2. **El registro, solo de slugs de archivos y con el mismo `--memorias` de M1:**
+
+   ```bash
+   python3 "<S>/memorias.py" --json --memorias "<dir>" --registrar <slug> <slug> --como vista
+   python3 "<S>/memorias.py" --json --memorias "<dir>" --registrar <slug> --como descartada
+   ```
+
+   Lo graduado no se registra: la matriz manda. Si sale con 2, mostrá el motivo; no se registró nada.
+3. **La comprobación:** corré otra vez M1. Lo graduado tiene que salir `graduada`, con su ID en `filas`, y lo registrado, `vista` o `descartada`. Si algo no cuadra, decilo antes del commit.
+
+### M5. El commit
+
+Como en el paso 9: el `status`, el `git add` explícito y anclado con `:/` de lo que tocó este modo (la matriz, los destinos y `evidencia.md`), y el sí. El registro local está fuera del repo y no entra.
+
+```bash
+git commit -m "chore(reglas): gradúa memorias del proyecto"
+```
+
+### Qué decir al final del modo
+
+La cobertura de cada fuente, lo graduado (slug, ID y destino), lo registrado como `vista` o `descartada`, lo de motor, el hash del commit y, si hubo engram, que sus candidatos pueden volver a salir.

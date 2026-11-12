@@ -195,6 +195,20 @@ def test_una_entrega_con_changelog_sin_la_seccion_de_su_version_o_vacia_bloquea(
             e.git("tag", "-d", "odd-ws--v0.2.0")
 
 
+def test_una_seccion_sin_publicar_no_cuenta_como_las_notas_de_una_version():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sin_publicar = "# Changelog\n\n## Sin publicar\n\n- lo que viene\n\n## 0.1.0\n\n- algo\n"
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": sin_publicar, **CON_WORKFLOW})
+        e.etiquetar("0.2.0")
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "no tiene notas para 0.2.0")
+        e.git("tag", "-d", "odd-ws--v0.2.0")
+        con_version = sin_publicar.replace("## 0.1.0", "## 0.2.0\n\n- cambios de la 0.2.0\n\n## 0.1.0")
+        sha = e.commit({"CHANGELOG.md": con_version})
+        e.etiquetar("0.2.0")
+        asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
+
+
 def test_una_entrega_de_un_commit_sin_el_workflow_no_pide_notas():
     with Escenario() as e:
         e.entrega_inicial()

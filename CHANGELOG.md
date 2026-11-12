@@ -2,6 +2,22 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## Sin publicar
+
+**Graduar las memorias del proyecto.** `/odd-ws:cerrar` puede sacar candidatos de las memorias del proyecto, además de los del ticket. La idea de usar las memorias como fuente de candidatos viene de las skills de observaciones de Denver2828 ([gentle-contribution-skills](https://github.com/Denver2828/gentle-contribution-skills)).
+
+### Lo que cambia para ti
+
+- **`/odd-ws:cerrar memorias`** gradúa a la matriz las reglas que ya están en la memoria en archivos de Claude Code y, si la tienes, en engram. Te muestra la fila, la regla y la evidencia exactas antes de escribirlas, sin copiar la memoria ni nombrar personas, y lo que no apruebas no te lo vuelve a proponer mientras el `modified` de la memoria no cambie.
+- **El cierre de un ticket** termina con una línea: cuántas memorias quedan sin triar.
+- **En Codex,** la memoria en archivos de Claude Code no está disponible: el modo sigue con engram, si está.
+
+### Detalle técnico
+
+- **`memorias.py`** lista las memorias `feedback` (y las `project` con `--con-project`) con su estado: `graduada`, `ilegible`, `cambiada`, `descartada`, `vista` o `nueva`. Si no encuentra el directorio de memoria, sale con 2 y nombra la ruta que probó.
+- **El registro local** de lo visto y lo descartado vive fuera del repo, en `~/.odd-ws/memorias/<proyecto>.json`, y lo escribe `--registrar` después del sí.
+- **engram** lo consulta la skill, con `scope: project` y `limit: 20`, y declara su cobertura como parcial. Su origen en la matriz es `memoria:engram-<id>`.
+
 ## 0.3.1
 
 **Soporte para macOS y Linux.** Hasta esta versión, los hooks llamaban a `python`, que macOS, Ubuntu y Debian no traen de fábrica: ahí no arrancaban, y los guards dejaban pasar sin el chequeo. Por ahora lo prueba el CI; nadie lo probó a mano todavía.

@@ -80,7 +80,7 @@ claude --add-dir D:/code/mi-repo
 | `/odd-ws:doctor` | Al estrenar máquina, después de clonar o cuando un hook no corre | Un clon de la plantilla o una instancia | Tú o Claude |
 | `/odd-ws:abrir` | Al empezar un ticket | La instancia: su raíz o un ticket | Solo tú |
 | `/odd-ws:revisar` | Antes de cada commit, o antes de mostrarle un cambio a un líder | La carpeta del ticket | Tú o Claude, siempre con tu sí |
-| `/odd-ws:cerrar` | Al terminar un ticket | La instancia: su raíz o el ticket | Solo tú |
+| `/odd-ws:cerrar` | Al terminar un ticket, o con `memorias` para graduar las memorias del proyecto | La instancia: su raíz o el ticket | Solo tú |
 | `/odd-ws:conocimiento` | Para revisar la salud de los docs del proyecto | La raíz de la instancia | Solo tú |
 | `/odd-ws:eval-reviewers` | Para medir un revisor contra la revisión real de un líder | La instancia | Tú o Claude |
 
@@ -131,6 +131,45 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **Antes de escribir** te muestra la propuesta completa y espera tu sí.
 - **El modo sombra.** Si hay un caso sin puntuar, frena y te manda primero a `/odd-ws:eval-reviewers`.
 - **Al final** te guía para desarmar el worktree y deja el commit de cierre (`chore(<id>): cierre e hidratación`), con un segundo sí.
+- **Las memorias sin triar.** Cierra con una línea: «N memorias sin triar: `/odd-ws:cerrar memorias`». No las tría ni frena el cierre.
+
+#### El modo `memorias`
+
+`/odd-ws:cerrar memorias` (en Codex, `$cerrar memorias`) no cierra ningún ticket: gradúa a la matriz las reglas que ya están en las memorias del proyecto. Reusa la propuesta con tu sí, la fila de la matriz con sus chequeos y el commit; salta lo que es de un ticket (los relojes, la bitácora, el modo sombra y el worktree). El porqué está en [Memorias](diseno.md#memorias-memoriaspy-y-cerrar-memorias), dentro de `Doc/diseno.md`.
+
+- **Las fuentes.** La memoria en archivos de Claude Code, que lee `memorias.py`, y engram, si tu sesión lo tiene. Si `memorias.py` no encuentra el directorio, el modo te dice qué ruta probó y se detiene: nunca te dice «no hay memorias».
+- **Qué te propone.** De las memorias `feedback` (y las `project`, si las pides), las que están `nueva` o `cambiada` y suenan a regla. Por cada una ves su slug, la fila exacta de la matriz, con `memoria:<slug>` como origen, y el texto que va a su destino. Las `user` y las `reference` nunca entran.
+- **La privacidad.** La fila, el destino y la evidencia parafrasean la regla: no copian la memoria ni nombran personas, y la propuesta te muestra los tres antes de escribirlos. El slug va en el origen, así que si el nombre del archivo no debe salir de tu máquina, renómbralo antes o déjalo como visto. La matriz viaja en el repo de tu instancia y ahí no corre ningún barrido: lo que apruebas es lo que queda escrito.
+- **engram.** Solo con `scope: project` y `limit: 20` por consulta. Su cobertura sale como parcial, con cuántas consultas llegaron al tope de 20. El origen es `memoria:engram-<id>`. Lo de engram no entra al registro local, así que puede volver a salir; lo que ya graduaste se reconoce por su fila.
+- **En Codex,** la memoria en archivos de Claude Code no aplica: el modo dice «no disponible» y sigue con engram, si está.
+- **Lo que no apruebas** queda en el registro local como `vista`, y lo que descartas, como `descartada`. No vuelven a salir mientras su `modified` no cambie; si cambia, vuelven como `cambiada`. El script solo compara `modified`: una edición a mano que no lo actualiza no la hace volver.
+
+#### `memorias.py` y el registro local
+
+`memorias.py` lista las memorias con su estado. Del que más pesa al que menos: `graduada` (una fila de la matriz la cita), `ilegible`, `cambiada`, `descartada`, `vista` y `nueva`. Sale con 0, o con 2 y la ruta que probó.
+
+| Opción | Qué hace |
+|---|---|
+| `--memorias DIR` | El directorio de memoria. Sin ella, lo deriva de `autoMemoryDirectory` en los settings, de `CLAUDE_CODE_PROJECT_DIR_NAME` (con `CLAUDE_CONFIG_DIR`) o de `<config>/projects/<proyecto>/memory`, con `<proyecto>` sacado de la raíz del repo git |
+| `--raiz RAIZ` | La raíz de la instancia; por defecto, la de la sesión |
+| `--host claude-code\|codex` | El CLI cuya memoria se lee. Con `codex` sale `no disponible` |
+| `--con-project` | Suma las memorias `project` a las `feedback` |
+| `--json` | El informe en JSON, que es el que lee la skill |
+| `--registro ARCHIVO` | El registro local; por defecto, `~/.odd-ws/memorias/<proyecto>.json` |
+| `--registrar SLUG... --como vista\|descartada` | Anota esas memorias en el registro y después lista. Es la única escritura del script |
+
+El registro vive fuera del repo, en tu máquina, con una entrada por memoria bajo la clave `<slug>@<modified>`:
+
+```json
+{
+  "version": 1,
+  "memorias": {
+    "pruebas-sin-red@2026-01-15": {"slug": "pruebas-sin-red", "modified": "2026-01-15", "estado": "vista", "fecha": "2026-01-20"}
+  }
+}
+```
+
+**Para olvidar una entrada,** bórrala a mano de `memorias`, y el archivo tiene que seguir siendo un JSON con esa forma: si no, `memorias.py` sale con 2 y no lo pisa. Borrar el archivo entero olvida todo. La entrada de una memoria que ya no existe sigue contando en la línea `REGISTRO` hasta que la borres.
 
 ### `/odd-ws:conocimiento`
 
