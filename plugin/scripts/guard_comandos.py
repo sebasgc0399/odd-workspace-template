@@ -92,6 +92,19 @@ LARGAS_LISTA = ("--all", "--remotes", "--verbose", "--list", "--contains", "--no
 CONFIG_ESCRIBE = ("--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section", "--edit")
 GIT_TOKEN = re.compile(r"(?i)^(?:.*[({`])?[$!@&<>]*(?:[^\\/]*[\\/])*git(?:\.exe)?[)}`;]*$")
 SHELL = re.compile(r"(?i)^(?:[^\\/]*[\\/])*(bash|sh|zsh|dash|pwsh|powershell|cmd|eval|iex|invoke-expression|wsl|start-process)(\.exe)?$")
+NOMBRA_SHELL = re.compile(r"(?i)\b(bash|sh|zsh|dash|pwsh|powershell|cmd|eval|iex|invoke-expression|wsl|start-process)\b")
+SHELLS_DE_POWERSHELL = ("pwsh", "powershell", "cmd", "iex", "invoke-expression")
+OPCION_C = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
+OPCION_CON_VALOR_SH = re.compile(r"^[-+][oO]$")
+OPCION_COMMAND = re.compile(r"(?i)^-c(o(m(m(a(n(d)?)?)?)?)?)?$")
+OPCION_SIN_CODIGO_PS = re.compile(r"(?i)^-(f|fi|fil|file|e|ec|en|enc\w*)$")
+OPCION_CON_VALOR_PS = re.compile(r"(?i)^-(executionpolicy|ex|ep|windowstyle|w|version|v|psconsolefile|inputformat|inp|if|outputformat|"
+                                 r"of|o|configurationname|config|workingdirectory|wd|settingsfile|custompipename)$")
+OPCION_CON_VALOR_WSL = re.compile(r"(?i)^(-d|-u|--distribution|--user|--cd)$")
+CMD_C = re.compile(r"(?i)^/[ck]$")
+GIT_CITADO = re.compile(r"""(?i)(^|[;&|(\r\n{])(\s*)(?:"(?:[^"\r\n]*[\\/])?git(?:\.exe)?"|'(?:[^'\r\n]*[\\/])?git(?:\.exe)?')""")
+CUERPO_APARTADO = re.compile(r"\x00(\d+)\x00")
+MAX_PROFUNDIDAD_SHELL = 2
 GIT_VARIABLE = re.compile(r"(?i)(^|[\s;&|(:])GIT_(CONFIG\w*|EXTERNAL_DIFF|EXEC_PATH|SSH|SSH_COMMAND|ASKPASS|PROXY_COMMAND)\s*=")
 HEREDOC_A_SHELL = re.compile(r"(?i)<<-?\s*['\"]?\w+['\"]?[^\r\n]*\|\s*(bash|sh|zsh|pwsh|powershell)\b")
 HERE_STRING_ABRE = re.compile(r"@['\"]\r?\n")
@@ -485,12 +498,72 @@ def _sin_escapes_de_powershell(texto, comillas=True):
     return "".join(salida)
 
 
-def _capa_1(base, entorno, powershell=False):
+def _codigo_de_shells(texto):
+    cuerpos = []
+
+    def apartar(m):
+        cuerpos.append(m.group(2))
+        return '"\x00%d\x00"' % (len(cuerpos) - 1)
+
+    def devolver(m):
+        indice = int(m.group(1))
+        return cuerpos[indice] if indice < len(cuerpos) else m.group(0)
+
+    if HERE_STRING_ABRE.search(texto):
+        texto = HERE_STRING.sub(apartar, texto)
+    salida = []
+    for tokens, _ in Segmentos(texto).segmentos:
+        for k, (t, citado) in enumerate(tokens):
+            m = SHELL.search(t) if k == 0 or not citado else None
+            if m:
+                nombre = m.group(1).lower()
+                codigo = _codigo_del_shell(nombre, tokens[k + 1:])
+                if codigo is not None:
+                    salida.append((CUERPO_APARTADO.sub(devolver, codigo), nombre in SHELLS_DE_POWERSHELL))
+    return salida
+
+
+def _primero_tras(resto, abre=None, con_valor=None, opciones="-+", abierto=False, sin_codigo=None):
+    j = 0
+    while j < len(resto):
+        t, citado = resto[j]
+        suelto = not citado
+        if suelto and sin_codigo is not None and sin_codigo.match(t):
+            return None
+        if suelto and abre is not None and abre.match(t):
+            abierto, j = True, j + 1
+        elif suelto and con_valor is not None and con_valor.match(t):
+            j += 2
+        elif suelto and t[:1] in opciones and t[1:]:
+            j += 1
+        else:
+            return t if abierto and citado else None
+    return None
+
+
+def _codigo_del_shell(nombre, resto):
+    if nombre in ("bash", "sh", "zsh", "dash"):
+        return _primero_tras(resto, OPCION_C, OPCION_CON_VALOR_SH)
+    if nombre in ("pwsh", "powershell"):
+        return _primero_tras(resto, OPCION_COMMAND, OPCION_CON_VALOR_PS, "-", True, OPCION_SIN_CODIGO_PS)
+    if nombre == "cmd":
+        return _primero_tras(resto, CMD_C, opciones="/")
+    if nombre in ("iex", "invoke-expression"):
+        return _primero_tras(resto, OPCION_COMMAND, opciones="", abierto=True)
+    if nombre == "eval":
+        return _primero_tras(resto, opciones="", abierto=True)
+    if nombre == "wsl":
+        return _primero_tras(resto, con_valor=OPCION_CON_VALOR_WSL, opciones="-", abierto=True)
+    return None
+
+
+def _capa_1(base, entorno, powershell=False, profundidad=0):
     _vigente()
-    scan = SIMPLES.sub(" ", DOBLES.sub(" ", base))
+    con_git = GIT_CITADO.sub(r"\1\2git", base)
+    scan = SIMPLES.sub(" ", DOBLES.sub(" ", con_git))
     if GIT.search(scan) and PUSH.search(scan) and (FORCE.search(scan) or FORCE_CORTO.search(scan)) and not LEASE.search(scan):
         return "git push --force (si de verdad hace falta forzar, usa --force-with-lease)"
-    motivo = _push_forzado(SIMPLES.sub(" QARG ", DOBLES.sub(" QARG ", base)))
+    motivo = _push_forzado(SIMPLES.sub(" QARG ", DOBLES.sub(" QARG ", con_git)))
     if motivo:
         return motivo
     if GIT.search(scan) and RESET.search(scan) and HARD.search(scan):
@@ -530,6 +603,11 @@ def _capa_1(base, entorno, powershell=False):
             borra = True
         if borra and not solo_scratch(BORRAN):
             return "borrado recursivo (rm -r, Remove-Item -Recurse, rd /s) fuera del scratch" + pista
+    if profundidad < MAX_PROFUNDIDAD_SHELL and NOMBRA_SHELL.search(base):
+        for codigo, dialecto in _codigo_de_shells(base):
+            motivo = _capa_1(codigo, entorno, dialecto, profundidad + 1)
+            if motivo:
+                return motivo
     return None
 
 

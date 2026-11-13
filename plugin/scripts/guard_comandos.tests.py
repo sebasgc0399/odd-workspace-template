@@ -1624,6 +1624,66 @@ def test_en_powershell_los_casos_del_origen_dan_la_misma_decision():
     assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
 
 
+FUERA = "C:/fuera/x" if NT else "/fuera/x"
+
+
+def test_la_capa_1_lee_el_comando_que_recibe_un_shell():
+    en_bash = ("bash -c 'git push --force origin main'", 'sh -c "git push --force"', "eval 'git push --force'",
+               "bash -c 'cd x && git reset --hard'", 'bash -c "git clean -fd"', "wsl bash -c 'git push -f'",
+               "cd x && bash -c 'git push --force'", "bash -c \"bash -c 'git push --force'\"", "bash -c 'git push origin +main'",
+               "bash -c 'rm -rf %s'" % FUERA, "bash -lc 'git push --force'", "bash -o pipefail -c 'git push --force'",
+               "docker run img sh -c 'git push --force'", "wsl 'git push --force'")
+    en_ps = ('powershell -Command "git push --force"', "pwsh -c 'git push --force'", "iex 'git push --force'",
+             'powershell -NoProfile -ExecutionPolicy Bypass -Command "git push --force"', 'powershell "git push --force"',
+             'Invoke-Expression "git push --force"', 'cmd /c "git push --force"', "iex @'\ngit push --force\n'@",
+             '& "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -c "git push --force"',
+             "powershell -Command \"Remove-Item -Recurse -Force %s\"" % FUERA)
+    for comando in en_bash:
+        for herramienta in (None, "Bash"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] == "block", (comando, herramienta)
+    for comando in en_ps:
+        assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] == "block", comando
+    plano = G.analizar("git push --force origin main", None, ENTORNO, None, "Bash")
+    assert G.analizar("bash -c 'git push --force origin main'", None, ENTORNO, None, "Bash") == plano, "el mismo motivo que sin el shell"
+
+
+def test_un_shell_con_un_comando_inocuo_o_un_borrado_en_el_scratch_sigue_pasando():
+    for comando in ("bash -c 'rm -rf %s/tmp'" % SCR, "sh -c 'npm test'", "bash -c 'git push --force-with-lease origin main'",
+                    "bash -c 'git status && git log -1'", "eval 'echo hola'"):
+        for herramienta in (None, "Bash", "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] is None, (comando, herramienta)
+    for comando in ('powershell -Command "Remove-Item -Recurse -Force %s/tmp"' % SCR, "iex 'Get-ChildItem'",
+                    "iex @'\ngit status\n'@", 'cmd /c "dir"'):
+        assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] is None, comando
+
+
+def test_el_texto_entre_comillas_que_no_recibe_un_shell_sigue_siendo_dato():
+    for comando in ('git commit -m "no uses git push --force"', 'echo "git push --force"', "echo 'git reset --hard'",
+                    "git commit -m \"bash -c 'git push --force'\"", "grep -r 'iex git push --force' .",
+                    'Write-Output "rm -rf %s"' % FUERA, "bash script.sh 'git push --force'", "bash -c 'printf %s' 'git push --force'",
+                    "powershell -File x.ps1 'git push --force'", 'cmd /k echo "git push --force" > nota.txt',
+                    "eval echo 'git push --force'", "sudo -u ana bash script.sh 'rm -rf %s'" % FUERA,
+                    'echo "C:\\Program Files\\Git\\cmd\\git.exe" push --force', 'git log --grep "git" push origin +main'):
+        for herramienta in (None, "Bash", "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] is None, (comando, herramienta)
+
+
+def test_git_llamado_por_una_ruta_entre_comillas_bloquea_como_git():
+    en_ps = ('& "C:\\Program Files\\Git\\cmd\\git.exe" push --force', "& 'git' push --force",
+             '& "C:\\Program Files\\Git\\cmd\\git.exe" reset --hard', "& 'C:\\Program Files\\Git\\cmd\\git.exe' clean -fd",
+             '& "C:\\Program Files\\Git\\cmd\\git.exe" push origin +main')
+    en_bash = ('"/c/Program Files/Git/cmd/git.exe" push --force', "'/usr/bin/git' push origin +main",
+               '"/c/Program Files/Git/cmd/git.exe" reset --hard')
+    for comando in en_ps:
+        assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] == "block", comando
+    for comando in en_bash:
+        for herramienta in (None, "Bash"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] == "block", (comando, herramienta)
+    for comando in ('& "C:\\Program Files\\Git\\cmd\\git.exe" push --force-with-lease', '& "C:\\Program Files\\Git\\cmd\\git.exe" status',
+                    '& "C:\\Program Files\\GitHub CLI\\gh.exe" pr create --force', "& 'git' log --oneline -3"):
+        assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] is None, comando
+
+
 def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
     for host in ("otro", "", None):
         codigo, salida, error = G.correr(evento("ls"), entorno=dict(ENTORNO), host=host)

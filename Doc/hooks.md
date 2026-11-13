@@ -20,6 +20,10 @@ guard-comandos bloqueó el comando: git push --force (si de verdad hace falta fo
 
 Las reglas que corren después de editar son las de tu instancia: ver [Capas y reglas propias](capas-y-reglas.md).
 
+## Qué frenan y qué no
+
+Los guards frenan los errores y los atajos del agente, también cuando escribe el comando dentro de un shell (`bash -c '…'`, `powershell -Command "…"`, `iex '…'`) o llama a git por su ruta completa. No frenan a un agente que intenta esquivarlos a propósito, por ejemplo partiendo una palabra con comillas (`gi''t`). Para eso está el sandbox del sistema, no un hook. La lista de formas conocidas que quedan fuera está en [`Doc/diseno.md`](diseno.md#guard-de-comandos-guard_comandospy-l48-l49-l52-l53).
+
 ## Si Python no arranca
 
 Los hooks los lanza `python3`. Si no arranca, en Claude Code 2.1.295 o más la herramienta queda bloqueada con el error; con una versión anterior, y siempre en Codex, la herramienta pasa sin el chequeo. En ese caso, la defensa es el ítem `python` de `/odd-ws:doctor`, que revisa el intérprete que lanza cada CLI declarado.
