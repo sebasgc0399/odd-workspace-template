@@ -1684,6 +1684,31 @@ def test_git_llamado_por_una_ruta_entre_comillas_bloquea_como_git():
         assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] is None, comando
 
 
+def test_reconocer_git_por_su_ruta_es_una_pasada_mas_y_no_afloja_lo_que_bloqueaba():
+    for comando in ("echo 'A\"B;\"C'/git\"D\" ; git push --force ; echo 'E'", "echo 'A\"B;\"C'/git\"D\" ; git reset --hard ; echo 'E'",
+                    "echo 'A\"B;\"C'/git\"D\" ; git push origin +main ; echo 'E'"):
+        for herramienta in (None, "Bash", "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] == "block", (comando, herramienta)
+
+
+def test_el_cuerpo_de_un_heredoc_que_no_recibe_un_shell_no_se_lee_como_shell():
+    for comando in ("cat <<'EOF' > nota.md\nbash -c 'git push --force'\nEOF", "cat <<EOF > x.md\nUsa eval 'git reset --hard' solo a mano.\nEOF",
+                    "cat <<'EOF' >> notas.md\n- iex 'git push --force' ahora bloquea\nEOF", "cat <<'EOF' | tee nota.md\nsh -c 'git clean -fd'\nEOF",
+                    "cat <<'EOF' > nota.md\n& \"C:\\Program Files\\Git\\cmd\\git.exe\" push --force\nEOF",
+                    "cat <<'EOF' > nota.md\n\"/usr/bin/git\" reset --hard\nEOF"):
+        for herramienta in (None, "Bash", "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] is None, (comando, herramienta)
+    for comando in ("bash <<'EOF'\nbash -c 'git push --force'\nEOF", "cat <<'EOF' | bash\nsh -c 'git push --force'\nEOF",
+                    "cat <<'EOF' > script.sh\ngit push --force\nEOF"):
+        for herramienta in (None, "Bash"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] == "block", (comando, herramienta)
+
+
+def test_un_marcador_armado_en_el_texto_no_rompe_la_lectura():
+    comando = "bash -c 'git push --force'; bash -c 'echo \x00%s\x00'" % ("9" * 5000)
+    assert G.analizar(comando, None, ENTORNO, None, "Bash")[0] == "block"
+
+
 def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
     for host in ("otro", "", None):
         codigo, salida, error = G.correr(evento("ls"), entorno=dict(ENTORNO), host=host)

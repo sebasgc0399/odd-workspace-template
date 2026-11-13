@@ -103,7 +103,10 @@ OPCION_CON_VALOR_PS = re.compile(r"(?i)^-(executionpolicy|ex|ep|windowstyle|w|ve
 OPCION_CON_VALOR_WSL = re.compile(r"(?i)^(-d|-u|--distribution|--user|--cd)$")
 CMD_C = re.compile(r"(?i)^/[ck]$")
 GIT_CITADO = re.compile(r"""(?i)(^|[;&|(\r\n{])(\s*)(?:"(?:[^"\r\n]*[\\/])?git(?:\.exe)?"|'(?:[^'\r\n]*[\\/])?git(?:\.exe)?')""")
-CUERPO_APARTADO = re.compile(r"\x00(\d+)\x00")
+CUERPO_APARTADO = re.compile(r"\x00(\d{1,6})\x00")
+HEREDOC_LINEA = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?([^\r\n]*)\r?\n")
+LEE_EL_HEREDOC = re.compile(r"(?i)\b(bash|sh|zsh|dash|pwsh|powershell|python|node)\b")
+TUBO_A_SHELL = re.compile(r"(?i)\|\s*(bash|sh|zsh|dash|pwsh|powershell|python|node)\b")
 MAX_PROFUNDIDAD_SHELL = 2
 GIT_VARIABLE = re.compile(r"(?i)(^|[\s;&|(:])GIT_(CONFIG\w*|EXTERNAL_DIFF|EXEC_PATH|SSH|SSH_COMMAND|ASKPASS|PROXY_COMMAND)\s*=")
 HEREDOC_A_SHELL = re.compile(r"(?i)<<-?\s*['\"]?\w+['\"]?[^\r\n]*\|\s*(bash|sh|zsh|pwsh|powershell)\b")
@@ -557,19 +560,51 @@ def _codigo_del_shell(nombre, resto):
     return None
 
 
-def _capa_1(base, entorno, powershell=False, profundidad=0):
-    _vigente()
-    con_git = GIT_CITADO.sub(r"\1\2git", base)
-    scan = SIMPLES.sub(" ", DOBLES.sub(" ", con_git))
+def _sin_cuerpos_de_texto(texto):
+    salida, i = [], 0
+    while True:
+        m = HEREDOC_LINEA.search(texto, i)
+        if m is None:
+            break
+        _vigente()
+        cierre = re.compile(r"\r?\n\s*" + re.escape(m.group(1))).search(texto, m.end())
+        if cierre is None:
+            break
+        linea = texto[texto.rfind("\n", 0, m.start()) + 1:m.start()]
+        if LEE_EL_HEREDOC.search(linea) or TUBO_A_SHELL.search(m.group(2)):
+            salida.append(texto[i:cierre.end()])
+        else:
+            salida.append(texto[i:m.start()] + " " + m.group(2))
+        i = cierre.end()
+    salida.append(texto[i:])
+    return "".join(salida)
+
+
+def _reglas_de_git(texto):
+    scan = SIMPLES.sub(" ", DOBLES.sub(" ", texto))
     if GIT.search(scan) and PUSH.search(scan) and (FORCE.search(scan) or FORCE_CORTO.search(scan)) and not LEASE.search(scan):
         return "git push --force (si de verdad hace falta forzar, usa --force-with-lease)"
-    motivo = _push_forzado(SIMPLES.sub(" QARG ", DOBLES.sub(" QARG ", con_git)))
+    motivo = _push_forzado(SIMPLES.sub(" QARG ", DOBLES.sub(" QARG ", texto)))
     if motivo:
         return motivo
     if GIT.search(scan) and RESET.search(scan) and HARD.search(scan):
         return "git reset --hard descarta sin vuelta atrás el trabajo sin commitear"
     if GIT.search(scan) and CLEAN.search(scan) and CLEAN_F.search(scan):
         return "git clean -f borra sin vuelta atrás los archivos sin trackear"
+    return None
+
+
+def _capa_1(base, entorno, powershell=False, profundidad=0):
+    _vigente()
+    motivo = _reglas_de_git(base)
+    if motivo:
+        return motivo
+    codigo = _sin_cuerpos_de_texto(base) if "<<" in base else base
+    con_git = GIT_CITADO.sub(r"\1\2git", codigo)
+    motivo = _reglas_de_git(con_git) if con_git != codigo else None
+    if motivo:
+        return motivo
+    scan = SIMPLES.sub(" ", DOBLES.sub(" ", base))
     carpeta = carpeta_scratch(entorno)
     scratch = config_loader.canonica(carpeta) if carpeta else None
     casa = entorno.get("HOME") or entorno.get("USERPROFILE")
@@ -603,9 +638,9 @@ def _capa_1(base, entorno, powershell=False, profundidad=0):
             borra = True
         if borra and not solo_scratch(BORRAN):
             return "borrado recursivo (rm -r, Remove-Item -Recurse, rd /s) fuera del scratch" + pista
-    if profundidad < MAX_PROFUNDIDAD_SHELL and NOMBRA_SHELL.search(base):
-        for codigo, dialecto in _codigo_de_shells(base):
-            motivo = _capa_1(codigo, entorno, dialecto, profundidad + 1)
+    if profundidad < MAX_PROFUNDIDAD_SHELL and NOMBRA_SHELL.search(codigo):
+        for interno, dialecto in _codigo_de_shells(codigo):
+            motivo = _capa_1(interno, entorno, dialecto, profundidad + 1)
             if motivo:
                 return motivo
     return None
