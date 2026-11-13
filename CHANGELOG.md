@@ -2,7 +2,7 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
-## Sin publicar
+## 0.5.0
 
 **El cierre del writer dice también qué no demuestra lo que corrió.** La idea viene del video «Un test en verde puede estar mal», de RefactorIA Devs, con su cadena afirmación → prueba → resultado → límite, que compartió Denver2828. odd-ws ya exigía el resultado (`verificacion:`); ahora exige también el límite.
 
