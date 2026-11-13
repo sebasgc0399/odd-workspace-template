@@ -35,9 +35,9 @@ PROHIBIDAS = re.compile(r"(?:paths|disable-model-invocation|hooks|model)\s*:")
 HUELLAS_DEL_REVISOR = {1: "ab73f19f2dae734c3fae2bb0d1d5a1904c89cfed513d9f7344819ed120c9e0dc"}
 HUELLAS_DEL_REVISOR_DE_DISENO = {1: "3fbcd9c42c77035b069dd112c707748c7c3ab43792afc7f14e7353d49de3aeac"}
 GOLDEN_DEL_WRITER = {
-    "sql": "918331c4d350d9d9b8c24e301affe9afa3421b0ed1f39b77dcb9c675c6c1cef0",
-    "web": "fa3d48f5304aa4691a8083ac42c6d243ff05b1e11479566ead8daa7f2bb5e3f7",
-    "movil": "42d7e5e214e6bc77ce0c1a6c96dac2041d65d641894ac9c37c41cfa337f688c5",
+    "sql": "55d3a5f47e08053847a4e88625cfd718940ba52abac82185f195b86e64d678ed",
+    "web": "cfe86003599599932287a84ce2627a7d7ab05a9643a8e2fc961410ab19989a51",
+    "movil": "16e319336b9fa1a22f11947eec8e7617639c5384940ab1dfe63e0e22380acdc3",
 }
 
 

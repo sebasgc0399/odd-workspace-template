@@ -15,8 +15,12 @@ Objetivo: sumar al bloque de cierre del writer el eslabón «límite» (qué no 
 
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
-| T1 | S1-S4 | `limites:` en `writer_stop.PLANTILLA` y su validación, la plantilla del writer en v2 con su huella, y la documentación (`writer.md`, `Doc/diseno.md`, `Doc/actualizar.md`, CHANGELOG) | inline: un cambio entendido, sin razón de writer (Writer trigger no aplica) | en curso |
-| V | S1-S4 | Un verificador independiente sobre T1 | delegado (ítem 3: el contrato del bloque) | pendiente |
+| T1 | S1-S4 | `limites:` en `writer_stop.PLANTILLA` y su validación, la plantilla del writer en v2 con su huella, y la documentación (`writer.md`, `Doc/diseno.md`, `Doc/actualizar.md`, CHANGELOG) | inline: un cambio entendido, sin razón de writer (Writer trigger no aplica) | hecho: `b2faca3`, avisos del verificador en el commit siguiente (L5) |
+| V | S1-S4 | Un verificador independiente sobre T1 | delegado (ítem 3: el contrato del bloque) | hecho: S1-S4 cumplen, sin blockers (L4) |
+| F1 | — | Seguimiento: `límites:` con tilde o `Limites:` no se reconocen (igual que `verificación:` en la base); bloquea una vez y, si va después de `verificacion`, sus viñetas terminan en `resultado.verificacion` del sidecar (A4) | inline, aparte | pendiente |
+| F2 | — | Seguimiento: una viñeta de `limites` o `verificacion` que empieza con un nombre de campo (`- estado: …`) pisa ese campo, porque `CAMPO_RE` acepta viñeta. Previo para `verificacion` (A5) | inline, aparte | pendiente |
+| F3 | — | Seguimiento: `writer.md` usa «límites» para tres cosas (`## Tus límites`, el bloque `instancia:limites` y el campo); un writer podría listar sus restricciones como límites de la verificación (A6) | inline, aparte | pendiente |
+| F4 | — | Seguimiento: otras formas de «nada» validan como límite (`n/a`, `nada`, `none`, `ningún límite`, `(ninguno)`); S1 solo pide `ninguno`/`ninguna` (A3). Y el orden de las claves de `resultado` en el sidecar cambió (A2: valores idénticos, nadie lo lee) | inline, aparte | pendiente |
 
 ## Log
 
@@ -35,3 +39,17 @@ Objetivo: sumar al bloque de cierre del writer el eslabón «límite» (qué no 
   - **S4 probado de punta a punta:** un cierre sin `limites:` se come el único bloqueo con solo ese error, y el segundo cierre pasa (Claude Code y Codex con su bitácora).
   - **Diferencial del parser contra `347b83b`:** 1604 mensajes (viñetas, valor en línea, varias `verificacion`, campos intercalados, colas con otros encabezados): sacando `limites` y su error, campos y errores dan idénticos.
   - **Suites:** `writer_stop` 53/53, `plantilla_writer` 31/31, `bootstrap_agentes` 47/47, `doctor` 131/131, `codex` 41/41 y `claude_code` 37/37. Enlaces de la doc: 0 rotos.
+- **L4 (2026-11-13), el verificador independiente: S1-S4 cumplen, sin blockers.**
+  - **S1:** 50 casos del parser; los vacíos, `ninguno`/`ninguna` en sus variantes y el placeholder no validan, y el valor en línea, varias líneas, viñetas y sangrías sí, en los tres estados.
+  - **S2:** la frase estaba partida por el ajuste de línea (`writer.md:85-86`), así que un `grep -F` literal no la encontraba; el contenido sí estaba.
+  - **S3:** huella v2 y v1 coinciden; los revisores siguen en v1. Escenario real con un writer v1 de la base: el doctor nuevo da AVISO «está en la plantilla v1 y el plugin trae la v2» con `--arreglar writer-sql`, que conserva la `description` y los bloques; `codex-agentes` da FALTA hasta su `--arreglar`, y el TOML queda con `# odd-ws-plantilla: 2` y `limites:`.
+  - **S4:** de punta a punta en Claude Code y Codex (bitácora), y por el entrypoint real. Ninguna afirmación de la doc nueva es falsa.
+  - **Sin regresión:** 183 117 comparaciones del parser sin `limites`: 0 diferencias. Consumidores: `PLANTILLA` solo en `plantilla_writer.py:120`, `parsear_resultado` solo en `decidir`, nadie lee `resultado` del sidecar.
+  - **Suites:** 13 en verde, entre ellas `writer_stop` 53/53 y `plantilla_writer` 31/31.
+  - **Avisos:** A1 (la frase partida), A3 (comillas de texto), A7 (`Doc/actualizar.md` frente a lo que imprime el doctor), A8 (el test de Codex no probaba un escenario limpio) y A9 (redacción en `diseno.md`) se aplican en L5. A2, A3 (resto), A4, A5 y A6 pasan a F1-F4.
+- **L5 (2026-11-13), los avisos aplicados.**
+  - **A1:** la frase de S2 queda en una línea propia; un test nuevo la busca literal en lo generado para Claude Code y Codex, con los cuatro ejemplos. La huella v2 y los snapshots se recalcularon (la v2 no se publicó).
+  - **A3:** `"ninguno"`, `«ninguna»` y `“Ninguno.”` tampoco valen.
+  - **A7 y A9:** `Doc/actualizar.md` cita el AVISO que imprime el doctor y la FALTA de `codex-agentes`; `Doc/diseno.md` y el CHANGELOG dicen «regenerar con `--arreglar`».
+  - **A8:** un test de Codex con el escenario limpio: solo falta `limites` y el cierre completo pasa a la primera.
+  - **Suites:** `writer_stop` 54/54, `plantilla_writer` 32/32, `bootstrap_agentes` 47/47, `doctor` 131/131 y `codex` 41/41.

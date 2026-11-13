@@ -22,6 +22,6 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 
 ## Después de actualizar: regenerar los writers
 
-Corre `/odd-ws:doctor` (en Codex, `$doctor`). Si una versión cambia la plantilla de los writers, cada `writer-<capa>` sale **atrasado**: aplica su arreglo (`--arreglar writer-<capa>`) y, si usas Codex, después `--arreglar codex-agentes`, que deriva los TOML desde el `.md` ya regenerado. Regenerar conserva la `description` y los bloques `<!-- instancia:... -->` de cada writer.
+Corre `/odd-ws:doctor` (en Codex, `$doctor`). Si una versión cambia la plantilla de los writers, cada `writer-<capa>` sale en AVISO, con el motivo «está en la plantilla v1 y el plugin trae la v2» (o las versiones que toquen). Aplica su arreglo, `--arreglar writer-<capa>`. Si usas Codex, `codex-agentes` sale en FALTA porque sus TOML quedaron atrás: aplica también `--arreglar codex-agentes`. Regenerar conserva la `description` y los bloques `<!-- instancia:... -->` de cada writer.
 
 Mientras un writer siga en la plantilla vieja, la compuerta de cierre le pide lo que la plantilla nueva agrega. Por ejemplo, desde la plantilla 2 un writer de la plantilla 1 cierra sin `limites:`, se come el único bloqueo de la compuerta y pasa en el segundo cierre. No se traba, pero cada cierre gasta ese aviso hasta que lo regeneres.

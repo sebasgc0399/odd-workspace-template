@@ -20,14 +20,14 @@ from odd_ws import capas as convencion  # noqa: E402
 CAPAS = ("sql", "web", "movil")
 BLOQUES = ("identidad", "limites", "verificacion")
 HUELLAS_POR_VERSION = {1: "e20a7bdca2eba9d355a04ebd6faca3758fad17b686b3477933c5be7fc89a8eb3",
-                       2: "420d4310a15c4db814a3c92cd3f2b16780118c96bf0d7b20ca8cd5aaa5903e88"}
+                       2: "8ce9f66810aeed120833901f5c31152bfa95df7d217796046c9cf7604d3843b7"}
 GOLDEN_DEL_WRITER = {
-    "sql": "918331c4d350d9d9b8c24e301affe9afa3421b0ed1f39b77dcb9c675c6c1cef0",
-    "web": "fa3d48f5304aa4691a8083ac42c6d243ff05b1e11479566ead8daa7f2bb5e3f7",
-    "movil": "42d7e5e214e6bc77ce0c1a6c96dac2041d65d641894ac9c37c41cfa337f688c5",
-    "a": "475366076320cfe562d0bc4a13e88bec9b386a5babf0048f821b0e9c64fe7fb1",
-    "x-y-1": "4742a2717a1b993ae4b6aa549d8e859ad7ac2d5721fdb25aae17b2cce1e22a8f",
-    "capa-larga-con-guiones": "3e7de8d4c3a4254ddedbd8f2f89ab440174e72784da9463d593694d94d4ec739",
+    "sql": "55d3a5f47e08053847a4e88625cfd718940ba52abac82185f195b86e64d678ed",
+    "web": "cfe86003599599932287a84ce2627a7d7ab05a9643a8e2fc961410ab19989a51",
+    "movil": "16e319336b9fa1a22f11947eec8e7617639c5384940ab1dfe63e0e22380acdc3",
+    "a": "7b974e68c1be1c9883338e90ea6bc5ecd1cfccf139068749b0e788b53aecb36a",
+    "x-y-1": "41fd8f718789bc7c7494f41fcbf5499cab38896df56201b4729fc67c66f6bc12",
+    "capa-larga-con-guiones": "8911d572eb4190bfa75b82cdb25d225bee7f8313dbddd189b4427af58819c7f6",
 }
 DESCRIPCION_RARA = 'Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
 PLANTILLAS_DE_AGENTES = ("writer.md", "revisor.md", "revisor-diseno.md")
@@ -155,6 +155,15 @@ def test_la_version_sale_de_la_plantilla_y_va_en_el_frontmatter():
     assert isinstance(version, int) and version >= 1, version
     assert "odd-ws-plantilla: %d" % version in frontmatter(p().generar("sql")).splitlines()
     assert p().version(plantilla_vieja()) == 0
+
+
+def test_el_writer_explica_limites_con_la_frase_entera_en_claude_code_y_en_codex():
+    frase = "Una suite verde demuestra los casos que ejecuta. Nada más."
+    for host in ("claude-code", "codex"):
+        generado = p().generar("sql", host=host)
+        assert frase in generado and "- `limites`:" in generado and "\nlimites:\n" in generado, host
+        for ejemplo in ("ningún test cubre", "otro sistema operativo", "una integración", "los datos reales"):
+            assert ejemplo in generado, (host, ejemplo)
 
 
 def test_cambiar_lo_generado_obliga_a_subir_la_version():

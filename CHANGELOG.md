@@ -9,7 +9,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 ### Lo que cambia para ti
 
 - **El bloque `## Resultado` del writer suma `limites:`**, con al menos una línea por cada cosa que su verificación no demuestra: un caso que ningún test cubre, otro sistema operativo, una integración que no corrió, los datos reales. Una suite verde demuestra los casos que ejecuta. Nada más. `ninguno` no vale.
-- **Después de actualizar, corre `/odd-ws:doctor`** (en Codex, `$doctor`) y regenera los writers que salgan atrasados: `--arreglar writer-<capa>` y, si usas Codex, después `--arreglar codex-agentes`. Un writer que quede en la plantilla anterior cierra sin `limites:`, se come el único bloqueo de la compuerta y pasa en el segundo cierre, hasta que lo regeneres. Los pasos están en `Doc/actualizar.md`.
+- **Después de actualizar, corre `/odd-ws:doctor`** (en Codex, `$doctor`) y regenera los writers que siguen en la plantilla anterior: `--arreglar writer-<capa>` y, si usas Codex, después `--arreglar codex-agentes`. Un writer que quede en la plantilla anterior cierra sin `limites:`, se come el único bloqueo de la compuerta y pasa en el segundo cierre, hasta que lo regeneres. Los pasos están en `Doc/actualizar.md`.
 
 ### Detalle técnico
 

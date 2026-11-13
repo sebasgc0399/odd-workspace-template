@@ -82,10 +82,11 @@ compuerta):
 - `arbol`: `sucio (archivos y hunks)` si dejaste cambios, `sin cambios` si no tocaste nada. Nunca
   revertiste.
 - `verificacion`: una línea `- <comando>: <resultado>` por cada comando que corriste.
-- `limites`: una línea `- <…>` por cada cosa que tu verificación no demuestra. Una suite verde demuestra
-  los casos que ejecuta. Nada más. Por ejemplo: un caso que ningún test cubre, otro sistema operativo, una
-  integración que no corriste (la base, una API, otro servicio) o los datos reales. `ninguno` no vale.
-  No es `partial`: `partial` dice qué quedó sin verificar, y `limites`, qué no cubre lo que sí verificaste.
+- `limites`: una línea `- <…>` por cada cosa que tu verificación no demuestra.
+  Una suite verde demuestra los casos que ejecuta. Nada más.
+  Por ejemplo: un caso que ningún test cubre, otro sistema operativo, una integración que no corriste
+  (la base, una API, otro servicio) o los datos reales. `ninguno` no vale. No es `partial`: `partial`
+  dice qué quedó sin verificar, y `limites`, qué no cubre lo que sí verificaste.
 
 Antes de dejarte cerrar, la compuerta saca tus archivos {{host:origen-de-archivos}}, corre los chequeos de capa y valida
 este bloque. Si algo falta, te bloquea **una sola vez** con todo junto y las líneas reales ya medidas;

@@ -43,7 +43,7 @@ ENTRADA_RE = re.compile(r"^\s*[-*]\s+(\S.*?)\s*$")
 CON_RESULTADO_RE = re.compile(r"\S:\s+\S")
 PLACEHOLDER_RE = re.compile(r"<[^<>\n]+>")
 ARBOL_RE = re.compile(r"^(sin cambios|sucio\s*\(.+\))\.?$", re.IGNORECASE)
-NINGUNO_RE = re.compile(r"^[`*_\s]*ningun[oa][`*_\s.]*$", re.IGNORECASE)
+NINGUNO_RE = re.compile(r"^[`*_\s\"'«“]*ningun[oa][`*_\s.\"'»”]*$", re.IGNORECASE)
 
 _VERIFICAR = []
 _GUARDIA = []

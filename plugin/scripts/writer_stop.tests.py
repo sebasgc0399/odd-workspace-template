@@ -319,6 +319,7 @@ def test_resultado_invalido_dice_que_falta():
         ("limites que solo dice ninguno", resultado(limites="- ninguno"), "limites"),
         ("limites que solo dice ninguna", resultado(limites="- Ninguna."), "limites"),
         ("limites con ninguno entre comillas", resultado(limites="- `ninguno`\n- **ninguna**"), "limites"),
+        ("limites con ninguno entre comillas de texto", resultado(limites="- \"ninguno\"\n- «ninguna»\n- “Ninguno.”"), "limites"),
         ("limites en la misma linea con ninguno", resultado(limites=None).replace("\n\n## Key", "\nlimites: ninguno\n\n## Key"), "limites"),
         ("limites con la plantilla", resultado(limites="- <qué no demuestra la verificación>"), "limites"),
         ("el bloque cortado a mitad", "## Resultado\nestado: ok\n", "regla"),
@@ -1002,6 +1003,18 @@ def test_codex_la_compuerta_exige_limites_igual_que_en_claude_code():
         est = estado_escrito(inst)
         assert any("limites" in e for e in est["formato_errores"]) and est["resultado"]["limites"] == [], est
         assert correr(evento(t, resultado("ok", limites=None), activo=True), inst, host="codex") == SILENCIO
+
+
+def test_codex_sin_hallazgos_de_capa_solo_falta_limites_y_completo_cierra_a_la_primera():
+    with temporal() as base, posix():
+        repo, archivo, nuevo, inst, sal = escenario_codex(base)
+        escribir(repo, "Core/A/B.cs", "a\nb\nc\nlimpio\n")
+        t = transcript(base, [("Edit", {"file_path": str(base / "ajeno.cs")})])
+        razon = bloqueo(correr(evento(t, resultado("ok", limites=None)), inst, host="codex")[1]) or ""
+        assert "falta `limites:`" in razon and "Chequeos de capa" not in razon, razon
+        assert estado_escrito(inst)["formato_errores"] == [e for e in W.parsear_resultado(resultado("ok", limites=None))[1]]
+        assert correr(evento(t, resultado("ok")), inst, host="codex") == SILENCIO, "con limites cierra a la primera"
+        assert estado_escrito(inst)["resultado"]["limites"] == ["no corrió contra la base real, solo contra los datos de prueba"]
 
 
 def test_codex_sin_poder_leer_la_bitacora_decide_como_un_transcript_ilegible_y_lo_dice():
