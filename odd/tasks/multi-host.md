@@ -31,23 +31,30 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 
 ### Matriz de capacidades (2026-11-07)
 
-| Capacidad | Claude Code | Codex 0.167 | Copilot CLI | Gemini CLI 0.67 | OpenCode V2 2.2.6 |
-|---|---|---|---|---|---|
-| P1 contexto al iniciar | sí | sí (`source` incluye `compact`) | sí | parcial: no hay `compact` | parcial: no distingue el origen |
-| P2 bloquear una edición | sí | sí, parseando las rutas de `apply_patch` | sí, parseando `apply_patch` | sí | sí |
-| P3 guard de shell que pregunta | sí | bloquea; preguntar no (`ask` falla abierto) | bloquea; `ask` interactivo, a verificar | bloquea; `ask` no documentado, hay política TOML | sí (`permission.evaluate`) |
-| P4 post-edición y lecturas | sí | edición sí; lecturas no (no hay tool de lectura) | sí | sí | da contexto, no bloquea |
-| P5 compuerta de fin de subagente | sí | sí | sí, con un tope de 8 bloqueos | no | parcial: solo `experimental.idle` |
-| P6 identidad del agente en los hooks | sí | sí (`agent_id`, `agent_type`) | sí; el payload por evento, a verificar | no | sí |
-| P7 subagentes propios | sí | parcial: TOML sin lista de tools, y el plugin no los trae | a verificar | parcial (`.gemini/agents`) | parcial: el plugin no los trae |
-| P8 skills del plugin | sí | sí (SKILL.md) | a verificar | sí, sin namespace | parcial: por código |
-| P9 distribución | sí | sí, lee `.claude-plugin` | sí, lee `.claude-plugin` | sí (`gemini-extension.json`) | parcial: npm, sin raíz del plugin |
-| P10 instrucciones por carpeta | sí (CLAUDE.md apilado) | parcial: AGENTS.md, al arrancar | a verificar | sí (GEMINI.md, carga JIT) | sí (AGENTS.md, carga diferida) |
+| Capacidad | Claude Code | Codex 0.167 | Copilot CLI | Gemini CLI 0.67 | OpenCode V2 2.2.6 | gentle-shell 4.7.0 (Pi 1.5.2) |
+|---|---|---|---|---|---|---|
+| P1 contexto al iniciar | sí | sí (`source` incluye `compact`) | sí | parcial: no hay `compact` | parcial: no distingue el origen | sí: `session_start` (startup, reload, new, resume, fork) y `session_compact` aparte; el texto va al system prompt |
+| P2 bloquear una edición | sí | sí, parseando las rutas de `apply_patch` | sí, parseando `apply_patch` | sí | sí | sí: `tool_call` de `edit` y `write`, una ruta cruda por llamada; un error del handler bloquea |
+| P3 guard de shell que pregunta | sí | bloquea; preguntar no (`ask` falla abierto) | bloquea; `ask` interactivo, a verificar | bloquea; `ask` no documentado, hay política TOML | sí (`permission.evaluate`) | sí con pantalla (`ctx.ui.confirm`); sin pantalla, `confirm` da `false` y bloquea; herramientas `bash` y `powershell` |
+| P4 post-edición y lecturas | sí | edición sí; lecturas no (no hay tool de lectura) | sí | sí | da contexto, no bloquea | sí: `tool_result` en toda herramienta, `read` incluida; un error del handler falla abierto |
+| P5 compuerta de fin de subagente | sí | sí | sí, con un tope de 8 bloqueos | no | parcial: solo `experimental.idle` | Pi no; gentle-shell, parcial: `agent_before_settle` dentro del proceso hijo, sin probar |
+| P6 identidad del agente en los hooks | sí | sí (`agent_id`, `agent_type`) | sí; el payload por evento, a verificar | no | sí | parcial: el hijo sabe que es hijo, pero no su nombre; el padre lo ve en `subagent_run` |
+| P7 subagentes propios | sí | parcial: TOML sin lista de tools, y el plugin no los trae | a verificar | parcial (`.gemini/agents`) | parcial: el plugin no los trae | parcial: `.pi/agents/*.md` con lista de tools, sin skills; no lee `.claude/agents` |
+| P8 skills del plugin | sí | sí (SKILL.md) | a verificar | sí, sin namespace | parcial: por código | sí, sin namespace, con `disable-model-invocation`; `.claude/skills` solo por `resources_discover` |
+| P9 distribución | sí | sí, lee `.claude-plugin` | sí, lee `.claude-plugin` | sí (`gemini-extension.json`) | parcial: npm, sin raíz del plugin | sí: paquete Pi (clave `pi`) con `gentle-shell install`; sin `PLUGIN_ROOT` |
+| P10 instrucciones por carpeta | sí (CLAUDE.md apilado) | parcial: AGENTS.md, al arrancar | a verificar | sí (GEMINI.md, carga JIT) | sí (AGENTS.md, carga diferida) | parcial: `AGENTS.md` o `CLAUDE.md`, uno por carpeta, del cwd a la raíz, al arrancar |
 
-gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm i -g gentle-pi` (L6). De Pi se sabe esto:
-- `tool_call` bloquea con `{block, reason}` y puede preguntar con `ctx.ui.confirm`;
-- después de la herramienta corre `tool_result`;
-- no trae subagentes nativos, y gentle-shell los agrega (a verificar en F2).
+**Fuentes de la columna gentle-shell (L44).** Se leyeron los paquetes como datos, sin ejecutarlos: `[pi]` es https://cdn.jsdelivr.net/npm/@earendil-works/pi-coding-agent@1.5.2/ y `[gs]` es https://cdn.jsdelivr.net/npm/gentle-pi@4.7.0/. La wiki de GitHub de gentle-shell devuelve el README, y su enlace «Wiki» va a la de gentle-ai, que en la parte de Pi está desactualizada.
+- **P1:** [pi] `dist/core/extensions/types.d.ts:595-655`, `docs/extensions.md:615-659` y `examples/extensions/claude-rules.ts:54-80`.
+- **P2:** [pi] `dist/core/tools/edit.d.ts:5-11`, `dist/core/tools/write.d.ts:4-7` y `dist/core/tools/path-utils.js:35-44`. La falla cerrada: `dist/core/extensions/runner.js:965-980`, `dist/core/agent-session.js:381-401` y `docs/extensions.md:3253`.
+- **P3:** [pi] `dist/core/tools/bash.d.ts:6-9`, `docs/windows.md:19-55`, `docs/extensions.md:1171-1177`, `dist/core/extensions/runner.js:132-135` y `docs/rpc-extension-ui.md:7-10`; [gs] `extensions/child-safety.ts:6-22`.
+- **P4:** [pi] `dist/core/agent-session.js:403-418`, `dist/core/extensions/runner.js:908-950` y `dist/core/extensions/types.d.ts:1134-1140`.
+- **P5:** [pi] `README.md:19` y `docs/extensions.md:663-695`; [gs] `lib/agents-runner.ts:343-364`, `lib/agents-protocol.ts:270-289` y `lib/child-package-injection.ts:58-62`.
+- **P6:** [pi] `dist/core/extensions/runner.js:621-698` y `dist/core/extensions/types.d.ts:951-961,1110`; [gs] `lib/agents-runner.ts:262-268,679-704` y `extensions/gentle-ai.ts:12796-12820`.
+- **P7:** [gs] `lib/agents-config.ts:186-222`.
+- **P8:** [pi] `docs/skills.md:53-85`, `dist/core/skills.js:244-279,355-356` y `docs/extensions.md:448-463`.
+- **P9:** [pi] `docs/packages.md:9-116`, `docs/extensions.md:211` y `examples/extensions/dynamic-resources/index.ts:5`; [gs] `README.md:486-519` y `docs/readme-reference.md:271-281,336-337`.
+- **P10:** [pi] `dist/core/resource-loader.js:129-209` y `docs/configuration.md:5,41-47`; [gs] `extensions/child-context.ts:20-28`.
 
 ## Tasks
 
@@ -66,7 +73,7 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
 | M1 | S4 | Un CI que corra todas las suites en Windows, Linux y macOS (L30). Hoy las suites solo corren en el pre-commit de una máquina Windows, y el único workflow es `release.yml` | inline | hecho (L34) |
 | M2 | S4 | Un arranque de Python portable. Los 13 hooks llaman a `python`, que no existe en una Mac típica, y entonces el hook no arranca y los guards fallan abiertos. En Codex: `command` con `python3` y `commandWindows` con `python`. En Claude Code: por investigar (L30) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítems 2, 3 y 5) | hecho (L34) |
 | M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job (L35: ya lo crea) | delegado: M3a, M3b y M3c en paralelo (Writer trigger a); el padre, `writer_guard.tests` y `verificar_capa.tests`. M3c `1cfd042`, M3b `04d0674` y M3a `0a1af09`; entrega `0.3.1` en `906864b`; M3a y M3b con verificador independiente y rechequeo cerrado (L39-L42) | hecho (CI verde, L43) |
-| F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | por decidir | pendiente |
+| F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | investigación inline con dos exploradores; el resto, por decidir | en curso: investigación hecha (L44), plan propuesto |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
 | F5 | S2–S4, S7 | Copilot CLI: verificar antes los nombres de las tools y el payload de cada evento | por decidir | pendiente |
@@ -647,3 +654,15 @@ gentle-shell todavía no está investigado. Corre sobre Pi y se instala con `npm
     - etiqueta `odd-ws--v0.3.1`, y `main` avanza por fast-forward hasta el commit de la entrega.
   - **Siguiente paso:** F2, gentle-shell (Pi). Los seguimientos X1-X12 quedan abiertos.
   - **`Doc/diseno.md`:** el padre integró las notas de M3a: el scratch por OS en los dos guards, `..` y `\` en POSIX, el plegado en macOS y `//`.
+- **L44 (2026-11-13), arranque de F2: la investigación.** `main` está en `318864e` (0.5.0, con `limites:` en el cierre del writer). La rama `feat/multi-host-pi` sale de ahí.
+  - **El pedido:** «Arrancamos F2 de odd-ws: gentle-shell sobre Pi.» Paso 1: «Investiga Pi y gentle-shell, y llena su columna P1-P10 de la matriz. Cada celda lleva su fuente». Paso 2: «Propón el plan de F2 antes de escribir código.»
+  - **Cómo se investigó:** con las versiones fijas, Pi 1.5.2 (el paquete ahora es `@earendil-works/pi-coding-agent`) y gentle-pi 4.7.0, leídos como datos y sin ejecutarlos. Dos exploradores trabajaron en paralelo, y el padre comprobó en el código los dos datos que más pesan: que un error en `tool_call` bloquea, y que el hijo carga extensiones de terceros.
+  - **Lo que cambia el diseño:**
+    - **Falla cerrada a medias.** Un error o una promesa rechazada en `tool_call` bloquea la herramienta, pero Pi no le pone timeout a ningún handler, así que el shim tiene que poner el suyo. Los demás eventos fallan abiertos: `tool_result`, `session_start` y `agent_before_settle`.
+    - **El shim no puede usar `pi.exec`,** que lanza con `stdin: "ignore"` ([pi] `dist/core/exec.js:21-22`). Tiene que usar `node:child_process` sin shell, lo que de paso esquiva la conversión del exit code que hace PowerShell (L15).
+    - **El dialecto.** En Windows, `bash` es Git Bash, así que es POSIX, al revés que en Codex. La herramienta opcional `powershell` también necesita guard.
+    - **Los subagentes de gentle-shell.** Cada uno es un proceso `pi --mode rpc` aparte, que carga los paquetes del home y `.pi/extensions` (solo un takeover pasa `--no-extensions`), así que los guards también corren dentro del writer. El padre recibe como resultado el último mensaje y lo da por cerrado en `agent_settled`.
+    - **La identidad.** El hijo sabe que es hijo (`GENTLE_PI_AGENTS_CHILD=1`), pero nada le dice su nombre; el padre lo ve en el `input.agent` de `subagent_run`. Sin el nombre no hay writer (S4).
+    - **La instalación.** El home aislado de gentle-shell, `~/.gentle-shell/agent`, no ve los paquetes de `~/.pi/agent` sin `--link`. Un paquete de terceros se instala con `gentle-shell install <fuente>`.
+    - **Convivencia.** gentle-pi exige `## Allowed edit surfaces` a sus propios writers (`gentle-ai-worker`, `worker` y `jd-fix-agent`); los `writer-*` de odd-ws no chocan. Sus guards de shell cubren `bash`, pero no `powershell`.
+  - **Pendiente:** el plan de F2 y una pregunta de producto, sobre la identidad del writer.
