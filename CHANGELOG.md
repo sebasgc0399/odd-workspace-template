@@ -2,6 +2,27 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.4.1
+
+**Los guards ven más formas de escribir el mismo comando.** Un force push o un borrado que el agente escribe dentro de un shell, con la ruta completa de git o con un escape de PowerShell ya no pasa sin el chequeo. No tienes que cambiar nada en tu instancia.
+
+### Lo que cambia para ti
+
+- **El guard de comandos bloquea también lo que el agente le pasa a un shell:** `bash -c '…'`, `sh -c`, `powershell -Command "…"`, `pwsh -c`, `cmd /c "…"`, `eval '…'`, `iex '…'` e `Invoke-Expression`, también detrás de `sudo`, `docker run` o `xargs`. Lo mismo con git llamado por su ruta: `& "C:\Program Files\Git\cmd\git.exe" push --force`. Un texto que solo menciona el comando sigue pasando: un mensaje de commit, un `echo` o el argumento de un script.
+- **Lo que puede empezar a bloquear:** un borrado fuera del scratch dentro de un contenedor (`docker exec app sh -c 'rm -rf /app/tmp'`) bloquea igual que si se escribiera directo. Si es deliberado, córrelo tú a mano.
+- **En PowerShell,** un backtick dentro de una palabra (``g`it push --force``) ya no esconde el comando, en Claude Code y en Codex.
+- **Dentro de un `writer-<capa>`,** una escritura que sale del scratch hacia un repo bloquea como cualquier escritura sobre el repo, también cuando sale por `.\.`, por un enlace seguido de `..` o con `Join-Path` y `[IO.Path]::Combine`.
+- **En Linux y macOS,** un `..` después de un enlace se resuelve donde apunta el enlace, como lo hace el sistema, al decidir qué repo toca un comando.
+- **Qué frenan y qué no:** la guía de hooks (`Doc/hooks.md`) dice ahora que los guards frenan los errores y los atajos del agente, no a un agente que intenta esquivarlos a propósito.
+
+### Detalle técnico
+
+- **`guard_comandos.py`, capa 1:** lee el primer argumento que un shell recibe como comando (después de `-c`, `-Command` o `/c`, o el de `eval`, `iex` y `wsl`), hasta dos niveles, sin los cuerpos de heredoc que no recibe un shell. Una ruta entre comillas que termina en `git` o `git.exe`, en la posición del comando, cuenta como `git` en una pasada aparte que solo suma bloqueos.
+- **`guard_comandos.py`, escapes:** en el dialecto PowerShell, una segunda pasada sobre el texto sin backticks, que respeta las comillas simples y los here-strings. En Bash, una pieza con `\` fuera de comillas no cuenta como scratch, en ningún sistema.
+- **`writer_guard.py`:** lee una pieza de Bash con `\` como separador y como escape (con un tope, y falla cerrada al pasarlo), decide `Join-Path` y `[IO.Path]::Combine` con la ruta resultante, y sigue el `cd` de Bash como lógico (salvo con `cd -P`, `set -P` o `set -o physical`), con todas las carpetas posibles cuando no se puede saber cuál es.
+- **`odd_ws/rutas.py`:** en POSIX, `ubicar` deja los `..` para `realpath`. En Windows el `..` sigue siendo texto, que es lo que hace Win32. La capa 2 pregunta si una mención toca un repo marcado con la lectura física o con la lógica.
+- **Fuera de alcance, documentado en `Doc/diseno.md`:** una palabra partida con comillas o escapes, un comando en una variable de PowerShell, `Start-Process`, los decodificadores, `-EncodedCommand`, un texto que llega a un shell por una tubería y las sustituciones entre comillas dobles.
+
 ## 0.4.0
 
 **Graduar las memorias del proyecto.** `/odd-ws:cerrar` puede sacar candidatos de las memorias del proyecto, además de los del ticket. La idea de usar las memorias como fuente de candidatos viene de las skills de observaciones de Denver2828 ([gentle-contribution-skills](https://github.com/Denver2828/gentle-contribution-skills)).

@@ -2,7 +2,7 @@
 
 **Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code y Codex CLI que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
 
-**Versión actual:** `0.4.0` ([qué cambió en cada versión](CHANGELOG.md)).
+**Versión actual:** `0.4.1` ([qué cambió en cada versión](CHANGELOG.md)).
 
 ## El problema
 
