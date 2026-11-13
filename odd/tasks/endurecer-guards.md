@@ -30,9 +30,10 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
 | Y7 | — | Seguimiento: el emulador de POSIX de los tests no es fiel en la capa 2 con enlaces (dio `None` donde el real da `ask`, L8) | inline, aparte | pendiente |
 | Y6 | — | A decidir con el usuario, el modelo de amenaza. Las ofuscaciones previas sin cubrir: `& 'git'`, `gi''t`, `g\it`, `--fo"rce"`, `iex`, `bash -c`, `$g`, `Start-Process`, las comillas escapadas que esconden el comando (B3), las sustituciones entre comillas dobles y la capa 2 a través de los escapes | decisión | decidido (L9): pasa a S7-S10 |
 | W1 | S7-S10 | La capa 1 lee dentro de un shell (S8) y reconoce git por una ruta entre comillas (S9), y `Doc/diseno.md` escribe el modelo de amenaza (S7) | inline: un cambio entendido en un archivo de código, sin razón de writer | hecho: `a8e00ea`, corrección de B1 y B2 en el commit siguiente (L10) |
-| V2 | S7-S10 | Un verificador independiente sobre W1 | delegado (ítem 2: un guard) | S7, S8 y S9 cumplen; S10 no cumplía (B1, B2), corregido; rechequeo pendiente (L10) |
+| V2 | S7-S10 | Un verificador independiente sobre W1 | delegado (ítem 2: un guard) | hecho: S7-S10 cumplen; B1, B2 y A5 corregidos en `137fefa` y cerrados en el rechequeo (L10, L11) |
 | Y8 | — | Seguimiento: huecos de S8 y S9 que ya estaban en la base (A3, A4 de L10): un shell por ruta entre comillas fuera del inicio (`sudo "/bin/bash" -c`), subshells y sustituciones (`(bash -c …)`, `$(bash -c …)`), opciones abreviadas de PowerShell (`-exec bypass`, `-win hidden`), `bash --rcfile x -c`, git entre comillas detrás de `sudo`, `env` o `time`, y `git.cmd` | inline, aparte | pendiente |
 | Y9 | — | Seguimiento: costo cuadrático con texto armado (A6 de L10): 10 000 líneas `@'` tardan 6 s sin repos marcados y 11 s con ellos, porque `HERE_STRING.sub` no consulta el plazo. Ofuscación deliberada, fuera del modelo de amenaza, pero puede pasar el timeout del hook | inline, aparte | pendiente |
+| Y10 | — | Seguimiento: `LEE_EL_HEREDOC` busca un shell en toda la línea anterior a `<<`, no solo en el comando que recibe el heredoc: `cd docs/bash-tips && cat <<'EOF' > nota.md` con `bash -c 'git push --force'` en el cuerpo bloquea (L11). Es el criterio de `ALIMENTA_SHELL` de la base | inline, aparte | pendiente |
 
 ## Log
 
@@ -131,3 +132,9 @@ Objetivo: cerrar cuatro formas conocidas de esquivar los guards (X2, X9, X10 y X
   - **A5, en la misma tanda porque es código nuevo:** un marcador `\x00<5000 dígitos>\x00` hacía que `int()` lanzara una excepción y se perdía el bloqueo de un shell anterior. El marcador acepta como mucho 6 dígitos.
   - **Avisos aceptados:** A1 (una palabra de shell sin comillas cuenta en cualquier lugar: `echo bash -c '…'` bloquea, ya documentado) y A2 (`docker exec … sh -c 'rm -rf /app/…'` bloquea, como `rm -rf /app/…` escrito directo). Los huecos previos A3 y A4 pasan a Y8, y el costo cuadrático A6 a Y9.
   - **Pruebas de la corrección:** los tres casos fallan en `a8e00ea` y pasan ahora. Suite 69/69. El diferencial propio da el mismo resultado que con `a8e00ea`: solo cambian filas de S8 y S9, siempre de `None` o `ask` a `block`.
+- **L11 (2026-11-13), el rechequeo, limitado a B1, B2 y A5: cerrados.**
+  - **B1:** sus 36 filas dan `block` como la base. En las 4666 filas, ninguna que la base bloqueaba o preguntaba da algo más laxo, y no hay excepciones.
+  - **B2:** sus 81 filas vuelven a dar lo de la base (`None`, o `ask` con repos marcados). Siguen bloqueando los heredocs que reciben un shell y `cat <<'EOF' > script.sh` con `git push --force` sin comillas.
+  - **A5:** el marcador largo ya no lanza, y no se pierde el bloqueo del primer shell.
+  - **Contra `a8e00ea`:** cambian 74 filas, todas de B1, B2 o A5. Suite 69/69.
+  - **Aviso nuevo:** pasa a Y10.
