@@ -35,9 +35,9 @@ PROHIBIDAS = re.compile(r"(?:paths|disable-model-invocation|hooks|model)\s*:")
 HUELLAS_DEL_REVISOR = {1: "ab73f19f2dae734c3fae2bb0d1d5a1904c89cfed513d9f7344819ed120c9e0dc"}
 HUELLAS_DEL_REVISOR_DE_DISENO = {1: "3fbcd9c42c77035b069dd112c707748c7c3ab43792afc7f14e7353d49de3aeac"}
 GOLDEN_DEL_WRITER = {
-    "sql": "1b99b17a282494b2c83d33bb697c24e88b1c39142eac6bdfea03f408edb1cab4",
-    "web": "3bd61a704704a1ba8340969fcb8b191f469c32f5469c83fb34597c32c76fe086",
-    "movil": "20774e6229f1458f6257bcc76ab33f0c7cdf93e6d4a90e5580e062c5579f3b0f",
+    "sql": "918331c4d350d9d9b8c24e301affe9afa3421b0ed1f39b77dcb9c675c6c1cef0",
+    "web": "fa3d48f5304aa4691a8083ac42c6d243ff05b1e11479566ead8daa7f2bb5e3f7",
+    "movil": "42d7e5e214e6bc77ce0c1a6c96dac2041d65d641894ac9c37c41cfa337f688c5",
 }
 
 
@@ -543,9 +543,13 @@ def test_los_writers_de_codex_cumplen_el_matcher_de_su_compuerta():
 
 def test_el_toml_lleva_su_version_y_su_huella_en_un_comentario_y_no_como_clave():
     _, por_agente = tomls("sql")
+    revisor, diseno = (plantilla_writer.version(plantilla_writer.leer_plantilla(ruta))
+                       for ruta in (a().PLANTILLA_REVISOR, a().PLANTILLA_REVISOR_DISENO))
+    versiones = {"writer-sql": plantilla_writer.version(), "revisor-sql": revisor, "revisor-diseno": diseno}
+    assert set(por_agente) == set(versiones), sorted(por_agente)
     for nombre, texto in por_agente.items():
         cabecera = [linea for linea in texto.split("\n") if linea.startswith("#")]
-        assert "# odd-ws-plantilla: %d" % plantilla_writer.version() in cabecera, (nombre, cabecera)
+        assert "# odd-ws-plantilla: %d" % versiones[nombre] in cabecera, (nombre, cabecera)
         huella = re.fullmatch(r"# odd-ws-hash: ([0-9a-f]{64})", next(l for l in cabecera if l.startswith("# odd-ws-hash:")))
         assert huella and huella.group(1) == codex().huella(texto), (nombre, cabecera)
         assert not [clave for clave in tomllib.loads(texto) if "odd" in clave], nombre

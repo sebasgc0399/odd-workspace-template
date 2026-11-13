@@ -19,14 +19,15 @@ from odd_ws import capas as convencion  # noqa: E402
 
 CAPAS = ("sql", "web", "movil")
 BLOQUES = ("identidad", "limites", "verificacion")
-HUELLAS_POR_VERSION = {1: "e20a7bdca2eba9d355a04ebd6faca3758fad17b686b3477933c5be7fc89a8eb3"}
+HUELLAS_POR_VERSION = {1: "e20a7bdca2eba9d355a04ebd6faca3758fad17b686b3477933c5be7fc89a8eb3",
+                       2: "420d4310a15c4db814a3c92cd3f2b16780118c96bf0d7b20ca8cd5aaa5903e88"}
 GOLDEN_DEL_WRITER = {
-    "sql": "1b99b17a282494b2c83d33bb697c24e88b1c39142eac6bdfea03f408edb1cab4",
-    "web": "3bd61a704704a1ba8340969fcb8b191f469c32f5469c83fb34597c32c76fe086",
-    "movil": "20774e6229f1458f6257bcc76ab33f0c7cdf93e6d4a90e5580e062c5579f3b0f",
-    "a": "e6d2b6d3ef5cb218a6c51e64de97013102558b2a85a9ffa58572503aca52e103",
-    "x-y-1": "47037bbb6d1551bfb32a1ff146a373182210aaed3dc328f63670c989aa30f4da",
-    "capa-larga-con-guiones": "c69a18b7f68c7bab730555f05ec7b8d6235e522b9e8bcae775648fdfd491ff63",
+    "sql": "918331c4d350d9d9b8c24e301affe9afa3421b0ed1f39b77dcb9c675c6c1cef0",
+    "web": "fa3d48f5304aa4691a8083ac42c6d243ff05b1e11479566ead8daa7f2bb5e3f7",
+    "movil": "42d7e5e214e6bc77ce0c1a6c96dac2041d65d641894ac9c37c41cfa337f688c5",
+    "a": "475366076320cfe562d0bc4a13e88bec9b386a5babf0048f821b0e9c64fe7fb1",
+    "x-y-1": "4742a2717a1b993ae4b6aa549d8e859ad7ac2d5721fdb25aae17b2cce1e22a8f",
+    "capa-larga-con-guiones": "3e7de8d4c3a4254ddedbd8f2f89ab440174e72784da9463d593694d94d4ec739",
 }
 DESCRIPCION_RARA = 'Capa "rara": C:\\ruta\\x, # no es comentario, ## Verification y ñ al final'
 PLANTILLAS_DE_AGENTES = ("writer.md", "revisor.md", "revisor-diseno.md")

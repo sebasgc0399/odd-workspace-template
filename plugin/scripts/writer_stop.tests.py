@@ -135,9 +135,11 @@ def resultado(estado="ok", **sobre):
         "estado": estado, "regla": "ninguna", "intento": "ninguno", "presupuesto": "B.cs, techo 20 líneas",
         "reales": "lo completa la compuerta", "arbol": "sucio (B.cs, 1 hunk)",
         "verificacion": "- python -m unittest: 12 pasan, 0 fallan",
+        "limites": "- no corrió contra la base real, solo contra los datos de prueba",
     }
     campos.update(sobre)
-    cuerpo = "\n".join("%s: %s" % (k, v) if k != "verificacion" else "verificacion:\n%s" % v for k, v in campos.items() if v is not None)
+    cuerpo = "\n".join("%s: %s" % (k, v) if k not in ("verificacion", "limites") else "%s:\n%s" % (k, v)
+                       for k, v in campos.items() if v is not None)
     return "Listo, cambié lo pedido.\n\n## Resultado\n%s\n\n## Key Learnings\n1. Algo aprendido que sirve después.\n" % cuerpo
 
 
@@ -285,7 +287,7 @@ def test_resultado_valido_para_los_tres_estados():
                                                arbol="sin cambios", verificacion="- normalizar_sql.py --check: 1 hallazgo\n- python -m unittest: no corrió"))
     assert errores == [], errores
     _, errores = W.parsear_resultado("## Resultado\n- estado: ok\n- regla: ninguna\n- intento: ninguno\n- presupuesto: B.cs 10\n"
-                                     "- reales: x\n- arbol: sin cambios\n- verificacion:\n  - cmd: ok\n")
+                                     "- reales: x\n- arbol: sin cambios\n- verificacion:\n  - cmd: ok\n- limites:\n  - no cubre Windows\n")
     assert errores == [], "tolera las viñetas de lista: %r" % errores
     _, errores = W.parsear_resultado(resultado("ok", verificacion="- a: uno\n- b: dos") + "\n## Otra cosa\nestado: raro\n")
     assert errores == [], "el bloque termina en el siguiente encabezado: %r" % errores
@@ -312,6 +314,13 @@ def test_resultado_invalido_dice_que_falta():
         ("verificacion sin entradas", resultado(verificacion=""), "verificacion"),
         ("verificacion sin resultado", resultado(verificacion="- python -m unittest"), "verificacion"),
         ("verificacion con la plantilla", resultado(verificacion="- <comando>: <resultado observado>"), "verificacion"),
+        ("sin limites", resultado(limites=None), "limites"),
+        ("limites sin entradas", resultado(limites=""), "limites"),
+        ("limites que solo dice ninguno", resultado(limites="- ninguno"), "limites"),
+        ("limites que solo dice ninguna", resultado(limites="- Ninguna."), "limites"),
+        ("limites con ninguno entre comillas", resultado(limites="- `ninguno`\n- **ninguna**"), "limites"),
+        ("limites en la misma linea con ninguno", resultado(limites=None).replace("\n\n## Key", "\nlimites: ninguno\n\n## Key"), "limites"),
+        ("limites con la plantilla", resultado(limites="- <qué no demuestra la verificación>"), "limites"),
         ("el bloque cortado a mitad", "## Resultado\nestado: ok\n", "regla"),
     ]
     for etiqueta, mensaje, esperado in casos:
@@ -323,9 +332,24 @@ def test_resultado_invalido_dice_que_falta():
     assert W.parsear_resultado(ultimo)[1] == [], "vale el ultimo bloque ## Resultado"
 
 
+def test_limites_vale_en_los_tres_estados_y_queda_en_lo_declarado():
+    for estado in ("ok", "partial", "blocked"):
+        campos, errores = W.parsear_resultado(resultado(estado, limites="- no cubre Windows\n- no probó la integración con la API"))
+        assert errores == [], (estado, errores)
+        assert campos["limites"] == ["no cubre Windows", "no probó la integración con la API"], campos
+    en_linea = resultado(limites=None).replace("\n\n## Key", "\nlimites: no cubre otro sistema operativo\n\n## Key")
+    campos, errores = W.parsear_resultado(en_linea)
+    assert errores == [] and campos["limites"] == ["no cubre otro sistema operativo"], (campos, errores)
+    _, errores = W.parsear_resultado(resultado(limites="- ninguno\n- no cubre datos reales"))
+    assert errores == [], "un límite real junto a «ninguno» vale: %r" % errores
+    campos, _ = W.parsear_resultado(resultado(limites="- no cubre Windows"))
+    assert campos["verificacion"] == ["python -m unittest: 12 pasan, 0 fallan"], "verificacion no se mezcla con limites: %r" % campos
+
+
 def test_la_plantilla_es_un_bloque_resultado_que_no_valida():
     assert W.PLANTILLA.startswith("## Resultado\n"), W.PLANTILLA[:20]
-    for campo in ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion"):
+    assert W.PLANTILLA.endswith("\nlimites:\n- <qué no demuestra la verificación>"), W.PLANTILLA[-80:]
+    for campo in ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion", "limites"):
         assert "\n%s:" % campo in W.PLANTILLA, campo
     assert W.parsear_resultado(W.PLANTILLA)[1] != [], "copiar la plantilla sin completar no valida"
 
@@ -398,6 +422,20 @@ def test_con_stop_hook_active_deja_pasar_y_escribe_la_verdad():
         assert est is not None and est["stop_hook_active"] is True, est
         assert est["formato_ok"] is True and [b["id"] for b in est["bloqueos"]] == ["T-02"], est
         assert est["resultado"]["estado"] == "blocked", est["resultado"]
+
+
+def test_un_writer_de_la_plantilla_1_sin_limites_se_come_un_bloqueo_y_el_segundo_cierre_pasa():
+    with temporal() as base:
+        repo, archivo, inst = escenario(base, nuevo_texto="a\nB\nc\nlimpio\n")
+        t = transcript(base, [("Edit", {"file_path": str(archivo)})])
+        e = evento(t, resultado("ok", limites=None))
+        razon = bloqueo(correr(e, inst)[1])
+        assert razon is not None and "limites" in razon and "\nlimites:\n" in razon, razon
+        assert "verificacion" not in razon.split("Cierra con este bloque")[0], "solo falta limites: %s" % razon
+        assert correr(dict(e, stop_hook_active=True), inst) == SILENCIO, "el segundo cierre pasa aunque siga sin limites"
+        est = estado_escrito(inst)
+        assert est["formato_ok"] is False and est["resultado"]["limites"] == [], est
+        assert correr(evento(t, resultado("ok")), inst) == SILENCIO, "con limites cierra a la primera"
 
 
 def test_todo_en_orden_deja_pasar_en_silencio_y_deja_el_estado():
@@ -953,6 +991,17 @@ def test_codex_la_compuerta_lee_la_bitacora_y_no_el_transcript():
         assert (carpeta_de_fotos(inst) / convencion.BITACORA).is_file(), "al bloquear, la bitácora queda para el reintento"
         c, o, e = correr(evento(t, resultado("ok"), activo=True), inst, host="codex")
         assert (c, o, e) == SILENCIO and not carpeta_de_fotos(inst).exists(), "al dejar cerrar se va con las fotos"
+
+
+def test_codex_la_compuerta_exige_limites_igual_que_en_claude_code():
+    with temporal() as base, posix():
+        repo, archivo, nuevo, inst, sal = escenario_codex(base)
+        t = transcript(base, [("Edit", {"file_path": str(base / "ajeno.cs")})])
+        razon = bloqueo(correr(evento(t, resultado("ok", limites=None)), inst, host="codex")[1]) or ""
+        assert "falta `limites:`" in razon and "\nlimites:\n" in razon, razon
+        est = estado_escrito(inst)
+        assert any("limites" in e for e in est["formato_errores"]) and est["resultado"]["limites"] == [], est
+        assert correr(evento(t, resultado("ok", limites=None), activo=True), inst, host="codex") == SILENCIO
 
 
 def test_codex_sin_poder_leer_la_bitacora_decide_como_un_transcript_ilegible_y_lo_dice():

@@ -19,8 +19,10 @@ from odd_ws.eventos import FinSubagente, Permitir, Seguir
 
 EMITE = {FIN_SUBAGENTE: (Seguir,)}
 ESTADOS = ("ok", "partial", "blocked")
-CAMPOS = ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion")
+CAMPOS = ("estado", "regla", "intento", "presupuesto", "reales", "arbol", "verificacion", "limites")
+LISTAS = ("verificacion", "limites")
 SIN_PLACEHOLDER = ("regla", "intento", "presupuesto", "arbol")
+LIMITE_PLACEHOLDER = "<qué no demuestra la verificación>"
 
 PLANTILLA = """## Resultado
 estado: ok | partial | blocked
@@ -30,7 +32,9 @@ presupuesto: <archivos y techo de líneas declarados, ej. B.cs y C.cs, techo 40 
 reales: <lo completa la compuerta; déjalo así>
 arbol: sucio (<archivos y hunks>) | sin cambios
 verificacion:
-- <comando>: <resultado observado>"""
+- <comando>: <resultado observado>
+limites:
+- %s""" % LIMITE_PLACEHOLDER
 
 ENCABEZADO_RE = re.compile(r"^#{1,6}\s")
 RESULTADO_RE = re.compile(r"^##\s+Resultado\s*$")
@@ -39,6 +43,7 @@ ENTRADA_RE = re.compile(r"^\s*[-*]\s+(\S.*?)\s*$")
 CON_RESULTADO_RE = re.compile(r"\S:\s+\S")
 PLACEHOLDER_RE = re.compile(r"<[^<>\n]+>")
 ARBOL_RE = re.compile(r"^(sin cambios|sucio\s*\(.+\))\.?$", re.IGNORECASE)
+NINGUNO_RE = re.compile(r"^[`*_\s]*ningun[oa][`*_\s.]*$", re.IGNORECASE)
 
 _VERIFICAR = []
 _GUARDIA = []
@@ -82,22 +87,21 @@ def parsear_resultado(mensaje):
         if ENCABEZADO_RE.match(l.strip()):
             break
         bloque.append(l)
-    campos, entradas, en_verificacion = {}, [], False
+    campos, listas, lista = {}, {nombre: [] for nombre in LISTAS}, None
     for l in bloque:
         m = CAMPO_RE.match(l)
         if m:
             nombre, valor = m.group(1), m.group(2)
-            en_verificacion = nombre == "verificacion"
-            if en_verificacion:
+            lista = nombre if nombre in LISTAS else None
+            if lista:
                 if valor:
-                    entradas.append(re.sub(r"^[-*]\s+", "", valor))
+                    listas[lista].append(re.sub(r"^[-*]\s+", "", valor))
             else:
                 campos[nombre] = valor
-            campos.setdefault("verificacion", entradas)
             continue
         e = ENTRADA_RE.match(l)
-        if en_verificacion and e:
-            entradas.append(e.group(1))
+        if lista and e:
+            listas[lista].append(e.group(1))
     errores = []
     estado = campos.get("estado", "").strip("`").lower()
     if "estado" not in campos:
@@ -116,10 +120,13 @@ def parsear_resultado(mensaje):
         errores.append("falta `arbol:` («sucio (archivos y hunks)» o «sin cambios»)")
     elif not ARBOL_RE.match(campos["arbol"]):
         errores.append("`arbol:` tiene que ser «sucio (archivos y hunks)» o «sin cambios», no %r" % campos["arbol"])
-    validas = [e for e in entradas if CON_RESULTADO_RE.search(e) and "<comando>" not in e]
+    validas = [e for e in listas["verificacion"] if CON_RESULTADO_RE.search(e) and "<comando>" not in e]
     if not validas:
         errores.append("falta `verificacion:` con al menos una línea `- <comando>: <resultado observado>`")
-    campos["verificacion"] = entradas
+    if not [e for e in listas["limites"] if LIMITE_PLACEHOLDER not in e and not NINGUNO_RE.match(e)]:
+        errores.append("falta `limites:` con al menos una línea `- %s`; «ninguno» no vale: una suite verde demuestra "
+                       "los casos que ejecuta, nada más" % LIMITE_PLACEHOLDER)
+    campos.update(listas)
     return campos, errores
 
 

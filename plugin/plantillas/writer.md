@@ -5,7 +5,7 @@ tools: Read, Glob, Grep, Edit, Write, Bash
 skills:
   - criterios
   - capa-{{capa}}
-odd-ws-plantilla: 1
+odd-ws-plantilla: 2
 odd-ws-hash: {{hash}}
 ---
 <!-- Lo genera odd-ws desde su plantilla de writer (/odd-ws:doctor --arreglar writer-{{capa}}). Son de la instancia la description, en una sola línea, y lo que va dentro de los bloques instancia: regenerar los conserva. El resto es del plugin; si se edita, el doctor lo marca y no lo regenera. El guard y la compuerta de cierre del writer los cablea el plugin, no este frontmatter. -->
@@ -51,7 +51,8 @@ de rama.
 <!-- /instancia:verificacion -->
 - Lo que el brief ponga en `## Verification`, literal.
 
-   Reporta cada uno como `<comando>: <resultado observado>`, nunca «debería pasar». Además, en tu mensaje
+   Reporta cada uno como `<comando>: <resultado observado>`, nunca «debería pasar», y anota qué no
+   demuestra lo que corriste: va a `limites:`. Además, en tu mensaje
    (antes del bloque): los archivos tocados, las divergencias con el molde, las refactorizaciones **solo
    como sugerencia** (no las hagas) y el mensaje de commit que propones.
 
@@ -81,6 +82,10 @@ compuerta):
 - `arbol`: `sucio (archivos y hunks)` si dejaste cambios, `sin cambios` si no tocaste nada. Nunca
   revertiste.
 - `verificacion`: una línea `- <comando>: <resultado>` por cada comando que corriste.
+- `limites`: una línea `- <…>` por cada cosa que tu verificación no demuestra. Una suite verde demuestra
+  los casos que ejecuta. Nada más. Por ejemplo: un caso que ningún test cubre, otro sistema operativo, una
+  integración que no corriste (la base, una API, otro servicio) o los datos reales. `ninguno` no vale.
+  No es `partial`: `partial` dice qué quedó sin verificar, y `limites`, qué no cubre lo que sí verificaste.
 
 Antes de dejarte cerrar, la compuerta saca tus archivos {{host:origen-de-archivos}}, corre los chequeos de capa y valida
 este bloque. Si algo falta, te bloquea **una sola vez** con todo junto y las líneas reales ya medidas;

@@ -2,6 +2,20 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## Sin publicar
+
+**El cierre del writer dice también qué no demuestra lo que corrió.** La idea viene del video «Un test en verde puede estar mal», de RefactorIA Devs, con su cadena afirmación → prueba → resultado → límite, que compartió Denver2828. odd-ws ya exigía el resultado (`verificacion:`); ahora exige también el límite.
+
+### Lo que cambia para ti
+
+- **El bloque `## Resultado` del writer suma `limites:`**, con al menos una línea por cada cosa que su verificación no demuestra: un caso que ningún test cubre, otro sistema operativo, una integración que no corrió, los datos reales. Una suite verde demuestra los casos que ejecuta. Nada más. `ninguno` no vale.
+- **Después de actualizar, corre `/odd-ws:doctor`** (en Codex, `$doctor`) y regenera los writers que salgan atrasados: `--arreglar writer-<capa>` y, si usas Codex, después `--arreglar codex-agentes`. Un writer que quede en la plantilla anterior cierra sin `limites:`, se come el único bloqueo de la compuerta y pasa en el segundo cierre, hasta que lo regeneres. Los pasos están en `Doc/actualizar.md`.
+
+### Detalle técnico
+
+- **`writer_stop.py`:** `limites` entra en `CAMPOS` y en la `PLANTILLA`, se lee como lista igual que `verificacion` (también en la misma línea) y no valida si falta, si está vacío, si conserva el placeholder o si solo dice `ninguno` o `ninguna`. Queda en el sidecar del writer, en `resultado.limites`. En Codex vale lo mismo: la compuerta lee el último mensaje igual y la bitácora no cambia.
+- **La plantilla del writer pasa a la v2** (`odd-ws-plantilla: 2`), con su huella nueva y los snapshots por capa actualizados. Los revisores siguen en la v1. Los TOML de Codex se derivan del `.md`, así que llevan la v2 al regenerarse.
+
 ## 0.4.1
 
 **Los guards ven más formas de escribir el mismo comando.** Un force push o un borrado que el agente escribe dentro de un shell, con la ruta completa de git o con un escape de PowerShell ya no pasa sin el chequeo. No tienes que cambiar nada en tu instancia.
