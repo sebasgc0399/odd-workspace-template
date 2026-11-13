@@ -24,6 +24,16 @@ MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Ba
 SCRIPT_DE_CLAUDE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+)\.py")
 COMANDO_DE_CODEX = re.compile(r'python3 "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
 COMANDO_WINDOWS_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
+HOOKS_PENDIENTES = {"pi": "F2b"}
+
+
+def sin_archivo_de_hooks_todavia(nombre, adaptador):
+    if nombre not in HOOKS_PENDIENTES:
+        return False
+    assert not (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).exists(), (
+        "%s trajo %s: el doctor de %s tiene que leerlo (hooks_registrados) y este test deja de exceptuarlo"
+        % (HOOKS_PENDIENTES[nombre], adaptador.ARCHIVO_DE_HOOKS, nombre))
+    return True
 
 
 def cap():
@@ -62,8 +72,8 @@ def test_hay_al_menos_un_adaptador_y_es_el_de_claude_code():
     assert [nombre for nombre, _ in adaptadores()][:1] == ["claude_code"]
 
 
-def test_los_adaptadores_son_claude_code_y_codex():
-    assert [nombre for nombre, _ in adaptadores()] == ["claude_code", "codex"]
+def test_los_adaptadores_son_claude_code_codex_y_pi_en_ese_orden():
+    assert [nombre for nombre, _ in adaptadores()] == ["claude_code", "codex", "pi"]
 
 
 def test_los_puntos_de_evento_son_los_cuatro_del_modelo():
@@ -235,6 +245,10 @@ def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     for clave, requisitos in C.REQUISITOS.items():
         assert all(nativo(claude, punto, tipo) for punto, tipo in requisitos), clave
         assert claude.MANIFIESTO[clave][0] == C.SOPORTADO, clave
+    pi = importlib.import_module("odd_ws.hosts.pi")
+    assert not nativo(pi, C.PRE, E.Preguntar) and pi.MANIFIESTO["P3"][0] == C.DEGRADADO, pi.MANIFIESTO["P3"]
+    assert all(nativo(pi, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Pi"
+    assert pi.MANIFIESTO["P5"][0] == C.NO_DISPONIBLE, "pero la compuerta y la identidad llegan en F2c"
 
 
 def leer_json(ruta):
@@ -328,22 +342,27 @@ def test_cada_adaptador_declara_el_python_que_lanzan_sus_hooks_en_cada_sistema()
     for nombre, adaptador in adaptadores():
         ctx = types.SimpleNamespace(plugin=PLUGIN, home=PLUGIN / "sin-home", entorno={}, windows=False)
         propios = [(origen, tokens) for origen, tokens, propio in adaptador.hooks_registrados(ctx, None) if propio]
+        if sin_archivo_de_hooks_todavia(nombre, adaptador):
+            assert propios == [(adaptador.ARCHIVO_DE_HOOKS, None)], (nombre, propios)
+            lanzados[nombre] = (adaptador.PYTHON, adaptador.PYTHON_EN_WINDOWS)
+            continue
         assert propios and all(tokens for _, tokens in propios), (nombre, propios)
         en_windows = {tokens[0] for origen, tokens in propios if origen.endswith(" (commandWindows)")}
         comunes = {tokens[0] for origen, tokens in propios if not origen.endswith(" (commandWindows)")}
         assert comunes == {adaptador.PYTHON}, (nombre, comunes, adaptador.PYTHON)
         assert (en_windows or comunes) == {adaptador.PYTHON_EN_WINDOWS}, (nombre, en_windows, adaptador.PYTHON_EN_WINDOWS)
         lanzados[nombre] = (adaptador.PYTHON, adaptador.PYTHON_EN_WINDOWS)
-    assert lanzados == {"claude_code": ("python3", "python3"), "codex": ("python3", "python")}, lanzados
+    assert lanzados == {"claude_code": ("python3", "python3"), "codex": ("python3", "python"), "pi": ("python3", "python")}, lanzados
 
 
 def test_cada_adaptador_tiene_su_puerto_del_doctor_con_su_archivo_de_hooks_en_el_plugin():
     archivos = {}
     for nombre, adaptador in adaptadores():
         assert callable(adaptador.version) and callable(adaptador.chequeos) and callable(adaptador.hooks_registrados), nombre
-        assert (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).is_file(), (nombre, adaptador.ARCHIVO_DE_HOOKS)
+        assert sin_archivo_de_hooks_todavia(nombre, adaptador) or (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).is_file(), (
+            nombre, adaptador.ARCHIVO_DE_HOOKS)
         archivos[nombre] = adaptador.ARCHIVO_DE_HOOKS
-    assert archivos == {"claude_code": "hooks/hooks.json", "codex": "hooks/hooks.codex.json"}, archivos
+    assert archivos == {"claude_code": "hooks/hooks.json", "codex": "hooks/hooks.codex.json", "pi": "hooks/hooks.pi.json"}, archivos
 
 
 def test_cada_adaptador_declara_su_memoria_y_soportado_implica_el_puerto_que_la_resuelve():
@@ -357,7 +376,7 @@ def test_cada_adaptador_declara_su_memoria_y_soportado_implica_el_puerto_que_la_
         assert resuelve == (estado == C.SOPORTADO), "%s: MEMORIAS %s y directorio_de_memorias %s" % (
             nombre, estado, "existe" if resuelve else "falta")
         estados[nombre] = estado
-    assert estados == {"claude_code": C.SOPORTADO, "codex": C.NO_DISPONIBLE}, estados
+    assert estados == {"claude_code": C.SOPORTADO, "codex": C.NO_DISPONIBLE, "pi": C.NO_DISPONIBLE}, estados
 
 
 def main():

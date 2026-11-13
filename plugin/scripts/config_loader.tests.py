@@ -807,14 +807,15 @@ def test_sin_hosts_la_instancia_es_solo_de_claude_code():
 
 
 def test_hosts_validos_se_devuelven_en_su_orden():
-    for valor in (["claude-code"], ["codex"], ["claude-code", "codex"], ["codex", "claude-code"]):
+    for valor in (["claude-code"], ["codex"], ["claude-code", "codex"], ["codex", "claude-code"], ["pi"], ["pi", "claude-code"],
+                  ["claude-code", "codex", "pi"]):
         with Instancia(config=con_hosts(list(valor))) as i:
             assert m().hosts(i.raiz) == valor, valor
 
 
 def test_los_hosts_validos_son_los_del_registro():
     registro = importlib.import_module("odd_ws.hosts")
-    assert list(registro.NOMBRES) == ["claude-code", "codex"]
+    assert list(registro.NOMBRES) == ["claude-code", "codex", "pi"]
     for nombre in registro.NOMBRES:
         assert m().hosts_de({"hosts": [nombre]}) == [nombre], nombre
     assert m().hosts_de({"hosts": list(registro.NOMBRES)}) == list(registro.NOMBRES)
@@ -822,13 +823,14 @@ def test_los_hosts_validos_son_los_del_registro():
 
 def test_hosts_que_no_es_una_lista_no_vacia_de_textos_es_rota():
     for malo in ("codex", {"codex": True}, None, 3, True, [], [1], [None], [["codex"]], ["codex", 2]):
-        _rota_por_hosts(malo, ["lista no vacía", "claude-code, codex"])
+        _rota_por_hosts(malo, ["lista no vacía", "claude-code, codex, pi"])
 
 
 def test_un_host_desconocido_es_rota_y_nombra_los_validos():
-    for malo in (["claude"], ["Codex"], ["gemini"], [""], ["claude-code", "opencode"], [" codex"], ["codex "]):
-        desconocido = next(h for h in malo if h not in ("claude-code", "codex"))
-        _rota_por_hosts(malo, [repr(desconocido), "no es un host conocido", "claude-code, codex"])
+    for malo in (["claude"], ["Codex"], ["gemini"], [""], ["claude-code", "opencode"], [" codex"], ["codex "], ["Pi"],
+                 ["gentle-shell"], ["pi", "gentle-pi"]):
+        desconocido = next(h for h in malo if h not in ("claude-code", "codex", "pi"))
+        _rota_por_hosts(malo, [repr(desconocido), "no es un host conocido", "claude-code, codex, pi"])
 
 
 def test_un_host_repetido_es_rota():

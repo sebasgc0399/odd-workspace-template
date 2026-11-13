@@ -367,6 +367,22 @@ def test_en_codex_la_memoria_de_claude_code_no_esta_disponible():
         assert codigo == 2 and "--host claude-code" in error, (codigo, error)
 
 
+def test_en_pi_la_memoria_de_claude_code_no_esta_disponible_y_no_registra():
+    with temporal() as base:
+        raiz = instancia(base)
+        codigo, salida, error = correr("--raiz", str(raiz), "--host", "pi")
+        assert codigo == 0 and error == "", (codigo, error)
+        assert lineas(salida)[0].startswith("COBERTURA pi: no disponible (") and len(lineas(salida)) == 1, salida
+        datos = json_de("--raiz", str(raiz), "--host", "pi")
+        assert datos["cobertura"]["estado"] == "no disponible" and datos["memorias"] is None and datos["excluidas"] is None, datos
+        carpeta = memorias(base, {"a.md": memoria()})
+        registro = base / "registro.json"
+        for argv in (("--memorias", str(carpeta)), ("--registro", str(registro)), ("--registrar", "a", "--como", "vista")):
+            codigo, salida, error = correr("--raiz", str(raiz), "--host", "pi", *argv)
+            assert codigo == 2 and "--host claude-code" in error and salida == "", (argv, codigo, salida, error)
+        assert not registro.exists()
+
+
 def test_la_matriz_sigue_aceptando_memoria_sin_hash_sola_y_entre_piezas():
     import matriz
 

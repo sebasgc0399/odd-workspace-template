@@ -74,7 +74,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | M2 | S4 | Un arranque de Python portable. Los 13 hooks llaman a `python`, que no existe en una Mac típica, y entonces el hook no arranca y los guards fallan abiertos. En Codex: `command` con `python3` y `commandWindows` con `python`. En Claude Code: por investigar (L30) | delegado: un writer, por el respaldo de contexto; después, un verificador (ítems 2, 3 y 5) | hecho (L34) |
 | M3 | S4, S5 | Todas las suites en verde en Linux y macOS (L32). Separar los tests que asumen Windows de los bugs del producto fuera de Windows; primero `guard_comandos`, por ser un guard. Fijar `windows-2022` si `windows-latest` sigue sin crear el job (L35: ya lo crea) | delegado: M3a, M3b y M3c en paralelo (Writer trigger a); el padre, `writer_guard.tests` y `verificar_capa.tests`. M3c `1cfd042`, M3b `04d0674` y M3a `0a1af09`; entrega `0.3.1` en `906864b`; M3a y M3b con verificador independiente y rechequeo cerrado (L39-L42) | hecho (CI verde, L43) |
 | F2 | S2–S4, S7 | gentle-shell sobre Pi: al arrancar, investigar sus hooks y sus subagentes. El mismo adaptador TS cubre Pi | inline, con dos exploradores en paralelo | investigación hecha (`9132898`, L44); plan en F2a-F2g (L45) |
-| F2a | S2–S5, S8 | Adaptador de protocolo de Pi en Python (`odd_ws/hosts/pi.py`) y su registro. Detalle:<br>• `edit` y `write` son edición, con la ruta resuelta como la resuelve Pi (`@` inicial, `~` y relativa al `cwd`)<br>• `bash` es shell POSIX en todas las plataformas (en Windows es Git Bash), y `powershell` es shell PowerShell<br>• las lecturas, con el mismo criterio que Claude Code<br>• sin pantalla, `Preguntar` se degrada a bloqueo (S4)<br>• `responder` da un JSON chico que traduce el shim<br>• `MANIFIESTO`, `EXPRESABLES`, `DEGRADACIONES`, `BITACORA = True` y `PRECARGA_SKILLS = False`<br>• el mensaje de host desconocido suma `pi`: es la única diferencia esperada en el diferencial (S5) | inline; después, un verificador (ítem 2) | pendiente |
+| F2a | S2–S5, S8 | Adaptador de protocolo de Pi en Python (`odd_ws/hosts/pi.py`) y su registro. Detalle:<br>• `edit` y `write` son edición, con la ruta resuelta como la resuelve Pi (`@` inicial, `~` y relativa al `cwd`)<br>• `bash` es shell POSIX en todas las plataformas (en Windows es Git Bash), y `powershell` es shell PowerShell<br>• las lecturas, con el mismo criterio que Claude Code<br>• sin pantalla, `Preguntar` se degrada a bloqueo (S4)<br>• `responder` da un JSON chico que traduce el shim<br>• `MANIFIESTO`, `EXPRESABLES`, `DEGRADACIONES`, `BITACORA = True` y `PRECARGA_SKILLS = False`<br>• el mensaje de host desconocido suma `pi`: es la única diferencia esperada en el diferencial (S5) | delegado: un writer, por el respaldo de contexto (la sesión ya traía la investigación); después, un verificador independiente (ítems 2 y 3) | hecho (L46) |
 | F2b | S2–S4 | Shim TS: un núcleo neutral, que F3 reusa, y la extensión de Pi. Detalle:<br>• el núcleo lanza Python sin shell con `node:child_process`, porque `pi.exec` no tiene stdin; JSON por stdin, timeout propio (Pi no tiene) y falla cerrada en pre<br>• combina los hooks de un evento: bloquear gana a preguntar, y preguntar a contexto<br>• la extensión mapea `tool_call`, `tool_result`, `session_start`, `session_compact` y `before_agent_start`, donde el contexto va al system prompt<br>• preguntar usa `ctx.ui.confirm` con timeout<br>• `hooks/hooks.pi.json`, con su test de paridad<br>• TS con sintaxis borrable, sin dependencias ni build; tests con `node --test`, y Node en el CI | inline, o un writer si la sesión llega al respaldo de contexto; después, un verificador (ítems 2 y 5) | pendiente |
 | F2c | S2–S4 | Identidad del writer y compuerta de fin en gentle-shell (L45). Detalle:<br>• en el padre, el `tool_call` de `subagent_run` con un `input.agent` `writer-*` marca la tarea con el nombre y pisa cualquier marca que haya escrito el modelo; si no puede marcar, bloquea el lanzamiento<br>• el hijo (`GENTLE_PI_AGENTS_CHILD=1`) lee la marca en su primer prompt y la fija en memoria<br>• en el hijo, `agent_before_settle` corre `writer_stop` con la bitácora y, si hay que seguir, devuelve `continue: true`; `ya_reintentado` vive en memoria<br>• el borrador del pedido a gentle-shell para que pase el nombre al hijo; publicarlo lo autoriza el usuario | inline; después, un verificador (ítems 2 y 4) | pendiente |
 | F2d | S2, S5, S6, S8 | Generación: `hosts` acepta `pi`; `.pi/agents/*.md` derivados del `.md` de `.claude/agents`, con la lista de tools de Pi; los textos de Pi en los marcadores; la extensión publica las skills de la instancia por `resources_discover`. Claude Code y Codex generan lo mismo, byte a byte | inline; después, un verificador (ítem 5) | pendiente |
@@ -96,6 +96,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | X10 | — | Ya estaba en la base: tres escapes del scratch de `writer_guard`: `.\.`, `enlace/..` y `Join-Path` con `..` (L40) | inline, aparte; ítem 2 | hecho en `odd/tasks/endurecer-guards.md` (0.4.1) |
 | X11 | — | Ya estaba en la base: `rutas.ubicar` colapsa `..` como texto, así que en POSIX la capa 2 y `writer_guard` no ven un `enlace/..` (`git -C /tmp/l/.. push`). Propuesta: que en POSIX lo resuelva `canonica` (L40, N1 de L42) | inline, aparte; ítems 2 y 3 | hecho en `odd/tasks/endurecer-guards.md` (0.4.1) |
 | X12 | — | Fuera de dominio hoy: en PowerShell sobre POSIX, `Remove-Item <scratch>/dentro/../../x`, con un enlace interno, podría salir del scratch si pwsh resuelve `..` como texto (L42) | cuando un host dé PowerShell en POSIX | pendiente |
+| X13 | — | Ya estaba en la base: en Windows, un `Write` (o un `write` de Pi) a una ruta con espacio al final, como `…\nuevo.sql `, pasa sin primer toque. Windows crea `nuevo.sql`, y `canonica` no quita el espacio de un archivo que todavía no existe (A7 de L46) | inline, aparte; ítem 2 | pendiente |
 
 ## Log
 
@@ -692,3 +693,35 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
     - **Los agentes** son `.pi/agents/*.md` derivados del `.md`, como los TOML de Codex (F1d1).
     - **Las instrucciones:** Pi ya lee `CLAUDE.md`, así que no se genera nada.
   - **El orden:** de F2a a F2g, un commit por unidad y la prueba de humo al final.
+- **L46 (2026-11-13), F2a.** El plan quedó en `b69ed0b`.
+  - **Ruta:** un writer delegado, por el respaldo de contexto, porque la sesión ya traía la investigación. Después, un verificador independiente, por el ítem 2 (lo que ven los guards en Pi) y el 3 (`hosts.NOMBRES` lo consumen `config_loader`, el doctor, `memorias.py` y `plantilla_writer`).
+  - **El writer:**
+    - `odd_ws/hosts/pi.py` más `pi` en `ADAPTADORES` y `NOMBRES`.
+    - **El protocolo con el shim:** stdin `{type, toolName, input, isError, reason, ctx:{cwd, sessionId, hasUI, mode}, oddWs:{agent, agentId, lastAssistantMessage, continued}}`. La salida es vacía para permitir, o `{"accion": "bloquear"|"preguntar"|"contexto"|"seguir", "texto"}`.
+    - **Las rutas:** se resuelven como Pi (`@`, `~`, Git Bash a la unidad en Windows, `file://` y el `cwd`).
+    - **Herramientas:** `bash` es POSIX en todas las plataformas y `powershell` es PowerShell. `read` es lectura, y `grep`, `find` y `ls` son `otra`.
+    - **Los orígenes de sesión:** `reload` pasa a `resume`, porque Pi recarga sin perder la conversación; `new` a `clear`, y `session_compact` a `compact`.
+    - **Preguntar** solo sale con `ctx.hasUI` igual a `true`; si no, se degrada a bloqueo. P3 queda `degradado`.
+    - **Los puertos de generación y de doctor,** mínimos y sin un OK falso: avisan qué falta y qué tarea lo trae (F2b, F2d y F2e).
+    - **Pruebas:** RED observado en 8 suites y GREEN en 43 de 43; el diferencial de S5 dio 964 de 964 iguales, con dos mutantes detectados, y murieron 17 de 17 mutantes de `pi.py`.
+  - **El verificador:** S3, S5 y S8 cumplen; S2 y S4 quedaron parciales por un blocker.
+    - **S5:** 13 327 de 13 356 pasos iguales a `318864e`; los 29 restantes son solo el mensaje aceptado («claude-code, codex y pi»). Los 4 mutantes, detectados.
+    - **S4:** 58 de 58. Solo `hasUI` igual a `true` pregunta.
+    - **Paridad con Claude Code:** comandos 768 de 768 y rutas 432 de 432.
+    - **B1:** una URL `file://` con un control o un espacio al final, o con `\` en POSIX, se resolvía distinto que en Pi. Pi usa `fileURLToPath` (WHATWG) y el adaptador, `urlsplit`. Con `\x01` al final, el primer toque, el chequeo de capa y la compuerta del writer dejaban pasar. Es una entrada armada, y va como blocker por el precedente de L39 y L40.
+  - **La corrección (una tanda, del writer):** `_de_url` limpia la URL como WHATWG antes de parsearla: recorta los controles y los espacios de las puntas, quita `\t`, `\r` y `\n`, y pasa `\` a `/`.
+    - RED de 3 tests y GREEN 36 de 36.
+    - Un cruce propio con `node:url` da 580 de 580; contra la versión anterior daba 265.
+    - De los mutantes nuevos murieron 3 de 4; el vivo es equivalente desde Python 3.9.5.
+    - El padre sumó la regla a `Doc/diseno.md`.
+  - **El rechequeo, limitado a B1: cerrado.** De 33 164 pares contra un port de Pi, los distintos bajan de 912 a 128, y ninguno es de B1. Las 28 528 rutas sin URL no cambian.
+  - **Avisos que quedan:**
+    - **A1:** la lista de hosts válidos suma `pi` también en `config_loader`, en `memorias.py --help` y en `plantilla_writer`. Lo ratificó el padre: es parte de sumar un host.
+    - **A2:** con `pi` declarado, el bootstrap no escribe nada de Pi ni lo dice; el doctor sí lo dice. Va a F2d.
+    - **A3:** qué Python lanza el shim en Windows. Se decide en F2b.
+    - **A4:** P1, P2 y P4 figuran como `soportado`, aunque dependen del shim, con el mismo criterio que Codex en F1a.
+    - **A5 y A6, fuera de dominio:** una ruta desde la raíz en Windows con el `cwd` en otra unidad o en UNC, y `file://C:/x` en POSIX.
+    - **A7:** pasa a X13.
+    - **A8:** con un `--host` mal escrito y un payload de Pi, `verificar_capa` falla abierto, porque `host_desconocido` solo mira `hook_event_name`. Ya estaba en la base (A2 de L13). Va a F2b.
+  - **Sobrantes que tiene que borrar el usuario,** porque el guard no deja borrar fuera de `Temp\claude`: `%TEMP%\f2a-pi.cLvvi9`, `%TEMP%\tmp.itebDyoU95` y `%TEMP%\tmp.LQqv18mElt`.
+  - **Risk:** ítem 2 (la regla de rutas y la degradación deciden qué ven los guards en Pi) e ítem 3 (el registro de hosts).

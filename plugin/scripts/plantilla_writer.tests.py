@@ -441,8 +441,27 @@ def test_generar_para_codex_cambia_solo_los_marcadores_y_conserva_lo_de_la_insta
         assert p().huella(derivado) == p().huella(codex), capa
 
 
+def test_generar_para_pi_cambia_solo_los_marcadores_y_conserva_lo_de_la_instancia():
+    for capa in CAPAS:
+        claude, pi = p().generar(capa), p().generar(capa, host="pi")
+        assert "{{" not in pi and "}}" not in pi, re.findall(r"\{\{[^}]*\}\}", pi)
+        sin_hash = lambda texto: re.sub(r"(?m)^odd-ws-hash: .*$", "odd-ws-hash:", frontmatter(texto))
+        assert sin_hash(pi) == sin_hash(claude), capa
+        assert "odd-ws-hash: %s" % p().huella(pi) in frontmatter(pi).splitlines()
+        for frase in FRASES_DE_CLAUDE_CODE + ("apply_patch", "PowerShell", "herramienta de shell"):
+            assert frase not in pi, (capa, frase)
+        for frase in ("`edit` o `write`", "`bash` (en Windows corre Git Bash)", "por `bash`", "bitácora", "con `read`", "SKILL.md"):
+            assert frase in pi, (capa, frase)
+        for nombre in BLOQUES:
+            assert bloque(pi, nombre) == bloque(claude, nombre), (capa, nombre)
+        propio = con_bloque(con_descripcion(claude, '"Mía: # propia"'), "limites", "- Límite propio.\n")
+        derivado = p().generar(capa, propio, host="pi")
+        assert bloque(derivado, "limites") == "- Límite propio.\n" and descripcion(derivado)[1] == "Mía: # propia"
+        assert p().huella(derivado) == p().huella(pi), capa
+
+
 def test_un_host_desconocido_no_se_arma():
-    for host in ("gemini", "", None, "Codex", "claude_code"):
+    for host in ("gemini", "", None, "Codex", "claude_code", "Pi", "gentle-shell"):
         try:
             p().generar("sql", host=host)
         except ValueError as error:

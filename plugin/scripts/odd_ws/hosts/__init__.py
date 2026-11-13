@@ -6,8 +6,8 @@ from pathlib import Path
 from odd_ws.comun import SILENCIO
 from odd_ws.hosts.base import cargar
 
-ADAPTADORES = ("claude_code", "codex")
-NOMBRES = {"claude-code": "claude_code", "codex": "codex"}
+ADAPTADORES = ("claude_code", "codex", "pi")
+NOMBRES = {"claude-code": "claude_code", "codex": "codex", "pi": "pi"}
 FUENTE = "claude-code"
 PRE = "PreToolUse"
 
@@ -66,12 +66,16 @@ def _es_pre(crudo, pre_por_defecto):
     return payload.get("hook_event_name", PRE if pre_por_defecto else None) == PRE
 
 
+def _enumerar(partes):
+    return partes[0] if len(partes) == 1 else ", ".join(partes[:-1]) + " y " + partes[-1]
+
+
 def host_desconocido(nombre, crudo, pre_por_defecto=False):
     if not _es_pre(crudo, pre_por_defecto):
         return SILENCIO
     valor = "sin valor" if nombre is None else repr(nombre)
     motivo = ("odd-ws: host desconocido en --host (%s); los válidos son %s. El hook está mal configurado y bloquea hasta "
-              "que se corrija su comando." % (valor, " y ".join(NOMBRES)))
+              "que se corrija su comando." % (valor, _enumerar(list(NOMBRES))))
     return 2, "", (motivo + "\n").encode("utf-8", "replace")
 
 

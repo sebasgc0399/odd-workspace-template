@@ -1670,6 +1670,19 @@ def test_hooks_host_revisa_los_archivos_de_hooks_del_plugin_de_cada_host_declara
         assert r.estado == "FALTA" and "hooks/hooks.codex.json" in r.detalle, r
 
 
+def test_con_pi_declarado_el_doctor_dice_lo_que_falta_y_ningun_item_de_pi_da_ok():
+    for hosts in (("claude-code", "pi"), ("pi",)):
+        with Escenario() as e:
+            _, ctx = instancia_codex_sana(e, hosts=hosts)
+            r = por_id(ctx)
+            assert r["pi"].estado == "AVISO" and "F2e" in r["pi"].detalle and "no se revisa" in r["pi"].detalle, (hosts, r["pi"])
+            assert r["pi-agentes"].estado == "AVISO" and "F2d" in r["pi-agentes"].detalle, (hosts, r["pi-agentes"])
+            assert r["hooks-host"].estado == "FALTA" and "hooks/hooks.pi.json no se puede leer" in r["hooks-host"].detalle, (hosts, r["hooks-host"])
+            assert not [i for i in r if i.startswith("codex")], (hosts, list(r))
+            codigo, salida = correr([], ctx)
+            assert codigo == 1 and "hooks/hooks.pi.json" in salida, (hosts, salida)
+
+
 def instancia_de_los_dos(e, claude=True, codex=True, marketplace=True):
     raiz, _ = instancia_codex_sana(e, hosts=("claude-code", "codex"))
     poner(raiz, ".claude/skills/criterios/SKILL.md", skill_con("criterios"))

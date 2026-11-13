@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import json
 import sys
@@ -87,12 +88,38 @@ def test_un_host_desconocido_bloquea_en_pre_sin_correr_el_nucleo():
     for nombre, texto in (("gemini", "'gemini'"), ("Codex", "'Codex'"), ("", "''"), (None, "sin valor"), (7, "7")):
         resultado = hosts().atender(nombre, pre(), nucleo)
         assert bloquea(resultado, texto), (nombre, resultado)
-        assert b"claude-code" in resultado[2] and b"codex" in resultado[2], resultado
+        assert b"claude-code" in resultado[2] and b"codex" in resultado[2] and b" y pi." in resultado[2], resultado
     sin = {k: v for k, v in pre().items() if k != "hook_event_name"}
     assert bloquea(hosts().atender("otro", sin, nucleo, pre_por_defecto=True), "'otro'")
     assert bloquea(hosts().atender("otro", json.dumps(pre()).encode("utf-8"), nucleo), "'otro'")
     for roto in (b"no es json", b"", "[]", b"\xff\xfe"):
         assert bloquea(hosts().atender("otro", roto, nucleo, pre_por_defecto=True), "'otro'"), roto
+
+
+@contextlib.contextmanager
+def registro(nombres):
+    previo = hosts().NOMBRES
+    hosts().NOMBRES = nombres
+    try:
+        yield
+    finally:
+        hosts().NOMBRES = previo
+
+
+def mensaje(validos):
+    return ("odd-ws: host desconocido en --host ('gemini'); los válidos son %s. El hook está mal configurado y bloquea hasta "
+            "que se corrija su comando.\n" % validos).encode("utf-8")
+
+
+def test_el_mensaje_de_host_desconocido_enumera_los_validos_y_con_dos_es_el_de_antes():
+    def nucleo(evento):
+        raise AssertionError("con un host desconocido el núcleo no corre")
+
+    assert hosts().atender("gemini", pre(), nucleo) == (2, "", mensaje("claude-code, codex y pi"))
+    with registro({"claude-code": "claude_code", "codex": "codex"}):
+        assert hosts().atender("gemini", pre(), nucleo) == (2, "", mensaje("claude-code y codex")), "con dos, el texto de 318864e"
+    with registro({"claude-code": "claude_code"}):
+        assert hosts().atender("gemini", pre(), nucleo) == (2, "", mensaje("claude-code"))
 
 
 def test_un_host_desconocido_calla_fuera_de_pre():

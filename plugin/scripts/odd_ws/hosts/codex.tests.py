@@ -316,8 +316,8 @@ def test_las_degradaciones_estan_declaradas():
 
 def test_el_registro_elige_el_adaptador_por_su_nombre_de_cli():
     hosts = importlib.import_module("odd_ws.hosts")
-    assert hosts.ADAPTADORES == ("claude_code", "codex")
-    assert hosts.NOMBRES == {"claude-code": "claude_code", "codex": "codex"}
+    assert hosts.ADAPTADORES[:2] == ("claude_code", "codex") and hosts.ADAPTADORES == ("claude_code", "codex", "pi")
+    assert hosts.NOMBRES == {"claude-code": "claude_code", "codex": "codex", "pi": "pi"}
     assert hosts.adaptador("codex") is m()
     assert hosts.adaptador("claude-code") is importlib.import_module("odd_ws.hosts.claude_code")
     for desconocido in ("Codex", "claude_code", "", None, 7, ["codex"], "gemini"):
