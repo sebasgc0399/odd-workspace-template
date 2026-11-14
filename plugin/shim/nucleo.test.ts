@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -292,3 +293,166 @@ test("contexto junta solo los textos de contexto, sin las fallas ni los bloqueos
   assert.equal(contexto([r("falla", "f")]), "");
   assert.equal(contexto([]), "");
 });
+
+const SCRIPTS = join(PLUGIN, "scripts");
+const REAL = readFileSync(join(PLUGIN, "hooks", "hooks.pi.json"), "utf8");
+const HERRAMIENTAS_VIGILADAS = ["edit", "write", "read", "bash", "powershell"];
+const EVENTOS_DE_HERRAMIENTA = ["tool_call", "tool_result"];
+const SONDA_DEL_DOCTOR = [
+  "import json, sys",
+  "sys.path.insert(0, sys.argv[1])",
+  "from odd_ws.hosts import pi",
+  "rutas = json.loads(sys.stdin.read())",
+  "cobertura = {e: {h or '': list(s) for h, s in t.items()} for e, t in pi.COBERTURA.items()}",
+  "veredictos = [sorted({clave for clave, _ in pi.revisar_lista(ruta)}) for ruta in rutas]",
+  "sys.stdout.write(json.dumps({'cobertura': cobertura, 'writer': pi.REGEX_DE_WRITER, 'veredictos': veredictos}))",
+  "",
+].join("\n");
+
+interface DelDoctor { cobertura: Record<string, Record<string, string[]>>; writer: string; veredictos: string[][] }
+interface Caso { nombre: string; texto: string | Buffer; dialecto?: true }
+
+function delDoctor(rutas: string[]): DelDoctor {
+  const corrida = spawnSync(PYTHON, ["-c", SONDA_DEL_DOCTOR, SCRIPTS], {
+    input: JSON.stringify(rutas), encoding: "utf8", windowsHide: true, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
+  assert.equal(corrida.status, 0, `${corrida.error ?? ""}${corrida.stderr}`);
+  return JSON.parse(corrida.stdout) as DelDoctor;
+}
+
+function delShim(ruta: string, doctor: DelDoctor): string[] {
+  let leida: ListaDeHooks;
+  try {
+    leida = leerLista(ruta);
+  } catch {
+    return ["forma"];
+  }
+  const claves = new Set<string>();
+  try {
+    if (writerDe(leida).source !== doctor.writer) {
+      claves.add("writer");
+    }
+  } catch {
+    claves.add("writer");
+  }
+  for (const [evento, grupos] of Object.entries(leida.hooks)) {
+    grupos.forEach((grupo, indice) => {
+      const sonda: ListaDeHooks = { ...leida, hooks: { [evento]: [{ ...grupo, hooks: [hook("sonda.py")] }] } };
+      const herramientas = EVENTOS_DE_HERRAMIENTA.includes(evento) ? [...HERRAMIENTAS_VIGILADAS, ...(grupo.tools ?? [])] : [undefined];
+      if (!herramientas.some((herramienta) => hooksDe(sonda, evento, herramienta).length > 0)) {
+        claves.add(`muerto ${evento} ${indice}`);
+      }
+    });
+  }
+  for (const [evento, porHerramienta] of Object.entries(doctor.cobertura)) {
+    for (const [herramienta, scripts] of Object.entries(porHerramienta)) {
+      const corren = hooksDe(leida, evento, herramienta === "" ? undefined : herramienta).map((corre) => corre.script);
+      for (const script of scripts.filter((esperado) => !corren.includes(esperado))) {
+        claves.add(`cobertura ${evento} ${herramienta === "" ? "-" : herramienta} ${script}`);
+      }
+    }
+  }
+  return [...claves].sort();
+}
+
+function variante(cambiar: (datos: any) => void): string {
+  const datos = JSON.parse(REAL);
+  cambiar(datos);
+  return JSON.stringify(datos);
+}
+
+function delHook(cambio: Record<string, unknown>): string {
+  return variante((datos) => Object.assign(datos.hooks.tool_call[1].hooks[0], cambio));
+}
+
+function delGrupo(cambio: Record<string, unknown>): string {
+  return variante((datos) => Object.assign(datos.hooks.tool_call[1], cambio));
+}
+
+function corpus(): Caso[] {
+  const [antes, despues] = REAL.split('"description": "');
+  return [
+    { nombre: "el del plugin", texto: REAL },
+    { nombre: "no es JSON", texto: "{roto" },
+    { nombre: "una lista", texto: "[]" },
+    { nombre: "con BOM", texto: `﻿${REAL}` },
+    { nombre: "NaN en una clave que nadie mira", texto: REAL.replace("{", '{"extra": NaN, ') },
+    { nombre: "timeout Infinity", texto: REAL.replace('"timeout": 10', '"timeout": Infinity') },
+    { nombre: "timeout 1e400", texto: REAL.replace('"timeout": 10', '"timeout": 1e400') },
+    { nombre: "timeout entero enorme", texto: REAL.replace('"timeout": 10', `"timeout": 1${"0".repeat(400)}`) },
+    { nombre: "UTF-8 roto dentro de description", texto: Buffer.concat([Buffer.from(`${antes}"description": "`), Buffer.from([0xff, 0xfe]), Buffer.from(despues)]) },
+    { nombre: "una clave de más arriba", texto: variante((datos) => { datos.extra = 1; }) },
+    { nombre: "python vacío", texto: variante((datos) => { datos.python = ""; }) },
+    { nombre: "sin pythonWindows", texto: variante((datos) => { delete datos.pythonWindows; }) },
+    { nombre: "python no es texto", texto: variante((datos) => { datos.python = 7; }) },
+    { nombre: "writer vacío", texto: variante((datos) => { datos.writer = ""; }) },
+    { nombre: "writer no es texto", texto: variante((datos) => { datos.writer = 7; }) },
+    { nombre: "writer null", texto: variante((datos) => { datos.writer = null; }) },
+    { nombre: "sin writer", texto: variante((datos) => { delete datos.writer; }) },
+    { nombre: "writer de nadie", texto: variante((datos) => { datos.writer = "^nadie$"; }) },
+    { nombre: "writer que JS no compila", texto: variante((datos) => { datos.writer = "^writer-["; }), dialecto: true },
+    { nombre: "hooks es una lista", texto: variante((datos) => { datos.hooks = []; }) },
+    { nombre: "sin hooks", texto: variante((datos) => { delete datos.hooks; }) },
+    { nombre: "un evento que no es lista", texto: variante((datos) => { datos.hooks.tool_call = {}; }) },
+    { nombre: "un grupo que no es objeto", texto: variante((datos) => { datos.hooks.tool_call.push(5); }) },
+    { nombre: "tools como texto", texto: delGrupo({ tools: "bash" }) },
+    { nombre: "tools con un vacío", texto: delGrupo({ tools: ["bash", ""] }) },
+    { nombre: "tools con un número", texto: delGrupo({ tools: [7] }) },
+    { nombre: "tools null", texto: delGrupo({ tools: null }) },
+    { nombre: "hooks del grupo como objeto", texto: delGrupo({ hooks: {} }) },
+    { nombre: "grupo sin hooks", texto: variante((datos) => { delete datos.hooks.tool_call[1].hooks; }) },
+    { nombre: "un hook que es texto", texto: variante((datos) => { datos.hooks.tool_call[1].hooks[0] = "writer_guard.py --host pi"; }) },
+    { nombre: "script con ruta", texto: delHook({ script: "../writer_guard.py" }) },
+    { nombre: "script en una carpeta", texto: delHook({ script: "sub/writer_guard.py" }) },
+    { nombre: "script que no es .py", texto: delHook({ script: "writer_guard.sh" }) },
+    { nombre: "script con salto al final", texto: delHook({ script: "writer_guard.py\n" }) },
+    { nombre: "script vacío", texto: delHook({ script: "" }) },
+    { nombre: "script número", texto: delHook({ script: 7 }) },
+    { nombre: "args como texto", texto: delHook({ args: "--host pi" }) },
+    { nombre: "args con un número", texto: delHook({ args: ["--plazo", 8] }) },
+    { nombre: "timeout 0", texto: delHook({ timeout: 0 }) },
+    { nombre: "timeout negativo", texto: delHook({ timeout: -1 }) },
+    { nombre: "timeout como texto", texto: delHook({ timeout: "10" }) },
+    { nombre: "timeout true", texto: delHook({ timeout: true }) },
+    { nombre: "timeout null", texto: delHook({ timeout: null }) },
+    { nombre: "timeout con decimales", texto: delHook({ timeout: 0.5 }) },
+    { nombre: "tools vacía en el guard de shell", texto: variante((datos) => { datos.hooks.tool_call[2].tools = []; }) },
+    { nombre: "un grupo de más con tools vacía", texto: variante((datos) => { datos.hooks.tool_call.push({ tools: [], hooks: [hook("guard_comandos.py")] }); }) },
+    { nombre: "un grupo de más sin hooks", texto: variante((datos) => { datos.hooks.tool_call.push({ tools: ["bash"], hooks: [] }); }) },
+    { nombre: "tools en un evento sin herramienta", texto: variante((datos) => { datos.hooks.session_start[0].tools = ["bash"]; }) },
+    { nombre: "sin session_compact", texto: variante((datos) => { delete datos.hooks.session_compact; }) },
+    { nombre: "la lectura con otra herramienta", texto: variante((datos) => { datos.hooks.tool_result[1].tools = ["grep"]; }) },
+    { nombre: "otro script en el guard del writer", texto: delHook({ script: "otro.py" }) },
+    { nombre: "sin la compuerta", texto: variante((datos) => { datos.hooks.agent_before_settle = []; }) },
+    { nombre: "un grupo sin tools corre en todas", texto: variante((datos) => { delete datos.hooks.tool_call[0].tools; }) },
+    { nombre: "un evento de más", texto: variante((datos) => { datos.hooks.otro_evento = [{ hooks: [hook("x.py")] }]; }) },
+  ];
+}
+
+test("el doctor de Pi rechaza lo mismo que el shim sobre el mismo corpus de hooks.pi.json", conTemporal(async (base) => {
+  const casos = corpus();
+  const rutas = casos.map((caso, indice) => {
+    const ruta = join(base, `caso-${indice}.json`);
+    writeFileSync(ruta, caso.texto);
+    return ruta;
+  });
+  const doctor = delDoctor(rutas);
+  assert.deepEqual(Object.keys(doctor.cobertura).sort(), ["agent_before_settle", "session_compact", "session_start", "tool_call", "tool_result"]);
+  const aceptados: string[] = [];
+  casos.forEach((caso, indice) => {
+    const delDelShim = delShim(rutas[indice], doctor);
+    const delDelDoctor = doctor.veredictos[indice];
+    if (caso.dialecto) {
+      assert.deepEqual([delDelShim, delDelDoctor], [["forma"], ["writer"]], caso.nombre);
+    } else {
+      assert.deepEqual(delDelDoctor, delDelShim, caso.nombre);
+    }
+    if (delDelShim.length === 0) {
+      aceptados.push(caso.nombre);
+    }
+  });
+  assert.deepEqual(aceptados, ["el del plugin", "UTF-8 roto dentro de description", "una clave de más arriba", "timeout con decimales",
+    "un grupo de más sin hooks", "un grupo sin tools corre en todas", "un evento de más"]);
+  const rechazos = new Set(casos.flatMap((_, indice) => doctor.veredictos[indice].map((clave) => clave.split(" ")[0])));
+  assert.deepEqual([...rechazos].sort(), ["cobertura", "forma", "muerto", "writer"]);
+}));

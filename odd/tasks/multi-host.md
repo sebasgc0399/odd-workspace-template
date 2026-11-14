@@ -79,7 +79,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | F2c | S2–S4 | Identidad del writer y compuerta de fin en gentle-shell (L45). Detalle:<br>• en el padre, el `tool_call` de `subagent_run` con un `input.agent` `writer-*` marca la tarea con el nombre y pisa cualquier marca que haya escrito el modelo; si no puede marcar, bloquea el lanzamiento<br>• el hijo (`GENTLE_PI_AGENTS_CHILD=1`) lee la marca en su primer prompt y la fija en memoria<br>• en el hijo, `agent_before_settle` corre `writer_stop` con la bitácora y, si hay que seguir, devuelve `continue: true`; `ya_reintentado` vive en memoria<br>• el borrador del pedido a gentle-shell para que pase el nombre al hijo; publicarlo lo autoriza el usuario | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3 y 4) | hecho (L48) |
 | F2c2 | S4 | N1 del rechequeo de F2c (L48): una tarea de writer que empieza con `/` se expande en el hijo (plantilla o comando de Pi) y la marca deja de ser una línea propia, así que el writer corre sin guards ni compuerta. El padre bloquea el lanzamiento de un writer cuya tarea empieza con `/`, como cualquier forma que no sabe marcar | inline; después, un rechequeo del verificador de F2c (ítem 2) | hecho (L49) |
 | F2d | S2, S5, S6, S8 | Generación: `hosts` acepta `pi`; `.pi/agents/*.md` derivados del `.md` de `.claude/agents`, con la lista de tools de Pi; los textos de Pi en los marcadores; la extensión publica las skills de la instancia por `resources_discover`. Claude Code y Codex generan lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 5 y 6) | hecho (L50) |
-| F2e | S2–S4, S8 | Doctor de Pi: la versión, el paquete instalado en el home activo (el aislado de gentle-shell, o `~/.pi/agent` con `--link`), el Python, `pi-agentes` con la regla de L18 y `hooks-host` con `hooks.pi.json` | inline; después, un verificador (ítem 5) | pendiente |
+| F2e | S2–S4, S8 | Doctor de Pi: la versión, el paquete instalado en el home activo (el aislado de gentle-shell, o `~/.pi/agent` con `--link`), el Python, `pi-agentes` con la regla de L18 y `hooks-host` con `hooks.pi.json` | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3, 5 y 6) | hecho (L51) |
 | F2f | S2, S8 | Empaquetado: `package.json` con la clave `pi` (extensiones y skills) y la versión en paridad con los otros manifiestos. Hay que verificar si `pi install git:…` acepta el paquete en `plugin/`. Y en el README, «Usarlo desde gentle-shell» | inline (ítem 5) | pendiente |
 | F2g | S1 | Prueba de humo en un gentle-shell aparte, y la entrega `0.6.0` con autorización | inline; el usuario instala gentle-pi y autoriza la entrega | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
@@ -98,6 +98,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | X11 | — | Ya estaba en la base: `rutas.ubicar` colapsa `..` como texto, así que en POSIX la capa 2 y `writer_guard` no ven un `enlace/..` (`git -C /tmp/l/.. push`). Propuesta: que en POSIX lo resuelva `canonica` (L40, N1 de L42) | inline, aparte; ítems 2 y 3 | hecho en `odd/tasks/endurecer-guards.md` (0.4.1) |
 | X12 | — | Fuera de dominio hoy: en PowerShell sobre POSIX, `Remove-Item <scratch>/dentro/../../x`, con un enlace interno, podría salir del scratch si pwsh resuelve `..` como texto (L42) | cuando un host dé PowerShell en POSIX | pendiente |
 | X13 | — | Ya estaba en la base: en Windows, un `Write` (o un `write` de Pi) a una ruta con espacio al final, como `…\nuevo.sql `, pasa sin primer toque. Windows crea `nuevo.sql`, y `canonica` no quita el espacio de un archivo que todavía no existe (A7 de L46) | inline, aparte; ítem 2 | pendiente |
+| X14 | — | Del rechequeo de F2e (L51): `pi-plugin` da un OK falso en cinco casos forzados. En tres, junctions que duplican el plugin; Pi descarta los duplicados por la ruta canónica (`getResourcePathKey` con `realpath`) y el doctor agrupa sin resolver enlaces. En otro, un `NaN` en el `settings.json`, que Pi no lee y `json.loads` sí (falta `parse_constant`). En el último, un filtro escrito como `-file:///…/shim/pi.ts`, que Pi normaliza. Además, `pi.py` importa helpers privados de `codex.py`, que irían a `hosts/base.py` | inline, aparte; ítem 2 | pendiente |
 
 ## Log
 
@@ -828,3 +829,29 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
     - **4:** un `.claude/skills` enlazado hacia afuera se publica, igual que en Claude Code.
     - **El límite:** gentle-shell solo lee `<cwd>/.pi/agents`, así que hay que abrirlo en la raíz de la instancia.
   - **Risk:** ítem 5 (el bootstrap escribe `.pi/agents` cuando se declara `pi`), ítem 2 (la confianza decide qué skills entran al prompt) e ítem 6 (nada corrió contra un gentle-shell real hasta F2g).
+- **L51 (2026-11-14), F2e.** F2d quedó en `63815ad`, con push de la rama.
+  - **Ruta:** un writer delegado, por el respaldo de contexto. Después, un verificador independiente, por los ítems 2, 3, 5 y 6.
+  - **Los ítems,** solo con `pi` en `hosts`: `pi`, `gentle-shell`, `pi-plugin`, `pi-confianza` y `pi-agentes`, más `hooks-host` con un puerto opcional `problemas_de_hooks` que solo trae Pi. Claude Code y Codex no cambian.
+  - **La versión:** la mínima es 1.5.0, con la fuente en el CHANGELOG de Pi. La compuerta existe desde 0.87.0, y desde 1.5.0 se respeta un «Do not trust» guardado.
+    - **El corte lo decidió el padre (S4):** por debajo de 0.87.0 no hay `agent_before_settle`, así que la compuerta del writer no corre, y eso es FALTA. De 0.87.0 a 1.5.0, AVISO. Desde 1.5.0, OK.
+    - El mismo corte vale para el Pi del PATH y para el que reporta `gentle-shell --version`, que también da el home activo.
+    - Sin gentle-shell, AVISO: el writer queda sin compuerta.
+  - **`pi-confianza`:** lee el `trust.json` del home activo y calca `resolveProjectTrusted`, sin escribir nada.
+  - **`pi-agentes`:** sigue la regla de L18, y atrapa el `ValueError` de `pi.md`. La línea del bootstrap «(doctor --arreglar pi-agentes)» ya funciona, con rc 0.
+  - **El verificador:** S2, S3, S5 y S8 cumplen; S4 quedó parcial por dos blockers en `pi-plugin`, que daba OK sin que Pi cargara el shim.
+    - **B1:** el filtro que escribe `pi config` (`-shim/pi.ts`), otros patrones, `autoload: false`, la entrada del proyecto que reemplaza a la del home, o `github:owner/repo`, que Pi toma como ruta local.
+    - **B2:** el paquete solo en `.pi/settings.json`, con el proyecto sin confianza, cuando Pi no lee esa config.
+  - **La corrección (una tanda, del writer):** `pi-plugin` calca la resolución de paquetes de Pi, leída como dato: `parseSource` y `parseGitUrl`, el checkout de git, el manifiesto (`pi.extensions` o `extensions/`), los filtros, `autoload` y la deduplicación proyecto contra home. Lo que no puede decidir da FALTA.
+    - **B2:** las entradas del proyecto cuentan solo con confianza.
+    - **A1:** el doctor exige que el paquete declare el shim. Con el plugin real da FALTA hasta F2f, y es correcto: hoy Pi no cargaría el shim.
+    - **A2:** `problemas_de_hooks` revisa que cada script exista, que el `timeout` sea mayor que el `--plazo`, y que `agent_before_settle` corra solo `writer_stop.py`.
+    - **A4:** el mensaje cuando `gentle-shell --version` falla.
+    - **Pruebas:** RED de 10 tests y GREEN; el doctor 172 de 172; 15 de 16 mutantes muertos (el vivo es equivalente); el diferencial de S5, 648 de 648.
+    - **El costo:** `pi.py` crece a unas 940 líneas, porque la regla de Pi está copiada y hay que seguirla si Pi cambia.
+  - **El rechequeo: B1, B2, A1 y A2 cerrados.**
+    - En 48 sondas, ninguna de las originales da OK si Pi no carga el shim, y las válidas siguen en OK.
+    - Las 10 variantes de la compuerta dan FALTA.
+    - S5 da 64 de 64 escenarios iguales, y las 46 suites, en verde.
+  - **Lo nuevo va a X14:** cinco OK falsos forzados (enlaces, un `NaN` y un filtro `file://`). No reabren la unidad.
+  - **El verificador se cortó una vez,** por el límite semanal de la cuenta, y se reanudó con su trabajo guardado.
+  - **Risk:** ítem 2 (`pi-plugin` y `hooks-host` deciden si se avisa que el shim o la compuerta no corren) e ítem 6 (la regla de Pi se calcó leyendo su código, y nada corrió contra un Pi real hasta F2g).

@@ -545,6 +545,17 @@ def _con_host(valor, argumentos):
     return f"con --host {valor}"
 
 
+def problemas_de_los_archivos_de_hooks(ctx, declarados):
+    problemas, ayudas = [], []
+    for nombre in declarados:
+        adaptador = registro_de_hosts.adaptador(nombre)
+        revisar = getattr(adaptador, "problemas_de_hooks", None)
+        propios = revisar(ctx) if revisar else []
+        problemas += propios
+        ayudas += [adaptador.AYUDA_HOOKS] if propios else []
+    return problemas, ayudas
+
+
 def chequear_hooks_host(ctx, raiz, declarados):
     id = "hooks-host"
     registrados = [(nombre, *registrado) for nombre in declarados
@@ -564,6 +575,10 @@ def chequear_hooks_host(ctx, raiz, declarados):
         valor = host_de(argumentos)
         if valor != nombre:
             malos.append(f"{origen}: {script} {_con_host(valor, argumentos)}, y el hook es de {nombre}")
+    de_los_archivos, ayudas = problemas_de_los_archivos_de_hooks(ctx, declarados)
+    if de_los_archivos:
+        ayuda = " ".join(([AYUDA_HOOKS_HOST] if malos or avisos else []) + ayudas)
+        return resultado(id, FALTA, "; ".join(malos + de_los_archivos + avisos), None, ayuda)
     if malos:
         return resultado(id, FALTA, "; ".join(malos + avisos), None, AYUDA_HOOKS_HOST)
     if avisos:
@@ -610,7 +625,7 @@ NUCLEO = types.SimpleNamespace(
     OK=OK, FALTA=FALTA, AVISO=AVISO, NO_APLICA=NO_APLICA, MARKETPLACE=MARKETPLACE, URL_MARKETPLACE=URL_MARKETPLACE, PLUGIN=PLUGIN,
     CLAVE_PLUGIN=CLAVE_PLUGIN, AYUDA_CONFIG=AYUDA_CONFIG, CLI_INSTALADO=CLI_INSTALADO, CLI_AUSENTE=CLI_AUSENTE,
     CLI_DE_OTRO_HOST=CLI_DE_OTRO_HOST, resultado=resultado, chequear_version=chequear_version, raiz_del_repo_de=raiz_del_repo_de,
-    leer_version=leer_version,
+    leer_version=leer_version, texto_version=texto_version, primera_linea=primera_linea,
 )
 
 

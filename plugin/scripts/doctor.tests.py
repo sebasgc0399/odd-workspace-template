@@ -1670,21 +1670,757 @@ def test_hooks_host_revisa_los_archivos_de_hooks_del_plugin_de_cada_host_declara
         assert r.estado == "FALTA" and "hooks/hooks.codex.json" in r.detalle, r
 
 
-def test_con_pi_declarado_el_doctor_dice_lo_que_falta_y_ningun_item_de_pi_da_ok():
-    for hosts, detalle in ((("claude-code", "pi"), "15 hooks de claude-code, pi, cada uno con el --host de su archivo"),
-                           (("pi",), "8 hooks de pi, cada uno con el --host de su archivo")):
+ITEMS_DE_PI = ["pi", "gentle-shell", "pi-plugin", "pi-confianza", "pi-agentes"]
+AGENTES_DE_LA_PLANTILLA = ("writer-sql", "revisor-sql", "revisor-diseno")
+USOS_DE_PI = ("agent_before_settle", "appendSystemPrompt", "resources_discover", "isProjectTrusted")
+
+
+def pim():
+    return importlib.import_module("odd_ws.hosts.pi")
+
+
+def md_de_pi_de_la_plantilla(nombre, armado=None):
+    if armado is None and nombre == "revisor-diseno":
+        armado = ba().generar_revisor_diseno(host="pi")
+    elif armado is None and nombre.startswith("writer-"):
+        armado = pw().generar(nombre[len("writer-"):], host="pi")
+    elif armado is None:
+        armado = ba().generar_revisor(nombre[len("revisor-"):], host="pi")
+    return pim().md(pw().agente(armado))
+
+
+def md_de_pi_en(raiz, nombre):
+    return raiz / ".pi" / "agents" / ("%s.md" % nombre)
+
+
+def resellar_md_de_pi(texto):
+    sello = pim().huella(texto)
+    return "\n".join("# odd-ws-hash: " + sello if linea.startswith("# odd-ws-hash:") else linea for linea in texto.split("\n"))
+
+
+def aislado(ctx):
+    return ctx.home / ".gentle-shell" / "agent"
+
+
+def de_pi(ctx):
+    return ctx.home / ".pi" / "agent"
+
+
+def gentle_shell_dice(ctx, pi="1.5.2", modo="isolated", home=None):
+    return 0, "gentle-shell 4.7.0\npi %s\nhome %s %s\n" % (pi, modo, home or aislado(ctx))
+
+
+def home_de_la_maquina(e):
+    ajenas = [padre for padre in Path(os.path.realpath(e.base)).parents if (padre / ".agents" / "skills").exists()]
+    assert len(ajenas) <= 1, "más de una carpeta arriba del temporal tiene .agents/skills, y Pi pediría confianza: %r" % ajenas
+    return str(ajenas[0]) if ajenas else str(e.base / "home")
+
+
+MANIFIESTO_DE_F2F = {"name": "odd-ws", "pi": {"extensions": ["shim/pi.ts"]}}
+SCRIPTS_DE_LOS_HOOKS = ("verificar_capa.py", "writer_guard.py", "guard_comandos.py", "writer_stop.py")
+
+
+def como_paquete_de_pi(carpeta, manifiesto=MANIFIESTO_DE_F2F):
+    shutil.copytree(AQUI.parent / "hooks", carpeta / "hooks", dirs_exist_ok=True)
+    poner(carpeta, "shim/pi.ts", "export default function () {}\n")
+    for script in SCRIPTS_DE_LOS_HOOKS:
+        poner(carpeta, "scripts/" + script, "")
+    if manifiesto is not None:
+        poner(carpeta, "package.json", json.dumps(manifiesto))
+    return carpeta
+
+
+def falso_de_pi(e, raiz, version="1.5.2\n", gentle=True, **extra):
+    respuestas = {**extra.pop("respuestas", {}), ("pi", "--version"): (0, version) if version else None}
+    ctx = con_hooks_del_plugin(Falso(e.base, cwd=raiz, respuestas=respuestas, **extra))
+    ctx.entorno = {"HOME": home_de_la_maquina(e)}
+    como_paquete_de_pi(ctx.plugin)
+    ctx.respuestas[("gentle-shell", "--version")] = gentle_shell_dice(ctx) if gentle is True else gentle or None
+    return ctx
+
+
+def poner_paquetes(home, *paquetes):
+    return poner(home, "settings.json", json.dumps({"packages": list(paquetes)}))
+
+
+def instancia_pi_sana(e, hosts=("pi",)):
+    raiz = con_hosts(e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")})), list(hosts))
+    poner_agentes(raiz)
+    poner(raiz, ".claude/skills/criterios/SKILL.md", skill_con("criterios"))
+    poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql"))
+    for nombre in AGENTES_DE_LA_PLANTILLA:
+        poner(raiz, ".pi/agents/%s.md" % nombre, md_de_pi_de_la_plantilla(nombre))
+    ctx = falso_de_pi(e, raiz)
+    poner_paquetes(aislado(ctx), str(ctx.plugin))
+    return raiz, ctx
+
+
+def arbol_de(*carpetas):
+    return {str(ruta): ruta.read_bytes() for carpeta in carpetas if carpeta.is_dir() for ruta in sorted(carpeta.rglob("*")) if ruta.is_file()}
+
+
+def test_una_instancia_pi_sana_da_ok_en_todos_sus_items_en_su_orden():
+    for hosts, items, hooks in ((("pi",), ITEMS_DE_PI, "8 hooks de pi, cada uno con el --host de su archivo"),
+                                (("claude-code", "pi"), ["claude", "marketplace", *ITEMS_DE_PI],
+                                 "15 hooks de claude-code, pi, cada uno con el --host de su archivo")):
         with Escenario() as e:
-            _, ctx = instancia_codex_sana(e, hosts=hosts)
+            raiz, ctx = instancia_pi_sana(e, hosts)
             r = por_id(ctx)
-            assert r["pi"].estado == "AVISO" and "F2e" in r["pi"].detalle and "no se revisa" in r["pi"].detalle, (hosts, r["pi"])
-            assert r["pi-agentes"].estado == "AVISO" and "F2d" in r["pi-agentes"].detalle, (hosts, r["pi-agentes"])
-            assert (r["hooks-host"].estado, r["hooks-host"].detalle) == ("OK", detalle), (hosts, r["hooks-host"])
-            assert not [i for i in r if i.startswith("codex")], (hosts, list(r))
+            ids = list(r)
+            assert ids[ids.index("git-credenciales") + 1:ids.index("hooks-host") + 1] == [*items, "hooks-host"], (hosts, ids)
+            assert all(r[i].estado == "OK" for i in ITEMS_DE_PI + ["hooks-host"]), {i: r[i] for i in ITEMS_DE_PI + ["hooks-host"]}
+            assert r["pi"].detalle == "1.5.2" and r["hooks-host"].detalle == hooks, (r["pi"], r["hooks-host"])
+            for parte in ("4.7.0", "pi 1.5.2", "isolated", str(aislado(ctx))):
+                assert parte in r["gentle-shell"].detalle, (parte, r["gentle-shell"])
+            assert str(aislado(ctx) / "settings.json") in r["pi-plugin"].detalle and str(ctx.plugin) in r["pi-plugin"].detalle, r["pi-plugin"]
+            assert "3 .md de .pi/agents al día" in r["pi-agentes"].detalle, r["pi-agentes"]
+            assert not [i for i in ids if i.startswith("codex")], ids
+            codigo, salida = correr([], ctx)
+            assert codigo == 0, salida
+
+
+def test_sin_pi_declarado_no_sale_ningun_item_de_pi():
+    for hosts in (None, ["claude-code"], ["claude-code", "codex"], ["codex"]):
+        with Escenario() as e:
+            raiz = instancia_sana(e) if hosts is None else con_hosts(instancia_sana(e), hosts)
+            ctx = falso_de_pi(e, raiz)
+            ids = list(por_id(ctx))
+            assert not set(ITEMS_DE_PI) & set(ids), (hosts, ids)
+            assert ("pi", "--version") not in ctx.llamadas and ("gentle-shell", "--version") not in ctx.llamadas, (hosts, ctx.llamadas)
+
+
+def test_pi_menor_que_la_minima_es_aviso_con_lo_que_usa_odd_ws_e_igual_o_mayor_es_ok():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        r = por_id(falso_de_pi(e, raiz, version="1.4.9\n"))["pi"]
+        assert r.estado == "AVISO" and "1.4.9" in r.detalle and "1.5.0" in r.detalle and r.ayuda and r.arreglo is None, r
+        assert all(uso in r.detalle for uso in USOS_DE_PI), r
+        ctx = falso_de_pi(e, raiz, version="1.4.9\n")
+        poner_paquetes(aislado(ctx), str(ctx.plugin))
+        assert correr([], ctx)[0] == 0
+        for version in ("1.5.0\n", "1.5.2\n", "2.0.0\n"):
+            assert por_id(falso_de_pi(e, raiz, version=version))["pi"].estado == "OK", version
+        for version in ("0.87.0\n", "1.4.0\n"):
+            assert por_id(falso_de_pi(e, raiz, version=version))["pi"].estado == "AVISO", version
+
+
+SIN_AGENT_BEFORE_SETTLE = ("0.87.0", "agent_before_settle", "CHANGELOG", "compuerta")
+
+
+def test_pi_sin_agent_before_settle_es_falta_porque_la_compuerta_del_writer_no_correria():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ctx = falso_de_pi(e, raiz, version="0.86.3\n")
+        r = por_id(ctx)["pi"]
+        assert r.estado == "FALTA" and "0.86.3" in r.detalle and all(parte in r.detalle for parte in SIN_AGENT_BEFORE_SETTLE), r
+        assert "1.5.0" in r.ayuda and r.arreglo is None and r.comando is None, r
+        assert por_id(ctx)["pi-plugin"].estado == "OK", "un Pi viejo sigue instalado: lo de la máquina se revisa"
+        assert correr([], ctx)[0] == 1
+
+
+def test_el_pi_que_reporta_gentle_shell_sigue_el_mismo_corte():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        for pi, estado in (("0.86.3", "FALTA"), ("0.87.0", "AVISO"), ("1.4.9", "AVISO"), ("1.5.0", "OK")):
+            r = por_id(falso_de_pi(e, raiz, gentle=gentle_shell_dice(ctx, pi=pi)))["gentle-shell"]
+            assert r.estado == estado and pi in r.detalle, (pi, r)
+            r = por_id(falso_de_pi(e, raiz, version=None, gentle=gentle_shell_dice(ctx, pi=pi)))["pi"]
+            assert r.estado == estado and r.detalle.startswith(pi) and "gentle-shell" in r.detalle, (pi, r)
+            if estado == "FALTA":
+                assert all(parte in r.detalle for parte in SIN_AGENT_BEFORE_SETTLE) and "1.5.0" in r.ayuda, r
+
+
+def test_pi_ausente_es_falta_y_lo_de_la_maquina_no_aplica():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ctx = falso_de_pi(e, raiz, version=None, gentle=False)
+        r = por_id(ctx)
+        assert (r["pi"].estado, r["pi"].detalle) == ("FALTA", "pi no está instalado"), r["pi"]
+        assert "npm i -g" in r["pi"].ayuda and "1.5.0" in r["pi"].ayuda, r["pi"]
+        assert all((r[i].estado, r[i].detalle) == ("NO APLICA", "pi no está instalado") for i in ("gentle-shell", "pi-plugin", "pi-confianza")), r
+        assert r["pi-agentes"].estado == "OK", r["pi-agentes"]
+        assert correr([], ctx)[0] == 1
+
+
+def test_pi_que_no_se_puede_ejecutar_o_cuya_version_no_se_lee_no_dice_que_no_esta():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ruta = "C:/npm/pi.CMD"
+        ctx = falso_de_pi(e, raiz, respuestas={(ruta, "--version"): None}, which={"pi": ruta})
+        r = por_id(ctx)
+        assert (r["pi"].estado, r["pi"].detalle) == ("FALTA", "C:/npm/pi.CMD no se pudo ejecutar"), r["pi"]
+        assert r["pi-plugin"].estado == "NO APLICA", r["pi-plugin"]
+        ctx = falso_de_pi(e, raiz, respuestas={(ruta, "--version"): (0, "1.5.1\n")}, which={"pi": ruta})
+        assert por_id(ctx)["pi"].detalle == "1.5.1" and (ruta, "--version") in ctx.llamadas, ctx.llamadas
+        r = por_id(falso_de_pi(e, raiz, version="pi sin numero\n"))["pi"]
+        assert r.estado == "AVISO" and "no se pudo leer la versión" in r.detalle, r
+
+
+def test_sin_pi_en_el_path_vale_el_pi_que_corre_gentle_shell():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ctx = falso_de_pi(e, raiz, version=None)
+        poner_paquetes(aislado(ctx), str(ctx.plugin))
+        r = por_id(ctx)
+        assert r["pi"].estado == "OK" and r["pi"].detalle.startswith("1.5.2") and "gentle-shell" in r["pi"].detalle, r["pi"]
+        assert r["pi-plugin"].estado == "OK" and r["gentle-shell"].estado == "OK", (r["pi-plugin"], r["gentle-shell"])
+        ctx = falso_de_pi(e, raiz, version=None, gentle=gentle_shell_dice(ctx, pi="1.4.0"))
+        r = por_id(ctx)["pi"]
+        assert r.estado == "AVISO" and "1.4.0" in r.detalle and "gentle-shell" in r.detalle and "isProjectTrusted" in r.detalle, r
+        ctx = falso_de_pi(e, raiz, version=None, gentle=gentle_shell_dice(ctx, pi="not found"))
+        assert (por_id(ctx)["pi"].estado, por_id(ctx)["pi"].detalle) == ("FALTA", "pi no está instalado")
+
+
+def test_sin_pi_en_el_path_y_con_gentle_shell_roto_el_item_pi_dice_lo_que_paso():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        for respuesta, rastro in (((1, "gentle-shell: pi 1.1.0 is older than 1.2.0\n"), "sale con 1: gentle-shell: pi 1.1.0 is older"),
+                                  ((124, "se pasó del tiempo"), "sale con 124: se pasó del tiempo")):
+            ctx = falso_de_pi(e, raiz, version=None, gentle=respuesta)
+            r = por_id(ctx)
+            assert r["pi"].estado == "FALTA" and "pi no está en el PATH" in r["pi"].detalle and rastro in r["pi"].detalle, (respuesta, r["pi"])
+            assert r["pi"].ayuda and r["pi-plugin"].estado == "NO APLICA", (respuesta, r["pi-plugin"])
+
+
+def test_gentle_shell_ausente_o_raro_es_aviso_porque_sin_el_el_writer_no_tiene_compuerta():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ctx = falso_de_pi(e, raiz, gentle=False)
+        poner_paquetes(de_pi(ctx), str(ctx.plugin))
+        r = por_id(ctx)
+        g = r["gentle-shell"]
+        assert g.estado == "AVISO" and "gentle-shell no está instalado" in g.detalle and "compuerta" in g.detalle, g
+        assert "npm i -g gentle-pi" in g.ayuda and g.arreglo is None and g.comando is None, g
+        assert r["pi-plugin"].estado == "OK" and str(de_pi(ctx)) in r["pi-plugin"].detalle, r["pi-plugin"]
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, salida
+        for respuesta, rastro in ((gentle_shell_dice(ctx, pi="1.4.0"), "1.4.0"), (gentle_shell_dice(ctx, pi="not found"), "not found"),
+                                  ((1, "gentle-shell: algo se rompió\n"), "sale con 1"), ((0, "sin numeros\n"), "no se pudo leer")):
+            g = por_id(falso_de_pi(e, raiz, gentle=respuesta))["gentle-shell"]
+            assert g.estado == "AVISO" and rastro in g.detalle and g.ayuda, (respuesta, g)
+
+
+def test_pi_plugin_se_busca_en_el_home_activo_de_gentle_shell():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        (aislado(ctx) / "settings.json").unlink()
+        poner_paquetes(de_pi(ctx), str(ctx.plugin))
+        antes = arbol_de(ctx.home, raiz)
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and str(aislado(ctx) / "settings.json") in r.detalle and str(de_pi(ctx) / "settings.json") in r.detalle, r
+        assert "gentle-shell install" in r.ayuda and "no escribe" in r.ayuda and r.arreglo is None and r.comando is None, r
+        codigo, salida = correr(["--arreglar", "pi-plugin"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert arbol_de(ctx.home, raiz) == antes
+        ctx.respuestas[("gentle-shell", "--version")] = gentle_shell_dice(ctx, modo="link", home=de_pi(ctx))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "OK" and str(de_pi(ctx) / "settings.json") in r.detalle, r
+        propio = e.base / "home-propio"
+        poner_paquetes(propio, {"source": str(ctx.plugin)})
+        ctx.respuestas[("gentle-shell", "--version")] = gentle_shell_dice(ctx, modo="path", home=propio)
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+
+
+def test_pi_plugin_sin_gentle_shell_usa_el_home_de_pi_y_respeta_pi_coding_agent_dir():
+    with Escenario() as e:
+        raiz, _ = instancia_pi_sana(e)
+        ctx = falso_de_pi(e, raiz, gentle=False)
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA"
+        otro = e.base / "otro-home"
+        poner_paquetes(otro, str(ctx.plugin))
+        ctx.entorno = {"PI_CODING_AGENT_DIR": str(otro)}
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "OK" and str(otro / "settings.json") in r.detalle, r
+        ctx.entorno = {"GENTLE_PI_AGENT_HOME": str(otro)}
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and str(otro / "settings.json") in r.detalle, r
+
+
+REPO_DE_ODD_WS = "sebasgc0399/odd-workspace-template"
+
+
+def checkout_de_git(home, manifiesto=None):
+    raiz = home / "git" / "github.com" / REPO_DE_ODD_WS
+    como_paquete_de_pi(raiz / "plugin", None)
+    poner(raiz, "package.json", json.dumps(manifiesto or {"name": "odd-ws", "pi": {"extensions": ["plugin/shim/pi.ts"]}}))
+    return raiz
+
+
+def test_pi_plugin_reconoce_el_plugin_por_su_ruta_y_los_que_no_lo_cargan_son_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        relativa = os.path.relpath(ctx.plugin, aislado(ctx))
+        for paquete in (str(ctx.plugin), relativa, {"source": str(ctx.plugin)}, {"source": str(ctx.plugin), "skills": []},
+                        str(ctx.plugin / "shim" / "pi.ts"), {"source": str(ctx.plugin / "shim" / "pi.ts"), "extensions": []}):
+            poner_paquetes(aislado(ctx), "npm:otro-paquete", paquete)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "OK", (paquete, r)
+        for paquete in ("npm:odd-ws", "git:github.com/otro/odd-workspace-template", "https://github.com/sebasgc0399/odd-workspace-template-fork",
+                        str(e.base / "no-existe"), str(raiz), {"source": 7}, 7, {"source": str(ctx.plugin), "extensions": []}):
+            poner_paquetes(aislado(ctx), paquete)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA", (paquete, r)
+        poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), "extensions": []})
+        assert "extensions" in por_id(ctx)["pi-plugin"].detalle
+        poner_paquetes(aislado(ctx), "~/../plugin-instalado")
+        ctx.entorno = {"HOME": str(e.base / "home")}
+        assert por_id(ctx)["pi-plugin"].estado == "OK", "la ~ es HOME, como en Pi"
+        ctx.entorno = {"HOME": str(e.base / "otra" / "home")}
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA"
+
+
+def test_pi_plugin_con_una_fuente_git_mira_el_checkout_que_clona_pi():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        fuentes = ("git:github.com/" + REPO_DE_ODD_WS, "git:github.com/%s@v0.6.0" % REPO_DE_ODD_WS, "https://github.com/%s.git" % REPO_DE_ODD_WS,
+                   "git:git@github.com:%s.git@main" % REPO_DE_ODD_WS, "ssh://git@github.com/" + REPO_DE_ODD_WS)
+        for fuente in fuentes:
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and "clona" in r.detalle, (fuente, r)
+        checkout = checkout_de_git(aislado(ctx))
+        for fuente in fuentes:
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "AVISO" and "otra copia" in r.detalle and str(checkout / "plugin") in r.detalle, (fuente, r)
+        poner(checkout, "package.json", json.dumps({"name": "odd-ws"}))
+        poner_paquetes(aislado(ctx), fuentes[0])
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "pi.extensions" in r.detalle, r
+
+
+def test_pi_plugin_las_fuentes_que_pi_no_toma_como_git_son_rutas_que_no_existen():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        checkout_de_git(aislado(ctx))
+        for fuente in ("github:" + REPO_DE_ODD_WS, "ssh:git@github.com:" + REPO_DE_ODD_WS, "git@github.com:%s.git" % REPO_DE_ODD_WS):
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and "ruta local" in r.detalle and "git:" in r.detalle, (fuente, r)
+        for fuente in ("git:" + REPO_DE_ODD_WS, "https://www.github.com/" + REPO_DE_ODD_WS, "https://github.com/%s/tree/main" % REPO_DE_ODD_WS):
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and "no se puede decidir" in r.detalle, (fuente, r)
+
+
+def test_pi_plugin_sin_manifiesto_de_pi_no_carga_el_shim_y_es_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        (ctx.plugin / "package.json").unlink()
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "pi.extensions" in r.detalle and "extensions/" in r.detalle and "F2f" in r.detalle, r
+        poner(ctx.plugin, "extensions/otra/index.ts", "")
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA"
+        for manifiesto, estado in (({"pi": {"skills": ["skills"]}}, "FALTA"), ({"pi": {"extensions": ["shim"]}}, "OK"),
+                                   ({"pi": {"extensions": ["./shim/pi.ts"]}}, "OK"), ({"pi": {"extensions": ["shim/pi.ts", "!shim/pi.ts"]}}, "FALTA"),
+                                   ({"pi": {"extensions": "shim/pi.ts"}}, "FALTA"), ({"pi": {"extensions": []}}, "FALTA")):
+            poner(ctx.plugin, "package.json", json.dumps(manifiesto))
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == estado, (manifiesto, r)
+        poner(ctx.plugin, "package.json", json.dumps({"pi": {"extensions": ["shim/*.ts"]}}))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "no se puede decidir" in r.detalle, r
+        poner(ctx.plugin, "package.json", "{roto")
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA"
+
+
+def test_pi_plugin_sigue_los_filtros_de_extensions_como_pi():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        for filtro, estado in ((["-shim/pi.ts"], "FALTA"), (["!**/*.ts"], "FALTA"), (["otro/x.ts"], "FALTA"), ([], "FALTA"),
+                               (["+shim/pi.ts"], "OK"), (["shim/pi.ts"], "OK"), (["**/*.ts"], "OK"), (["*.ts"], "OK"), (["shim/*"], "OK"),
+                               (["!*.ts", "+shim/pi.ts"], "OK"), (["+shim/pi.ts", "-shim/pi.ts"], "FALTA"), (["-./shim/pi.ts"], "FALTA"),
+                               (["!.shim/*"], "OK"), (["!shim/p?.ts"], "FALTA"), (["!s*.ts"], "OK"), (["!**/.*/pi.ts"], "OK")):
+            poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), "extensions": filtro})
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == estado, (filtro, r)
+            if estado == "FALTA":
+                assert "extensions" in r.detalle, (filtro, r)
+        poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), "extensions": ["!shim/{pi,x}.ts"]})
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "no se puede decidir" in r.detalle, r
+
+
+def test_pi_plugin_con_autoload_false_solo_carga_lo_que_dicen_sus_patrones():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        for entrada, estado in (({"autoload": False}, "FALTA"), ({"autoload": False, "extensions": []}, "FALTA"),
+                                ({"autoload": False, "extensions": ["+shim/pi.ts"]}, "OK"), ({"autoload": False, "extensions": ["shim/pi.ts"]}, "OK"),
+                                ({"autoload": False, "extensions": ["-shim/pi.ts"]}, "FALTA"),
+                                ({"autoload": False, "extensions": ["shim/pi.ts", "!shim/pi.ts"]}, "FALTA")):
+            poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), **entrada})
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == estado, (entrada, r)
+        poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), "autoload": False})
+        assert "autoload" in por_id(ctx)["pi-plugin"].detalle
+
+
+def confiar(ctx, raiz, decision=True):
+    poner(aislado(ctx), "trust.json", json.dumps({os.path.realpath(raiz): decision}))
+
+
+def test_pi_plugin_la_entrada_del_proyecto_con_confianza_reemplaza_la_del_home():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        relativa = os.path.relpath(ctx.plugin, raiz / ".pi")
+        for del_proyecto in ({"source": str(ctx.plugin), "extensions": []}, {"source": relativa, "extensions": ["-shim/pi.ts"]},
+                             {"source": str(ctx.plugin), "autoload": False, "extensions": ["-shim/pi.ts"]}):
+            poner(raiz, ".pi/settings.json", json.dumps({"packages": [del_proyecto]}))
+            confiar(ctx, raiz)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and ".pi/settings.json" in r.detalle, (del_proyecto, r)
+            confiar(ctx, raiz, False)
+            assert por_id(ctx)["pi-plugin"].estado == "OK", "sin confianza Pi no lee el proyecto y vale el home"
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [{"source": relativa, "autoload": False, "extensions": ["+shim/pi.ts"]}]}))
+        confiar(ctx, raiz)
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [relativa, {"source": str(ctx.plugin), "extensions": []}]}))
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA", "entre dos del proyecto con la misma identidad gana la última"
+
+
+def test_pi_plugin_con_la_misma_fuente_git_en_el_proyecto_y_en_el_home_gana_la_del_proyecto():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        fuente = "git:github.com/" + REPO_DE_ODD_WS
+        checkout_de_git(aislado(ctx))
+        poner_paquetes(aislado(ctx), fuente)
+        confiar(ctx, raiz)
+        assert por_id(ctx)["pi-plugin"].estado == "AVISO", "el checkout del home carga el shim"
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [fuente + "@v0.6.0"]}))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "clona" in r.detalle and ".pi/settings.json" in r.detalle, "gana la del proyecto, que no está clonada"
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [{"source": fuente, "autoload": False, "extensions": ["-plugin/shim/pi.ts"]}]}))
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA", "el delta del proyecto se aplica sobre el checkout del home"
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [{"source": fuente, "autoload": False, "extensions": ["+plugin/shim/pi.ts"]}]}))
+        assert por_id(ctx)["pi-plugin"].estado == "AVISO"
+
+
+def test_pi_plugin_solo_en_el_proyecto_cuenta_solo_con_confianza():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        poner_paquetes(aislado(ctx))
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [os.path.relpath(ctx.plugin, raiz / ".pi")]}))
+        for preparar in (lambda: confiar(ctx, raiz, False), lambda: (aislado(ctx) / "trust.json").unlink()):
+            preparar()
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and ".pi/settings.json" in r.detalle and "confianza" in r.detalle and "home" in r.detalle, r
+            assert "/trust" in r.ayuda, r
+        poner(aislado(ctx), "settings.json", json.dumps({"packages": [], "defaultProjectTrust": "always"}))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "OK" and ".pi/settings.json" in r.detalle and "confianza" in r.detalle, r
+        poner_paquetes(aislado(ctx))
+        confiar(ctx, raiz)
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+
+
+def test_pi_plugin_avisa_si_pi_carga_otra_copia_del_plugin():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        copia = como_paquete_de_pi(e.base / "otra-copia")
+        poner_paquetes(aislado(ctx), str(copia))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "AVISO" and "otra copia" in r.detalle and str(copia) in r.detalle and str(ctx.plugin) in r.detalle, r
+
+
+def test_pi_plugin_acepta_el_paquete_del_proyecto_y_no_lee_un_settings_roto_como_vacio():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        (aislado(ctx) / "settings.json").unlink()
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [os.path.relpath(ctx.plugin, raiz / ".pi")]}))
+        confiar(ctx, raiz)
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "OK" and ".pi/settings.json" in r.detalle and "confianza" in r.detalle, r
+        poner(aislado(ctx), "settings.json", "{roto")
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "no se puede leer" in r.detalle and str(aislado(ctx) / "settings.json") in r.detalle and r.ayuda, r
+        assert (aislado(ctx) / "settings.json").read_bytes() == b"{roto"
+        poner(aislado(ctx), "settings.json", json.dumps({"packages": "no es una lista"}))
+        poner(raiz, ".pi/settings.json", json.dumps({}))
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA"
+
+
+def test_pi_confianza_sin_recursos_que_la_pidan_y_sin_decision_es_ok():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        r = por_id(ctx)["pi-confianza"]
+        assert r.estado == "OK" and "no tiene recursos que pidan confianza" in r.detalle, r
+
+
+def test_pi_confianza_avisa_un_no_confiar_guardado_para_la_raiz_o_su_padre_mas_cercano():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        canonica = os.path.realpath(raiz)
+        trust = aislado(ctx) / "trust.json"
+        for decisiones, estado in (({canonica: False}, "AVISO"), ({canonica.upper(): False}, "AVISO"),
+                                   ({os.path.dirname(canonica): False}, "AVISO"), ({canonica: True, os.path.dirname(canonica): False}, "OK"),
+                                   ({canonica: None, os.path.dirname(canonica): True}, "OK"), ({canonica: True}, "OK")):
+            poner(aislado(ctx), "trust.json", json.dumps(decisiones))
+            antes = trust.read_bytes()
+            r = por_id(ctx)["pi-confianza"]
+            assert r.estado == estado, (decisiones, r)
+            if estado == "AVISO":
+                assert str(trust) in r.detalle and ".claude/skills" in r.detalle and "/trust" in r.ayuda and r.arreglo is None, r
+            assert trust.read_bytes() == antes
+        assert correr([], ctx)[0] == 0
+        poner(de_pi(ctx), "trust.json", json.dumps({canonica: False}))
+        poner(aislado(ctx), "trust.json", json.dumps({}))
+        assert por_id(ctx)["pi-confianza"].estado == "OK", "solo cuenta el trust.json del home activo"
+
+
+def test_pi_confianza_con_recursos_que_la_piden_sigue_el_default_del_home():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        poner(raiz, ".pi/settings.json", "{}")
+        r = por_id(ctx)["pi-confianza"]
+        assert r.estado == "AVISO" and ".pi/settings.json" in r.detalle and "pregunta" in r.detalle, r
+        for valor, estado in (("always", "OK"), ("never", "AVISO"), ("ask", "AVISO"), (7, "AVISO")):
+            poner(aislado(ctx), "settings.json", json.dumps({"packages": [str(ctx.plugin)], "defaultProjectTrust": valor}))
+            r = por_id(ctx)["pi-confianza"]
+            assert r.estado == estado and ("defaultProjectTrust" in r.detalle or valor == 7), (valor, r)
+        poner(aislado(ctx), "trust.json", json.dumps({os.path.realpath(raiz): True}))
+        assert por_id(ctx)["pi-confianza"].estado == "OK"
+        (raiz / ".pi" / "settings.json").unlink()
+        (aislado(ctx) / "trust.json").unlink()
+        poner(raiz.parent, ".agents/skills/x/SKILL.md", "x")
+        de_un_padre = os.path.join(os.path.realpath(raiz.parent), ".agents", "skills")
+        r = por_id(ctx)["pi-confianza"]
+        assert r.estado == "AVISO" and de_un_padre in r.detalle, r
+        ctx.entorno = {"HOME": str(raiz.parent)}
+        assert de_un_padre not in por_id(ctx)["pi-confianza"].detalle, "las skills personales de HOME no piden confianza, como en Pi"
+
+
+def test_pi_confianza_con_un_trust_json_que_pi_no_lee_es_aviso():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        for roto in ("{roto", "[]", json.dumps({os.path.realpath(raiz): 1}), b"\xff\xfe"):
+            poner(aislado(ctx), "trust.json", roto)
+            r = por_id(ctx)["pi-confianza"]
+            assert r.estado == "AVISO" and "no se puede leer" in r.detalle and "trust.json" in r.detalle, (roto, r)
+        poner(aislado(ctx), "trust.json", b"\xef\xbb\xbf" + json.dumps({os.path.realpath(raiz): True}).encode("utf-8"))
+        assert por_id(ctx)["pi-confianza"].estado == "OK"
+
+
+def test_pi_agentes_que_faltan_son_falta_y_arreglar_los_deriva_de_su_md():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        shutil.rmtree(raiz / ".pi")
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "FALTA" and r.arreglo is not None and ".pi/agents/writer-sql.md" in r.detalle, r
+        codigo, salida = correr(["--arreglar", "pi-agentes"], ctx)
+        assert codigo == 0 and "pi-agentes: OK" in salida, salida
+        for nombre in AGENTES_DE_LA_PLANTILLA:
+            crudo = md_de_pi_en(raiz, nombre).read_bytes()
+            assert crudo == md_de_pi_de_la_plantilla(nombre).encode("utf-8") and b"\r\n" not in crudo, nombre
+
+
+def test_la_linea_del_bootstrap_doctor_arreglar_pi_agentes_deriva_los_md_con_rc_0():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e, ("claude-code", "pi"))
+        md = raiz / ".claude" / "agents" / "writer-sql.md"
+        propio = pw().generar("sql", re.sub(r"(?m)^description:.*$", 'description: "Writer propio de capa-a"', pw().generar("sql"), count=1))
+        md.write_bytes(propio.encode("utf-8"))
+        shutil.rmtree(raiz / ".pi")
+        archivos = {a.ruta: a for a in pim().archivos([pw().agente(ba().armar(n, None, "pi")) for n in AGENTES_DE_LA_PLANTILLA])}
+        assert {a.arreglo for a in archivos.values()} == {"pi-agentes"} and "pi-agentes" in por_id(ctx), archivos
+        codigo, salida = correr(["--arreglar", "pi-agentes"], ctx)
+        assert codigo == 0 and "pi-agentes: OK" in salida, salida
+        nuevo = md_de_pi_en(raiz, "writer-sql").read_text(encoding="utf-8")
+        assert 'description: "Writer propio de capa-a"' in nuevo and md.read_bytes() == propio.encode("utf-8"), nuevo
+
+
+def test_pi_agentes_atrasado_con_su_huella_es_falta_y_arreglar_lo_rederiva():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        ruta = md_de_pi_en(raiz, "writer-sql")
+        viejo = resellar_md_de_pi(ruta.read_text(encoding="utf-8").replace("`edit` o `write`", "`edit` o `escribir`"))
+        assert "# odd-ws-plantilla: %d" % pw().version() in viejo and viejo != ruta.read_text(encoding="utf-8")
+        ruta.write_bytes(viejo.encode("utf-8"))
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "FALTA" and "writer-sql.md quedó atrás" in r.detalle and r.arreglo, r
+        assert correr(["--arreglar", "pi-agentes"], ctx)[0] == 0
+        assert ruta.read_bytes() == md_de_pi_de_la_plantilla("writer-sql").encode("utf-8")
+
+
+def test_pi_agentes_editado_a_mano_es_aviso_y_arreglar_no_lo_pisa():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        editado = md_de_pi_en(raiz, "revisor-sql").read_text(encoding="utf-8").replace('description: "', 'description: "Mío: ', 1)
+        md_de_pi_en(raiz, "revisor-sql").write_bytes(editado.encode("utf-8"))
+        ajeno = "---\nname: revisor-diseno\ndescription: a mano\n---\nCuerpo.\n"
+        md_de_pi_en(raiz, "revisor-diseno").write_bytes(ajeno.encode("utf-8"))
+        md_de_pi_en(raiz, "writer-sql").unlink()
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "FALTA" and "revisor-sql.md se editó a mano" in r.detalle and "revisor-diseno.md" in r.detalle and r.ayuda, r
+        assert ".claude/agents" in r.ayuda and "--arreglar pi-agentes" in r.ayuda, r
+        codigo, salida = correr(["--arreglar", "pi-agentes"], ctx)
+        assert codigo == 0 and "pi-agentes: AVISO" in salida, salida
+        assert md_de_pi_en(raiz, "revisor-sql").read_bytes() == editado.encode("utf-8")
+        assert md_de_pi_en(raiz, "revisor-diseno").read_bytes() == ajeno.encode("utf-8")
+        assert md_de_pi_en(raiz, "writer-sql").read_bytes() == md_de_pi_de_la_plantilla("writer-sql").encode("utf-8")
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "AVISO" and r.arreglo is None and "writer-sql" not in r.detalle, r
+        assert correr([], ctx)[0] == 0
+
+
+def test_pi_agentes_al_dia_aunque_el_checkout_lo_deje_en_crlf_o_con_bom():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        ruta = md_de_pi_en(raiz, "writer-sql")
+        ruta.write_bytes(b"\xef\xbb\xbf" + ruta.read_bytes().replace(b"\n", b"\r\n"))
+        assert por_id(ctx)["pi-agentes"].estado == "OK"
+
+
+def test_pi_agentes_avisa_del_md_de_un_agente_que_ya_no_existe_sin_borrarlo():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        viejo = md_de_pi_de_la_plantilla("writer-sql").replace("writer-sql", "writer-vieja")
+        poner(raiz, ".pi/agents/writer-vieja.md", viejo)
+        poner(raiz, ".pi/agents/propio.md", "---\nname: propio\ndescription: mío\n---\nx\n")
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "AVISO" and "writer-vieja.md" in r.detalle and "propio" not in r.detalle and r.arreglo is None, r
+        codigo, salida = correr(["--arreglar", "pi-agentes"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert md_de_pi_en(raiz, "writer-vieja").read_bytes() == viejo.encode("utf-8")
+
+
+def test_pi_agentes_no_deriva_de_un_md_editado_fuera_de_sus_bloques():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        md = raiz / ".claude" / "agents" / "revisor-sql.md"
+        md.write_bytes(md.read_bytes().replace(b"1. **Lee la entrada.**", b"1. **Lee todo.**", 1))
+        md_de_pi_en(raiz, "revisor-sql").unlink()
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "AVISO" and ".claude/agents/revisor-sql.md" in r.detalle and r.arreglo is None, r
+        assert not md_de_pi_en(raiz, "revisor-sql").exists()
+
+
+def test_pi_agentes_con_un_md_que_pi_no_acepta_avisa_sin_reventar_y_deriva_los_demas():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        md = raiz / ".claude" / "agents" / "writer-sql.md"
+        md.write_bytes(pw().generar("sql", re.sub(r"(?m)^description:.*$", 'description: "\ufeff"', pw().generar("sql"), count=1)).encode("utf-8"))
+        shutil.rmtree(raiz / ".pi")
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "FALTA" and "description no vacía" in r.detalle and ".claude/agents/writer-sql.md" in r.detalle, r
+        codigo, salida = correr(["--arreglar", "pi-agentes"], ctx)
+        assert codigo == 0 and "pi-agentes: AVISO" in salida and "Traceback" not in salida, salida
+        assert not md_de_pi_en(raiz, "writer-sql").exists() and md_de_pi_en(raiz, "revisor-sql").is_file()
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "AVISO" and r.arreglo is None and "description no vacía" in r.detalle and r.ayuda, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0 and "Traceback" not in salida, salida
+
+
+def test_pi_agentes_con_la_config_rota_es_una_sola_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        (raiz / "workspace.config.json").write_text('{"schema_version": 1, "layers": {}, "hosts": ["pi"]}', encoding="utf-8")
+        r = por_id(ctx)["pi-agentes"]
+        assert r.estado == "FALTA" and "layers" in r.detalle and r.arreglo is None and r.ayuda, r
+
+
+def test_con_pi_declarado_en_windows_python_revisa_el_python_de_pi_y_lo_nombra():
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["pi"], which={"python3": PYTHON3_SANO, "python": None},
+                                          respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.12.4\n")})
+        assert (r.estado, r.detalle) == ("FALTA", "python no está en el PATH: los hooks de pi lo llaman por nombre"), r
+        assert sondas == [], sondas
+    with Escenario() as e:
+        r, _ = item_python_con_hosts(e, ["codex", "pi"], which={"python3": PYTHON3_SANO, "python": None})
+        assert r.estado == "FALTA" and "los hooks de codex, pi lo llaman por nombre" in r.detalle, r
+    with Escenario() as e:
+        r, sondas = item_python_con_hosts(e, ["pi"], windows=False, which={"python3": PYTHON3_SANO, "python": None},
+                                          respuestas={(PYTHON3_SANO, "-c"): (0, "Python 3.9.6\n")})
+        assert (r.estado, sondas) == ("OK", [PYTHON3_SANO]), (r, sondas)
+
+
+def escribir_hooks_de_pi(ctx, cambiar=None, texto=None):
+    archivo = ctx.plugin / "hooks" / "hooks.pi.json"
+    datos = json.loads((AQUI.parent / "hooks" / "hooks.pi.json").read_text(encoding="utf-8"))
+    if cambiar:
+        cambiar(datos)
+    archivo.write_text(texto if texto is not None else json.dumps(datos), encoding="utf-8")
+
+
+def test_hooks_host_de_pi_es_falta_con_un_hooks_pi_json_que_el_shim_rechaza():
+    def hook(datos, **cambio):
+        datos["hooks"]["tool_call"][1]["hooks"][0].update(cambio)
+
+    casos = ((lambda d: hook(d, script="../writer_guard.py"), "tool_call[1][0]: script"),
+             (lambda d: hook(d, script="writer_guard.sh"), "tool_call[1][0]: script"),
+             (lambda d: hook(d, timeout=0), "tool_call[1][0]: timeout"), (lambda d: hook(d, timeout="10"), "tool_call[1][0]: timeout"),
+             (lambda d: hook(d, timeout=True), "tool_call[1][0]: timeout"),
+             (lambda d: d["hooks"]["tool_call"][1].update(tools="bash"), "tool_call[1]: tools"),
+             (lambda d: d["hooks"]["tool_call"][1].update(tools=["bash", ""]), "tool_call[1]: tools"),
+             (lambda d: d.update(pythonWindows=""), "pythonWindows"), (lambda d: d.update(writer=7), "writer"),
+             (lambda d: d["hooks"].update(session_start={}), "session_start"))
+    with Escenario() as e:
+        _, ctx = instancia_pi_sana(e)
+        for cambiar, rastro in casos:
+            escribir_hooks_de_pi(ctx, cambiar)
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and "hooks/hooks.pi.json: " + rastro in r.detalle and "shim" in r.detalle, (rastro, r)
+            assert pim().AYUDA_HOOKS in r.ayuda and r.arreglo is None and r.comando is None, (rastro, r)
+        texto = json.dumps(json.loads((AQUI.parent / "hooks" / "hooks.pi.json").read_text(encoding="utf-8")))
+        escribir_hooks_de_pi(ctx, texto=texto.replace('"timeout": 10', '"timeout": NaN', 1))
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "no es JSON" in r.detalle, r
+        escribir_hooks_de_pi(ctx)
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+
+
+def test_hooks_host_de_pi_es_falta_con_lo_que_el_shim_acepta_pero_apaga_un_guard():
+    casos = ((lambda d: d["hooks"]["tool_call"][2].update(tools=[]),
+              ("tool_call[2] tiene tools vacía", "tool_call de bash no corre guard_comandos.py", "tool_call de powershell no corre guard_comandos.py")),
+             (lambda d: d["hooks"]["tool_call"].append({"tools": [], "hooks": [{"script": "guard_comandos.py", "args": [], "timeout": 1}]}),
+              ("tool_call[3] tiene tools vacía",)),
+             (lambda d: d["hooks"]["session_start"][0].update(tools=["bash"]),
+              ("session_start[0] tiene tools", "session_start no corre verificar_capa.py")),
+             (lambda d: d["hooks"].pop("session_compact"), ("session_compact no corre verificar_capa.py",)),
+             (lambda d: d["hooks"]["tool_result"][1].update(tools=["grep"]), ("tool_result de read no corre verificar_capa.py",)),
+             (lambda d: d.pop("writer"), ("falta writer",)),
+             (lambda d: d.update(writer="^nadie$"), ("writer es '^nadie$'", "^writer-[a-z0-9][a-z0-9-]*$")))
+    with Escenario() as e:
+        _, ctx = instancia_pi_sana(e)
+        for cambiar, rastros in casos:
+            escribir_hooks_de_pi(ctx, cambiar)
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and all(rastro in r.detalle for rastro in rastros), (rastros, r)
+            assert pim().AYUDA_HOOKS in r.ayuda, r
+        escribir_hooks_de_pi(ctx, lambda d: d["hooks"]["tool_call"][0].pop("tools"))
+        assert por_id(ctx)["hooks-host"].estado == "OK", "un grupo sin tools corre en toda herramienta y no apaga nada"
+
+
+def test_hooks_host_de_pi_revisa_que_cada_script_exista_y_que_la_compuerta_pueda_seguir():
+    otro = {"script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10}
+    casos = ((lambda d: d["hooks"]["agent_before_settle"][0]["hooks"][0].update(timeout=50),
+              ("agent_before_settle[0][0]", "timeout 50", "--plazo 50")),
+             (lambda d: d["hooks"]["tool_call"][1]["hooks"][0].update(timeout=5), ("tool_call[1][0]", "timeout 5", "--plazo 8")),
+             (lambda d: d["hooks"]["agent_before_settle"].append({"hooks": [otro]}), ("agent_before_settle", "verificar_capa.py", "seguir")),
+             (lambda d: d["hooks"]["agent_before_settle"][0]["hooks"].append(dict(otro, script="writer_stop.py", args=["--plazo", "50", "--host", "pi"],
+                                                                                  timeout=60)),
+              ("agent_before_settle", "2 hooks")))
+    with Escenario() as e:
+        _, ctx = instancia_pi_sana(e)
+        for cambiar, rastros in casos:
+            escribir_hooks_de_pi(ctx, cambiar)
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and all(rastro in r.detalle for rastro in rastros), (rastros, r)
+            assert pim().AYUDA_HOOKS in r.ayuda and r.arreglo is None, r
+        escribir_hooks_de_pi(ctx)
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        (ctx.plugin / "scripts" / "writer_stop.py").unlink()
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "agent_before_settle[0][0]: writer_stop.py no existe en" in r.detalle, r
+        escribir_hooks_de_pi(ctx, lambda d: d["hooks"]["tool_call"][1]["hooks"][0].update(timeout=0))
+        r = por_id(ctx)["hooks-host"]
+        assert "writer_stop.py no existe" not in r.detalle and "el shim no puede leer" in r.detalle, "con la forma rota basta el motivo del shim"
 
 
 def test_hooks_host_revisa_que_cada_hook_de_hooks_pi_json_lleve_host_pi():
     with Escenario() as e:
         _, ctx = instancia_codex_sana(e, hosts=("pi",))
+        como_paquete_de_pi(ctx.plugin)
         archivo = ctx.plugin / "hooks" / "hooks.pi.json"
         original = json.loads(archivo.read_text(encoding="utf-8"))
         for cambio, rastro in ((["--host", "pi2"], "con --host 'pi2', que no es un host conocido"), ([], "sin --host (corre como claude-code)"),

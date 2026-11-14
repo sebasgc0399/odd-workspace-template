@@ -408,6 +408,25 @@ def test_los_hooks_de_pi_traen_el_python_de_cada_sistema_y_es_el_de_su_adaptador
     assert pi.ARCHIVO_DE_HOOKS == "hooks/hooks.pi.json" and (PLUGIN / pi.ARCHIVO_DE_HOOKS).resolve() == HOOKS_PI.resolve()
 
 
+def test_la_cobertura_que_revisa_el_doctor_de_pi_es_la_paridad_con_claude_code():
+    pi = importlib.import_module("odd_ws.hosts.pi")
+    esperada = {}
+    for evento, grupo, hook in entradas(leer_json(HOOKS_CLAUDE)):
+        script = SCRIPT_DE_CLAUDE.fullmatch(hook["args"][0]).group(1) + ".py"
+        herramientas = [HERRAMIENTAS_DE_PI[nombre] for nombre in grupo["matcher"].split("|")] if evento in EVENTOS_DE_HERRAMIENTA else [None]
+        for evento_de_pi in EVENTOS_DE_PI[evento]:
+            for herramienta in herramientas:
+                esperada.setdefault(evento_de_pi, {}).setdefault(herramienta, set()).add(script)
+    cobertura = {evento: {herramienta: set(scripts) for herramienta, scripts in tabla.items()} for evento, tabla in pi.COBERTURA.items()}
+    assert cobertura == esperada, "\ndoctor: %r\nespera: %r" % (cobertura, esperada)
+    assert pi.EVENTOS_DE_HERRAMIENTA == EVENTOS_DE_HERRAMIENTA_DE_PI, pi.EVENTOS_DE_HERRAMIENTA
+    assert pi.REGEX_DE_WRITER == leer_json(HOOKS_PI)["writer"], pi.REGEX_DE_WRITER
+    assert pi.revisar_lista(HOOKS_PI) == [], pi.revisar_lista(HOOKS_PI)
+    assert callable(pi.problemas_de_hooks) and isinstance(pi.AYUDA_HOOKS, str) and pi.AYUDA_HOOKS.strip()
+    sin_puerto = [nombre for nombre, adaptador in adaptadores() if nombre != "pi" and hasattr(adaptador, "problemas_de_hooks")]
+    assert sin_puerto == [], "Claude Code y Codex no suman chequeos de forma a hooks-host (S5): %r" % sin_puerto
+
+
 def test_el_manifiesto_de_codex_es_el_de_claude_code_con_sus_hooks():
     claude, codex = leer_json(MANIFIESTO_CLAUDE), leer_json(MANIFIESTO_CODEX)
     assert codex["version"] == claude["version"], "las dos versiones tienen que subir juntas: %r" % (

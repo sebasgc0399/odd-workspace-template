@@ -617,28 +617,85 @@ def nucleo_del_doctor():
     return importlib.import_module("doctor").NUCLEO
 
 
-def contexto_del_doctor(base, windows=False):
-    def ejecutar(args):
-        raise AssertionError("el doctor de Pi todavía no corre nada: %r" % (args,))
+def contexto_del_doctor(base, windows=False, respuestas=None):
+    llamadas = []
+
+    def ejecutar(args, cwd=None):
+        llamadas.append(tuple(args))
+        if respuestas is None:
+            raise AssertionError("sin el CLI de Pi, el doctor de Pi no corre nada: %r" % (args,))
+        return respuestas.get(tuple(args), (None, ""))
 
     return types.SimpleNamespace(plugin=PLUGIN, home=base / "home", entorno={}, windows=windows, which=lambda nombre: None,
-                                 ejecutar=ejecutar)
+                                 ejecutar=ejecutar, llamadas=llamadas)
 
 
-def test_los_puertos_del_doctor_dicen_lo_que_falta_y_no_fingen_un_ok():
+def test_sin_el_cli_de_pi_lo_de_la_maquina_no_aplica_y_no_se_corre_nada():
     nucleo = nucleo_del_doctor()
     with temporal() as base:
+        (base / "workspace.config.json").write_text(json.dumps(CONFIG_MINIMA), encoding="utf-8")
         ctx_ = contexto_del_doctor(base)
-        version, instalado = m().version(ctx_, nucleo)
-        assert (version.id, version.estado, instalado) == ("pi", nucleo.AVISO, False), version
-        assert "F2e" in version.detalle and "no se revisa" in version.detalle, version
-        for cli in (nucleo.CLI_INSTALADO, nucleo.CLI_AUSENTE, nucleo.CLI_DE_OTRO_HOST):
+        for cli in (nucleo.CLI_AUSENTE, nucleo.CLI_DE_OTRO_HOST):
             con_raiz = m().chequeos(ctx_, base, nucleo, cli)
-            assert [(r.id, r.estado) for r in con_raiz] == [("pi-agentes", nucleo.AVISO)], con_raiz
-            assert "llega en F2e" in con_raiz[0].detalle and "desde F2d" in con_raiz[0].detalle, con_raiz
-            assert ".pi/agents" in con_raiz[0].detalle and "el bootstrap genera" in con_raiz[0].detalle, con_raiz
-            assert m().chequeos(ctx_, None, nucleo, cli) == [], "fuera de una instancia no hay agentes que revisar"
+            assert [r.id for r in con_raiz] == ["gentle-shell", "pi-plugin", "pi-confianza", "pi-agentes"], con_raiz
+            assert all((r.estado, r.detalle) == (nucleo.NO_APLICA, "pi no está instalado") for r in con_raiz[:3]), con_raiz
+            sin_raiz = m().chequeos(ctx_, None, nucleo, cli)
+            assert [(r.id, r.estado) for r in sin_raiz] == [("gentle-shell", nucleo.NO_APLICA), ("pi-plugin", nucleo.NO_APLICA)], sin_raiz
+        assert ctx_.llamadas == []
         assert (m().PYTHON, m().PYTHON_EN_WINDOWS) == ("python3", "python")
+
+
+def test_la_version_corre_pi_y_sin_pi_en_el_path_pregunta_a_gentle_shell():
+    nucleo = nucleo_del_doctor()
+    with temporal() as base:
+        ctx_ = contexto_del_doctor(base, respuestas={("pi", "--version"): (0, "1.5.2\n")})
+        version, instalado = m().version(ctx_, nucleo)
+        assert (version.id, version.estado, version.detalle, instalado) == ("pi", nucleo.OK, "1.5.2", True), version
+        assert ctx_.llamadas == [("pi", "--version")], ctx_.llamadas
+        gentle = (0, "gentle-shell 4.7.0\npi 1.5.2\nhome isolated %s\n" % (base / "aislado"))
+        ctx_ = contexto_del_doctor(base, respuestas={("gentle-shell", "--version"): gentle})
+        version, instalado = m().version(ctx_, nucleo)
+        assert (version.estado, instalado) == (nucleo.OK, True) and "gentle-shell" in version.detalle, version
+        assert ctx_.llamadas == [("pi", "--version"), ("gentle-shell", "--version")], ctx_.llamadas
+
+
+def test_el_manifiesto_nombra_el_item_del_doctor_que_revisa_lo_que_falta():
+    for clave, item in (("P5", "ítem gentle-shell"), ("P8", "pi-confianza"), ("P9", "pi-plugin")):
+        assert item in m().MANIFIESTO[clave][1], (clave, m().MANIFIESTO[clave])
+
+
+def test_sin_agent_before_settle_la_version_es_falta_y_cita_el_changelog():
+    nucleo = nucleo_del_doctor()
+    assert m().VERSION_DE_LA_COMPUERTA == (0, 87, 0)
+    assert "Added actionable `turn_end` and `agent_before_settle` extension boundaries" in m().SIN_COMPUERTA, m().SIN_COMPUERTA
+    with temporal() as base:
+        for salida, estado in (("0.86.9\n", nucleo.FALTA), ("0.87.0\n", nucleo.AVISO), ("1.5.0\n", nucleo.OK)):
+            version, instalado = m().version(contexto_del_doctor(base, respuestas={("pi", "--version"): (0, salida)}), nucleo)
+            assert (version.estado, instalado) == (estado, True), (salida, version)
+
+
+def test_la_version_minima_es_la_de_las_apis_que_usa_odd_ws_con_su_fuente():
+    assert m().VERSION_MINIMA == (1, 5, 0)
+    for frase in ("agent_before_settle (desde 0.87.0)", "appendSystemPrompt", "(desde 0.68.0)", "resources_discover (desde 0.50.8)",
+                  "isProjectTrusted (desde 0.79.1", "1.5.0"):
+        assert frase in m().USOS, (frase, m().USOS)
+
+
+def test_revisar_lista_acepta_el_hooks_pi_json_del_plugin_y_nombra_lo_que_no_cumple():
+    assert m().revisar_lista(PLUGIN / "hooks" / "hooks.pi.json") == []
+    original = json.loads((PLUGIN / "hooks" / "hooks.pi.json").read_text(encoding="utf-8"))
+    with temporal() as base:
+        ruta = base / "hooks.pi.json"
+        ruta.write_bytes(b"\xef\xbb\xbf" + json.dumps(original).encode("utf-8"))
+        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["forma"]
+        ruta.write_text(json.dumps(dict(original, writer="^otro$")), encoding="utf-8")
+        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["writer"]
+        ruta.write_text(json.dumps(dict(original, hooks=dict(original["hooks"], agent_before_settle=[]))), encoding="utf-8")
+        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["cobertura agent_before_settle - writer_stop.py"]
+        assert [clave for clave, _ in m().revisar_lista(base / "no-existe.json")] == ["forma"]
+        enorme = json.dumps(original).replace('"timeout": 60', '"timeout": 1' + "0" * 400, 1)
+        ruta.write_text(enorme, encoding="utf-8")
+        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["forma"], enorme[-200:]
 
 
 HOOKS_DE_PI = [("session_start[0][0]", "verificar_capa", "8"), ("session_compact[0][0]", "verificar_capa", "8"),
