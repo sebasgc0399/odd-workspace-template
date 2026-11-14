@@ -3,12 +3,13 @@ import ntpath
 import os
 import posixpath
 import re
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
-from odd_ws.hosts import base
+from odd_ws.hosts import base, leer_hooks, manejadores
 
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
@@ -19,7 +20,8 @@ MANIFIESTO = {
     "P1": (SOPORTADO, "session_start (startup, reload, new, resume y fork) y session_compact: el adaptador los pasa a los orígenes "
                       "de verificar_capa (new es clear; reload es resume, porque recarga las extensiones sin perder la "
                       "conversación; y session_compact es compact) y responde la acción contexto por JSON con exit 0, que el shim "
-                      "de F2b pone en el system prompt"),
+                      "de F2b suma una vez a systemPromptOptions.appendSystemPrompt en before_agent_start, donde lo ven Pi y los "
+                      "puentes de proveedor, y al systemPrompt solo si otra extensión ya lo forzó"),
     "P2": (SOPORTADO, "tool_call de edit y write: la acción bloquear por JSON con exit 0, que el shim de F2b devuelve como block "
                       "(un error del shim también bloquea); una ruta por llamada, resuelta como Pi: sin la @ inicial, con ~ "
                       "expandido, en Windows las rutas de Git Bash pasan a su unidad, y las relativas van contra el cwd"),
@@ -42,7 +44,8 @@ MANIFIESTO = {
                           ".claude/skills: la extensión publica las de la instancia por resources_discover en F2d, y el paquete de "
                           "Pi trae las del plugin en F2f"),
     "P9": (NO_DISPONIBLE, "el paquete de Pi (la clave pi de package.json, que se instala con gentle-shell install y no tiene "
-                          "PLUGIN_ROOT) llega en F2f, y los hooks del shim, en hooks/hooks.pi.json, en F2b"),
+                          "PLUGIN_ROOT) llega en F2f; el shim (shim/pi.ts) y sus hooks (hooks/hooks.pi.json) ya están desde F2b, "
+                          "y el shim saca la raíz del plugin de su propia carpeta"),
     "P10": (DEGRADADO, "Pi lee un archivo de instrucciones por carpeta, desde el cwd hasta la raíz y solo al arrancar: el primero "
                        "que encuentra de AGENTS.override.md, AGENTS.md y CLAUDE.md, así que un AGENTS.md tapa el CLAUDE.md de su "
                        "carpeta, y los de las subcarpetas que se tocan después no se cargan; no se genera nada"),
@@ -98,6 +101,8 @@ ID_AGENTES = "pi-agentes"
 ARCHIVO_DE_HOOKS = "hooks/hooks.pi.json"
 PYTHON = "python3"
 PYTHON_EN_WINDOWS = "python"
+CLAVE_PYTHON = "python"
+CLAVE_PYTHON_EN_WINDOWS = "pythonWindows"
 
 
 def _en_windows():
@@ -263,5 +268,19 @@ def chequeos(ctx, raiz, nucleo, cli):
     return [] if raiz is None else [nucleo.resultado(ID_AGENTES, nucleo.AVISO, SIN_AGENTES)]
 
 
+def _tokens(manejador, python, plugin):
+    script = manejador.get("script") if isinstance(manejador, dict) else None
+    argumentos = manejador.get("args") if isinstance(manejador, dict) else None
+    if not isinstance(script, str) or not isinstance(argumentos, list) or not all(isinstance(argumento, str) for argumento in argumentos):
+        return None
+    return [python, str(Path(plugin) / "scripts" / script), *argumentos]
+
+
 def hooks_registrados(ctx, raiz):
-    yield ARCHIVO_DE_HOOKS, None, True
+    datos = leer_hooks(Path(ctx.plugin) / ARCHIVO_DE_HOOKS)
+    python = datos.get(CLAVE_PYTHON_EN_WINDOWS if ctx.windows else CLAVE_PYTHON) if datos is not None else None
+    if not isinstance(python, str) or not python:
+        yield ARCHIVO_DE_HOOKS, None, True
+        return
+    for evento, grupo, indice, manejador in manejadores(datos):
+        yield "%s %s[%d][%d]" % (ARCHIVO_DE_HOOKS, evento, grupo, indice), _tokens(manejador, python, ctx.plugin), True

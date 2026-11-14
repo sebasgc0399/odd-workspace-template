@@ -5,3 +5,13 @@
 for suite in $(git ls-files -- '*.tests.py'); do
     "$python" "$suite" > /dev/null || { echo "suite en rojo: $suite (correla a mano para ver el detalle)"; exit 1; }
 done
+suites_ts=$(git ls-files -- '*.test.ts')
+if [ -n "$suites_ts" ]; then
+    node -e "process.exit(process.features.typescript ? 0 : 1)" 2>/dev/null || {
+        echo "pre-commit: node no corre desde el PATH o no corre TypeScript sin flags (hace falta Node 22.18 o mas; el CI usa 24), y hay suites .test.ts que correr" >&2
+        exit 1
+    }
+    for suite in $suites_ts; do
+        node --test "$suite" > /dev/null || { echo "suite en rojo: $suite (correla a mano con node --test para ver el detalle)"; exit 1; }
+    done
+fi

@@ -1671,16 +1671,43 @@ def test_hooks_host_revisa_los_archivos_de_hooks_del_plugin_de_cada_host_declara
 
 
 def test_con_pi_declarado_el_doctor_dice_lo_que_falta_y_ningun_item_de_pi_da_ok():
-    for hosts in (("claude-code", "pi"), ("pi",)):
+    for hosts, detalle in ((("claude-code", "pi"), "14 hooks de claude-code, pi, cada uno con el --host de su archivo"),
+                           (("pi",), "7 hooks de pi, cada uno con el --host de su archivo")):
         with Escenario() as e:
             _, ctx = instancia_codex_sana(e, hosts=hosts)
             r = por_id(ctx)
             assert r["pi"].estado == "AVISO" and "F2e" in r["pi"].detalle and "no se revisa" in r["pi"].detalle, (hosts, r["pi"])
             assert r["pi-agentes"].estado == "AVISO" and "F2d" in r["pi-agentes"].detalle, (hosts, r["pi-agentes"])
-            assert r["hooks-host"].estado == "FALTA" and "hooks/hooks.pi.json no se puede leer" in r["hooks-host"].detalle, (hosts, r["hooks-host"])
+            assert (r["hooks-host"].estado, r["hooks-host"].detalle) == ("OK", detalle), (hosts, r["hooks-host"])
             assert not [i for i in r if i.startswith("codex")], (hosts, list(r))
-            codigo, salida = correr([], ctx)
-            assert codigo == 1 and "hooks/hooks.pi.json" in salida, (hosts, salida)
+
+
+def test_hooks_host_revisa_que_cada_hook_de_hooks_pi_json_lleve_host_pi():
+    with Escenario() as e:
+        _, ctx = instancia_codex_sana(e, hosts=("pi",))
+        archivo = ctx.plugin / "hooks" / "hooks.pi.json"
+        original = json.loads(archivo.read_text(encoding="utf-8"))
+        for cambio, rastro in ((["--host", "pi2"], "con --host 'pi2', que no es un host conocido"), ([], "sin --host (corre como claude-code)"),
+                               (["--host", "codex"], "con --host codex"), (["--host="], "con --host vacío"),
+                               (["--host", "claude-code"], "con --host claude-code")):
+            datos = json.loads(json.dumps(original))
+            datos["hooks"]["tool_call"][2]["hooks"][0]["args"] = ["--plazo", "8", *cambio]
+            archivo.write_text(json.dumps(datos), encoding="utf-8")
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and r.ayuda and r.arreglo is None, (cambio, r)
+            assert "hooks/hooks.pi.json tool_call[2][0]: guard_comandos.py %s, y el hook es de pi" % rastro in r.detalle, (cambio, r)
+        datos = json.loads(json.dumps(original))
+        datos["hooks"]["tool_result"][1]["hooks"][0] = {"script": 7}
+        archivo.write_text(json.dumps(datos), encoding="utf-8")
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "hooks/hooks.pi.json tool_result[1][0] no se puede leer" in r.detalle, r
+        archivo.write_text(json.dumps(original), encoding="utf-8")
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        archivo.unlink()
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "hooks/hooks.pi.json no se puede leer" in r.detalle, r
+        codigo, salida = correr([], ctx)
+        assert codigo == 1 and "hooks/hooks.pi.json" in salida, salida
 
 
 def instancia_de_los_dos(e, claude=True, codex=True, marketplace=True):

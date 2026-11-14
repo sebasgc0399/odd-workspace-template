@@ -16,6 +16,7 @@ DECISIONES_DE_HOOK = ("Bloquear", "Preguntar", "Contexto", "Seguir")
 MOTIVO = "motivo-de-prueba"
 HOOKS_CLAUDE = PLUGIN / "hooks" / "hooks.json"
 HOOKS_CODEX = PLUGIN / "hooks" / "hooks.codex.json"
+HOOKS_PI = PLUGIN / "hooks" / "hooks.pi.json"
 MANIFIESTO_CLAUDE = PLUGIN / ".claude-plugin" / "plugin.json"
 MANIFIESTO_CODEX = PLUGIN / ".codex-plugin" / "plugin.json"
 EVENTOS_DE_HERRAMIENTA = ("PreToolUse", "PostToolUse")
@@ -24,16 +25,11 @@ MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Ba
 SCRIPT_DE_CLAUDE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+)\.py")
 COMANDO_DE_CODEX = re.compile(r'python3 "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
 COMANDO_WINDOWS_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
-HOOKS_PENDIENTES = {"pi": "F2b"}
-
-
-def sin_archivo_de_hooks_todavia(nombre, adaptador):
-    if nombre not in HOOKS_PENDIENTES:
-        return False
-    assert not (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).exists(), (
-        "%s trajo %s: el doctor de %s tiene que leerlo (hooks_registrados) y este test deja de exceptuarlo"
-        % (HOOKS_PENDIENTES[nombre], adaptador.ARCHIVO_DE_HOOKS, nombre))
-    return True
+EVENTOS_DE_PI = {"SessionStart": ("session_start", "session_compact"), "PreToolUse": ("tool_call",), "PostToolUse": ("tool_result",)}
+EVENTOS_DE_HERRAMIENTA_DE_PI = ("tool_call", "tool_result")
+HERRAMIENTAS_DE_PI = {"Edit": "edit", "Write": "write", "Read": "read", "Bash": "bash", "PowerShell": "powershell"}
+SCRIPT_DE_PI = re.compile(r"([a-z_]+)\.py")
+SIN_PI_HASTA_F2C = ("SubagentStop",)
 
 
 def cap():
@@ -312,6 +308,66 @@ def test_los_hooks_de_codex_solo_traen_description_y_hooks():
     assert isinstance(datos["description"], str) and datos["description"].strip(), datos["description"]
 
 
+def pares_de_pi(evento, grupo, hook):
+    if evento in SIN_PI_HASTA_F2C:
+        return []
+    ruta, _, plazo = hook["args"]
+    script = SCRIPT_DE_CLAUDE.fullmatch(ruta).group(1)
+    herramientas = None
+    if evento in EVENTOS_DE_HERRAMIENTA:
+        nombres = grupo["matcher"].split("|")
+        assert all(nombre in HERRAMIENTAS_DE_PI for nombre in nombres), (
+            "el matcher %r de Claude Code no tiene su traducción a Pi" % grupo["matcher"])
+        herramientas = [HERRAMIENTAS_DE_PI[nombre] for nombre in nombres]
+    return [(de_pi, herramientas, script, plazo, hook["timeout"]) for de_pi in EVENTOS_DE_PI[evento]]
+
+
+def de_pi(evento, grupo, hook):
+    claves = {"tools", "hooks"} if evento in EVENTOS_DE_HERRAMIENTA_DE_PI else {"hooks"}
+    assert set(grupo) == claves, "un grupo de %s lleva %s: %r" % (evento, sorted(claves), grupo)
+    if "tools" in grupo:
+        assert grupo["tools"] and all(isinstance(nombre, str) for nombre in grupo["tools"]), grupo
+    assert set(hook) == {"script", "args", "timeout"}, "cada hook de Pi es script, args y timeout, sin comando que partir: %r" % hook
+    script = SCRIPT_DE_PI.fullmatch(hook["script"])
+    assert script, "script es el nombre del .py en scripts/: %r" % hook
+    argumentos = hook["args"]
+    assert (len(argumentos), argumentos[0], argumentos[2:]) == (4, "--plazo", ["--host", "pi"]) and argumentos[1].isdigit(), (
+        "los args de Pi son --plazo N --host pi: %r" % hook)
+    assert isinstance(hook["timeout"], int) and hook["timeout"] > int(argumentos[1]), "el timeout va en segundos, sobre el plazo: %r" % hook
+    return evento, grupo.get("tools"), script.group(1), argumentos[1], hook["timeout"]
+
+
+def test_cada_hook_de_claude_code_tiene_su_par_en_pi_salvo_el_cierre_del_writer():
+    esperados = [par for entrada in entradas(leer_json(HOOKS_CLAUDE)) for par in pares_de_pi(*entrada)]
+    registrados = [de_pi(*entrada) for entrada in entradas(leer_json(HOOKS_PI))]
+    assert registrados == esperados, "\nPi:     %r\nespera: %r" % (registrados, esperados)
+    assert {script for _, _, script, _, _ in esperados} == set(HOOKS) - {"writer_stop"}, "tres hooks corren en Pi"
+    assert "writer_stop" not in {script for _, _, script, _, _ in registrados}, "la compuerta del writer en Pi es de F2c"
+
+
+def test_los_tres_archivos_de_hooks_corren_los_mismos_scripts_con_el_mismo_plazo_y_timeout():
+    def juego(pares):
+        return sorted({(script, plazo, timeout) for script, plazo, timeout in pares})
+
+    claude = juego((SCRIPT_DE_CLAUDE.fullmatch(hook["args"][0]).group(1), hook["args"][2], hook["timeout"])
+                   for _, _, hook in entradas(leer_json(HOOKS_CLAUDE)))
+    codex = juego(de_codex(*entrada)[2:] for entrada in entradas(leer_json(HOOKS_CODEX)))
+    pi = juego(de_pi(*entrada)[2:] for entrada in entradas(leer_json(HOOKS_PI)))
+    assert claude == codex, (claude, codex)
+    assert pi == [par for par in claude if par[0] != "writer_stop"], (pi, claude)
+
+
+def test_los_hooks_de_pi_traen_el_python_de_cada_sistema_y_es_el_de_su_adaptador():
+    datos = leer_json(HOOKS_PI)
+    assert set(datos) == {"description", "python", "pythonWindows", "hooks"}, sorted(datos)
+    assert isinstance(datos["description"], str) and "shim" in datos["description"], datos["description"]
+    assert list(datos["hooks"]) == ["session_start", "session_compact", "tool_call", "tool_result"], list(datos["hooks"])
+    pi = importlib.import_module("odd_ws.hosts.pi")
+    assert (datos["python"], datos["pythonWindows"]) == (pi.PYTHON, pi.PYTHON_EN_WINDOWS), (
+        "el shim lanza el python de hooks.pi.json, y el doctor revisa el de pi.py: tienen que ser el mismo")
+    assert pi.ARCHIVO_DE_HOOKS == "hooks/hooks.pi.json" and (PLUGIN / pi.ARCHIVO_DE_HOOKS).resolve() == HOOKS_PI.resolve()
+
+
 def test_el_manifiesto_de_codex_es_el_de_claude_code_con_sus_hooks():
     claude, codex = leer_json(MANIFIESTO_CLAUDE), leer_json(MANIFIESTO_CODEX)
     assert codex["version"] == claude["version"], "las dos versiones tienen que subir juntas: %r" % (
@@ -340,17 +396,16 @@ def test_cada_adaptador_tiene_su_puerto_de_generacion_con_los_mismos_marcadores(
 def test_cada_adaptador_declara_el_python_que_lanzan_sus_hooks_en_cada_sistema():
     lanzados = {}
     for nombre, adaptador in adaptadores():
-        ctx = types.SimpleNamespace(plugin=PLUGIN, home=PLUGIN / "sin-home", entorno={}, windows=False)
-        propios = [(origen, tokens) for origen, tokens, propio in adaptador.hooks_registrados(ctx, None) if propio]
-        if sin_archivo_de_hooks_todavia(nombre, adaptador):
-            assert propios == [(adaptador.ARCHIVO_DE_HOOKS, None)], (nombre, propios)
-            lanzados[nombre] = (adaptador.PYTHON, adaptador.PYTHON_EN_WINDOWS)
-            continue
-        assert propios and all(tokens for _, tokens in propios), (nombre, propios)
-        en_windows = {tokens[0] for origen, tokens in propios if origen.endswith(" (commandWindows)")}
-        comunes = {tokens[0] for origen, tokens in propios if not origen.endswith(" (commandWindows)")}
-        assert comunes == {adaptador.PYTHON}, (nombre, comunes, adaptador.PYTHON)
-        assert (en_windows or comunes) == {adaptador.PYTHON_EN_WINDOWS}, (nombre, en_windows, adaptador.PYTHON_EN_WINDOWS)
+        for windows in (False, True):
+            ctx = types.SimpleNamespace(plugin=PLUGIN, home=PLUGIN / "sin-home", entorno={}, windows=windows)
+            propios = [(origen, tokens) for origen, tokens, propio in adaptador.hooks_registrados(ctx, None) if propio]
+            assert propios and all(tokens for _, tokens in propios), (nombre, windows, propios)
+            en_windows = {tokens[0] for origen, tokens in propios if origen.endswith(" (commandWindows)")}
+            comunes = {tokens[0] for origen, tokens in propios if not origen.endswith(" (commandWindows)")}
+            if windows:
+                assert (en_windows or comunes) == {adaptador.PYTHON_EN_WINDOWS}, (nombre, en_windows, comunes, adaptador.PYTHON_EN_WINDOWS)
+            else:
+                assert comunes == {adaptador.PYTHON}, (nombre, comunes, adaptador.PYTHON)
         lanzados[nombre] = (adaptador.PYTHON, adaptador.PYTHON_EN_WINDOWS)
     assert lanzados == {"claude_code": ("python3", "python3"), "codex": ("python3", "python"), "pi": ("python3", "python")}, lanzados
 
@@ -359,8 +414,7 @@ def test_cada_adaptador_tiene_su_puerto_del_doctor_con_su_archivo_de_hooks_en_el
     archivos = {}
     for nombre, adaptador in adaptadores():
         assert callable(adaptador.version) and callable(adaptador.chequeos) and callable(adaptador.hooks_registrados), nombre
-        assert sin_archivo_de_hooks_todavia(nombre, adaptador) or (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).is_file(), (
-            nombre, adaptador.ARCHIVO_DE_HOOKS)
+        assert (PLUGIN / adaptador.ARCHIVO_DE_HOOKS).is_file(), (nombre, adaptador.ARCHIVO_DE_HOOKS)
         archivos[nombre] = adaptador.ARCHIVO_DE_HOOKS
     assert archivos == {"claude_code": "hooks/hooks.json", "codex": "hooks/hooks.codex.json", "pi": "hooks/hooks.pi.json"}, archivos
 

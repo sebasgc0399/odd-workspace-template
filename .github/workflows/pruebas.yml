@@ -22,6 +22,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Todas las suites
         shell: bash
         run: |
@@ -31,6 +34,16 @@ jobs:
               echo "ok    $suite $(tail -n 1 "$RUNNER_TEMP/suite.log")"
             else
               resumen=$(grep -E '^(FALLA|ERROR)|Error|Traceback' "$RUNNER_TEMP/suite.log" | head -n 6 | cut -c1-300 | tr '\n' '|')
+              echo "::error title=suite en rojo: $suite::${resumen:-sin detalle; ver el log}"
+              cat "$RUNNER_TEMP/suite.log"
+              fallas=$((fallas + 1))
+            fi
+          done
+          for suite in $(git ls-files -- '*.test.ts'); do
+            if node --test --test-reporter=tap "$suite" > "$RUNNER_TEMP/suite.log" 2>&1; then
+              echo "ok    $suite $(grep -E '^# (pass|fail) ' "$RUNNER_TEMP/suite.log" | tr '\n' ' ' | sed 's/ $//')"
+            else
+              resumen=$(grep -E 'not ok|Error|^# fail ' "$RUNNER_TEMP/suite.log" | head -n 6 | cut -c1-300 | tr '\n' '|')
               echo "::error title=suite en rojo: $suite::${resumen:-sin detalle; ver el log}"
               cat "$RUNNER_TEMP/suite.log"
               fallas=$((fallas + 1))

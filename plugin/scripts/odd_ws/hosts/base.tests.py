@@ -122,6 +122,30 @@ def test_el_mensaje_de_host_desconocido_enumera_los_validos_y_con_dos_es_el_de_a
         assert hosts().atender("gemini", pre(), nucleo) == (2, "", mensaje("claude-code"))
 
 
+def test_un_host_desconocido_bloquea_un_tool_call_de_pi_aunque_el_hook_no_sea_un_guard_de_pre():
+    def nucleo(evento):
+        raise AssertionError("con un host desconocido el núcleo no corre")
+
+    de_pi = {"type": "tool_call", "toolName": "edit", "input": {"path": "a.sql"}, "ctx": {"cwd": "/w", "sessionId": "s1"}}
+    for pre_por_defecto in (False, True):
+        assert bloquea(hosts().atender("pii", de_pi, nucleo, pre_por_defecto=pre_por_defecto), "'pii'"), pre_por_defecto
+        assert bloquea(hosts().atender("pii", json.dumps(de_pi).encode("utf-8"), nucleo, pre_por_defecto=pre_por_defecto), "'pii'")
+    for tipo in ("tool_result", "session_start", "session_compact", "agent_before_settle", "TOOL_CALL", None, 7):
+        assert hosts().atender("pii", dict(de_pi, type=tipo), nucleo) == SILENCIO, tipo
+
+
+def test_un_payload_de_claude_code_o_de_codex_decide_igual_que_antes_con_un_host_desconocido():
+    def nucleo(evento):
+        raise AssertionError("con un host desconocido el núcleo no corre")
+
+    for nombre in ("PreToolUse", "PostToolUse", "SessionStart", "SubagentStop", None):
+        payload = pre(hook_event_name=nombre) if nombre else {k: v for k, v in pre().items() if k != "hook_event_name"}
+        for pre_por_defecto in (False, True):
+            esperado = nombre == "PreToolUse" or (nombre is None and pre_por_defecto)
+            resultado = hosts().atender("gemini", payload, nucleo, pre_por_defecto=pre_por_defecto)
+            assert bloquea(resultado, "'gemini'") if esperado else resultado == SILENCIO, (nombre, pre_por_defecto, resultado)
+
+
 def test_un_host_desconocido_calla_fuera_de_pre():
     def nucleo(evento):
         raise AssertionError("con un host desconocido el núcleo no corre")

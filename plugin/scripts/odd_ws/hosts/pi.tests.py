@@ -500,10 +500,44 @@ def test_los_puertos_del_doctor_dicen_lo_que_falta_y_no_fingen_un_ok():
             assert [(r.id, r.estado) for r in con_raiz] == [("pi-agentes", nucleo.AVISO)], con_raiz
             assert "F2d" in con_raiz[0].detalle and "F2e" in con_raiz[0].detalle, con_raiz
             assert m().chequeos(ctx_, None, nucleo, cli) == [], "fuera de una instancia no hay agentes que revisar"
-        assert list(m().hooks_registrados(ctx_, None)) == [("hooks/hooks.pi.json", None, True)]
-        assert list(m().hooks_registrados(ctx_, base)) == [("hooks/hooks.pi.json", None, True)]
-        assert not (PLUGIN / m().ARCHIVO_DE_HOOKS).exists(), "F2b trae hooks.pi.json: hooks_registrados tiene que leerlo"
         assert (m().PYTHON, m().PYTHON_EN_WINDOWS) == ("python3", "python")
+
+
+HOOKS_DE_PI = [("session_start[0][0]", "verificar_capa", "8"), ("session_compact[0][0]", "verificar_capa", "8"),
+               ("tool_call[0][0]", "verificar_capa", "8"), ("tool_call[1][0]", "writer_guard", "8"),
+               ("tool_call[2][0]", "guard_comandos", "8"), ("tool_result[0][0]", "verificar_capa", "25"),
+               ("tool_result[1][0]", "verificar_capa", "8")]
+
+
+def test_hooks_registrados_lee_hooks_pi_json_con_el_python_que_lanza_el_shim_en_cada_sistema():
+    with temporal() as base:
+        for windows, python in ((False, "python3"), (True, "python")):
+            ctx_ = contexto_del_doctor(base, windows)
+            registrados = list(m().hooks_registrados(ctx_, None))
+            assert registrados == list(m().hooks_registrados(ctx_, base)), "la instancia no suma hooks de Pi"
+            esperados = [("hooks/hooks.pi.json " + origen, [python, str(PLUGIN / "scripts" / (script + ".py")), "--plazo", plazo,
+                                                           "--host", "pi"], True) for origen, script, plazo in HOOKS_DE_PI]
+            assert registrados == esperados, (windows, registrados)
+
+
+def test_hooks_registrados_no_finge_un_ok_con_hooks_pi_json_ausente_o_roto():
+    original = json.loads((PLUGIN / "hooks" / "hooks.pi.json").read_text(encoding="utf-8"))
+    with temporal() as base:
+        ctx_ = contexto_del_doctor(base)
+        ctx_.plugin = base / "plugin"
+        archivo = ctx_.plugin / "hooks" / "hooks.pi.json"
+        archivo.parent.mkdir(parents=True)
+        assert list(m().hooks_registrados(ctx_, None)) == [("hooks/hooks.pi.json", None, True)], "sin el archivo"
+        for roto in ("{no es json", "[]", json.dumps(dict(original, python=7)), json.dumps({k: v for k, v in original.items() if k != "python"})):
+            archivo.write_text(roto, encoding="utf-8")
+            assert list(m().hooks_registrados(ctx_, None)) == [("hooks/hooks.pi.json", None, True)], roto
+        for malo in ({"script": 7, "args": [], "timeout": 10}, {"script": "x.py", "args": "--host pi", "timeout": 10},
+                     {"script": "x.py", "args": ["--host", 7], "timeout": 10}, "verificar_capa.py --host pi"):
+            datos = json.loads(json.dumps(original))
+            datos["hooks"]["tool_call"][2]["hooks"][0] = malo
+            archivo.write_text(json.dumps(datos), encoding="utf-8")
+            registrados = list(m().hooks_registrados(ctx_, None))
+            assert ("hooks/hooks.pi.json tool_call[2][0]", None, True) in registrados and len(registrados) == len(HOOKS_DE_PI), (malo, registrados)
 
 
 def test_la_generacion_de_pi_no_escribe_nada_hasta_f2d():
@@ -544,6 +578,26 @@ def test_de_punta_a_punta_guard_comandos_con_host_pi_bloquea_por_json_con_exit_0
             assert datos["accion"] == "bloquear" and datos["texto"].startswith("guard-comandos bloqueó el comando: "), datos
             r = correr_hook("guard_comandos", llamada(herramienta_, {"command": "git status"}, ctx=en_inst), inst, entorno, *bandera)
             assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "control: lo que no bloquea calla: %r" % (r,)
+
+
+def test_de_punta_a_punta_un_host_mal_escrito_con_un_payload_de_pi_bloquea_en_tool_call_y_calla_en_lo_demas():
+    with temporal() as base:
+        inst = base / "inst"
+        inst.mkdir()
+        (inst / "workspace.config.json").write_text(json.dumps(CONFIG_MINIMA), encoding="utf-8")
+        entorno = entorno_aislado(base)
+        en_inst = ctx(cwd=str(inst))
+        llamadas = (("verificar_capa", llamada("edit", {"path": "a.x"}, ctx=en_inst)),
+                    ("guard_comandos", llamada("bash", {"command": "git status"}, ctx=en_inst)),
+                    ("writer_guard", llamada("write", {"path": "a.x"}, ctx=en_inst, oddWs=odd_ws(agent="writer-doc", agentId="a1"))))
+        for script, crudo in llamadas:
+            for bandera in (("--host", "pii"), ("--host=Pi",), ("--host",)):
+                r = correr_hook(script, crudo, inst, entorno, *bandera)
+                assert r.returncode == 2 and r.stdout == b"" and r.stderr.startswith(b"odd-ws: host desconocido"), (script, bandera, r)
+                assert b"claude-code, codex y pi." in r.stderr, r.stderr
+        for crudo in (resultado("edit", {"path": "a.x"}, ctx=en_inst), dict(inicio("startup"), ctx=en_inst)):
+            r = correr_hook("verificar_capa", crudo, inst, entorno, "--host", "pii")
+            assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), (crudo["type"], r)
 
 
 def test_de_punta_a_punta_verificar_capa_avisa_de_la_config_rota_segun_el_origen():

@@ -1,0 +1,55 @@
+{
+  "description": "Hooks de odd-ws para Pi, que no tiene archivo de hooks: los lee el shim (shim/pi.ts) y lanza el python de cada sistema con scripts/<script> y sus args, sin shell, con el timeout en segundos",
+  "python": "python3",
+  "pythonWindows": "python",
+  "hooks": {
+    "session_start": [
+      {
+        "hooks": [
+          { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ],
+    "session_compact": [
+      {
+        "hooks": [
+          { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ],
+    "tool_call": [
+      {
+        "tools": ["edit", "write"],
+        "hooks": [
+          { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      },
+      {
+        "tools": ["bash", "powershell", "edit", "write"],
+        "hooks": [
+          { "script": "writer_guard.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      },
+      {
+        "tools": ["bash", "powershell"],
+        "hooks": [
+          { "script": "guard_comandos.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ],
+    "tool_result": [
+      {
+        "tools": ["edit", "write"],
+        "hooks": [
+          { "script": "verificar_capa.py", "args": ["--plazo", "25", "--host", "pi"], "timeout": 30 }
+        ]
+      },
+      {
+        "tools": ["read"],
+        "hooks": [
+          { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

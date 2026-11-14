@@ -10,6 +10,7 @@ ADAPTADORES = ("claude_code", "codex", "pi")
 NOMBRES = {"claude-code": "claude_code", "codex": "codex", "pi": "pi"}
 FUENTE = "claude-code"
 PRE = "PreToolUse"
+PRE_DE_PI = "tool_call"
 
 Archivo = namedtuple("Archivo", "ruta contenido fuente arreglo", defaults=(None, None))
 
@@ -63,6 +64,8 @@ def _es_pre(crudo, pre_por_defecto):
         payload = None
     if not isinstance(payload, dict):
         return pre_por_defecto
+    if payload.get("type") == PRE_DE_PI:
+        return True
     return payload.get("hook_event_name", PRE if pre_por_defecto else None) == PRE
 
 
