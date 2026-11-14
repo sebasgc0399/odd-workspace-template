@@ -152,6 +152,12 @@ function noSeMarca(nombre: string): string {
     + "guards ni su compuerta de cierre.";
 }
 
+function empiezaConBarra(nombre: string): string {
+  return `odd-ws: la tarea de este writer (${nombre}) empieza con /, así que Pi la expandiría en el hijo como comando, plantilla o skill, `
+    + "y la marca de odd-ws dejaría de ser una línea propia: el writer correría sin sus guards ni su compuerta de cierre. Lánzalo con una "
+    + "tarea que no empiece con /; si necesita una skill o una plantilla, nómbrala en el texto.";
+}
+
 function marcar(evento: EventoDePi, hooks: ListaDeHooks): Bloqueo | undefined {
   if (evento.toolName !== LANZAR) {
     limpiar(evento.input);
@@ -165,6 +171,9 @@ function marcar(evento: EventoDePi, hooks: ListaDeHooks): Bloqueo | undefined {
   }
   if (!sabeMarcar(entrada) || writers.length !== 1 || writers[0] !== entrada.agent) {
     return { block: true, reason: noSeMarca(writers[0]) };
+  }
+  if (entrada.task.trimStart().startsWith("/")) {
+    return { block: true, reason: empiezaConBarra(entrada.agent) };
   }
   if (entrada.task.trim() !== "") {
     entrada.task = `${entrada.task}\n${marca(entrada.agent)}`;

@@ -585,11 +585,11 @@ test("en el padre, subagent_run de un writer lleva su marca en la ultima linea d
   assert.equal(nieto.task, `Haz y\n${MARCA_WEB}`, "un hijo que lanza también marca, con el nombre de lo que lanza");
 });
 
-test("la marca no cambia la etiqueta ni la primera linea que gentle-pi saca de la tarea, y una tarea con / sigue empezando con /", async () => {
+test("la marca no cambia la etiqueta ni la primera linea que gentle-pi saca de la tarea", async () => {
   const pi = conPi();
   const ctx = ctxFalso(BASE);
   const larga = `Revisa ${"cada consulta del archivo ".repeat(4)}y deja todo igual`;
-  const tareas = ["Cambia x.sql. Luego corre la prueba.", "\n\n  Primera parte: con dos puntos:\nsegunda línea", "/plantilla con argumentos\nmás",
+  const tareas = ["Cambia x.sql. Luego corre la prueba.", "\n\n  Primera parte: con dos puntos:\nsegunda línea", "Usa la plantilla /arreglar\nmás",
     larga, "Una sola línea sin punto"];
   for (const tarea of tareas) {
     const entrada: Record<string, unknown> = { agent: "writer-sql", task: tarea };
@@ -614,6 +614,24 @@ test("un writer con la tarea en blanco no se marca, para que gentle-pi lo rechac
     const antes = JSON.stringify(entrada);
     assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, antes);
     assert.equal((entrada.task as string).trim(), "", `gentle-pi la rechaza por vacía: ${antes} -> ${JSON.stringify(entrada.task)}`);
+  }
+});
+
+test("un writer cuya tarea empieza con / se bloquea, porque Pi la expandiria en el hijo y la marca dejaria de ser una linea propia", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  for (const tarea of ["/arreglar x.sql con cuidado", "/skill:capa-sql\nCambia x.sql", "  /arreglar x.sql", "\n/arreglar x.sql", `${MARCA_SQL}\n/arreglar x.sql`]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: tarea };
+    const bloqueo = await pi.emitir(lanzamiento(entrada), ctx);
+    assert.equal(bloqueo?.block, true, tarea);
+    assert.match(bloqueo.reason, /^odd-ws: la tarea de este writer \(writer-sql\) empieza con \//, tarea);
+    assert.match(bloqueo.reason, /sin sus guards ni su compuerta de cierre/, tarea);
+    assert.doesNotMatch(entrada.task as string, /odd-ws:agente writer-sql -->$/, `no la marca: ${JSON.stringify(entrada.task)}`);
+  }
+  for (const agente of ["explorador", "revisor-sql"]) {
+    const entrada: Record<string, unknown> = { agent: agente, task: "/arreglar x.sql" };
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, agente);
+    assert.equal(entrada.task, "/arreglar x.sql", "a otro agente no lo toca");
   }
 });
 
