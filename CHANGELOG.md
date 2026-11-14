@@ -2,6 +2,29 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## Sin publicar
+
+**Soporte para gentle-shell (Pi).** Una instancia puede trabajarse también desde gentle-shell, que es Pi con subagentes. Los guards, el primer toque, las reglas de las capas y la compuerta de los writers corren con los mismos scripts. Todavía no corrió dentro de un Pi real: la prueba de humo llega con la entrega.
+
+### Lo que cambia para ti
+
+- **`hosts` acepta `pi`.** Con `pi` declarado, la instalación genera `.pi/agents/*.md` a partir de los mismos agentes, y el doctor revisa Pi. Sin `pi`, nada cambia en Claude Code ni en Codex.
+- **El paquete de Pi se instala desde git o desde un clon:** `gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>` o `gentle-shell install <ruta del clon>`. No está en npm. El README explica el home aislado de gentle-shell y `--link`.
+- **Abre gentle-shell en la raíz de la instancia y dale confianza con `/trust`.** gentle-shell solo lee los agentes de `<cwd>/.pi/agents`, y sin confianza no llegan las skills de la instancia. Las del plugin se invocan con `/skill:<nombre>`, por ejemplo `/skill:doctor`.
+- **Preguntar necesita pantalla.** Con pantalla, un comando dudoso pide tu confirmación; sin ella, se bloquea con el motivo.
+- **Los writers necesitan gentle-shell.** Con Pi a secas no hay subagentes, y el doctor lo avisa. La tarea de un writer no puede empezar con `/`: Pi la expandiría, y el writer correría sin guards.
+- **`/skill:doctor` en Pi revisa** la versión de Pi (1.5.0 o más), gentle-shell, que el paquete cargue el shim, la confianza del proyecto y los `.pi/agents`. `--arreglar pi-agentes` los genera o los pone al día.
+- **Las skills en Pi:** sus comandos usan `${CLAUDE_PLUGIN_ROOT}`, que Pi no define, así que la extensión la define al cargarse, con la carpeta del plugin, si no estaba.
+
+### Detalle técnico
+
+- **`odd_ws/hosts/pi.py`:** el adaptador de Pi, con su manifiesto de capacidades. Sin pantalla, preguntar se degrada a bloquear. P3, P5 a P7 y P10 son `degradado`; P1, P2, P4, P8 y P9, `soportado`.
+- **`plugin/shim/`:** una extensión TypeScript sin dependencias ni build. Lanza los scripts de Python sin shell, les pone un timeout y falla cerrada en pre. `nucleo.ts` es neutral, para que lo reuse otro host. Los hooks están en `hooks/hooks.pi.json`, con su test de paridad contra `hooks.json`.
+- **El writer en gentle-shell:** el padre marca la tarea de `subagent_run` con el nombre del writer, y el hijo corre `writer_stop` en `agent_before_settle`, con la bitácora de `writer_guard`.
+- **`package.json` en la raíz del repo:** es el paquete de Pi. Va en la raíz porque Pi instala un repo git entero y no admite un paquete en una subcarpeta. Es privado y no tiene dependencias ni scripts. Su versión sube con los dos `plugin.json`: lo exige un test.
+- **El doctor de Pi:** los ítems `pi`, `gentle-shell`, `pi-plugin`, `pi-confianza` y `pi-agentes`; `hooks-host` revisa también la forma de `hooks.pi.json`. `pi-plugin` calca la resolución de paquetes de Pi y no cuenta una fuente `npm:`.
+- **El pre-commit y el CI** corren también las suites `*.test.ts` del shim, con Node 22.18 o más (el CI usa 24).
+
 ## 0.5.0
 
 **El cierre del writer dice también qué no demuestra lo que corrió.** La idea viene del video «Un test en verde puede estar mal», de RefactorIA Devs, con su cadena afirmación → prueba → resultado → límite, que compartió Denver2828. odd-ws ya exigía el resultado (`verificacion:`); ahora exige también el límite.

@@ -561,13 +561,14 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     C = cap()
     estados = {clave: estado for clave, (estado, _) in m().MANIFIESTO.items()}
     assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
-                       "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.NO_DISPONIBLE, "P9": C.NO_DISPONIBLE,
+                       "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.SOPORTADO, "P9": C.SOPORTADO,
                        "P10": C.DEGRADADO}, estados
-    for clave, tareas in (("P5", ("F2g",)), ("P8", ("F2f",)), ("P9", ("F2f", "F2b"))):
+    for clave, tareas in (("P5", ("F2g",)), ("P9", ("F2g",))):
         nota = m().MANIFIESTO[clave][1]
         assert all(tarea in nota for tarea in tareas), (clave, nota)
-    for clave in ("P7", "P8"):
-        assert "F2d" not in m().MANIFIESTO[clave][1], "F2d ya no es lo que falta: %r" % (m().MANIFIESTO[clave],)
+    for clave in ("P7", "P8", "P9"):
+        for tarea in ("F2d", "F2f"):
+            assert tarea not in m().MANIFIESTO[clave][1], "%s ya no es lo que falta: %r" % (tarea, m().MANIFIESTO[clave])
     assert "new es clear" in m().MANIFIESTO["P1"][1] and "reload es resume" in m().MANIFIESTO["P1"][1], m().MANIFIESTO["P1"]
     assert "@" in m().MANIFIESTO["P2"][1] and "~" in m().MANIFIESTO["P2"][1], m().MANIFIESTO["P2"]
     assert "read" in m().MANIFIESTO["P4"][1], m().MANIFIESTO["P4"]
@@ -580,8 +581,197 @@ def test_p7_dice_el_mecanismo_de_los_agentes_de_pi_y_su_fallback_y_p8_las_skills
                   "Edit a edit", "Write a write", "Bash a bash", "sin skills precargadas", "raíz de la instancia", "no sube",
                   "subagents.json", "Pi a secas"):
         assert frase in p7, (frase, p7)
-    for frase in ("resources_discover", ".claude/skills", "workspace.config.json", "description", "F2f", "disable-model-invocation"):
+    for frase in ("resources_discover", ".claude/skills", "workspace.config.json", "description", "disable-model-invocation",
+                  "pi.skills", "package.json", "/skill:", "gentle-", "${CLAUDE_PLUGIN_ROOT}", "la define la extensión"):
         assert frase in p8, (frase, p8)
+    assert "el modelo saca la carpeta" not in p8, p8
+
+
+def test_p9_dice_el_paquete_de_la_raiz_y_como_se_instala():
+    p9 = m().MANIFIESTO["P9"][1]
+    for frase in ("package.json", "raíz del repositorio", "./plugin/shim/pi.ts", "./plugin/skills", "gentle-shell install", "git",
+                  "etiqueta", "ruta", "subcarpeta", "npm", "PLUGIN_ROOT", "pi-plugin"):
+        assert frase in p9, (frase, p9)
+
+
+INDICADORES_DE_YAML = "-?:,[]{}#&*!|>'\"%@`"
+CLAVE_DE_YAML = re.compile(r"([A-Za-z0-9_-]+):(?:[ ]+(.*))?\Z")
+NOMBRE_DE_SKILL_DE_PI = re.compile(r"[a-z0-9-]+")
+BOOLEANOS_DE_YAML = {"true": True, "True": True, "TRUE": True, "false": False, "False": False, "FALSE": False}
+NULOS_DE_YAML = ("null", "Null", "NULL", "~")
+NUMERO_DE_YAML = re.compile(r"[-+]?(?:[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+|(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+                            r"|\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))")
+IGNORADOS_DE_PI = (".gitignore", ".ignore", ".fdignore")
+INDECIDIBLE = "indecidible"
+
+
+def largo_de_js(texto):
+    return len(texto.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def yaml_simple(cabecera):
+    datos = {}
+    for linea in cabecera.split("\n"):
+        if not linea.strip() or linea.startswith("#"):
+            continue
+        par = CLAVE_DE_YAML.match(linea)
+        if par is None or par.group(1) in datos:
+            return INDECIDIBLE
+        valor = (par.group(2) or "").rstrip(" ")
+        if valor and (valor[0] in INDICADORES_DE_YAML or ": " in valor or valor.endswith(":") or " #" in valor or "\t" in valor):
+            return INDECIDIBLE
+        if not valor or valor in NULOS_DE_YAML:
+            datos[par.group(1)] = None
+        elif valor in BOOLEANOS_DE_YAML:
+            datos[par.group(1)] = BOOLEANOS_DE_YAML[valor]
+        elif NUMERO_DE_YAML.fullmatch(valor):
+            datos[par.group(1)] = ("numero", valor)
+        else:
+            datos[par.group(1)] = valor
+    return datos
+
+
+def frontmatter_de_pi(texto):
+    normal = texto.replace("\r\n", "\n").replace("\r", "\n")
+    normal = normal[1:] if normal.startswith("﻿") else normal
+    if not normal.startswith("---"):
+        return {}
+    fin = normal.find("\n---", 3)
+    return {} if fin == -1 else yaml_simple(normal[4:fin])
+
+
+def errores_del_nombre(nombre):
+    errores = []
+    if largo_de_js(nombre) > 64:
+        errores.append("name exceeds 64 characters")
+    if not NOMBRE_DE_SKILL_DE_PI.fullmatch(nombre):
+        errores.append("name contains invalid characters")
+    if nombre.startswith("-") or nombre.endswith("-"):
+        errores.append("name must not start or end with a hyphen")
+    if "--" in nombre:
+        errores.append("name must not contain consecutive hyphens")
+    return errores
+
+
+def skill_de_pi(archivo):
+    datos = frontmatter_de_pi(archivo.read_bytes().decode("utf-8", "replace"))
+    if datos == INDECIDIBLE:
+        return INDECIDIBLE
+    declarada = archivo.name == "SKILL.md"
+    descripcion = datos.get("description")
+    con_descripcion = isinstance(descripcion, str) and recortar_como_js(descripcion) != ""
+    if not declarada and not con_descripcion:
+        return None
+    avisos = [] if con_descripcion else ["description is required"]
+    if con_descripcion and largo_de_js(descripcion) > 1024:
+        avisos.append("description exceeds 1024 characters")
+    propio = datos.get("name") if isinstance(datos.get("name"), str) else None
+    nombre = propio or archivo.parent.name
+    avisos += errores_del_nombre(nombre)
+    if not con_descripcion:
+        return {"cargada": False, "nombre": nombre, "avisos": avisos}
+    return {"cargada": True, "nombre": nombre, "descripcion": descripcion, "avisos": avisos, "archivo": archivo,
+            "solo_con_comando": datos.get("disable-model-invocation") is True}
+
+
+def entradas_de_skills(carpeta, raiz=None):
+    raiz = raiz or carpeta
+    if any((carpeta / nombre).exists() for nombre in IGNORADOS_DE_PI):
+        return INDECIDIBLE
+    hijos = sorted(os.scandir(carpeta), key=lambda hijo: hijo.name)
+    if any(hijo.name == "SKILL.md" and Path(hijo.path).is_file() for hijo in hijos):
+        return [carpeta / "SKILL.md"]
+    entradas = []
+    for hijo in hijos:
+        ruta = Path(hijo.path)
+        if hijo.name.startswith(".") or hijo.name == "node_modules":
+            continue
+        if ruta.is_file() and hijo.name.endswith(".md") and carpeta == raiz:
+            entradas.append(ruta)
+        elif ruta.is_dir():
+            de_la_carpeta = entradas_de_skills(ruta, raiz)
+            if de_la_carpeta == INDECIDIBLE:
+                return INDECIDIBLE
+            entradas += de_la_carpeta
+    return entradas
+
+
+def skills_del_paquete_de_pi(raiz):
+    manifiesto = json.loads((raiz / "package.json").read_text(encoding="utf-8"))
+    entradas = manifiesto.get("pi", {}).get("skills")
+    if not isinstance(entradas, list) or not all(isinstance(entrada, str) for entrada in entradas):
+        return INDECIDIBLE
+    archivos = []
+    for entrada in entradas:
+        if re.search(r"[*?\[\]{}!+-]", entrada[:1]) or re.search(r"[*?\[\]{}]", entrada):
+            return INDECIDIBLE
+        ruta = Path(os.path.normpath(os.path.join(raiz, entrada)))
+        de_la_entrada = [ruta] if ruta.is_file() else entradas_de_skills(ruta) if ruta.is_dir() else []
+        if de_la_entrada == INDECIDIBLE:
+            return INDECIDIBLE
+        archivos += de_la_entrada
+    skills = [skill_de_pi(archivo) for archivo in archivos]
+    return INDECIDIBLE if INDECIDIBLE in skills else [skill for skill in skills if skill is not None]
+
+
+def test_las_skills_del_plugin_cargan_en_pi_con_su_regla_y_sin_chocar_con_gentle_pi():
+    skills = skills_del_paquete_de_pi(PLUGIN.parent)
+    assert skills != INDECIDIBLE, "el port de la regla de Pi no sabe leer el paquete: revisá a mano el frontmatter contra la de Pi"
+    carpetas = sorted(carpeta.name for carpeta in (PLUGIN / "skills").iterdir() if (carpeta / "SKILL.md").is_file())
+    nombres = [skill["nombre"] for skill in skills]
+    assert carpetas and sorted(nombres) == carpetas and len(set(nombres)) == len(nombres), (nombres, carpetas)
+    for skill in skills:
+        assert skill["cargada"] and skill["avisos"] == [], skill
+        assert not skill["nombre"].startswith("gentle-"), "las skills de gentle-pi se llaman gentle-*: %s chocaría" % skill["nombre"]
+    doctor = importlib.import_module("doctor")
+    en_pi = {skill["nombre"] for skill in skills if skill["solo_con_comando"]}
+    en_claude_code = {carpeta for carpeta in carpetas if doctor.declara(
+        doctor.frontmatter((PLUGIN / "skills" / carpeta / "SKILL.md").read_text(encoding="utf-8")), doctor.SIN_INVOCACION)}
+    assert en_pi and en_pi == en_claude_code, "disable-model-invocation tiene que valer lo mismo en Pi y en Claude Code: %r" % (
+        (en_pi, en_claude_code),)
+
+
+def test_el_port_de_las_skills_de_pi_sabe_decir_que_no():
+    with temporal() as base:
+        def skill(nombre, texto, archivo="SKILL.md"):
+            ruta = base / nombre / archivo
+            ruta.parent.mkdir(parents=True, exist_ok=True)
+            ruta.write_bytes(texto.encode("utf-8"))
+            return skill_de_pi(ruta)
+
+        assert skill("ok", "﻿---\r\nname: ok\r\ndescription: Hace algo.\r\ndisable-model-invocation: true\r\n---\r\nCuerpo\r\n") == {
+            "cargada": True, "nombre": "ok", "descripcion": "Hace algo.", "avisos": [], "archivo": base / "ok" / "SKILL.md",
+            "solo_con_comando": True}
+        assert skill("sin", "---\nname: sin\n---\nCuerpo\n") == {"cargada": False, "nombre": "sin", "avisos": ["description is required"]}
+        assert skill("vacia", "---\nname: vacia\ndescription:\n---\n")["cargada"] is False
+        assert skill("suelta", "---\nname: suelta\n---\n", "otra.md") is None
+        assert skill("carpeta", "---\ndescription: d\n---\n")["nombre"] == "carpeta"
+        assert skill("x", "---\nname: Mal\ndescription: d\n---\n")["avisos"] == ["name contains invalid characters"]
+        assert skill("x", "---\nname: a--b-\ndescription: d\n---\n")["avisos"] == ["name must not start or end with a hyphen",
+                                                                                  "name must not contain consecutive hyphens"]
+        assert skill("x", "---\nname: %s\ndescription: d\n---\n" % ("a" * 65))["avisos"] == ["name exceeds 64 characters"]
+        assert skill("x", "---\nname: x\ndescription: %s\n---\n" % ("d" * 1025))["avisos"] == ["description exceeds 1024 characters"]
+        for valor in ("yes", "on", "1", "verdadero"):
+            assert skill("x", "---\nname: x\ndescription: d\ndisable-model-invocation: %s\n---\n" % valor)["solo_con_comando"] is False, valor
+        for cabecera in ("description: a: b", "description: 'citada'", "description: d # comentario", "description: >\n  plegada",
+                         "name: x\nname: y\ndescription: d", "description: d\n  sigue", "metadata:\n  a: b"):
+            assert skill("x", "---\n%s\n---\n" % cabecera) == INDECIDIBLE, cabecera
+        assert skill("x", "sin frontmatter") == {"cargada": False, "nombre": "x", "avisos": ["description is required"]}
+        paquete = base / "paquete"
+        (paquete / "skills" / "una").mkdir(parents=True)
+        (paquete / "skills" / "una" / "SKILL.md").write_text("---\nname: una\ndescription: d\n---\n", encoding="utf-8")
+        (paquete / "skills" / "suelta.md").write_text("---\nname: suelta\ndescription: d\n---\n", encoding="utf-8")
+        (paquete / "skills" / "una" / "references").mkdir()
+        (paquete / "skills" / "una" / "references" / "nota.md").write_text("---\nname: nota\ndescription: d\n---\n", encoding="utf-8")
+        (paquete / "skills" / ".oculta").mkdir()
+        (paquete / "skills" / ".oculta" / "SKILL.md").write_text("---\nname: oculta\ndescription: d\n---\n", encoding="utf-8")
+        (paquete / "package.json").write_text(json.dumps({"pi": {"skills": ["./skills"]}}), encoding="utf-8")
+        assert sorted(s["nombre"] for s in skills_del_paquete_de_pi(paquete)) == ["suelta", "una"]
+        (paquete / "package.json").write_text(json.dumps({"pi": {"skills": ["./skills/*"]}}), encoding="utf-8")
+        assert skills_del_paquete_de_pi(paquete) == INDECIDIBLE
+        (paquete / "package.json").write_text(json.dumps({"pi": {"skills": ["./skills"]}}), encoding="utf-8")
+        (paquete / "skills" / ".gitignore").write_text("una/\n", encoding="utf-8")
+        assert skills_del_paquete_de_pi(paquete) == INDECIDIBLE
 
 
 def test_p5_y_p6_dicen_el_rodeo_de_gentle_shell_y_que_con_pi_a_secas_el_writer_queda_sin_compuerta():

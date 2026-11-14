@@ -1,6 +1,6 @@
 # odd-workspace-template
 
-**Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code y Codex CLI que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
+**Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code, Codex CLI y gentle-shell (Pi) que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
 
 **Versión actual:** `0.5.0` ([qué cambió en cada versión](CHANGELOG.md)).
 
@@ -31,10 +31,12 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 |---|---|---|---|
 | Claude Code | Uso diario del autor, y el CI | Solo el CI | Solo el CI |
 | Codex CLI | Prueba de humo a mano con la 0.144 y la 0.167, y el CI | Solo el CI | Solo el CI |
+| gentle-shell (Pi) | Solo el CI, con una Pi simulada | Solo el CI | Solo el CI |
 
 - **El CI** (`.github/workflows/pruebas.yml`) corre todas las suites en Ubuntu, Windows y macOS. No instala ningún CLI. En Linux y macOS nadie lo probó a mano todavía.
 - **Codex en Windows:** los writers necesitan `[windows] sandbox` en la config de Codex. Con el sandbox `unelevated`, la medición de líneas del writer da 0/0 (pendiente X7). Afecta solo esa medición, no los bloqueos.
-- **Si Python no arranca:** con Claude Code 2.1.295 o más, la herramienta se bloquea con el error. Con una versión anterior, y siempre en Codex, la herramienta pasa sin el chequeo.
+- **gentle-shell:** todavía no corrió dentro de un Pi real. La prueba de humo llega con la próxima entrega.
+- **Si Python no arranca:** con Claude Code 2.1.295 o más, y en Pi, la herramienta se bloquea con el error. Con una versión anterior de Claude Code, y siempre en Codex, la herramienta pasa sin el chequeo.
 
 ## Instalación
 
@@ -46,6 +48,8 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 | Git | En Windows, Git for Windows |
 | Claude Code | 2.1.284 o más; se recomienda 2.1.295 o más |
 | Codex CLI, si lo usas | 0.144 o más; 0.167 o más para los writers |
+| Pi, si lo usas | 1.5.0 o más. En Windows, sus hooks lanzan `python` |
+| gentle-shell, para los writers en Pi | El de `npm i -g gentle-pi`. Sin él, Pi corre los guards, pero no los writers |
 
 En Windows, `python3` lo crean el Python install manager de python.org y la Microsoft Store, no el instalador clásico. El detalle y las herramientas opcionales están en [Requisitos de la máquina](Doc/uso.md#requisitos-de-la-máquina).
 
@@ -78,6 +82,32 @@ Codex trabaja sobre la misma instancia: `.claude/` sigue siendo la fuente, y Cod
 3. **Abre `codex` en la raíz de la instancia,** acepta confiar en la carpeta y confía los hooks de `odd-ws` cuando Codex lo pida, o desde `/hooks`. Las skills se invocan con `$`, por ejemplo `$doctor`.
 
 Para sumar Codex a una instancia que ya existe, o configurar los writers en Windows, ve a [Usarlo desde Codex](Doc/uso.md#usarlo-desde-codex).
+
+### Con gentle-shell (Pi)
+
+gentle-shell es Pi con subagentes, y trabaja sobre la misma instancia: `.claude/` sigue siendo la fuente, y Pi recibe sus agentes generados en `.pi/agents`.
+
+1. **Declara Pi en la instancia:** `"hosts": ["claude-code", "pi"]` en `workspace.config.json`, o solo `["pi"]`. En una instancia que ya existe, los agentes de `.pi/agents` los genera el doctor en el paso 4.
+2. **Instala gentle-shell y el paquete de `odd-ws`.** gentle-shell se instala con `npm i -g gentle-pi`. El paquete de `odd-ws` no está en npm: se instala desde git, con la etiqueta de la versión, o desde la raíz de un clon del repo.
+
+   ```text
+   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>
+   gentle-shell install <ruta del clon>
+   ```
+
+   - **El home:** `gentle-shell install` instala en el home aislado de gentle-shell (`~/.gentle-shell/agent`), que no ve los paquetes de tu Pi. Si abres gentle-shell con `--link`, que usa `~/.pi/agent`, instala ahí: `gentle-shell --link install <fuente>`.
+   - **La ruta es la raíz del clon, no `plugin/`:** ahí está el `package.json` del paquete. Va en la raíz porque Pi instala un repo git entero y no admite un paquete en una subcarpeta.
+   - **Con la fuente git,** Pi corre `npm install` en su copia del repo, así que necesita `npm` en el `PATH`.
+3. **Abre gentle-shell en la raíz de la instancia** y dale confianza al proyecto con `/trust`. gentle-shell solo lee los agentes de `<cwd>/.pi/agents`, y sin confianza no llegan las skills de la instancia.
+4. **Corre `/skill:doctor`.** En Pi, las skills del plugin se invocan con `/skill:<nombre>`. El doctor revisa la versión de Pi, gentle-shell, el paquete del home activo, la confianza del proyecto y los agentes de `.pi/agents`; en una instancia que ya existía, aplica `--arreglar pi-agentes`.
+
+Para actualizar, vuelve a instalar con la etiqueta nueva: Pi deja fija la etiqueta de una fuente git, y `pi update` no la mueve. Con un clon, actualiza el clon y corre `/reload`.
+
+Ten en cuenta:
+
+- **Sin gentle-shell no hay compuerta.** Con Pi a secas corren los guards, pero no hay subagentes: no hay writers ni su compuerta de cierre, y el doctor lo avisa.
+- **La tarea de un writer no puede empezar con `/`.** Pi la expandiría como una skill o una plantilla, y el writer correría sin guards, así que el lanzamiento se bloquea. Nombra la skill en el texto de la tarea.
+- **Los comandos de las skills usan `${CLAUDE_PLUGIN_ROOT}`, que Pi no define.** La extensión de odd-ws la define al cargarse, con la carpeta del plugin, si no estaba. Si algo la pisa, corre el doctor a mano desde la raíz de la instancia: `python3 <raíz del paquete>/plugin/scripts/doctor.py`. La raíz del paquete es tu clon o, con la fuente git, `~/.gentle-shell/agent/git/github.com/sebasgc0399/odd-workspace-template` (con `--link`, `~/.pi/agent/git/github.com/sebasgc0399/odd-workspace-template`).
 
 ## Documentación
 

@@ -19,6 +19,7 @@ HOOKS_CODEX = PLUGIN / "hooks" / "hooks.codex.json"
 HOOKS_PI = PLUGIN / "hooks" / "hooks.pi.json"
 MANIFIESTO_CLAUDE = PLUGIN / ".claude-plugin" / "plugin.json"
 MANIFIESTO_CODEX = PLUGIN / ".codex-plugin" / "plugin.json"
+PAQUETE_DE_PI = PLUGIN.parent / "package.json"
 EVENTOS_DE_HERRAMIENTA = ("PreToolUse", "PostToolUse")
 MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Bash|PowerShell|Edit|Write": "Bash|apply_patch",
                      "Read": None}
@@ -437,6 +438,22 @@ def test_el_manifiesto_de_codex_es_el_de_claude_code_con_sus_hooks():
     assert hooks.startswith("./") and (PLUGIN / hooks).resolve() == HOOKS_CODEX.resolve() and HOOKS_CODEX.is_file(), hooks
     assert "skills" not in codex, "sin skills, Codex descubre skills/ solo"
     assert not (PLUGIN / "plugin.json").exists(), "un plugin.json en la raíz gana sobre los dos y apaga los hooks"
+
+
+def test_el_paquete_de_pi_tiene_la_version_de_los_otros_manifiestos_y_carga_el_shim_y_las_skills():
+    claude, codex, paquete = leer_json(MANIFIESTO_CLAUDE), leer_json(MANIFIESTO_CODEX), leer_json(PAQUETE_DE_PI)
+    versiones = {"package.json": paquete.get("version"), ".claude-plugin/plugin.json": claude.get("version"),
+                 ".codex-plugin/plugin.json": codex.get("version")}
+    assert len(set(versiones.values())) == 1 and claude.get("version"), "las tres versiones tienen que subir juntas: %r" % versiones
+    assert paquete["name"] == claude["name"], paquete.get("name")
+    assert paquete.get("private") is True, "el paquete no se publica en npm: private evita un npm publish"
+    assert paquete.get("type") == "module", "el shim es ESM, y sin type Node avisa en cada suite .test.ts del repo"
+    assert paquete["pi"] == {"extensions": ["./plugin/shim/pi.ts"], "skills": ["./plugin/skills"]}, paquete.get("pi")
+    assert (PLUGIN / "shim" / "pi.ts").is_file() and (PLUGIN / "skills").is_dir()
+    ajenas = sorted(set(paquete) & {"dependencies", "devDependencies", "peerDependencies", "optionalDependencies", "scripts",
+                                    "workspaces", "bin"})
+    assert ajenas == [], "Pi corre npm install en el clon de una fuente git: %r instalaría o correría algo" % ajenas
+    assert not (PLUGIN / "package.json").exists(), "el paquete de Pi es la raíz del repo: Pi no instala una subcarpeta de un repo git"
 
 
 def test_cada_adaptador_tiene_su_puerto_de_generacion_con_los_mismos_marcadores():

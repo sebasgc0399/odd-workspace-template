@@ -238,6 +238,18 @@ test("la extension registra sus seis eventos y su plugin es la carpeta padre del
   assert.equal(PLAZO_DE_CONFIRMACION, 60000);
 });
 
+test("la extension define CLAUDE_PLUGIN_ROOT con la carpeta del plugin para los comandos de las skills, y no pisa uno que ya estaba", () => {
+  const sinVariable: Record<string, string | undefined> = {};
+  conPiEn(PLUGIN, sinVariable);
+  assert.equal(sinVariable.CLAUDE_PLUGIN_ROOT, PLUGIN);
+  const vacia: Record<string, string | undefined> = { CLAUDE_PLUGIN_ROOT: "" };
+  conPiEn(PLUGIN, vacia);
+  assert.equal(vacia.CLAUDE_PLUGIN_ROOT, PLUGIN);
+  const otra: Record<string, string | undefined> = { CLAUDE_PLUGIN_ROOT: "/home/u/otro-plugin" };
+  conPiEn(PLUGIN, otra);
+  assert.equal(otra.CLAUDE_PLUGIN_ROOT, "/home/u/otro-plugin");
+});
+
 test("de punta a punta: git push --force se bloquea por bash y por powershell, y lo demas pasa", async () => {
   const { inst } = mundo("push");
   const pi = conPi();

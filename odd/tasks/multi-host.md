@@ -80,7 +80,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | F2c2 | S4 | N1 del rechequeo de F2c (L48): una tarea de writer que empieza con `/` se expande en el hijo (plantilla o comando de Pi) y la marca deja de ser una línea propia, así que el writer corre sin guards ni compuerta. El padre bloquea el lanzamiento de un writer cuya tarea empieza con `/`, como cualquier forma que no sabe marcar | inline; después, un rechequeo del verificador de F2c (ítem 2) | hecho (L49) |
 | F2d | S2, S5, S6, S8 | Generación: `hosts` acepta `pi`; `.pi/agents/*.md` derivados del `.md` de `.claude/agents`, con la lista de tools de Pi; los textos de Pi en los marcadores; la extensión publica las skills de la instancia por `resources_discover`. Claude Code y Codex generan lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 5 y 6) | hecho (L50) |
 | F2e | S2–S4, S8 | Doctor de Pi: la versión, el paquete instalado en el home activo (el aislado de gentle-shell, o `~/.pi/agent` con `--link`), el Python, `pi-agentes` con la regla de L18 y `hooks-host` con `hooks.pi.json` | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3, 5 y 6) | hecho (L51) |
-| F2f | S2, S8 | Empaquetado: `package.json` con la clave `pi` (extensiones y skills) y la versión en paridad con los otros manifiestos. Hay que verificar si `pi install git:…` acepta el paquete en `plugin/`. Y en el README, «Usarlo desde gentle-shell» | inline (ítem 5) | pendiente |
+| F2f | S2, S8 | Empaquetado: `package.json` con la clave `pi` (extensiones y skills) y la versión en paridad con los otros manifiestos. Hay que verificar si `pi install git:…` acepta el paquete en `plugin/`. Y en el README, «Usarlo desde gentle-shell» | delegado: un writer, por el respaldo de contexto; el padre, `CLAUDE_PLUGIN_ROOT` y los textos fuera de la superficie; después, un verificador independiente (ítem 5) | hecho (L52) |
 | F2g | S1 | Prueba de humo en un gentle-shell aparte, y la entrega `0.6.0` con autorización | inline; el usuario instala gentle-pi y autoriza la entrega | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
@@ -855,3 +855,34 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
   - **Lo nuevo va a X14:** cinco OK falsos forzados (enlaces, un `NaN` y un filtro `file://`). No reabren la unidad.
   - **El verificador se cortó una vez,** por el límite semanal de la cuenta, y se reanudó con su trabajo guardado.
   - **Risk:** ítem 2 (`pi-plugin` y `hooks-host` deciden si se avisa que el shim o la compuerta no corren) e ítem 6 (la regla de Pi se calcó leyendo su código, y nada corrió contra un Pi real hasta F2g).
+- **L52 (2026-11-14), F2f.** F2e quedó en `853c400`, con push de la rama. El writer se cortó una vez, por el límite de 5 horas de la cuenta, y se reanudó con su trabajo guardado.
+  - **Ruta:** un writer delegado, por el respaldo de contexto. Después, un verificador independiente, por el ítem 5: el `package.json` es lo que instala Pi, y con la fuente git corre `npm install` sobre él.
+  - **El writer:**
+    - **El manifiesto va en el `package.json` de la raíz, no en `plugin/`.** Pi no admite una subcarpeta de un repo git: `parseGitUrl` descarta el subpath, y `installGit` clona el repo entero y usa su raíz como raíz del paquete (`package-manager.js:1678-1703`).
+    - **El contenido:** `{"name":"odd-ws","private":true,"type":"module","pi":{"extensions":["./plugin/shim/pi.ts"],"skills":["./plugin/skills"]}}`, con la misma versión que los dos `plugin.json`.
+      - **Sin `dependencies` ni `scripts`:** con la fuente git, Pi corre `npm install` en el clon, y un script se ejecutaría en la máquina del usuario.
+      - **`private`:** bloquea un `npm publish`.
+      - **`type: module`:** evita el aviso `MODULE_TYPELESS_PACKAGE_JSON` en las suites de Node.
+    - **Sin npm:** `pi-plugin` no reconoce fuentes `npm:`, y una fuente que apunta a `plugin/` da FALTA con el motivo.
+    - **La paridad de versiones** entre `package.json` y los dos `plugin.json` va en `capacidades.tests.py`.
+    - **Las 7 skills del plugin cargan en Pi,** sin chocar con las `gentle-*`, y respetan `disable-model-invocation`.
+    - **Documentación:** el README («Con gentle-shell (Pi)»), el CHANGELOG (`## Sin publicar`) y `diseno.md`.
+    - **Pruebas:** RED observado, GREEN y 17 de 17 mutantes muertos.
+  - **El hallazgo del writer, que decidió el padre:** los comandos de las skills usan `${CLAUDE_PLUGIN_ROOT}`, que Pi no define. El hermano es Codex, que la expone como alias. Por eso `registrar` del shim la define con la carpeta del plugin, solo si no estaba o estaba vacía. El bash de Pi y los hijos de gentle-shell la heredan, y ningún script de Python la lee. P8 pasa a `soportado`.
+    - **Pruebas:** RED observado (la variable quedaba sin definir) y GREEN, 61 de 61 en Node.
+  - **Lo que el padre agregó fuera de la superficie del writer:** `CONTRIBUTING.md` (la entrega sube también el `package.json`), `Doc/actualizar.md` (la sección de gentle-shell y `--arreglar pi-agentes`) y `Doc/uso.md` (los requisitos y «Usarlo desde gentle-shell»).
+  - **El verificador:** S2, S5 y S8 cumplen; S3 quedó parcial por un blocker de documentación.
+    - **El paquete:** contra un port propio de la regla de Pi, carga exactamente `plugin/shim/pi.ts` y las 7 skills, por ruta y por git. Pi no admite subcarpetas: confirmado.
+    - **El comando documentado** `gentle-shell install git:…@odd-ws--v<versión>` lo parte bien `parseGitUrl`.
+    - **`npm install`** no tiene nada que ejecutar ni que bajar.
+    - **`type: module`:** no hay ningún `.js` en el repo que se rompa.
+    - **`CLAUDE_PLUGIN_ROOT`** resuelve en Git Bash, incluso con espacios, `$` o backticks en la ruta.
+    - **S5:** `claude plugin validate`, la instalación en Claude Code y en Codex 0.144, y el doctor sin `pi`, todo igual a la base; 46 de 46 suites.
+    - **Mutantes:** 25 de 26 muertos; el vivo es equivalente.
+    - **B1:** el CHANGELOG decía que P8 era `degradado`. El padre lo corrigió, y sumó la ruta de `--link` del doctor manual en el README (A3).
+  - **Avisos que quedan:**
+    - **A1:** la paridad no impide un `binding.gyp` o un `.npmrc` en la raíz, sobre los que actuaría npm. Hoy no hay ninguno.
+    - **A2:** `CLAUDE_PLUGIN_ROOT` es global al proceso. Si ya viene definida, las skills fallan a la vista.
+    - **A5:** hasta la etiqueta `odd-ws--v0.6.0`, la instalación por git da FALTA, porque las etiquetas viejas no traen `package.json`.
+    - **A6:** en la herramienta `powershell` de Pi, `${CLAUDE_PLUGIN_ROOT}` no resuelve. Las skills corren por `bash`, que es el default.
+  - **Risk:** ítem 5 (el `package.json` de la raíz es lo que instala Pi, y con la fuente git corre `npm install`) e ítem 6 (nada corrió en un Pi real hasta F2g).

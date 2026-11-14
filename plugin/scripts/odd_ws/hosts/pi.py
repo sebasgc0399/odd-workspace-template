@@ -56,18 +56,24 @@ MANIFIESTO = {
                       "con read al arrancar; sin model, thinking ni mode, así que rigen los de subagents.json; gentle-shell lee "
                       "solo <cwd>/.pi/agents y no sube a los padres, así que se abre en la raíz de la instancia; con Pi a secas no "
                       "hay subagentes"),
-    "P8": (NO_DISPONIBLE, "las skills del plugin no llegan a Pi hasta que su paquete las traiga por la clave pi de package.json, en "
-                          "F2f (Pi las carga sin namespace y respeta disable-model-invocation); las de la instancia sí llegan: Pi "
-                          "no lee .claude/skills, así que la extensión las publica por resources_discover con la carpeta "
-                          ".claude/skills de la raíz de la instancia (la más cercana que tiene workspace.config.json, subiendo "
-                          "desde el cwd), y Pi carga las que traen description en su frontmatter, como las que genera el bootstrap; "
-                          "solo con el proyecto en confianza, que revisa el ítem pi-confianza del doctor"),
-    "P9": (NO_DISPONIBLE, "el paquete de Pi (la clave pi de package.json, que se instala con gentle-shell install y no tiene "
-                          "PLUGIN_ROOT) llega en F2f; el shim (shim/pi.ts) y sus hooks (hooks/hooks.pi.json) ya están desde F2b, "
-                          "y el shim saca la raíz del plugin de su propia carpeta; el ítem pi-plugin del doctor decide, con la "
-                          "regla de Pi (las fuentes, el manifiesto pi.extensions, los filtros, autoload y el proyecto contra el "
-                          "home), si los packages del home activo y de .pi/settings.json, este solo con confianza, cargan "
-                          "shim/pi.ts: hasta F2f la carpeta plugin/ no trae ese manifiesto y da FALTA"),
+    "P8": (SOPORTADO, "las skills del plugin llegan por el paquete de Pi: pi.skills del package.json de la raíz del repositorio "
+                      "apunta a plugin/skills, y Pi carga cada SKILL.md que trae description, sin namespace, con los nombres que "
+                      "valida su regla, sin chocar con las de gentle-pi, que se llaman gentle-, y respetando "
+                      "disable-model-invocation: esas se invocan solo con /skill:<nombre>, como /skill:bootstrap; sus comandos "
+                      "usan ${CLAUDE_PLUGIN_ROOT}, que Pi no define: la define la extensión al registrarse, con la carpeta del "
+                      "plugin, si no estaba, y el bash de Pi la hereda; las de la instancia llegan aparte: Pi no lee "
+                      ".claude/skills, así que la extensión las publica por resources_discover con la carpeta .claude/skills de "
+                      "la raíz de la instancia (la más cercana que tiene workspace.config.json, subiendo desde el cwd), y Pi "
+                      "carga las que traen description en su frontmatter, como las que genera el bootstrap; solo con el "
+                      "proyecto en confianza, que revisa el ítem pi-confianza del doctor"),
+    "P9": (SOPORTADO, "el paquete de Pi es la raíz del repositorio: su package.json (privado, sin dependencias ni scripts) "
+                      "declara pi.extensions = ./plugin/shim/pi.ts y pi.skills = ./plugin/skills, y se instala con "
+                      "gentle-shell install (o pi install) desde git, con la etiqueta de la versión, o desde la ruta de un clon; "
+                      "va en la raíz porque Pi clona el repositorio entero y no admite un paquete en una subcarpeta, y no se "
+                      "publica en npm; sin PLUGIN_ROOT: el shim saca la raíz del plugin de su propia carpeta; el ítem pi-plugin "
+                      "del doctor decide, con la regla de Pi (las fuentes, el manifiesto pi.extensions, los filtros, autoload y "
+                      "el proyecto contra el home), si los packages del home activo y de .pi/settings.json, este solo con "
+                      "confianza, cargan shim/pi.ts; sin probar en un Pi real hasta F2g"),
     "P10": (DEGRADADO, "Pi lee un archivo de instrucciones por carpeta, desde el cwd hasta la raíz y solo al arrancar: el primero "
                        "que encuentra de AGENTS.override.md, AGENTS.md y CLAUDE.md, así que un AGENTS.md tapa el CLAUDE.md de su "
                        "carpeta, y los de las subcarpetas que se tocan después no se cargan; no se genera nada"),
@@ -117,7 +123,8 @@ SIN_GENTLE_SHELL = ("con Pi a secas no hay subagentes, así que un writer corre 
 AYUDA_GENTLE_SHELL = ("Instalá gentle-shell (npm i -g gentle-pi) y abrí la instancia con gentle-shell desde su raíz, que es donde lee "
                       ".pi/agents. Pi a secas también sirve, pero sin writers.")
 AYUDA_PAQUETE = ("Instalá el paquete de odd-ws en el home activo, con gentle-shell install <fuente> (o pi install <fuente> con Pi a "
-                 "secas): el paquete llega en F2f. El doctor no escribe en los homes de Pi.")
+                 "secas): la fuente es git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>, o la raíz de un clon "
+                 "del repositorio, no su carpeta plugin/. odd-ws no está en npm. El doctor no escribe en los homes de Pi.")
 AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. El doctor no escribe en los homes de Pi."
 AYUDA_CONFIANZA = ("Abrí Pi (o gentle-shell) en la raíz de la instancia y confiá en la carpeta con /trust, que guarda la decisión. El "
                    "doctor no escribe en los homes de Pi.")
@@ -159,9 +166,15 @@ FUERA_DE_MINIMATCH = re.compile(r"[\[\]{}()!#\\:]")
 DUDOSA = "dudosa"
 AUSENTE = "ausente"
 DE_ODD_WS = "odd-workspace-template"
+NOMBRES_DE_ODD_WS = ("odd-ws", DE_ODD_WS)
 FUENTE_GIT = "para Pi, una fuente git empieza con git: o con un esquema como https://"
-SIN_MANIFIESTO = ("el paquete no trae pi.extensions en su package.json ni una carpeta extensions/, así que Pi no carga shim/pi.ts (el "
-                  "package.json con la clave pi llega en F2f)")
+SIN_MANIFIESTO = "el paquete no trae pi.extensions en su package.json ni una carpeta extensions/, así que Pi no carga shim/pi.ts"
+EN_PLUGIN = ("esa es la carpeta plugin/, que no trae el manifiesto: el paquete de Pi es la raíz del repositorio, %s, con el "
+             "package.json que carga shim/pi.ts")
+POR_NPM = ("odd-ws no se publica en npm, y ese nombre puede ser de otro paquete, así que el doctor no cuenta una fuente npm: se "
+           "instala por git, con la etiqueta de su versión, o por la ruta de un clon")
+SIN_CLONAR = ("no está clonado en %s; Pi lo clona al arrancar o con gentle-shell install, y corre npm install en el clon, así que "
+              "necesita npm en el PATH")
 FILTRADO = "el filtro extensions de la entrada deja afuera shim/pi.ts"
 SIN_AUTOLOAD = "autoload: false sin patrones en extensions no carga nada del paquete"
 INDECIDIBLE = "una entrada que el doctor no sabe leer como Pi"
@@ -811,7 +824,14 @@ def _del_paquete(raiz, filtro, ctx):
 def _por_que_no(raiz, filtro, ctx):
     if _del_paquete(raiz, None, ctx):
         return SIN_AUTOLOAD if filtro.get("autoload") is False and not filtro.get("extensions") else FILTRADO
+    arriba = _del_paquete(raiz.parent, None, ctx) if _es_un_plugin(raiz) else None
+    if arriba and any(_misma(archivo.parent.parent, raiz) for archivo in arriba):
+        return EN_PLUGIN % raiz.parent
     return SIN_MANIFIESTO
+
+
+def _de_odd_ws_en_npm(fuente, ctx):
+    return _identidad(fuente, None, ctx)[len("npm:"):].lower().rsplit("/", 1)[-1] in NOMBRES_DE_ODD_WS
 
 
 def _aporte(paquete, base, base_git, ctx):
@@ -820,14 +840,15 @@ def _aporte(paquete, base, base_git, ctx):
     if not isinstance(fuente, str):
         return None, f"una entrada de packages no tiene una fuente de texto ({json.dumps(paquete)[:60]}), y Pi no la puede leer"
     git = _git(fuente) if fuente.strip().startswith(NO_LOCALES) and not fuente.startswith("npm:") else None
-    if fuente.startswith("npm:") or (git is DUDOSA and DE_ODD_WS not in fuente.lower()):
+    if fuente.startswith("npm:"):
+        return {}, (f"{fuente}: {POR_NPM}" if _de_odd_ws_en_npm(fuente, ctx) else None)
+    if git is DUDOSA and DE_ODD_WS not in fuente.lower():
         return {}, None
     if git is DUDOSA:
         return {}, f"{fuente}: no se puede decidir dónde la clona Pi (la parte hosted-git-info), así que el doctor no la cuenta"
     raiz = base_git / git[0] / git[1] if git is not None else _local(fuente, base, ctx)
     if git is not None and not raiz.is_dir():
-        return {}, (f"{fuente}: no está clonado en {raiz}; Pi lo clona al arrancar, y carga el shim solo si el repositorio trae su "
-                    "package.json (llega en F2f)") if DE_ODD_WS in fuente.lower() or DE_ODD_WS in str(raiz).lower() else None
+        return {}, f"{fuente}: {SIN_CLONAR % raiz}" if DE_ODD_WS in fuente.lower() or DE_ODD_WS in str(raiz).lower() else None
     if not raiz.exists():
         sin_git = fuente.strip().startswith(("github:", "ssh:", "git@")) and DE_ODD_WS in fuente.lower()
         return {}, f"{fuente}: Pi la toma como una ruta local, que no existe ({FUENTE_GIT})" if sin_git else None

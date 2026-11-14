@@ -26,6 +26,8 @@ Se desarrolla en Windows, y las suites corren también en Linux y macOS (ver [D�
 |---|---|---|
 | Claude Code ≥ 2.1.284; se recomienda 2.1.295 o más | El plugin, sus skills y sus hooks. Desde la 2.1.295, un hook que no arranca bloquea la herramienta; antes la deja pasar | Sí, si la instancia declara `claude-code` |
 | Codex CLI ≥ 0.144 (0.167 para los writers) | El plugin desde Codex | Solo si la instancia declara `codex` |
+| Pi ≥ 1.5.0 | El plugin desde Pi; por debajo de 0.87.0 no hay compuerta para los writers | Solo si la instancia declara `pi` |
+| gentle-shell (`npm i -g gentle-pi`) | Los subagentes de Pi: sin él, los writers no tienen compuerta | Solo para los writers en Pi |
 | Python 3.7 o más, invocable como `python3` | Todos los hooks y scripts del plugin; el doctor necesita 3.11 o más para leer la config de Codex | Sí |
 | Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
 | Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
@@ -54,6 +56,21 @@ Dos cosas a tener en cuenta:
 
 - **Los writers necesitan Codex 0.167 o más.** En la 0.144 Codex no deja lanzar un subagente con su rol. Los guards y el primer toque funcionan desde la 0.144.
 - **En Windows, un writer necesita poder escribir en los repos de tus capas.** Configura en Codex `sandbox_mode = "workspace-write"`, `[windows] sandbox = "unelevated"` y los repos como `writable_roots`, con su ruta absoluta. El detalle está en «Writers en Codex», dentro de [Empaquetado para Codex](diseno.md#empaquetado-para-codex-codex-pluginpluginjson-y-hookshookscodexjson-f1c) de `Doc/diseno.md`.
+
+## Usarlo desde gentle-shell
+
+gentle-shell es un agente de código sobre Pi que le suma subagentes. La instancia sigue siendo la misma: `.claude/` es la fuente, y Pi recibe sus propios archivos generados (`.pi/agents`).
+
+- **Declarar Pi:** `"hosts": ["claude-code", "pi"]` en `workspace.config.json`. En una instancia que ya existe, agrega `"pi"` y corre `/odd-ws:doctor` con `--arreglar pi-agentes`.
+- **Instalar:** `npm i -g gentle-pi`, y después `gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>`, o la ruta de un clon tuyo. El paquete es la raíz del repositorio, no `plugin/`. Con la fuente git hace falta `npm` en el PATH. Por defecto, gentle-shell usa un home aislado (`~/.gentle-shell/agent`); con `gentle-shell --link install …` usa el de Pi (`~/.pi/agent`).
+- **Abrir en la raíz de la instancia:** gentle-shell solo lee los agentes de `<carpeta donde lo abres>/.pi/agents`.
+- **Confiar el proyecto (`/trust`):** sin confianza, Pi no carga las skills de la instancia ni los paquetes declarados en `.pi/settings.json`.
+- **Las skills se invocan con `/skill:<nombre>`,** por ejemplo `/skill:doctor`. No tienen el prefijo `odd-ws:`.
+
+Dos cosas a tener en cuenta:
+
+- **Sin gentle-shell no hay writers con compuerta.** Pi a secas corre los guards y el primer toque, pero no tiene subagentes.
+- **La tarea de un writer no puede empezar con `/`.** Pi la expandiría como comando y el writer perdería su marca, así que odd-ws bloquea el lanzamiento. Nombra la skill o la plantilla dentro del texto.
 
 ## El ciclo de un ticket
 

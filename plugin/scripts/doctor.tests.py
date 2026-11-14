@@ -2003,12 +2003,72 @@ def test_pi_plugin_las_fuentes_que_pi_no_toma_como_git_son_rutas_que_no_existen(
             assert r.estado == "FALTA" and "no se puede decidir" in r.detalle, (fuente, r)
 
 
+RAIZ_DEL_REPO = AQUI.parent.parent
+CARPETAS_QUE_LEE_PI = ("hooks", "shim", "skills")
+
+
+def copia_del_repo(destino):
+    destino.mkdir(parents=True, exist_ok=True)
+    for archivo in RAIZ_DEL_REPO.iterdir():
+        if archivo.is_file():
+            shutil.copy2(archivo, destino / archivo.name)
+    for carpeta in CARPETAS_QUE_LEE_PI:
+        shutil.copytree(RAIZ_DEL_REPO / "plugin" / carpeta, destino / "plugin" / carpeta)
+    return destino
+
+
+def test_pi_plugin_con_el_paquete_real_por_la_ruta_del_clon_es_ok():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        clon = copia_del_repo(e.base / "clon de odd-ws")
+        ctx.plugin = clon / "plugin"
+        shim = clon / "plugin" / "shim" / "pi.ts"
+        for paquete in (str(clon), os.path.relpath(clon, aislado(ctx)), {"source": str(clon)}, {"source": str(clon), "skills": []}):
+            poner_paquetes(aislado(ctx), paquete)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "OK" and str(shim) in r.detalle, (paquete, r)
+        poner_paquetes(aislado(ctx), str(clon / "plugin"))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "la carpeta plugin/" in r.detalle and "la raíz del repositorio, %s," % clon in r.detalle, r
+        poner_paquetes(aislado(ctx), str(clon / "plugin"), str(clon))
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+
+
+def test_pi_plugin_con_el_paquete_real_por_git_es_ok():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        checkout = copia_del_repo(aislado(ctx) / "git" / "github.com" / REPO_DE_ODD_WS)
+        ctx.plugin = checkout / "plugin"
+        for fuente in ("git:github.com/%s@odd-ws--v0.6.0" % REPO_DE_ODD_WS, "git:github.com/" + REPO_DE_ODD_WS,
+                       "https://github.com/%s.git" % REPO_DE_ODD_WS):
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "OK" and str(checkout / "plugin" / "shim" / "pi.ts") in r.detalle and fuente in r.detalle, (fuente, r)
+
+
+def test_pi_plugin_no_cuenta_npm_y_dice_que_odd_ws_se_instala_por_git_o_por_ruta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        instalado = copia_del_repo(aislado(ctx) / "npm" / "node_modules" / "odd-ws")
+        ctx.plugin = instalado / "plugin"
+        for fuente in ("npm:odd-ws", "npm:odd-ws@0.5.0", "npm:@alguien/odd-ws", "npm:odd-workspace-template"):
+            poner_paquetes(aislado(ctx), fuente)
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and fuente in r.detalle and "npm" in r.detalle, (fuente, r)
+            assert "por git" in r.detalle and "por la ruta de un clon" in r.detalle, (fuente, r)
+        poner_paquetes(aislado(ctx), "npm:otro-paquete")
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "npm:otro-paquete" not in r.detalle, r
+        poner_paquetes(aislado(ctx), "npm:odd-ws", str(instalado))
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+
+
 def test_pi_plugin_sin_manifiesto_de_pi_no_carga_el_shim_y_es_falta():
     with Escenario() as e:
         raiz, ctx = instancia_pi_sana(e)
         (ctx.plugin / "package.json").unlink()
         r = por_id(ctx)["pi-plugin"]
-        assert r.estado == "FALTA" and "pi.extensions" in r.detalle and "extensions/" in r.detalle and "F2f" in r.detalle, r
+        assert r.estado == "FALTA" and "pi.extensions" in r.detalle and "extensions/" in r.detalle and "F2f" not in r.detalle, r
         poner(ctx.plugin, "extensions/otra/index.ts", "")
         assert por_id(ctx)["pi-plugin"].estado == "FALTA"
         for manifiesto, estado in (({"pi": {"skills": ["skills"]}}, "FALTA"), ({"pi": {"extensions": ["shim"]}}, "OK"),

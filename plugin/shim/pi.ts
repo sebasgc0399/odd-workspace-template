@@ -410,6 +410,9 @@ function skillsDeLaInstancia(evento: EventoDePi, ctx: Partial<ContextoDePi>): { 
 }
 
 export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<string, string | undefined> = process.env): void {
+  if (typeof entorno.CLAUDE_PLUGIN_ROOT !== "string" || entorno.CLAUDE_PLUGIN_ROOT === "") {
+    entorno.CLAUDE_PLUGIN_ROOT = plugin;
+  }
   const estado: Estado = { hijo: entorno[VARIABLE_DEL_HIJO] === "1", fijada: false, identidad: { agent: null, agentId: null }, continuado: false };
   let deInicio = "";
   const iniciar = async (evento: EventoDePi, ctx: ContextoDePi): Promise<void> => {
