@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 export interface Hook { script: string; args: string[]; timeout: number }
 export interface Grupo { tools?: string[]; hooks: Hook[] }
-export interface ListaDeHooks { python: string; pythonWindows: string; hooks: Record<string, Grupo[]> }
+export interface ListaDeHooks { python: string; pythonWindows: string; writer?: string; hooks: Record<string, Grupo[]> }
 export type Accion = "bloquear" | "preguntar" | "contexto" | "seguir";
 export type Tipo = "permitir" | "falla" | Accion;
 export interface Resultado { tipo: Tipo; script: string; texto: string }
@@ -43,9 +43,21 @@ function esGrupo(valor: unknown): valor is Grupo {
     && Array.isArray(valor.hooks) && valor.hooks.every(esHook);
 }
 
+function esRegex(valor: unknown): valor is string {
+  if (!esTexto(valor)) {
+    return false;
+  }
+  try {
+    new RegExp(valor);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function esLista(valor: unknown): valor is ListaDeHooks {
-  return esObjeto(valor) && esTexto(valor.python) && esTexto(valor.pythonWindows) && esObjeto(valor.hooks)
-    && Object.values(valor.hooks).every((grupos) => Array.isArray(grupos) && grupos.every(esGrupo));
+  return esObjeto(valor) && esTexto(valor.python) && esTexto(valor.pythonWindows) && (valor.writer === undefined || esRegex(valor.writer))
+    && esObjeto(valor.hooks) && Object.values(valor.hooks).every((grupos) => Array.isArray(grupos) && grupos.every(esGrupo));
 }
 
 function mensaje(error: unknown): string {
@@ -74,10 +86,17 @@ export function leerLista(ruta: string): ListaDeHooks {
     throw new Error(`${ruta} no es JSON (${mensaje(error)})`);
   }
   if (!esLista(datos)) {
-    throw new Error(`${ruta} no tiene la forma de una lista de hooks: python y pythonWindows, y en hooks, por evento, grupos con `
-      + "tools opcional y hooks con script (un .py de scripts/), args y timeout en segundos");
+    throw new Error(`${ruta} no tiene la forma de una lista de hooks: python y pythonWindows, writer opcional (una regex), y en hooks, `
+      + "por evento, grupos con tools opcional y hooks con script (un .py de scripts/), args y timeout en segundos");
   }
   return datos;
+}
+
+export function writerDe(lista: ListaDeHooks): RegExp {
+  if (lista.writer === undefined) {
+    throw new Error("la lista de hooks no trae la regex de los writers (writer)");
+  }
+  return new RegExp(lista.writer);
 }
 
 export function pythonDe(lista: ListaDeHooks, plataforma: string = process.platform): string {

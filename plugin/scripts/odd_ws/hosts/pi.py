@@ -32,12 +32,18 @@ MANIFIESTO = {
     "P4": (SOPORTADO, "tool_result de edit, write y read: las acciones bloquear y contexto por JSON con exit 0, que el shim de F2b "
                       "pone en el resultado de la herramienta; read es la lectura, y grep, find y ls no, como Glob y Grep en "
                       "Claude Code"),
-    "P5": (NO_DISPONIBLE, "Pi no tiene compuerta de fin de subagente; la de gentle-shell es agent_before_settle dentro del proceso "
-                          "hijo, que el adaptador ya lee como fin de subagente (la acción seguir, y los archivos y los comandos de la "
-                          "bitácora de writer_guard), pero el shim que la corre y la identidad del writer llegan en F2c"),
-    "P6": (NO_DISPONIBLE, "el hijo de gentle-shell sabe que es hijo, pero no su nombre: el adaptador lee oddWs.agent y "
-                          "oddWs.agentId, que llena el rodeo de F2c (el padre marca la tarea de subagent_run y el hijo lee la "
-                          "marca); sin ellos, todo corre como el agente principal"),
+    "P5": (DEGRADADO, "solo en gentle-shell, dentro del proceso hijo: el shim corre writer_stop en agent_before_settle si el hijo "
+                      "es un writer marcado (P6) y el cierre es completed, con los archivos y los comandos de la bitácora de writer_guard, y la acción "
+                      "seguir vuelve como una entrada custom_message y continue: true, una sola vez por cierre; si la compuerta "
+                      "misma falla (el shim o Python), el writer cierra, como con un SubagentStop que no corre en Claude Code; "
+                      "sin probar en un Pi real hasta F2g; con Pi a secas no hay subagent_run ni hijos, y un writer queda sin "
+                      "compuerta"),
+    "P6": (DEGRADADO, "ni Pi ni gentle-shell le pasan al hijo el nombre del agente: la extensión del padre lo pone en la tarea "
+                      "de subagent_run (una marca en su última línea), borra las marcas que haya escrito el modelo y bloquea "
+                      "el lanzamiento de un writer que no puede marcar; el hijo (GENTLE_PI_AGENTS_CHILD=1) la lee del primer "
+                      "mensaje del usuario de su sesión y la fija en memoria, con su id de sesión como id del agente, y la manda "
+                      "en oddWs; con Pi a secas no hay subagent_run y todo corre como el agente principal; el rodeo se borra "
+                      "cuando gentle-shell pase el nombre al hijo"),
     "P7": (NO_DISPONIBLE, "Pi no lee .claude/agents: los .pi/agents/*.md derivados del .md, con la lista de herramientas de Pi y sin "
                           "skills precargadas, llegan en F2d"),
     "P8": (NO_DISPONIBLE, "Pi tiene skills, sin namespace y con disable-model-invocation, pero no ve las del plugin ni las de "

@@ -1,19 +1,19 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import extension, { ARCHIVO_DE_HOOKS, PLAZO_DE_CONFIRMACION, PLUGIN, registrar } from "./pi.ts";
-import { leerLista, pythonDe } from "./nucleo.ts";
+import { leerLista, pythonDe, writerDe } from "./nucleo.ts";
 
 const SHIM = dirname(fileURLToPath(import.meta.url));
 const BASE = mkdtempSync(join(tmpdir(), "odd-ws-pi-"));
 const CONFIG_DE_GIT = join(BASE, "gitconfig");
 writeFileSync(CONFIG_DE_GIT, "");
 for (const clave of Object.keys(process.env)) {
-  if (/^(GIT_|CLAUDE_|PYTHON)/i.test(clave)) {
+  if (/^(GIT_|CLAUDE_|PYTHON|GENTLE_PI_)/i.test(clave)) {
     delete process.env[clave];
   }
 }
@@ -41,6 +41,7 @@ const ECO = [
   "",
 ].join("\n");
 const RESPONDE = "import sys\nsys.stdin.buffer.read()\nsys.stdout.buffer.write(sys.argv[1].encode('utf-8'))\n";
+const WRITER = "^writer-[a-z0-9][a-z0-9-]*$";
 
 type Manejador = (evento: any, ctx: any) => unknown;
 
@@ -130,13 +131,13 @@ interface Confirmacion {
   opciones: unknown;
 }
 
-function ctxFalso(cwd: string, opciones: { hasUI?: boolean; sesion?: string; responder?: () => Promise<boolean> } = {}) {
+function ctxFalso(cwd: string, opciones: { hasUI?: boolean; sesion?: string; responder?: () => Promise<boolean>; rama?: unknown[] } = {}) {
   const confirmaciones: Confirmacion[] = [];
   return {
     cwd,
     hasUI: opciones.hasUI ?? false,
     mode: opciones.hasUI ? "interactive" : "print",
-    sessionManager: { getSessionId: () => opciones.sesion ?? "s1" },
+    sessionManager: { getSessionId: () => opciones.sesion ?? "s1", getBranch: () => [...(opciones.rama ?? [])] },
     ui: {
       async confirm(titulo: string, mensaje: string, extra: unknown): Promise<boolean> {
         confirmaciones.push({ titulo, mensaje, opciones: extra });
@@ -190,12 +191,13 @@ function mundo(nombre: string) {
   return { inst, db, api };
 }
 
-function pluginFalso(nombre: string, scripts: Record<string, string>, hooks: unknown, python = PYTHON): string {
+function pluginFalso(nombre: string, scripts: Record<string, string>, hooks: unknown, python = PYTHON, writer: string | null = WRITER): string {
   const raiz = join(BASE, nombre, "plugin");
   for (const [script, codigo] of Object.entries(scripts)) {
     escribir(raiz, join("scripts", script), codigo);
   }
-  escribir(raiz, ARCHIVO_DE_HOOKS, JSON.stringify({ description: "prueba", python, pythonWindows: python, hooks }));
+  escribir(raiz, ARCHIVO_DE_HOOKS, JSON.stringify({ description: "prueba", python, pythonWindows: python, ...(writer === null ? {} : { writer }),
+    hooks }));
   return raiz;
 }
 
@@ -214,12 +216,21 @@ function conPi(plugin?: string) {
   return pi;
 }
 
+const HIJO = { GENTLE_PI_AGENTS_CHILD: "1" };
+
+function conPiEn(plugin: string, entorno: Record<string, string | undefined>) {
+  const pi = piFalso();
+  registrar(pi, plugin, entorno);
+  return pi;
+}
+
 function aPosix(ruta: string): string {
   return ruta.replace(/\\/g, "/");
 }
 
 test("la extension registra sus cinco eventos y su plugin es la carpeta padre del shim", () => {
   assert.deepEqual(conPi().eventos().sort(), ["before_agent_start", "session_compact", "session_start", "tool_call", "tool_result"]);
+  assert.deepEqual(conPiEn(PLUGIN, { GENTLE_PI_AGENTS_CHILD: "0" }).eventos().sort(), conPi().eventos().sort(), "un 0 no es un hijo");
   assert.equal(PLUGIN, dirname(SHIM));
   assert.equal(ARCHIVO_DE_HOOKS, "hooks/hooks.pi.json");
   assert.equal(PLAZO_DE_CONFIRMACION, 60000);
@@ -479,4 +490,409 @@ test("una herramienta sin hooks pasa sin lanzar nada", async () => {
   const pi = conPi(plugin);
   assert.equal(await pi.emitir(llamada("grep", { pattern: "x" }), ctxFalso(BASE)), undefined);
   assert.equal(await pi.emitir(resultado("ls", { path: "." }), ctxFalso(BASE)), undefined);
+});
+
+const MARCA_SQL = "<!-- odd-ws:agente writer-sql -->";
+const MARCA_WEB = "<!-- odd-ws:agente writer-web -->";
+const SIGUE = "writer-stop: todavía no puedes cerrar.";
+const GUARDA = [
+  "import json, sys",
+  "datos = json.loads(sys.stdin.buffer.read())",
+  "with open(sys.argv[1], 'a', encoding='utf-8') as f:",
+  "    f.write(json.dumps(datos) + '\\n')",
+  "sys.stdout.write(json.dumps({'accion': sys.argv[2], 'texto': sys.argv[3]}) if sys.argv[2] else '')",
+  "",
+].join("\n");
+const RESULTADO_OK = "## Resultado\nestado: ok\nregla: ninguna\nintento: ninguno\npresupuesto: x.sql, techo 10 líneas\nreales: x\n"
+  + "arbol: sucio (x.sql)\nverificacion:\n- python x: ok\nlimites:\n- no cubre la base\n";
+
+const LARGO_DE_ETIQUETA = 72;
+
+function etiquetaDeGentlePi(prompt: string): string {
+  const primera = prompt.split("\n").map((linea) => linea.trim()).find((linea) => linea.length > 0) ?? "";
+  const oracion = primera.split(/(?<=[.!?])\s/)[0] ?? primera;
+  const compacta = oracion.replace(/\s+/g, " ").replace(/[.:]$/, "");
+  return compacta.length > LARGO_DE_ETIQUETA ? `${compacta.slice(0, LARGO_DE_ETIQUETA - 1)}…` : compacta;
+}
+
+function promptDeGentlePi(entrada: { task: string; context?: string }): string {
+  return entrada.context ? `${entrada.task}\n\n## Context\n${entrada.context}` : entrada.task;
+}
+
+function lanzamiento(input: unknown, toolName = "subagent_run") {
+  return { type: "tool_call", toolCallId: "c9", toolName, input };
+}
+
+function turnoDelHijo(prompt: string) {
+  return { type: "before_agent_start", messageType: "user", prompt, systemPrompt: "P", systemPromptOptions: { appendSystemPrompt: "" } };
+}
+
+function delUsuario(contenido: unknown) {
+  return { type: "message", id: "m1", parentId: null, timestamp: "2026-11-13T00:00:00.000Z", message: { role: "user", content: contenido, timestamp: 1 } };
+}
+
+function delAsistente(...textos: string[]) {
+  return { role: "assistant", content: [{ type: "thinking", thinking: "pienso" }, ...textos.map((text) => ({ type: "text", text }))], stopReason: "stop" };
+}
+
+function asentarse(mensajes: unknown[], extra: Record<string, unknown> = {}) {
+  return { type: "agent_before_settle", outcome: "completed", entries: [], continue: false,
+    context: { contextEntries: [], contextMessages: mensajes, llmMessages: mensajes, pendingMessages: [], canContinue: false }, ...extra };
+}
+
+function compuerta(nombre: string, accion: string, opciones: { python?: string; writer?: string | null; codigo?: string; timeout?: number } = {}) {
+  const registro = join(BASE, nombre, "payloads.jsonl");
+  const plugin = pluginFalso(nombre, { "stop.py": opciones.codigo ?? GUARDA },
+    { agent_before_settle: [{ hooks: [{ script: "stop.py", args: [registro, accion, SIGUE], timeout: opciones.timeout ?? 20 }] }] },
+    opciones.python ?? PYTHON, opciones.writer === undefined ? WRITER : opciones.writer);
+  return { plugin, registro };
+}
+
+function payloads(registro: string): any[] {
+  return existsSync(registro) ? readFileSync(registro, "utf8").split("\n").filter((linea) => linea !== "").map((linea) => JSON.parse(linea)) : [];
+}
+
+async function oddWsVisto(pi: ReturnType<typeof piFalso>, ctx: unknown): Promise<unknown> {
+  return JSON.parse((await pi.emitir(resultado("read", { path: "a" }), ctx)).content[1].text).entrada.oddWs;
+}
+
+test("la regex de los writers sale de hooks.pi.json y reconoce los mismos nombres que la de Python", () => {
+  const regex = writerDe(leerLista(join(PLUGIN, ARCHIVO_DE_HOOKS)));
+  assert.equal(regex.source, WRITER);
+  const writers = ["writer-sql", "writer-web", "writer-a-b", "writer-9", "writer-x-"];
+  const otros = ["writer-", "writer-Web", "Writer-web", "xwriter-web", "writer--x", "writer-web ", "revisor-web", "odd-ws:writer-web",
+    "writer_web", "Explore", "writer-web\n"];
+  assert.deepEqual(writers.map((nombre) => regex.test(nombre)), writers.map(() => true));
+  assert.deepEqual(otros.map((nombre) => regex.test(nombre)), otros.map(() => false));
+});
+
+test("en el padre, subagent_run de un writer lleva su marca en la ultima linea de la tarea, y el de otro agente no", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const writer = { agent: "writer-sql", task: "Cambia x.sql", label: "cambiar x", mode: "task" };
+  assert.equal(await pi.emitir(lanzamiento(writer), ctx), undefined);
+  assert.deepEqual(writer, { agent: "writer-sql", task: `Cambia x.sql\n${MARCA_SQL}`, label: "cambiar x", mode: "task" });
+  const otro = { agent: "explorador", task: "Mira x.sql", context: "sin apuro" };
+  assert.equal(await pi.emitir(lanzamiento(otro), ctx), undefined);
+  assert.deepEqual(otro, { agent: "explorador", task: "Mira x.sql", context: "sin apuro" });
+  for (const casi of ["writer-", "Writer-sql", "writer-sql ", "xwriter-sql", "writer_sql"]) {
+    const entrada = { agent: casi, task: "t" };
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, casi);
+    assert.equal(entrada.task, "t", casi);
+  }
+  const nieto = { agent: "writer-web", task: `${MARCA_SQL}\nHaz y` };
+  assert.equal(await conPiEn(PLUGIN, HIJO).emitir(lanzamiento(nieto), ctx), undefined);
+  assert.equal(nieto.task, `Haz y\n${MARCA_WEB}`, "un hijo que lanza también marca, con el nombre de lo que lanza");
+});
+
+test("la marca no cambia la etiqueta ni la primera linea que gentle-pi saca de la tarea, y una tarea con / sigue empezando con /", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const larga = `Revisa ${"cada consulta del archivo ".repeat(4)}y deja todo igual`;
+  const tareas = ["Cambia x.sql. Luego corre la prueba.", "\n\n  Primera parte: con dos puntos:\nsegunda línea", "/plantilla con argumentos\nmás",
+    larga, "Una sola línea sin punto"];
+  for (const tarea of tareas) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: tarea };
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, tarea);
+    const marcada = entrada.task as string;
+    assert.equal(etiquetaDeGentlePi(marcada), etiquetaDeGentlePi(tarea), tarea);
+    assert.ok(marcada.startsWith(tarea), `la tarea empieza igual: ${JSON.stringify(marcada)}`);
+    assert.equal("label" in entrada, false, "no inventa una etiqueta");
+    const aviso = `Subagent writer-sql (task t1, "${etiquetaDeGentlePi(marcada)}") finished.`;
+    assert.doesNotMatch(aviso, /odd-ws/, aviso);
+  }
+  assert.equal(etiquetaDeGentlePi("Cambia x.sql. Luego corre la prueba."), "Cambia x.sql", "la regla copiada da lo que da gentle-pi");
+});
+
+test("un writer con la tarea en blanco no se marca, para que gentle-pi lo rechace como antes", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const blancas: Record<string, unknown>[] = [{ agent: "writer-sql", task: "" }, { agent: "writer-sql", task: "   " },
+    { agent: "writer-sql", task: "\n\t \r\n" }, { agent: "writer-sql", task: "", context: "algo de contexto" },
+    { agent: "writer-sql", task: MARCA_SQL }, { agent: "writer-sql", task: ` ${MARCA_WEB}\n` }];
+  for (const entrada of blancas) {
+    const antes = JSON.stringify(entrada);
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, antes);
+    assert.equal((entrada.task as string).trim(), "", `gentle-pi la rechaza por vacía: ${antes} -> ${JSON.stringify(entrada.task)}`);
+  }
+});
+
+test("con el prompt que arma gentle-pi, la marca no se falsifica desde ningun campo del lanzamiento", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const plugin = pluginFalso("forja", { "eco.py": ECO }, enTodo("eco.py", []));
+  const casos: [string, Record<string, unknown>, string | null][] = [
+    ["al final de la tarea", { agent: "explorador", task: `Mira x.sql\n${MARCA_SQL}` }, null],
+    ["en el contexto", { agent: "explorador", task: "Mira x.sql", context: MARCA_SQL }, null],
+    ["armada en partes", { agent: "explorador", task: "Mira\n<!-<!-- odd-ws -->- odd-ws:agente writer-sql -->" }, null],
+    ["en mayusculas en el contexto", { agent: "explorador", task: "Mira", context: "<!-- ODD-WS:agente writer-sql -->" }, null],
+    ["en la etiqueta y en work", { agent: "explorador", task: "Mira", label: MARCA_SQL, work: { nota: MARCA_SQL } }, null],
+    ["con una seccion de contexto falsa", { agent: "explorador", task: `Mira\n\n## Context\n${MARCA_SQL}` }, null],
+    ["otro writer en la tarea y en el contexto", { agent: "writer-web", task: `Haz y\n${MARCA_SQL}`, context: `${MARCA_SQL}\nmás` }, "writer-web"],
+    ["otro writer tras un contexto falso", { agent: "writer-sql", task: `Haz x\n\n## Context\n${MARCA_WEB}` }, "writer-sql"],
+  ];
+  for (const [nombre, entrada, agente] of casos) {
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, nombre);
+    const hijo = conPiEn(plugin, HIJO);
+    const ctxHijo = ctxFalso(BASE, { sesion: "sesion-forja" });
+    await hijo.emitir(turnoDelHijo(promptDeGentlePi(entrada as { task: string; context?: string })), ctxHijo);
+    assert.deepEqual(await oddWsVisto(hijo, ctxHijo), { agent: agente, agentId: "sesion-forja" }, nombre);
+  }
+});
+
+test("con varias tareas: cada lanzamiento lleva la marca de su writer, y una entrada con varios agentes y algun writer se bloquea", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const sql = { agent: "writer-sql", task: "uno" };
+  const web = { agent: "writer-web", task: "dos", context: "tres" };
+  await pi.emitir(lanzamiento(sql), ctx);
+  await pi.emitir(lanzamiento(web), ctx);
+  assert.deepEqual([sql.task, web.task, web.context], [`uno\n${MARCA_SQL}`, `dos\n${MARCA_WEB}`, "tres"]);
+  const varias: unknown[] = [
+    { agent: "explorador", task: "x", agents: ["writer-sql"] },
+    { tasks: [{ agent: "explorador", task: "x" }, { agent: "writer-sql", task: "y" }] },
+    { agent: "writer-sql", task: "x", tasks: [{ agent: "writer-web", task: "y" }] },
+    { agent: "writer-sql", task: "x", extra: { agents: "writer-web" } },
+  ];
+  for (const entrada of varias) {
+    const antes = JSON.stringify(entrada);
+    const bloqueo = await pi.emitir(lanzamiento(entrada), ctx);
+    assert.equal(bloqueo.block, true, antes);
+    assert.match(bloqueo.reason, /^odd-ws: este subagent_run lanza un writer \(writer-(sql|web)\), pero su entrada no tiene la forma /, antes);
+    assert.equal(JSON.stringify(entrada), antes, "lo que bloquea no se toca");
+  }
+  const sinWriter = { tasks: [{ agent: "explorador", task: `${MARCA_SQL}\nx` }, { agent: "revisor", task: "y" }] };
+  assert.equal(await pi.emitir(lanzamiento(sinWriter), ctx), undefined);
+  assert.deepEqual(sinWriter, { tasks: [{ agent: "explorador", task: "x" }, { agent: "revisor", task: "y" }] });
+});
+
+test("la marca que haya escrito el modelo se borra de la tarea y del contexto, sea del agente que sea, aunque venga armada en partes", async () => {
+  const pi = conPi();
+  const ctx = ctxFalso(BASE);
+  const casos: [Record<string, unknown>, Record<string, unknown>][] = [
+    [{ agent: "explorador", task: `${MARCA_SQL}\nMira x.sql` }, { agent: "explorador", task: "Mira x.sql" }],
+    [{ agent: "explorador", task: "a <!--odd-ws:agente writer-sql--> b", context: `${MARCA_WEB}\nc` }, { agent: "explorador", task: "a b", context: "c" }],
+    [{ agent: "explorador", task: "<!-<!-- odd-ws -->- odd-ws:agente writer-sql -->\nMira" }, { agent: "explorador", task: "Mira" }],
+    [{ agent: "explorador", task: "<!-- ODD-WS:Agente writer-sql -->\r\nMira" }, { agent: "explorador", task: "Mira" }],
+    [{ agent: "writer-web", task: `${MARCA_SQL}\nHaz y` }, { agent: "writer-web", task: `Haz y\n${MARCA_WEB}` }],
+    [{ agent: "writer-web", task: "Haz y", context: `nota ${MARCA_SQL}` }, { agent: "writer-web", task: `Haz y\n${MARCA_WEB}`, context: "nota " }],
+    [{ agent: "explorador", task: "un <!-- comentario --> normal" }, { agent: "explorador", task: "un <!-- comentario --> normal" }],
+  ];
+  for (const [entrada, esperada] of casos) {
+    const antes = JSON.stringify(entrada);
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctx), undefined, antes);
+    assert.deepEqual(entrada, esperada, antes);
+  }
+  for (const [herramienta, campo] of [["subagent_continue", "prompt"], ["subagent_send_message", "message"]]) {
+    const entrada = { task_id: "t1", [campo]: `${MARCA_SQL}\nsigue` };
+    assert.equal(await pi.emitir(lanzamiento(entrada, herramienta), ctx), undefined, herramienta);
+    assert.deepEqual(entrada, { task_id: "t1", [campo]: "sigue" }, herramienta);
+  }
+  const escritura = { path: "nota.md", content: `${MARCA_SQL}\nla marca, documentada` };
+  assert.equal(await conPi(pluginFalso("marca-en-write", {}, {})).emitir(llamada("write", escritura), ctx), undefined);
+  assert.equal(escritura.content, `${MARCA_SQL}\nla marca, documentada`, "las demas herramientas no se tocan");
+});
+
+test("si lanza un writer y no lo puede marcar, bloquea el lanzamiento con el motivo", async () => {
+  const ctx = ctxFalso(BASE);
+  const pi = conPi();
+  for (const entrada of [{ agent: "writer-sql", task: ["x"] }, { agent: "writer-sql" }, { agent: "writer-sql", task: "x", context: 7 }]) {
+    const antes = JSON.stringify(entrada);
+    const bloqueo = await pi.emitir(lanzamiento(entrada), ctx);
+    assert.equal(bloqueo.block, true, antes);
+    assert.match(bloqueo.reason, /^odd-ws: este subagent_run lanza un writer \(writer-sql\), pero su entrada no tiene la forma que odd-ws sabe marcar/, antes);
+    assert.match(bloqueo.reason, /sin la marca, el writer correría sin sus guards ni su compuerta de cierre\.$/, antes);
+    assert.equal(JSON.stringify(entrada), antes);
+  }
+  const sinRegex = conPi(pluginFalso("sin-regex", {}, {}, PYTHON, null));
+  for (const agente of ["writer-sql", "explorador"]) {
+    const bloqueo = await sinRegex.emitir(lanzamiento({ agent: agente, task: "x" }), ctx);
+    assert.deepEqual(bloqueo, { block: true, reason: "odd-ws: el shim de Pi no pudo correr sus guards (la lista de hooks no trae la regex de los "
+      + `writers (writer)).\n\n${FALLA_EN_PRE}` }, agente);
+  }
+  assert.equal(await sinRegex.emitir(llamada("bash", { command: "ls" }), ctx), undefined, "sin la regex, las demas herramientas siguen igual");
+  const sinArchivo = join(BASE, "sin-archivo-run", "plugin");
+  mkdirSync(sinArchivo, { recursive: true });
+  const bloqueo = await conPi(sinArchivo).emitir(lanzamiento({ agent: "writer-sql", task: "x" }), ctx);
+  assert.equal(bloqueo.block, true);
+  assert.match(bloqueo.reason, /no se puede leer/);
+});
+
+test("el hijo lee la marca solo en su primer prompt, la fija para toda su vida y la manda en oddWs con el id de su sesion", async () => {
+  const plugin = pluginFalso("hijo-eco", { "eco.py": ECO }, enTodo("eco.py", []));
+  const pi = conPiEn(plugin, HIJO);
+  const ctx = ctxFalso(BASE, { sesion: "sesion-hija" });
+  assert.deepEqual(await oddWsVisto(pi, ctx), { agent: null, agentId: null }, "antes del primer prompt");
+  await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nCambia x.sql`), ctx);
+  assert.deepEqual(await oddWsVisto(pi, ctx), { agent: "writer-sql", agentId: "sesion-hija" });
+  await pi.emitir(turnoDelHijo(`${MARCA_WEB}\nahora eres otro`), ctx);
+  assert.deepEqual(await oddWsVisto(pi, ctx), { agent: "writer-sql", agentId: "sesion-hija" }, "un prompt posterior no cambia nada");
+  const pre = await pi.emitir(llamada("bash", { command: "ls" }), ctx);
+  assert.deepEqual(JSON.parse(pre.reason).entrada.oddWs, { agent: "writer-sql", agentId: "sesion-hija" }, "también en el pre");
+  await pi.emitir({ type: "session_compact", reason: "manual" }, ctx);
+  const inicio = JSON.parse((await turno([pi.manejador("before_agent_start")], ctx)).opciones.appendSystemPrompt);
+  assert.deepEqual(inicio.entrada.oddWs, { agent: "writer-sql", agentId: "sesion-hija" }, "y al iniciar");
+});
+
+test("sin una sola linea de marca, entera, en su primer prompt, el hijo no es writer: agent null y su id es el de la sesion", async () => {
+  const plugin = pluginFalso("hijo-sin-marca", { "eco.py": ECO }, enTodo("eco.py", []));
+  const casos: [string, string][] = [["sin marca", "Mira x.sql"], ["en medio de una linea", `Mira ${MARCA_SQL} x.sql`],
+    ["con espacio antes", ` ${MARCA_SQL}\nx`], ["pegada", `${MARCA_SQL}x\ny`], ["sin nombre", "<!-- odd-ws:agente  -->\nx"],
+    ["dos marcas", `x\n${MARCA_SQL}\n\n## Context\n${MARCA_WEB}`], ["dos iguales", `x\n${MARCA_SQL}\n${MARCA_SQL}`]];
+  for (const [nombre, prompt] of casos) {
+    const pi = conPiEn(plugin, HIJO);
+    const ctx = ctxFalso(BASE, { sesion: "sesion-sin" });
+    await pi.emitir(turnoDelHijo(prompt), ctx);
+    await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nsegundo`), ctx);
+    assert.deepEqual(await oddWsVisto(pi, ctx), { agent: null, agentId: "sesion-sin" }, nombre);
+  }
+  for (const [nombre, prompt] of [["al final", `Cambia x.sql\n${MARCA_SQL}`], ["antes del contexto", `Cambia x.sql\n${MARCA_SQL}\n\n## Context\nnada`],
+    ["con CRLF", `Cambia x.sql\r\n${MARCA_SQL}\r\n`]]) {
+    const pi = conPiEn(plugin, HIJO);
+    const ctx = ctxFalso(BASE, { sesion: "sesion-con" });
+    await pi.emitir(turnoDelHijo(prompt), ctx);
+    assert.deepEqual(await oddWsVisto(pi, ctx), { agent: "writer-sql", agentId: "sesion-con" }, nombre);
+  }
+  const padre = conPiEn(plugin, {});
+  await padre.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctxFalso(BASE));
+  const visto = JSON.parse((await padre.emitir(resultado("read", { path: "a" }), ctxFalso(BASE))).content[1].text).entrada;
+  assert.equal("oddWs" in visto, false, "el padre no manda oddWs");
+});
+
+test("en una continuacion, otro proceso sobre la misma sesion, la identidad sale del primer mensaje del usuario de la sesion", async () => {
+  const plugin = pluginFalso("continuacion", { "eco.py": ECO }, enTodo("eco.py", []));
+  const casos: [string, unknown[], string, string | null][] = [
+    ["writer retomado", [{ type: "session_info", id: "i" }, delUsuario([{ type: "text", text: `${MARCA_SQL}\nCambia x.sql` }]),
+      { type: "message", message: delAsistente("listo") }, delUsuario("segunda")], "Sigue con lo que falta", "writer-sql"],
+    ["contenido de texto", [delUsuario(`${MARCA_SQL}\nCambia`)], "Sigue", "writer-sql"],
+    ["no era writer", [delUsuario("Mira x.sql")], `${MARCA_SQL}\nahora sí`, null],
+    ["sesion nueva", [], `${MARCA_SQL}\nprimero`, "writer-sql"],
+  ];
+  for (const [nombre, rama, prompt, agente] of casos) {
+    const pi = conPiEn(plugin, HIJO);
+    const ctx = ctxFalso(BASE, { sesion: "sesion-retomada", rama });
+    await pi.emitir(turnoDelHijo(prompt), ctx);
+    assert.deepEqual(await oddWsVisto(pi, ctx), { agent: agente, agentId: "sesion-retomada" }, nombre);
+  }
+});
+
+test("la compuerta del hijo writer: seguir agrega la entrada de odd-ws y continue: true una sola vez, con el ultimo mensaje y continued", async () => {
+  const { plugin, registro } = compuerta("compuerta-seguir", "seguir");
+  const pi = conPiEn(plugin, HIJO);
+  const ctx = ctxFalso(BASE, { sesion: "sesion-w" });
+  await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nCambia x.sql`), ctx);
+  const previa = { type: "custom", customType: "de-otra", data: 1 };
+  const primero = await pi.emitir(asentarse([{ role: "user", content: "hola" }, delAsistente("parte uno", "parte dos")], { entries: [previa] }), ctx);
+  assert.deepEqual(primero, { entries: [previa, { type: "custom_message", customType: "odd-ws", content: SIGUE, display: true }], continue: true });
+  const segundo = await pi.emitir(asentarse([delAsistente("viejo"), { role: "user", content: SIGUE }, delAsistente("de nuevo"),
+    { role: "toolResult", content: [] }]), ctx);
+  assert.equal(segundo, undefined, "solo una vez");
+  const tercero = await pi.emitir(asentarse([delAsistente("otro turno")]), ctx);
+  assert.equal(tercero.continue, true, "después de dejar cerrar, el cierre siguiente vuelve a contar");
+  const odd = (lastAssistantMessage: string, continued: boolean) => ({ type: "agent_before_settle",
+    ctx: { cwd: BASE, sessionId: "sesion-w", hasUI: false, mode: "print" },
+    oddWs: { agent: "writer-sql", agentId: "sesion-w", lastAssistantMessage, continued } });
+  assert.deepEqual(payloads(registro), [odd("parte uno\nparte dos", false), odd("de nuevo", true), odd("otro turno", false)]);
+});
+
+test("si la compuerta misma falla, el writer cierra, como con un SubagentStop que no corre", async () => {
+  const casos: [string, { plugin: string; registro: string }][] = [
+    ["python inexistente", compuerta("cae-python", "seguir", { python: "python-que-no-existe-odd-ws" })],
+    ["exit 3", compuerta("cae-exit", "seguir", { codigo: "import sys\nsys.exit(3)\n" })],
+    ["timeout", compuerta("cae-timeout", "seguir", { codigo: "import time\ntime.sleep(60)\n", timeout: 1 })],
+    ["salida rota", compuerta("cae-salida", "seguir", { codigo: "import sys\nsys.stdin.read()\nprint('no es json')\n" })],
+    ["accion fuera de lugar", compuerta("cae-bloquear", "bloquear")],
+    ["sin la regex de los writers", compuerta("cae-regex", "seguir", { writer: null })],
+  ];
+  const roto = join(BASE, "cae-lista", "plugin");
+  escribir(roto, ARCHIVO_DE_HOOKS, "{roto");
+  casos.push(["hooks.pi.json roto", { plugin: roto, registro: join(BASE, "cae-lista", "nada.jsonl") }]);
+  for (const [nombre, { plugin }] of casos) {
+    const pi = conPiEn(plugin, HIJO);
+    const ctx = ctxFalso(BASE, { sesion: "sesion-cae" });
+    await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctx);
+    assert.equal(await pi.emitir(asentarse([delAsistente("Listo.")]), ctx), undefined, nombre);
+  }
+  const { plugin, registro } = compuerta("cae-sesion", "seguir");
+  const pi = conPiEn(plugin, HIJO);
+  await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctxFalso(BASE));
+  const sinSesion = { ...ctxFalso(BASE), sessionManager: { getSessionId: () => { throw new Error("sesion ilegible"); }, getBranch: () => [] } };
+  assert.equal(await pi.emitir(asentarse([delAsistente("Listo.")]), sinSesion), undefined, "un error del propio shim");
+  assert.deepEqual(payloads(registro), []);
+});
+
+test("la compuerta no corre si el hijo no es writer, si otra extension ya pidio seguir, ni en el padre", async () => {
+  const { plugin, registro } = compuerta("compuerta-quieta", "seguir");
+  for (const prompt of ["Mira x.sql", "<!-- odd-ws:agente explorador -->\nMira x.sql"]) {
+    const noWriter = conPiEn(plugin, HIJO);
+    await noWriter.emitir(turnoDelHijo(prompt), ctxFalso(BASE));
+    assert.equal(await noWriter.emitir(asentarse([delAsistente("x")]), ctxFalso(BASE)), undefined, prompt);
+  }
+  const writer = conPiEn(plugin, HIJO);
+  await writer.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctxFalso(BASE));
+  const previa = { type: "custom_message", customType: "otra", content: "sigue", display: false };
+  assert.equal(await writer.emitir(asentarse([delAsistente("x")], { entries: [previa], continue: true }), ctxFalso(BASE)), undefined);
+  assert.deepEqual(payloads(registro), [], "writer_stop no se lanzó");
+  assert.equal((await writer.emitir(asentarse([delAsistente("x")]), ctxFalso(BASE))).continue, true, "el cierre de verdad sí corre");
+  assert.deepEqual(writer.eventos().sort(), ["agent_before_settle", "before_agent_start", "session_compact", "session_start", "tool_call", "tool_result"]);
+  assert.ok(!conPiEn(plugin, {}).eventos().includes("agent_before_settle"), "el padre no registra la compuerta");
+});
+
+test("la compuerta corre solo en un cierre completed, como el handler de gentle-ai, y otro desenlace corta la cadena de continued", async () => {
+  const { plugin, registro } = compuerta("compuerta-desenlace", "seguir");
+  const pi = conPiEn(plugin, HIJO);
+  const ctx = ctxFalso(BASE, { sesion: "sesion-d" });
+  await pi.emitir(turnoDelHijo(`x\n${MARCA_SQL}`), ctx);
+  for (const outcome of ["error", "aborted", undefined]) {
+    assert.equal(await pi.emitir(asentarse([delAsistente("x")], { outcome }), ctx), undefined, String(outcome));
+  }
+  assert.deepEqual(payloads(registro), [], "writer_stop no se lanzó");
+  assert.equal((await pi.emitir(asentarse([delAsistente("uno")]), ctx)).continue, true);
+  assert.equal(await pi.emitir(asentarse([delAsistente("falló")], { outcome: "error" }), ctx), undefined);
+  assert.equal((await pi.emitir(asentarse([delAsistente("de nuevo")]), ctx)).continue, true, "tras un error, el cierre siguiente vuelve a contar");
+  assert.deepEqual(payloads(registro).map((carga) => carga.oddWs.continued), [false, false]);
+});
+
+test("de punta a punta, padre e hijo con los hooks reales: el writer marcado anota en la bitacora y writer_stop lo frena con un cierre malo y lo deja cerrar con uno bueno", async () => {
+  const { inst, db } = mundo("writer-de-punta");
+  const sql = join(db, "x.sql");
+  const padre = conPi();
+  const hijo = async (sesion: string) => {
+    const entrada = { agent: "writer-sql", task: "Agrega una consulta a x.sql", context: "es una prueba" };
+    assert.equal(await padre.emitir(lanzamiento(entrada), ctxFalso(inst, { sesion: "padre" })), undefined);
+    const pi = conPiEn(PLUGIN, HIJO);
+    const ctx = ctxFalso(inst, { sesion });
+    await pi.emitir({ type: "session_start", reason: "startup" }, ctx);
+    await pi.emitir(turnoDelHijo(`${entrada.task}\n\n## Context\n${entrada.context}`), ctx);
+    return { pi, ctx };
+  };
+  const escribirX = async (pi: ReturnType<typeof piFalso>, ctx: unknown, texto: string) => {
+    const escritura = llamada("write", { path: sql, content: texto });
+    assert.match((await pi.emitir(escritura, ctx)).reason, /^primer toque \(capa-sql\)/);
+    assert.equal(await pi.emitir(escritura, ctx), undefined, "el reintento pasa");
+    writeFileSync(sql, texto);
+    await pi.emitir(resultado("write", { path: sql, content: texto }), ctx);
+  };
+  const malo = await hijo("hija-mala");
+  const commit = await malo.pi.emitir(llamada("bash", { command: `git -C ${aPosix(db)} commit -am x` }), malo.ctx);
+  assert.match(commit.reason, /^writer-guard bloqueó el comando\. `git [^`]*commit[^`]*`: los writers no commitean/, "writer_guard aplica las reglas del writer");
+  await escribirX(malo.pi, malo.ctx, "SELECT 1;\nSELECT 2; -- MALO\n");
+  const fotos = join(inst, ".claude", "estado", "writers", "hija-mala", "hija-mala.fotos");
+  const bitacora = readFileSync(join(fotos, "bitacora.jsonl"), "ascii").split("\n").filter((linea) => linea !== "").map((linea) => JSON.parse(linea));
+  assert.deepEqual(bitacora.filter((registro) => registro.tipo === "edicion"), [{ tipo: "edicion", rutas: [sql] }, { tipo: "edicion", rutas: [sql] }]);
+  const frenado = await malo.pi.emitir(asentarse([delAsistente("Listo.")]), malo.ctx);
+  assert.equal(frenado.continue, true);
+  assert.equal(frenado.entries.length, 1);
+  assert.deepEqual([frenado.entries[0].type, frenado.entries[0].customType, frenado.entries[0].display], ["custom_message", "odd-ws", true]);
+  assert.match(frenado.entries[0].content, /^writer-stop: todavía no puedes cerrar\./);
+  assert.match(frenado.entries[0].content, /T-01/);
+  assert.match(frenado.entries[0].content, /## Resultado/);
+  assert.equal(await malo.pi.emitir(asentarse([delAsistente("Listo, de nuevo.")]), malo.ctx), undefined, "el segundo cierre pasa");
+  assert.equal(existsSync(fotos), false, "al dejar cerrar, writer_stop borra las fotos y la bitácora");
+  const bueno = await hijo("hija-buena");
+  await escribirX(bueno.pi, bueno.ctx, "SELECT 1;\nSELECT 2;\nSELECT 3;\n");
+  assert.equal(await bueno.pi.emitir(asentarse([delAsistente(`Hecho.\n\n${RESULTADO_OK}`)]), bueno.ctx), undefined, "con un cierre bueno cierra a la primera");
+  const sidecar = JSON.parse(readFileSync(join(inst, ".claude", "estado", "writers", "hija-buena", "hija-buena.json"), "utf8"));
+  assert.deepEqual([sidecar.agent_type, sidecar.agent_id, sidecar.formato_ok, sidecar.archivos, sidecar.stop_hook_active],
+    ["writer-sql", "hija-buena", true, [sql], false]);
 });

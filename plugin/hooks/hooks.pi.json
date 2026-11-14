@@ -1,7 +1,8 @@
 {
-  "description": "Hooks de odd-ws para Pi, que no tiene archivo de hooks: los lee el shim (shim/pi.ts) y lanza el python de cada sistema con scripts/<script> y sus args, sin shell, con el timeout en segundos",
+  "description": "Hooks de odd-ws para Pi, que no tiene archivo de hooks: los lee el shim (shim/pi.ts) y lanza el python de cada sistema con scripts/<script> y sus args, sin shell, con el timeout en segundos. writer es la regex de los writers, la del matcher de SubagentStop de hooks.json: con ella el shim marca la tarea de subagent_run y corre agent_before_settle solo en un hijo writer",
   "python": "python3",
   "pythonWindows": "python",
+  "writer": "^writer-[a-z0-9][a-z0-9-]*$",
   "hooks": {
     "session_start": [
       {
@@ -48,6 +49,13 @@
         "tools": ["read"],
         "hooks": [
           { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ],
+    "agent_before_settle": [
+      {
+        "hooks": [
+          { "script": "writer_stop.py", "args": ["--plazo", "50", "--host", "pi"], "timeout": 60 }
         ]
       }
     ]

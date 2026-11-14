@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { combinar, contexto, correrEvento, hooksDe, leerLista, pythonDe } from "./nucleo.ts";
+import { combinar, contexto, correrEvento, hooksDe, leerLista, pythonDe, writerDe } from "./nucleo.ts";
 import type { Hook, ListaDeHooks, Resultado } from "./nucleo.ts";
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -32,6 +32,23 @@ const ESPERA = [
 ].join("\n");
 const MARCA = "import sys\nsys.stdin.read()\nopen(sys.argv[1], 'w').close()\n";
 
+const OCUPADO = ["EPERM", "EBUSY", "ENOTEMPTY"];
+const INTENTOS_DE_BORRADO = 50;
+
+async function borrar(base: string): Promise<void> {
+  for (let intento = 1; ; intento += 1) {
+    try {
+      rmSync(base, { recursive: true, force: true });
+      return;
+    } catch (fallo) {
+      if (intento >= INTENTOS_DE_BORRADO || !OCUPADO.includes(String((fallo as { code?: unknown }).code))) {
+        throw fallo;
+      }
+      await new Promise((listo) => setTimeout(listo, 200));
+    }
+  }
+}
+
 function conTemporal(prueba: (base: string) => Promise<void>): () => Promise<void> {
   return async () => {
     const base = mkdtempSync(join(tmpdir(), "odd-ws-nucleo-"));
@@ -42,7 +59,7 @@ function conTemporal(prueba: (base: string) => Promise<void>): () => Promise<voi
       error = fallo;
     }
     try {
-      rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      await borrar(base);
     } catch (fallo) {
       error ??= fallo;
     }
@@ -131,6 +148,20 @@ test("leerLista acepta hooks.pi.json y nombra lo que no tiene la forma", conTemp
   for (const rota of rotas) {
     assert.throws(() => leerLista(escribirLista(base, JSON.stringify(rota))), /no tiene la forma/, JSON.stringify(rota));
   }
+}));
+
+test("writer es opcional en la lista; si esta, es una regex que compila, y writerDe la da o dice que falta", conTemporal(async (base) => {
+  const sana = { python: "p3", pythonWindows: "pw", writer: "^writer-[a-z0-9][a-z0-9-]*$", hooks: {} };
+  const leida = leerLista(escribirLista(base, JSON.stringify(sana)));
+  assert.deepEqual(leida, sana);
+  const regex = writerDe(leida);
+  assert.deepEqual(["writer-sql", "writer-", "xwriter-sql", "writer-sql\n"].map((nombre) => regex.test(nombre)), [true, false, false, false]);
+  for (const rota of [{ ...sana, writer: "" }, { ...sana, writer: 7 }, { ...sana, writer: "^writer-[" }]) {
+    assert.throws(() => leerLista(escribirLista(base, JSON.stringify(rota))), /no tiene la forma/, JSON.stringify(rota));
+  }
+  const sin = leerLista(escribirLista(base, JSON.stringify({ ...sana, writer: undefined })));
+  assert.equal(sin.writer, undefined);
+  assert.throws(() => writerDe(sin), /la lista de hooks no trae la regex de los writers \(writer\)/);
 }));
 
 test("pythonDe lanza pythonWindows en Windows y python en lo demas, los dos de la lista", () => {

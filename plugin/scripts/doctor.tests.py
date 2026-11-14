@@ -1671,8 +1671,8 @@ def test_hooks_host_revisa_los_archivos_de_hooks_del_plugin_de_cada_host_declara
 
 
 def test_con_pi_declarado_el_doctor_dice_lo_que_falta_y_ningun_item_de_pi_da_ok():
-    for hosts, detalle in ((("claude-code", "pi"), "14 hooks de claude-code, pi, cada uno con el --host de su archivo"),
-                           (("pi",), "7 hooks de pi, cada uno con el --host de su archivo")):
+    for hosts, detalle in ((("claude-code", "pi"), "15 hooks de claude-code, pi, cada uno con el --host de su archivo"),
+                           (("pi",), "8 hooks de pi, cada uno con el --host de su archivo")):
         with Escenario() as e:
             _, ctx = instancia_codex_sana(e, hosts=hosts)
             r = por_id(ctx)

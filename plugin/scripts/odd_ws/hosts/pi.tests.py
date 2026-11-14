@@ -446,16 +446,27 @@ def test_las_degradaciones_estan_declaradas_y_preguntar_solo_se_degrada_sin_pant
 def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     C = cap()
     estados = {clave: estado for clave, (estado, _) in m().MANIFIESTO.items()}
-    assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.NO_DISPONIBLE,
-                       "P6": C.NO_DISPONIBLE, "P7": C.NO_DISPONIBLE, "P8": C.NO_DISPONIBLE, "P9": C.NO_DISPONIBLE,
+    assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
+                       "P6": C.DEGRADADO, "P7": C.NO_DISPONIBLE, "P8": C.NO_DISPONIBLE, "P9": C.NO_DISPONIBLE,
                        "P10": C.DEGRADADO}, estados
-    for clave, tareas in (("P5", ("F2c",)), ("P6", ("F2c",)), ("P7", ("F2d",)), ("P8", ("F2d", "F2f")), ("P9", ("F2f", "F2b"))):
+    for clave, tareas in (("P5", ("F2g",)), ("P7", ("F2d",)), ("P8", ("F2d", "F2f")), ("P9", ("F2f", "F2b"))):
         nota = m().MANIFIESTO[clave][1]
         assert all(tarea in nota for tarea in tareas), (clave, nota)
     assert "new es clear" in m().MANIFIESTO["P1"][1] and "reload es resume" in m().MANIFIESTO["P1"][1], m().MANIFIESTO["P1"]
     assert "@" in m().MANIFIESTO["P2"][1] and "~" in m().MANIFIESTO["P2"][1], m().MANIFIESTO["P2"]
     assert "read" in m().MANIFIESTO["P4"][1], m().MANIFIESTO["P4"]
     assert "CLAUDE.md" in m().MANIFIESTO["P10"][1] and "AGENTS.md" in m().MANIFIESTO["P10"][1], m().MANIFIESTO["P10"]
+
+
+def test_p5_y_p6_dicen_el_rodeo_de_gentle_shell_y_que_con_pi_a_secas_el_writer_queda_sin_compuerta():
+    p5, p6 = m().MANIFIESTO["P5"][1], m().MANIFIESTO["P6"][1]
+    for frase in ("gentle-shell", "agent_before_settle", "hijo", "writer_stop", "continue", "sin probar", "F2g", "Pi a secas",
+                  "sin compuerta", "SubagentStop"):
+        assert frase in p5, (frase, p5)
+    for frase in ("Pi", "gentle-shell", "subagent_run", "marca", "GENTLE_PI_AGENTS_CHILD", "id de sesión", "Pi a secas",
+                  "el rodeo se borra"):
+        assert frase in p6, (frase, p6)
+    assert "F2c" not in p5 + p6, "F2c ya no es lo que falta"
 
 
 def test_los_textos_de_pi_describen_su_realidad():
@@ -506,7 +517,7 @@ def test_los_puertos_del_doctor_dicen_lo_que_falta_y_no_fingen_un_ok():
 HOOKS_DE_PI = [("session_start[0][0]", "verificar_capa", "8"), ("session_compact[0][0]", "verificar_capa", "8"),
                ("tool_call[0][0]", "verificar_capa", "8"), ("tool_call[1][0]", "writer_guard", "8"),
                ("tool_call[2][0]", "guard_comandos", "8"), ("tool_result[0][0]", "verificar_capa", "25"),
-               ("tool_result[1][0]", "verificar_capa", "8")]
+               ("tool_result[1][0]", "verificar_capa", "8"), ("agent_before_settle[0][0]", "writer_stop", "50")]
 
 
 def test_hooks_registrados_lee_hooks_pi_json_con_el_python_que_lanza_el_shim_en_cada_sistema():

@@ -25,11 +25,11 @@ MATCHERS_DE_CODEX = {"Edit|Write": "apply_patch", "Bash|PowerShell": "Bash", "Ba
 SCRIPT_DE_CLAUDE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+)\.py")
 COMANDO_DE_CODEX = re.compile(r'python3 "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
 COMANDO_WINDOWS_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_]+)\.py" --plazo (\d+) --host codex')
-EVENTOS_DE_PI = {"SessionStart": ("session_start", "session_compact"), "PreToolUse": ("tool_call",), "PostToolUse": ("tool_result",)}
+EVENTOS_DE_PI = {"SessionStart": ("session_start", "session_compact"), "PreToolUse": ("tool_call",), "PostToolUse": ("tool_result",),
+                 "SubagentStop": ("agent_before_settle",)}
 EVENTOS_DE_HERRAMIENTA_DE_PI = ("tool_call", "tool_result")
 HERRAMIENTAS_DE_PI = {"Edit": "edit", "Write": "write", "Read": "read", "Bash": "bash", "PowerShell": "powershell"}
 SCRIPT_DE_PI = re.compile(r"([a-z_]+)\.py")
-SIN_PI_HASTA_F2C = ("SubagentStop",)
 
 
 def cap():
@@ -244,7 +244,8 @@ def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     pi = importlib.import_module("odd_ws.hosts.pi")
     assert not nativo(pi, C.PRE, E.Preguntar) and pi.MANIFIESTO["P3"][0] == C.DEGRADADO, pi.MANIFIESTO["P3"]
     assert all(nativo(pi, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Pi"
-    assert pi.MANIFIESTO["P5"][0] == C.NO_DISPONIBLE, "pero la compuerta y la identidad llegan en F2c"
+    assert pi.MANIFIESTO["P5"][0] == C.DEGRADADO, "la compuerta corre solo en el hijo de gentle-shell, con el rodeo de F2c"
+    assert pi.MANIFIESTO["P6"][0] == C.DEGRADADO, "el nombre lo pone en la tarea la extensión del padre"
 
 
 def leer_json(ruta):
@@ -309,8 +310,6 @@ def test_los_hooks_de_codex_solo_traen_description_y_hooks():
 
 
 def pares_de_pi(evento, grupo, hook):
-    if evento in SIN_PI_HASTA_F2C:
-        return []
     ruta, _, plazo = hook["args"]
     script = SCRIPT_DE_CLAUDE.fullmatch(ruta).group(1)
     herramientas = None
@@ -337,12 +336,25 @@ def de_pi(evento, grupo, hook):
     return evento, grupo.get("tools"), script.group(1), argumentos[1], hook["timeout"]
 
 
-def test_cada_hook_de_claude_code_tiene_su_par_en_pi_salvo_el_cierre_del_writer():
+def test_cada_hook_de_claude_code_tiene_su_par_en_pi():
     esperados = [par for entrada in entradas(leer_json(HOOKS_CLAUDE)) for par in pares_de_pi(*entrada)]
     registrados = [de_pi(*entrada) for entrada in entradas(leer_json(HOOKS_PI))]
     assert registrados == esperados, "\nPi:     %r\nespera: %r" % (registrados, esperados)
-    assert {script for _, _, script, _, _ in esperados} == set(HOOKS) - {"writer_stop"}, "tres hooks corren en Pi"
-    assert "writer_stop" not in {script for _, _, script, _, _ in registrados}, "la compuerta del writer en Pi es de F2c"
+    assert {script for _, _, script, _, _ in esperados} == set(HOOKS), "los cuatro hooks corren en Pi"
+    cierre = [par for par in registrados if par[2] == "writer_stop"]
+    assert cierre == [("agent_before_settle", None, "writer_stop", "50", 60)], cierre
+
+
+def test_la_regex_de_los_writers_de_pi_es_el_matcher_de_subagent_stop():
+    regex = "^%s$" % importlib.import_module("odd_ws.capas").WRITER_RE.pattern
+    for ruta in (HOOKS_CLAUDE, HOOKS_CODEX):
+        matchers = [grupo["matcher"] for evento, grupo, _ in entradas(leer_json(ruta)) if evento == "SubagentStop"]
+        assert matchers == [regex], (ruta.name, matchers)
+    assert leer_json(HOOKS_PI)["writer"] == regex, (
+        "el shim marca la tarea de subagent_run y corre la compuerta del hijo con la regex de hooks.pi.json: %r"
+        % leer_json(HOOKS_PI).get("writer"))
+    assert [grupo for evento, grupo, _ in entradas(leer_json(HOOKS_PI)) if evento == "agent_before_settle"] == [
+        {"hooks": [{"script": "writer_stop.py", "args": ["--plazo", "50", "--host", "pi"], "timeout": 60}]}]
 
 
 def test_los_tres_archivos_de_hooks_corren_los_mismos_scripts_con_el_mismo_plazo_y_timeout():
@@ -354,14 +366,14 @@ def test_los_tres_archivos_de_hooks_corren_los_mismos_scripts_con_el_mismo_plazo
     codex = juego(de_codex(*entrada)[2:] for entrada in entradas(leer_json(HOOKS_CODEX)))
     pi = juego(de_pi(*entrada)[2:] for entrada in entradas(leer_json(HOOKS_PI)))
     assert claude == codex, (claude, codex)
-    assert pi == [par for par in claude if par[0] != "writer_stop"], (pi, claude)
+    assert pi == claude, (pi, claude)
 
 
 def test_los_hooks_de_pi_traen_el_python_de_cada_sistema_y_es_el_de_su_adaptador():
     datos = leer_json(HOOKS_PI)
-    assert set(datos) == {"description", "python", "pythonWindows", "hooks"}, sorted(datos)
-    assert isinstance(datos["description"], str) and "shim" in datos["description"], datos["description"]
-    assert list(datos["hooks"]) == ["session_start", "session_compact", "tool_call", "tool_result"], list(datos["hooks"])
+    assert set(datos) == {"description", "python", "pythonWindows", "writer", "hooks"}, sorted(datos)
+    assert isinstance(datos["description"], str) and "shim" in datos["description"] and "writer" in datos["description"], datos["description"]
+    assert list(datos["hooks"]) == ["session_start", "session_compact", "tool_call", "tool_result", "agent_before_settle"], list(datos["hooks"])
     pi = importlib.import_module("odd_ws.hosts.pi")
     assert (datos["python"], datos["pythonWindows"]) == (pi.PYTHON, pi.PYTHON_EN_WINDOWS), (
         "el shim lanza el python de hooks.pi.json, y el doctor revisa el de pi.py: tienen que ser el mismo")
