@@ -138,6 +138,7 @@ function ctxFalso(cwd: string, opciones: { hasUI?: boolean; sesion?: string; res
     hasUI: opciones.hasUI ?? false,
     mode: opciones.hasUI ? "interactive" : "print",
     sessionManager: { getSessionId: () => opciones.sesion ?? "s1", getBranch: () => [...(opciones.rama ?? [])] },
+    isProjectTrusted: () => true,
     ui: {
       async confirm(titulo: string, mensaje: string, extra: unknown): Promise<boolean> {
         confirmaciones.push({ titulo, mensaje, opciones: extra });
@@ -228,8 +229,9 @@ function aPosix(ruta: string): string {
   return ruta.replace(/\\/g, "/");
 }
 
-test("la extension registra sus cinco eventos y su plugin es la carpeta padre del shim", () => {
-  assert.deepEqual(conPi().eventos().sort(), ["before_agent_start", "session_compact", "session_start", "tool_call", "tool_result"]);
+test("la extension registra sus seis eventos y su plugin es la carpeta padre del shim", () => {
+  assert.deepEqual(conPi().eventos().sort(), ["before_agent_start", "resources_discover", "session_compact", "session_start", "tool_call",
+    "tool_result"]);
   assert.deepEqual(conPiEn(PLUGIN, { GENTLE_PI_AGENTS_CHILD: "0" }).eventos().sort(), conPi().eventos().sort(), "un 0 no es un hijo");
   assert.equal(PLUGIN, dirname(SHIM));
   assert.equal(ARCHIVO_DE_HOOKS, "hooks/hooks.pi.json");
@@ -852,7 +854,8 @@ test("la compuerta no corre si el hijo no es writer, si otra extension ya pidio 
   assert.equal(await writer.emitir(asentarse([delAsistente("x")], { entries: [previa], continue: true }), ctxFalso(BASE)), undefined);
   assert.deepEqual(payloads(registro), [], "writer_stop no se lanzó");
   assert.equal((await writer.emitir(asentarse([delAsistente("x")]), ctxFalso(BASE))).continue, true, "el cierre de verdad sí corre");
-  assert.deepEqual(writer.eventos().sort(), ["agent_before_settle", "before_agent_start", "session_compact", "session_start", "tool_call", "tool_result"]);
+  assert.deepEqual(writer.eventos().sort(), ["agent_before_settle", "before_agent_start", "resources_discover", "session_compact",
+    "session_start", "tool_call", "tool_result"]);
   assert.ok(!conPiEn(plugin, {}).eventos().includes("agent_before_settle"), "el padre no registra la compuerta");
 });
 
@@ -913,4 +916,106 @@ test("de punta a punta, padre e hijo con los hooks reales: el writer marcado ano
   const sidecar = JSON.parse(readFileSync(join(inst, ".claude", "estado", "writers", "hija-buena", "hija-buena.json"), "utf8"));
   assert.deepEqual([sidecar.agent_type, sidecar.agent_id, sidecar.formato_ok, sidecar.archivos, sidecar.stop_hook_active],
     ["writer-sql", "hija-buena", true, [sql], false]);
+});
+
+const SCRIPTS = join(PLUGIN, "scripts");
+const RAIZ_DE_PYTHON = [
+  "import sys",
+  "sys.path.insert(0, sys.argv[1])",
+  "import config_loader",
+  "raiz = config_loader.encontrar_raiz(sys.argv[2])",
+  "sys.stdout.buffer.write(b'' if raiz is None else str(raiz).encode('utf-8'))",
+].join("\n");
+
+function instancia(raiz: string, conSkills = true): string {
+  escribir(raiz, "workspace.config.json", JSON.stringify({ schema_version: 1 }));
+  if (conSkills) {
+    escribir(raiz, ".claude/skills/criterios/SKILL.md", "---\nname: criterios\ndescription: \"Criterios de prueba.\"\n---\n# criterios\n");
+  }
+  return raiz;
+}
+
+function descubrir(pi: ReturnType<typeof piFalso>, cwd: string, reason = "startup", ctx: unknown = ctxFalso(cwd)): Promise<any> {
+  return pi.emitir({ type: "resources_discover", cwd, reason }, ctx);
+}
+
+function raizDePython(desde: string): string | null {
+  const salida = execFileSync(PYTHON, ["-I", "-c", RAIZ_DE_PYTHON, SCRIPTS, desde], { encoding: "utf8" });
+  return salida === "" ? null : salida;
+}
+
+test("resources_discover publica las skills de la instancia desde su raiz y desde cualquier subcarpeta, en el padre y en el hijo", async () => {
+  const inst = instancia(join(BASE, "skills-inst"));
+  const skills = join(inst, ".claude", "skills");
+  mkdirSync(join(inst, "tickets", "uno"), { recursive: true });
+  for (const desde of [inst, join(inst, "tickets"), join(inst, "tickets", "uno"), join(inst, "no", "existe")]) {
+    for (const pi of [conPi(), conPiEn(PLUGIN, HIJO)]) {
+      for (const reason of ["startup", "reload"]) {
+        assert.deepEqual(await descubrir(pi, desde, reason), { skillPaths: [skills] }, `${desde} ${reason}`);
+      }
+    }
+  }
+});
+
+test("la raiz de la instancia es la que encuentra config_loader: la carpeta mas cercana con workspace.config.json", async () => {
+  const afuera = instancia(join(BASE, "skills-anidada"));
+  const adentro = instancia(join(afuera, "sub", "otra"));
+  mkdirSync(join(adentro, "x", "y"), { recursive: true });
+  mkdirSync(join(afuera, "sub", "z"), { recursive: true });
+  for (const desde of [afuera, join(afuera, "sub"), join(afuera, "sub", "z"), adentro, join(adentro, "x", "y"), join(adentro, "x", "no-existe")]) {
+    const raiz = raizDePython(desde);
+    assert.notEqual(raiz, null, desde);
+    assert.equal(raiz, desde.startsWith(adentro) ? adentro : afuera, desde);
+    assert.deepEqual(await descubrir(conPi(), desde), { skillPaths: [join(raiz as string, ".claude", "skills")] }, desde);
+  }
+});
+
+test("fuera de una instancia, sin .claude/skills, o con un workspace.config.json que no es un archivo, no publica nada", async () => {
+  const afuera = join(BASE, "skills-afuera", "a");
+  mkdirSync(afuera, { recursive: true });
+  assert.equal(raizDePython(afuera), null);
+  assert.equal(await descubrir(conPi(), afuera), undefined);
+  assert.equal(await descubrir(conPi(), instancia(join(BASE, "skills-sin"), false)), undefined);
+  const conArchivo = instancia(join(BASE, "skills-archivo"), false);
+  escribir(conArchivo, ".claude/skills", "no es una carpeta\n");
+  assert.equal(await descubrir(conPi(), conArchivo), undefined);
+  const conCarpeta = join(BASE, "skills-carpeta");
+  mkdirSync(join(conCarpeta, "workspace.config.json"), { recursive: true });
+  mkdirSync(join(conCarpeta, ".claude", "skills", "criterios"), { recursive: true });
+  assert.equal(raizDePython(conCarpeta), null);
+  assert.equal(await descubrir(conPi(), conCarpeta), undefined);
+});
+
+test("resources_discover sube desde ctx.cwd, sin el usa el cwd del evento, y un ctx que falla no rompe el arranque", async () => {
+  const inst = instancia(join(BASE, "skills-cwd"));
+  const otra = join(BASE, "skills-cwd-otra");
+  mkdirSync(otra, { recursive: true });
+  const skills = { skillPaths: [join(inst, ".claude", "skills")] };
+  assert.deepEqual(await descubrir(conPi(), otra, "startup", ctxFalso(inst)), skills);
+  assert.equal(await descubrir(conPi(), inst, "startup", ctxFalso(otra)), undefined);
+  assert.deepEqual(await descubrir(conPi(), inst, "startup", { isProjectTrusted: () => true }), skills);
+  assert.deepEqual(await descubrir(conPi(), inst, "startup", ctxFalso("")), skills);
+  const roto = { get cwd(): string { throw new Error("ctx inactivo"); } };
+  assert.equal(await descubrir(conPi(), inst, "startup", roto), undefined);
+});
+
+test("resources_discover publica las skills de la instancia solo si Pi dice que el proyecto tiene confianza", async () => {
+  const inst = instancia(join(BASE, "skills-confianza"));
+  const skills = { skillPaths: [join(inst, ".claude", "skills")] };
+  assert.deepEqual(await descubrir(conPi(), inst, "startup", { ...ctxFalso(inst), isProjectTrusted: () => true }), skills);
+  const sinConfianza: Record<string, unknown>[] = [
+    { isProjectTrusted: () => false },
+    { isProjectTrusted: () => "true" },
+    { isProjectTrusted: () => 1 },
+    { isProjectTrusted: true },
+    { isProjectTrusted: () => { throw new Error("ctx inactivo"); } },
+    {},
+  ];
+  for (const extra of sinConfianza) {
+    const ctx: Record<string, unknown> = { ...ctxFalso(inst), ...extra };
+    if (!("isProjectTrusted" in extra)) {
+      delete ctx.isProjectTrusted;
+    }
+    assert.equal(await descubrir(conPi(), inst, "startup", ctx), undefined, String(extra.isProjectTrusted));
+  }
 });

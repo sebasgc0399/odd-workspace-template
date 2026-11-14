@@ -14,6 +14,8 @@ REVISOR_DISENO = AGENTES + "/revisor-diseno.md"
 CODEX = ".codex"
 CODEX_AGENTES = CODEX + "/agents"
 CODEX_CONFIG = CODEX + "/config.toml"
+PI = ".pi"
+PI_AGENTES = PI + "/agents"
 PRIMER_TOQUE = ".claude/estado/primer-toque"
 ESTADO_WRITERS = ".claude/estado/writers"
 BITACORA = "bitacora.jsonl"
@@ -63,6 +65,10 @@ def agente(nombre):
 
 def agente_codex(nombre):
     return "%s/%s.toml" % (CODEX_AGENTES, nombre)
+
+
+def agente_pi(nombre):
+    return "%s/%s.md" % (PI_AGENTES, nombre)
 
 
 def partir_bloque(lineas):

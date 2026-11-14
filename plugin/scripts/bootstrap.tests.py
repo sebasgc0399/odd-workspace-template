@@ -216,6 +216,28 @@ def test_hosts_valido_pasa_y_viaja_tal_cual_en_la_config():
             assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"]), valor
 
 
+def test_con_pi_en_hosts_el_plan_estandar_crea_sus_agentes_y_en_una_instancia_que_ya_existe_los_deja_al_doctor():
+    copia = list(b().GENERADORES)
+    try:
+        b().registrar_estandar()
+        with Escenario() as e:
+            spec = spec_estandar(e)
+            spec["config"]["hosts"] = ["pi"]
+            de_pi = [".pi/agents/writer-capa-a.md", ".pi/agents/revisor-capa-a.md", ".pi/agents/revisor-diseno.md"]
+            modos = {a.ruta: (a.modo, a.fuente, a.arreglo) for a in b().planificar(spec, e.raiz)}
+            for ruta in de_pi:
+                assert modos[ruta] == (b().CREAR, ".claude/agents/" + ruta.rsplit("/", 1)[1], "pi-agentes"), (ruta, modos.get(ruta))
+            assert not [r for r in modos if r.startswith(".codex")], sorted(modos)
+            previa = e.base / "previa"
+            (previa / ".claude" / "agents").mkdir(parents=True)
+            (previa / ".claude" / "agents" / "revisor-diseno.md").write_bytes(b"propio\n")
+            modos = {a.ruta: a.modo for a in b().planificar(spec, previa)}
+            assert modos[".pi/agents/revisor-diseno.md"] == b().LO_DERIVA_EL_DOCTOR, modos
+            assert modos[".pi/agents/writer-capa-a.md"] == modos[".pi/agents/revisor-capa-a.md"] == b().CREAR, modos
+    finally:
+        b().GENERADORES[:] = copia
+
+
 def test_config_invalida_no_crea_ni_la_raiz():
     with Escenario() as e:
         mala = e.spec()

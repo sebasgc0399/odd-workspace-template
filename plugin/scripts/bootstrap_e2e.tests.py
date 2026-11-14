@@ -320,6 +320,57 @@ def test_una_instancia_con_codex_declarado_suma_sus_toml_validos_y_la_segunda_co
     assert salida.splitlines()[-1] == f"resumen: 0 creados, {len(archivos_esperados()) + len(de_codex)} ya existían"
 
 
+def agentes_de_pi():
+    return [f".pi/agents/writer-{CAPA}.md", f".pi/agents/revisor-{CAPA}.md", ".pi/agents/revisor-diseno.md"]
+
+
+def test_una_instancia_con_pi_declarado_suma_sus_agentes_de_pi_y_la_segunda_corrida_no_cambia_ningun_byte():
+    sys.path.insert(0, str(AQUI))
+    from odd_ws.hosts import pi
+
+    caja = Caja()
+    spec = caja.spec()
+    spec["config"]["hosts"] = ["claude-code", "pi"]
+    codigo, salida, errores = caja.cli(spec)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    for ruta in archivos_esperados() + agentes_de_pi():
+        assert f"creado {ruta}" in lineas, (ruta, lineas)
+    assert lineas[-1] == f"resumen: {len(archivos_esperados()) + len(agentes_de_pi())} creados, 0 ya existían", lineas[-1]
+    for ruta in agentes_de_pi():
+        texto = (caja.raiz / ruta).read_bytes().decode("utf-8")
+        nombre = ruta.rsplit("/", 1)[1][:-len(".md")]
+        cabecera = texto.split("\n---\n", 1)[0].split("\n")
+        assert cabecera[0] == "---" and f"name: {nombre}" in cabecera and any(l.startswith("tools: read") for l in cabecera), cabecera
+        assert f"# odd-ws-hash: {pi.huella(texto)}" in cabecera, cabecera
+        assert texto.split("\n---\n", 1)[1].strip(), ruta
+    assert not (caja.raiz / ".codex").exists() and not (caja.raiz / "AGENTS.md").exists()
+    verificar_instancia_ok(caja.doctor())
+    antes = caja.arbol()
+    codigo, salida, errores = caja.cli(spec)
+    assert codigo == 0 and errores == "" and caja.arbol() == antes, (codigo, errores)
+    assert salida.splitlines()[-1] == f"resumen: 0 creados, {len(archivos_esperados()) + len(agentes_de_pi())} ya existían"
+
+
+def test_sumar_pi_a_una_instancia_que_ya_existe_deja_sus_agentes_al_doctor_y_lo_dice_sin_escribirlos():
+    caja = Caja()
+    spec = caja.spec()
+    assert caja.cli(spec)[0] == 0
+    spec["config"]["hosts"] = ["claude-code", "pi"]
+    (caja.raiz / "workspace.config.json").write_bytes((json.dumps(spec["config"], indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+    antes = caja.arbol()
+    for extra, verbo, existe in ((("--ensayo",), "no se crearía", "existe"), ((), "no se creó", "existía")):
+        codigo, salida, errores = caja.cli(spec, *extra)
+        assert codigo == 0 and errores == "", (extra, codigo, errores)
+        lineas = salida.splitlines()
+        for ruta in agentes_de_pi():
+            fuente = ".claude/agents/" + ruta.rsplit("/", 1)[1]
+            assert (f"{verbo} {ruta}: {fuente} ya {existe}, así que lo deriva de ahí el doctor (doctor --arreglar pi-agentes)"
+                    in lineas), (extra, ruta, lineas)
+        assert caja.arbol() == antes and not (caja.raiz / ".pi").exists(), extra
+    assert lineas[-1] == f"resumen: 0 creados, {len(archivos_esperados())} ya existían, 3 los deriva el doctor", lineas[-1]
+
+
 def test_el_aislamiento_de_git_dejo_vacias_las_config_global_y_del_sistema():
     assert CAJAS
     for caja in CAJAS:

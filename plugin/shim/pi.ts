@@ -1,4 +1,5 @@
-import { dirname, join } from "node:path";
+import { statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { combinar, contexto, correrEvento, leerLista, writerDe } from "./nucleo.ts";
 import type { ListaDeHooks, Resultado } from "./nucleo.ts";
@@ -7,6 +8,8 @@ export const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)));
 export const ARCHIVO_DE_HOOKS = "hooks/hooks.pi.json";
 export const PLAZO_DE_CONFIRMACION = 60000;
 export const VARIABLE_DEL_HIJO = "GENTLE_PI_AGENTS_CHILD";
+const CONFIG_DE_LA_INSTANCIA = "workspace.config.json";
+const SKILLS_DE_LA_INSTANCIA = join(".claude", "skills");
 const LANZAR = "subagent_run";
 const SUBAGENTES: readonly string[] = [LANZAR, "subagent_continue", "subagent_send_message"];
 const TIPO_DEL_MENSAJE = "odd-ws";
@@ -24,10 +27,12 @@ interface ContextoDePi {
   mode: string;
   sessionManager: { getSessionId(): string; getBranch?(): unknown };
   ui: { confirm(titulo: string, mensaje: string, opciones?: { timeout?: number }): Promise<boolean> };
+  isProjectTrusted(): unknown;
 }
 
 interface EventoDePi {
   type: string;
+  cwd?: unknown;
   toolName?: string;
   input?: unknown;
   isError?: boolean;
@@ -361,6 +366,49 @@ function alEmpezarElTurno(evento: EventoDePi, texto: string): { systemPrompt: st
   return actual.includes(texto) ? undefined : { systemPrompt: encadenado(actual, texto) };
 }
 
+function es(ruta: string, tipo: "archivo" | "carpeta"): boolean {
+  try {
+    const datos = statSync(ruta);
+    return tipo === "archivo" ? datos.isFile() : datos.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function raizDeLaInstancia(desde: string): string | null {
+  let actual = resolve(desde);
+  for (;;) {
+    if (es(join(actual, CONFIG_DE_LA_INSTANCIA), "archivo")) {
+      return actual;
+    }
+    const padre = dirname(actual);
+    if (padre === actual) {
+      return null;
+    }
+    actual = padre;
+  }
+}
+
+function skillsDeLaInstancia(evento: EventoDePi, ctx: Partial<ContextoDePi>): { skillPaths: string[] } | undefined {
+  try {
+    if (typeof ctx.isProjectTrusted !== "function" || ctx.isProjectTrusted() !== true) {
+      return undefined;
+    }
+    const desde = typeof ctx.cwd === "string" && ctx.cwd !== "" ? ctx.cwd : evento.cwd;
+    if (typeof desde !== "string" || desde === "") {
+      return undefined;
+    }
+    const raiz = raizDeLaInstancia(desde);
+    if (raiz === null) {
+      return undefined;
+    }
+    const skills = join(raiz, SKILLS_DE_LA_INSTANCIA);
+    return es(skills, "carpeta") ? { skillPaths: [skills] } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<string, string | undefined> = process.env): void {
   const estado: Estado = { hijo: entorno[VARIABLE_DEL_HIJO] === "1", fijada: false, identidad: { agent: null, agentId: null }, continuado: false };
   let deInicio = "";
@@ -372,6 +420,7 @@ export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<
   pi.on("tool_result", (evento: EventoDePi, ctx: ContextoDePi) => despuesDeLaHerramienta(plugin, evento, ctx, estado));
   pi.on("session_start", iniciar);
   pi.on("session_compact", iniciar);
+  pi.on("resources_discover", (evento: EventoDePi, ctx: Partial<ContextoDePi>) => skillsDeLaInstancia(evento, ctx ?? {}));
   pi.on("before_agent_start", (evento: EventoDePi, ctx: ContextoDePi) => {
     fijarIdentidad(estado, evento, ctx);
     return alEmpezarElTurno(evento, deInicio);

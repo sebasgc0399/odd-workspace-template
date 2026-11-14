@@ -1,3 +1,4 @@
+import hashlib
 import json
 import ntpath
 import os
@@ -6,10 +7,11 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from odd_ws import capas
 from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
-from odd_ws.hosts import base, leer_hooks, manejadores
+from odd_ws.hosts import Archivo, base, leer_hooks, manejadores
 
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
@@ -44,11 +46,19 @@ MANIFIESTO = {
                       "mensaje del usuario de su sesión y la fija en memoria, con su id de sesión como id del agente, y la manda "
                       "en oddWs; con Pi a secas no hay subagent_run y todo corre como el agente principal; el rodeo se borra "
                       "cuando gentle-shell pase el nombre al hijo"),
-    "P7": (NO_DISPONIBLE, "Pi no lee .claude/agents: los .pi/agents/*.md derivados del .md, con la lista de herramientas de Pi y sin "
-                          "skills precargadas, llegan en F2d"),
-    "P8": (NO_DISPONIBLE, "Pi tiene skills, sin namespace y con disable-model-invocation, pero no ve las del plugin ni las de "
-                          ".claude/skills: la extensión publica las de la instancia por resources_discover en F2d, y el paquete de "
-                          "Pi trae las del plugin en F2f"),
+    "P7": (DEGRADADO, "los agentes de gentle-shell son .pi/agents/<nombre>.md, derivados del .md de .claude/agents, que es la "
+                      "fuente, y generados solo si la instancia declara pi en hosts: name, description y tools en el frontmatter, "
+                      "y de cuerpo el del .md con los textos de Pi; las herramientas son las del frontmatter pasadas a las de Pi "
+                      "(Read a read, Glob a find, Grep a grep, Edit a edit, Write a write, Bash a bash y PowerShell a "
+                      "powershell), que gentle-shell le da al hijo con --tools; sin skills precargadas: el agente abre sus SKILL.md "
+                      "con read al arrancar; sin model, thinking ni mode, así que rigen los de subagents.json; gentle-shell lee "
+                      "solo <cwd>/.pi/agents y no sube a los padres, así que se abre en la raíz de la instancia; con Pi a secas no "
+                      "hay subagentes"),
+    "P8": (NO_DISPONIBLE, "las skills del plugin no llegan a Pi hasta que su paquete las traiga por la clave pi de package.json, en "
+                          "F2f (Pi las carga sin namespace y respeta disable-model-invocation); las de la instancia sí llegan: Pi "
+                          "no lee .claude/skills, así que la extensión las publica por resources_discover con la carpeta "
+                          ".claude/skills de la raíz de la instancia (la más cercana que tiene workspace.config.json, subiendo "
+                          "desde el cwd), y Pi carga las que traen description en su frontmatter, como las que genera el bootstrap"),
     "P9": (NO_DISPONIBLE, "el paquete de Pi (la clave pi de package.json, que se instala con gentle-shell install y no tiene "
                           "PLUGIN_ROOT) llega en F2f; el shim (shim/pi.ts) y sus hooks (hooks/hooks.pi.json) ya están desde F2b, "
                           "y el shim saca la raíz del plugin de su propia carpeta"),
@@ -88,8 +98,19 @@ MEMORIAS = (NO_DISPONIBLE, "la memoria en archivos de Claude Code no aplica en P
 SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que este comando queda bloqueado: si hace "
                 "falta, pídele al usuario que lo corra él.")
 SIN_DOCTOR = "no se revisa: el doctor de Pi (la versión de pi y el paquete instalado en el home activo) llega en F2e"
-SIN_AGENTES = ("no se revisa: los agentes de .pi/agents se derivan del .md de .claude/agents en F2d y el doctor los revisa en F2e; "
-               "hasta entonces, Pi no tiene los writers ni los revisores de la instancia")
+SIN_AGENTES = ("no se revisa: desde F2d el bootstrap genera los .pi/agents desde el .md de .claude/agents, pero el chequeo que los "
+               "compara con su .md y deriva los que faltan llega en F2e")
+ENCABEZADO = "# Lo genera odd-ws desde %s, que es la fuente: los cambios van en ese .md, no acá."
+CLAVE_VERSION = "# odd-ws-plantilla:"
+CLAVE_HASH = "# odd-ws-hash:"
+DELIMITADOR = "---"
+NOMBRE_DE_AGENTE = re.compile(r"[a-z0-9][a-z0-9-]*")
+HERRAMIENTAS = {"Read": "read", "Glob": "find", "Grep": "grep", "Edit": "edit", "Write": "write", "Bash": "bash",
+                "PowerShell": "powershell"}
+ESPACIOS_DE_JS = ("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f"
+                  "\u205f\u3000\ufeff")
+FIN_DE_LINEA_DE_JS = re.compile("[\r\n\u2028\u2029]")
+SURROGATE = re.compile("[\ud800-\udfff]")
 FASES = {"tool_call": "pre", "tool_result": "post"}
 INICIOS = ("session_start", "session_compact")
 FIN = "agent_before_settle"
@@ -262,8 +283,57 @@ def comandos_del_writer(evento, fotos):
     return comandos_de_la_bitacora(fotos)
 
 
+def _con_texto(valor, clave):
+    if not isinstance(valor, str) or not valor.strip(ESPACIOS_DE_JS):
+        raise ValueError("el agente necesita %s para su .md de Pi" % clave)
+    return SURROGATE.sub("\ufffd", valor)
+
+
+def _herramientas(agente):
+    propias = []
+    for herramienta in agente.herramientas or ():
+        de_pi = HERRAMIENTAS.get(herramienta)
+        if de_pi is None:
+            raise ValueError("la herramienta %r de %s no tiene equivalente en Pi" % (herramienta, capas.agente(agente.nombre)))
+        if de_pi not in propias:
+            propias.append(de_pi)
+    return propias
+
+
+def huella(texto):
+    lineas = texto.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    esqueleto, en_cabecera = [], lineas[0] == DELIMITADOR
+    for indice, linea in enumerate(lineas):
+        en_cabecera = en_cabecera and (indice == 0 or linea.startswith("#"))
+        esqueleto.append(CLAVE_HASH if en_cabecera and linea.startswith(CLAVE_HASH) else linea)
+    return hashlib.sha256("\n".join(esqueleto).encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def md(agente):
+    nombre = agente.nombre
+    if not isinstance(nombre, str) or not NOMBRE_DE_AGENTE.fullmatch(nombre):
+        raise ValueError("el nombre de agente %r no sirve para %s" % (nombre, capas.PI_AGENTES))
+    descripcion = FIN_DE_LINEA_DE_JS.sub(" ", _con_texto(agente.descripcion, "una description no vacía"))
+    cuerpo = _con_texto(agente.instrucciones, "instrucciones no vacías")
+    herramientas = _herramientas(agente)
+    lineas = [
+        DELIMITADOR,
+        ENCABEZADO % capas.agente(nombre),
+        CLAVE_VERSION if agente.version is None else "%s %s" % (CLAVE_VERSION, agente.version),
+        CLAVE_HASH,
+        "name: %s" % nombre,
+        'description: "%s"' % descripcion,
+        *(["tools: %s" % ", ".join(herramientas)] if herramientas else []),
+        DELIMITADOR,
+        cuerpo,
+        "",
+    ]
+    texto = "\n".join(lineas)
+    return texto.replace("\n%s\n" % CLAVE_HASH, "\n%s %s\n" % (CLAVE_HASH, huella(texto)), 1)
+
+
 def archivos(agentes):
-    return []
+    return [Archivo(capas.agente_pi(agente.nombre), md(agente), capas.agente(agente.nombre), ID_AGENTES) for agente in agentes]
 
 
 def version(ctx, nucleo):

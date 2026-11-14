@@ -4,6 +4,7 @@ import json
 import ntpath
 import os
 import posixpath
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,22 @@ EN_POSIX = "/home/u/mi_repo"
 SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que este comando queda bloqueado: si hace "
                 "falta, pídele al usuario que lo corra él.")
 CONFIG_MINIMA = {"schema_version": 1, "repos": {}, "layers": {"doc": {"extensions": [".x"]}}}
+AGENTES = ("writer-sql", "revisor-sql", "revisor-diseno")
+HERRAMIENTAS_DE_PI = {"read", "bash", "powershell", "edit", "write", "grep", "find", "ls"}
+HERRAMIENTAS_ESPERADAS = {"writer-sql": ["read", "find", "grep", "edit", "write", "bash"], "revisor-sql": ["read", "find", "grep"],
+                          "revisor-diseno": ["read", "find", "grep"]}
+FRASES_DE_CLAUDE_CODE = ("Edit o Write", "con Read", "Read, Glob o Grep", "Tus herramientas son Read", "transcript",
+                         "Tu contexto trae precargada", "el Glob o el Grep", "ya están en tu contexto", "por Bash",
+                         ". Bash te sirve", "apply_patch", "herramienta de shell")
+ESPACIOS_DE_JS = ("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f"
+                  "\u205f\u3000\ufeff")
+CLASE_DE_ESPACIOS_DE_JS = "[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]"
+PUNTO_DE_JS = "[^\\n\\r\\u2028\\u2029]"
+FRONTMATTER_DE_GENTLE_PI = re.compile(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)\Z")
+ITEM_DE_GENTLE_PI = re.compile("^%s*-%s+(%s*)\\Z" % (CLASE_DE_ESPACIOS_DE_JS, CLASE_DE_ESPACIOS_DE_JS, PUNTO_DE_JS))
+PAR_DE_GENTLE_PI = re.compile("^([A-Za-z0-9_-]+):%s*(%s*)\\Z" % (CLASE_DE_ESPACIOS_DE_JS, PUNTO_DE_JS))
+NIVELES_DE_GENTLE_PI = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+MODOS_DE_GENTLE_PI = ("task", "background")
 
 
 def m():
@@ -120,6 +137,103 @@ def rutas_de(ruta, cwd=CWD):
 
 def accion(nombre, texto):
     return 0, json.dumps({"accion": nombre, "texto": texto}), b""
+
+
+def recortar_como_js(texto):
+    return texto.strip(ESPACIOS_DE_JS)
+
+
+def sin_comillas_como_gentle_pi(valor):
+    recortado = recortar_como_js(valor)
+    entre = (recortado.startswith('"') and recortado.endswith('"')) or (recortado.startswith("'") and recortado.endswith("'"))
+    return recortado[1:-1] if entre and len(recortado) >= 2 else recortado
+
+
+def frontmatter_de_gentle_pi(texto):
+    encontrado = FRONTMATTER_DE_GENTLE_PI.match(texto)
+    if encontrado is None:
+        return {}, recortar_como_js(texto)
+    datos, lista = {}, None
+    for crudo in re.split(r"\r?\n", encontrado.group(1)):
+        item = ITEM_DE_GENTLE_PI.match(crudo)
+        if item and lista is not None:
+            datos[lista].append(sin_comillas_como_gentle_pi(item.group(1)))
+            continue
+        par = PAR_DE_GENTLE_PI.match(crudo)
+        if par is None:
+            continue
+        clave, valor = par.groups()
+        recortado = recortar_como_js(valor)
+        if not recortado:
+            datos[clave], lista = [], clave
+            continue
+        lista = None
+        if recortado.startswith("[") and recortado.endswith("]"):
+            datos[clave] = [parte for parte in map(sin_comillas_como_gentle_pi, recortado[1:-1].split(",")) if parte]
+        else:
+            datos[clave] = sin_comillas_como_gentle_pi(recortado)
+    return datos, recortar_como_js(encontrado.group(2))
+
+
+def escalar_de_gentle_pi(valor):
+    return valor if isinstance(valor, str) else None
+
+
+def nivel_de_gentle_pi(valor, opciones, clave):
+    if valor is None:
+        return None, None
+    normal = recortar_como_js(valor).lower()
+    return (normal, None) if normal in opciones else (None, '%s "%s" is not one of %s' % (clave, valor, ", ".join(opciones)))
+
+
+def cargar_en_gentle_pi(texto, archivo):
+    datos, cuerpo = frontmatter_de_gentle_pi(texto)
+
+    def primero(*claves):
+        return next((valor for valor in (escalar_de_gentle_pi(datos.get(clave)) for clave in claves) if valor is not None), None)
+
+    pensar, error = nivel_de_gentle_pi(primero("thinking", "effort", "thinking_level"), NIVELES_DE_GENTLE_PI, "thinking")
+    if error:
+        return {"error": error}
+    modo, error = nivel_de_gentle_pi(primero("subagent_mode", "mode"), MODOS_DE_GENTLE_PI, "mode")
+    if error:
+        return {"error": error}
+    if not cuerpo:
+        return {"error": "no instructions after the frontmatter"}
+    modelo = escalar_de_gentle_pi(datos.get("model"))
+    herramientas = datos.get("tools")
+    if herramientas is not None and not isinstance(herramientas, list):
+        herramientas = herramientas.split(",")
+    return {
+        "name": recortar_como_js(escalar_de_gentle_pi(datos.get("name")) or "") or re.sub(r"\.md\Z", "", archivo, flags=re.IGNORECASE),
+        "description": recortar_como_js(escalar_de_gentle_pi(datos.get("description")) or ""),
+        "instructions": cuerpo,
+        "model": (recortar_como_js(modelo) or None) if modelo is not None else None,
+        "thinking": pensar,
+        "mode": modo,
+        "tools": [h for h in map(recortar_como_js, herramientas or []) if h],
+        "claves": sorted(datos),
+    }
+
+
+def armado_para_pi(nombre, actual=None):
+    return importlib.import_module("bootstrap_agentes").armar(nombre, actual, "pi")
+
+
+def agente_de_pi(nombre, actual=None):
+    return importlib.import_module("plantilla_writer").agente(armado_para_pi(nombre, actual))
+
+
+def nombradas_en(texto):
+    return set(re.findall(r"`([a-z]+)`", texto)) & HERRAMIENTAS_DE_PI
+
+
+def con_identidad(nombre, descripcion, identidad):
+    texto = armado_para_pi(nombre)
+    texto = re.sub(r"(?m)^description:.*$", lambda _m: "description: " + json.dumps(descripcion, ensure_ascii=False), texto, count=1)
+    texto = re.sub(r"(<!-- instancia:identidad -->\n).*?(<!-- /instancia:identidad -->)", lambda e: e.group(1) + identidad + e.group(2),
+                   texto, count=1, flags=re.S)
+    return agente_de_pi(nombre, texto)
 
 
 def test_edit_y_write_son_edicion_con_su_ruta_contra_el_cwd():
@@ -447,15 +561,27 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     C = cap()
     estados = {clave: estado for clave, (estado, _) in m().MANIFIESTO.items()}
     assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
-                       "P6": C.DEGRADADO, "P7": C.NO_DISPONIBLE, "P8": C.NO_DISPONIBLE, "P9": C.NO_DISPONIBLE,
+                       "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.NO_DISPONIBLE, "P9": C.NO_DISPONIBLE,
                        "P10": C.DEGRADADO}, estados
-    for clave, tareas in (("P5", ("F2g",)), ("P7", ("F2d",)), ("P8", ("F2d", "F2f")), ("P9", ("F2f", "F2b"))):
+    for clave, tareas in (("P5", ("F2g",)), ("P8", ("F2f",)), ("P9", ("F2f", "F2b"))):
         nota = m().MANIFIESTO[clave][1]
         assert all(tarea in nota for tarea in tareas), (clave, nota)
+    for clave in ("P7", "P8"):
+        assert "F2d" not in m().MANIFIESTO[clave][1], "F2d ya no es lo que falta: %r" % (m().MANIFIESTO[clave],)
     assert "new es clear" in m().MANIFIESTO["P1"][1] and "reload es resume" in m().MANIFIESTO["P1"][1], m().MANIFIESTO["P1"]
     assert "@" in m().MANIFIESTO["P2"][1] and "~" in m().MANIFIESTO["P2"][1], m().MANIFIESTO["P2"]
     assert "read" in m().MANIFIESTO["P4"][1], m().MANIFIESTO["P4"]
     assert "CLAUDE.md" in m().MANIFIESTO["P10"][1] and "AGENTS.md" in m().MANIFIESTO["P10"][1], m().MANIFIESTO["P10"]
+
+
+def test_p7_dice_el_mecanismo_de_los_agentes_de_pi_y_su_fallback_y_p8_las_skills_de_la_instancia():
+    p7, p8 = m().MANIFIESTO["P7"][1], m().MANIFIESTO["P8"][1]
+    for frase in (".pi/agents", ".claude/agents", "hosts", "gentle-shell", "--tools", "Read a read", "Glob a find", "Grep a grep",
+                  "Edit a edit", "Write a write", "Bash a bash", "sin skills precargadas", "raíz de la instancia", "no sube",
+                  "subagents.json", "Pi a secas"):
+        assert frase in p7, (frase, p7)
+    for frase in ("resources_discover", ".claude/skills", "workspace.config.json", "description", "F2f", "disable-model-invocation"):
+        assert frase in p8, (frase, p8)
 
 
 def test_p5_y_p6_dicen_el_rodeo_de_gentle_shell_y_que_con_pi_a_secas_el_writer_queda_sin_compuerta():
@@ -509,7 +635,8 @@ def test_los_puertos_del_doctor_dicen_lo_que_falta_y_no_fingen_un_ok():
         for cli in (nucleo.CLI_INSTALADO, nucleo.CLI_AUSENTE, nucleo.CLI_DE_OTRO_HOST):
             con_raiz = m().chequeos(ctx_, base, nucleo, cli)
             assert [(r.id, r.estado) for r in con_raiz] == [("pi-agentes", nucleo.AVISO)], con_raiz
-            assert "F2d" in con_raiz[0].detalle and "F2e" in con_raiz[0].detalle, con_raiz
+            assert "llega en F2e" in con_raiz[0].detalle and "desde F2d" in con_raiz[0].detalle, con_raiz
+            assert ".pi/agents" in con_raiz[0].detalle and "el bootstrap genera" in con_raiz[0].detalle, con_raiz
             assert m().chequeos(ctx_, None, nucleo, cli) == [], "fuera de una instancia no hay agentes que revisar"
         assert (m().PYTHON, m().PYTHON_EN_WINDOWS) == ("python3", "python")
 
@@ -551,10 +678,153 @@ def test_hooks_registrados_no_finge_un_ok_con_hooks_pi_json_ausente_o_roto():
             assert ("hooks/hooks.pi.json tool_call[2][0]", None, True) in registrados and len(registrados) == len(HOOKS_DE_PI), (malo, registrados)
 
 
-def test_la_generacion_de_pi_no_escribe_nada_hasta_f2d():
-    plantilla_writer = importlib.import_module("plantilla_writer")
-    agente = plantilla_writer.agente(plantilla_writer.generar("sql", host="pi"))
-    assert m().archivos([agente]) == [] and m().archivos([]) == []
+def test_archivos_da_un_md_de_pi_agents_por_agente_derivado_de_su_md_y_nada_mas():
+    agentes = [agente_de_pi(nombre) for nombre in AGENTES]
+    archivos = m().archivos(agentes)
+    assert [(a.ruta, a.fuente, a.arreglo) for a in archivos] == [
+        (".pi/agents/%s.md" % nombre, ".claude/agents/%s.md" % nombre, "pi-agentes") for nombre in AGENTES], archivos
+    assert [a.contenido for a in archivos] == [m().md(agente) for agente in agentes]
+    assert m().ID_AGENTES == "pi-agentes" and m().archivos([]) == []
+
+
+def test_gentle_pi_carga_cada_md_con_su_nombre_su_description_y_las_herramientas_de_pi():
+    for nombre in AGENTES:
+        agente = agente_de_pi(nombre)
+        texto = m().md(agente)
+        cargado = cargar_en_gentle_pi(texto, nombre + ".md")
+        assert "error" not in cargado, (nombre, cargado)
+        assert cargado["claves"] == ["description", "name", "tools"], (nombre, cargado["claves"])
+        assert (cargado["name"], cargado["description"]) == (nombre, agente.descripcion), (nombre, cargado)
+        assert cargado["tools"] == HERRAMIENTAS_ESPERADAS[nombre], (nombre, cargado["tools"])
+        assert (cargado["model"], cargado["thinking"], cargado["mode"]) == (None, None, None), (nombre, cargado)
+        assert texto.endswith("\n") and "\r" not in texto and not texto.startswith("\ufeff"), nombre
+        texto.encode("utf-8")
+
+
+def test_las_herramientas_de_claude_code_pasan_a_las_de_pi_y_dicen_lo_mismo_que_los_textos_de_pi():
+    assert m().HERRAMIENTAS == {"Read": "read", "Glob": "find", "Grep": "grep", "Edit": "edit", "Write": "write", "Bash": "bash",
+                                "PowerShell": "powershell"}, m().HERRAMIENTAS
+    assert set(m().HERRAMIENTAS.values()) <= HERRAMIENTAS_DE_PI
+    textos = m().TEXTOS
+    solo_lees = nombradas_en(textos["{{host:solo-lees}}"])
+    assert solo_lees == {"read", "grep", "find"} == nombradas_en(textos["{{host:leida-con}}"]), solo_lees
+    assert nombradas_en(textos["{{host:la-busqueda}}"]) == {m().HERRAMIENTAS["Glob"], m().HERRAMIENTAS["Grep"]}
+    assert nombradas_en(textos["{{host:edicion}}"]) == {m().HERRAMIENTAS["Edit"], m().HERRAMIENTAS["Write"]}
+    assert nombradas_en(textos["{{host:shell}}"] + textos["{{host:por-shell}}"]) == {m().HERRAMIENTAS["Bash"]}
+    for nombre in AGENTES:
+        cargado = cargar_en_gentle_pi(m().md(agente_de_pi(nombre)), nombre + ".md")
+        assert nombradas_en(cargado["instructions"]) <= set(cargado["tools"]), (nombre, nombradas_en(cargado["instructions"]))
+        if nombre.startswith("revisor-"):
+            assert set(cargado["tools"]) == solo_lees, (nombre, cargado["tools"])
+
+
+def test_el_cuerpo_es_el_md_con_los_marcadores_resueltos_con_los_textos_de_pi():
+    for nombre in AGENTES:
+        agente = agente_de_pi(nombre)
+        cuerpo = cargar_en_gentle_pi(m().md(agente), nombre + ".md")["instructions"]
+        assert cuerpo == agente.instrucciones.strip(), nombre
+        for marca in ("{{", "<!-- instancia:", "<!-- /instancia:", "Lo genera odd-ws desde su plantilla", "odd-ws-hash",
+                      "odd-ws-plantilla"):
+            assert marca not in cuerpo, (nombre, marca)
+        for frase in FRASES_DE_CLAUDE_CODE:
+            assert frase not in cuerpo, (nombre, frase)
+        assert "con `read`" in cuerpo and "precargada" in cuerpo, nombre
+        for skill in agente.skills:
+            assert "`%s`" % skill in cuerpo, ("la skill del frontmatter tiene que estar nombrada en el arranque", nombre, skill)
+    assert "de la bitácora" in cargar_en_gentle_pi(m().md(agente_de_pi("writer-sql")), "w.md")["instructions"]
+
+
+def test_la_version_y_la_huella_van_en_comentarios_del_frontmatter_que_gentle_pi_ignora():
+    for nombre in AGENTES:
+        agente = agente_de_pi(nombre)
+        texto = m().md(agente)
+        lineas = texto.split("\n")
+        assert lineas[0] == "---", lineas[:2]
+        assert lineas[1] == "# Lo genera odd-ws desde .claude/agents/%s.md, que es la fuente: los cambios van en ese .md, no acá." % nombre
+        assert lineas[2] == "# odd-ws-plantilla: %d" % agente.version, lineas[2]
+        huella = re.fullmatch(r"# odd-ws-hash: ([0-9a-f]{64})", lineas[3])
+        assert huella and huella.group(1) == m().huella(texto), (nombre, lineas[3])
+        assert m().huella(texto.replace(huella.group(1), "0" * 64)) == huella.group(1), nombre
+        assert m().huella(texto.replace("\n", "\r\n")) == m().huella("\ufeff" + texto) == huella.group(1), nombre
+        cambios = (texto.replace("Arranque", "Arranco", 1), texto.replace("name: ", "name:  ", 1), texto[len("---\n"):],
+                   texto.replace("tools: read", "tools: read, ls", 1), texto.replace("# odd-ws-plantilla", "# odd-ws-plantila", 1),
+                   texto.replace("\n---\n", "\n---\n# odd-ws-hash: %s\n" % huella.group(1), 1))
+        for cambiado in cambios:
+            assert cambiado != texto and m().huella(cambiado) != huella.group(1), (nombre, cambiado[:200])
+        cargado = cargar_en_gentle_pi(texto, nombre + ".md")
+        assert not [clave for clave in cargado["claves"] if "odd" in clave], cargado["claves"]
+    sin_version = m().md(agente_de_pi("writer-sql")._replace(version=None))
+    assert sin_version.split("\n")[2] == "# odd-ws-plantilla:", sin_version.split("\n")[:4]
+
+
+def test_gentle_pi_carga_los_md_con_textos_raros_en_la_description_y_en_los_bloques_de_la_instancia():
+    raras = ['Mía: \'\'\' y """ con C:\\x\\y, ñ y # no es comentario', '"entre comillas dobles"', "'entre simples'", "[a, b]",
+             "  con espacios  ", "---", "a\n---\nb", "x\r\ny\rz", "uno\u2028dos\u2029tres", "tab\taquí", "clave: valor", "- item",
+             "\ud800 suelto", '\\"', "#", "termina en \"", "' y \"", "\x00\x01\x7f", "\u00a0rodeada de espacios raros\u3000", "{{host:x}}"]
+    identidad = ("Identidad '''propia''' con \"\"\"comillas\"\"\", una \\ barra al final\\\n---\n# odd-ws-hash: 0\nname: falso\n"
+                 "<!-- un comentario -->\n\tcon tab y \x7f.\n")
+    for rara in raras:
+        agente = con_identidad("writer-sql", rara, identidad)
+        texto = m().md(agente)
+        texto.encode("utf-8")
+        cargado = cargar_en_gentle_pi(texto, "writer-sql.md")
+        esperada = recortar_como_js(re.sub("[\r\n\u2028\u2029]", " ", re.sub("[\ud800-\udfff]", "\ufffd", rara)))
+        assert "error" not in cargado, (rara, cargado)
+        assert cargado["description"] == esperada, (rara, cargado["description"], esperada)
+        assert (cargado["name"], cargado["tools"]) == ("writer-sql", HERRAMIENTAS_ESPERADAS["writer-sql"]), (rara, cargado)
+        assert identidad.rstrip("\n") in cargado["instructions"], rara
+        assert m().huella(texto) == re.search(r"(?m)^# odd-ws-hash: (\S+)$", texto).group(1), rara
+
+
+def test_un_comentario_html_en_el_cuerpo_o_una_clave_desconocida_en_el_frontmatter_no_rompen_la_carga():
+    texto = m().md(agente_de_pi("revisor-sql"))
+    base = cargar_en_gentle_pi(texto, "revisor-sql.md")
+    con_html = cargar_en_gentle_pi(texto.replace("\n---\n", "\n---\n<!-- odd-ws-hash: 0 -->\n", 1), "revisor-sql.md")
+    assert {k: v for k, v in con_html.items() if k != "instructions"} == {k: v for k, v in base.items() if k != "instructions"}, con_html
+    assert con_html["instructions"] == "<!-- odd-ws-hash: 0 -->\n" + base["instructions"], con_html["instructions"][:80]
+    con_clave = cargar_en_gentle_pi(texto.replace("\nname: ", "\nodd-ws-hash: 0\nname: ", 1), "revisor-sql.md")
+    assert con_clave["claves"] == ["description", "name", "odd-ws-hash", "tools"], con_clave["claves"]
+    assert {k: v for k, v in con_clave.items() if k != "claves"} == {k: v for k, v in base.items() if k != "claves"}, con_clave
+
+
+def test_el_parser_de_gentle_pi_de_estas_pruebas_sabe_decir_que_no():
+    texto = m().md(agente_de_pi("revisor-sql"))
+    for clave, valor in (("thinking", "muchisimo"), ("effort", "x"), ("mode", "siempre"), ("subagent_mode", "y")):
+        assert "error" in cargar_en_gentle_pi(texto.replace("\nname: ", "\n%s: %s\nname: " % (clave, valor), 1), "r.md"), clave
+    assert cargar_en_gentle_pi(texto.replace("\nname: ", "\nthinking: High\nname: ", 1), "r.md")["thinking"] == "high"
+    cabecera = texto.split("\n---\n", 1)[0]
+    assert cargar_en_gentle_pi(cabecera + "\n---\n \n\t\n", "r.md") == {"error": "no instructions after the frontmatter"}
+    con_bom = cargar_en_gentle_pi("\ufeff" + texto, "otro.md")
+    assert (con_bom["name"], con_bom["description"], con_bom["tools"]) == ("otro", "", []), con_bom
+    cortado = cargar_en_gentle_pi(texto.replace("\nname: ", "\n---corta\nname: ", 1), "otro.md")
+    assert (cortado["name"], cortado["description"], cortado["tools"]) == ("otro", "", []), cortado
+    en_dos_lineas = cargar_en_gentle_pi(re.sub(r"(?m)^description: .*$", 'description: "a\nb"', texto, count=1), "r.md")
+    assert en_dos_lineas["description"] == '"a', en_dos_lineas["description"]
+    con_retorno = cargar_en_gentle_pi(re.sub(r"(?m)^description: .*$", 'description: "a\rb"', texto, count=1), "r.md")
+    assert con_retorno["description"] == "" and "description" not in con_retorno["claves"], con_retorno
+    entre_corchetes = cargar_en_gentle_pi(re.sub(r"(?m)^description: .*$", "description: [a, b]", texto, count=1), "r.md")
+    assert entre_corchetes["description"] == "", entre_corchetes
+    en_lista = cargar_en_gentle_pi(texto.replace("tools: read, find, grep", "tools:\n  - read\n  - grep", 1), "r.md")
+    assert en_lista["tools"] == ["read", "grep"], en_lista["tools"]
+
+
+def test_un_agente_que_gentle_pi_no_cargaria_o_cuya_herramienta_no_existe_en_pi_hace_fallar_la_generacion():
+    base = agente_de_pi("writer-sql")
+    malos = (base._replace(nombre="Writer_SQL"), base._replace(nombre=None), base._replace(nombre="../x"), base._replace(nombre=""),
+             base._replace(descripcion=None), base._replace(descripcion=" \n "), base._replace(descripcion="\ufeff\u3000\u2028"),
+             base._replace(instrucciones=" \n\t"), base._replace(instrucciones="\u2029\ufeff"), base._replace(instrucciones=None),
+             base._replace(herramientas=("Read", "WebFetch")), base._replace(herramientas=("MultiEdit",)), base._replace(herramientas=("read",)))
+    for malo in malos:
+        try:
+            m().md(malo)
+        except ValueError:
+            continue
+        raise AssertionError("generó %r" % (malo[:4],))
+    repetidas = cargar_en_gentle_pi(m().md(base._replace(herramientas=("Read", "Glob", "Read", "Bash", "PowerShell"))), "w.md")
+    assert repetidas["tools"] == ["read", "find", "bash", "powershell"], repetidas["tools"]
+    sin = m().md(base._replace(herramientas=()))
+    assert "\ntools:" not in sin.split("\n---\n", 1)[0], "sin herramientas en el .md, gentle-shell le da al hijo las de Pi por defecto"
+    assert cargar_en_gentle_pi(sin, "w.md")["tools"] == []
 
 
 def entorno_aislado(base):

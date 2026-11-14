@@ -246,6 +246,34 @@ def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     assert all(nativo(pi, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Pi"
     assert pi.MANIFIESTO["P5"][0] == C.DEGRADADO, "la compuerta corre solo en el hijo de gentle-shell, con el rodeo de F2c"
     assert pi.MANIFIESTO["P6"][0] == C.DEGRADADO, "el nombre lo pone en la tarea la extensión del padre"
+    assert pi.MANIFIESTO["P7"][0] == C.DEGRADADO, "los .pi/agents traen la lista de herramientas, pero no las skills precargadas"
+
+
+def test_cada_agente_que_genera_un_host_deriva_del_md_de_su_agente_con_el_arreglo_de_su_doctor():
+    C = cap()
+    plantilla_writer = importlib.import_module("plantilla_writer")
+    bootstrap_agentes = importlib.import_module("bootstrap_agentes")
+    capas = importlib.import_module("odd_ws.capas")
+    registro = importlib.import_module("odd_ws.hosts")
+    nombres = ("writer-sql", "revisor-sql", "revisor-diseno")
+    for nombre, adaptador in adaptadores():
+        cli = next(cli for cli, modulo in registro.NOMBRES.items() if modulo == nombre)
+        agentes = [plantilla_writer.agente(bootstrap_agentes.armar(agente, None, cli)) for agente in nombres]
+        derivados = [archivo for archivo in adaptador.archivos(agentes) if archivo.fuente is not None]
+        if nombre == "claude_code":
+            assert derivados == [] and adaptador.MANIFIESTO["P7"][0] == C.SOPORTADO, derivados
+            continue
+        assert [archivo.fuente for archivo in derivados] == [capas.agente(agente) for agente in nombres], (nombre, derivados)
+        assert {archivo.arreglo for archivo in derivados} == {adaptador.ID_AGENTES}, (nombre, derivados)
+        assert adaptador.MANIFIESTO["P7"][0] == C.DEGRADADO, (nombre, adaptador.MANIFIESTO["P7"])
+
+
+def test_las_herramientas_de_los_agentes_de_pi_son_las_que_vigilan_los_hooks_de_pi():
+    pi = importlib.import_module("odd_ws.hosts.pi")
+    for claude, de_pi in HERRAMIENTAS_DE_PI.items():
+        assert pi.HERRAMIENTAS[claude] == de_pi, (claude, pi.HERRAMIENTAS.get(claude), de_pi)
+    vigiladas = {herramienta for evento, grupo, _ in entradas(leer_json(HOOKS_PI)) for herramienta in grupo.get("tools", ())}
+    assert vigiladas == set(HERRAMIENTAS_DE_PI.values()), vigiladas
 
 
 def leer_json(ruta):

@@ -20,6 +20,7 @@ import verificar_capa  # noqa: E402
 from odd_ws import capas  # noqa: E402
 
 HOOKS_CODEX = AQUI.parent / "hooks" / "hooks.codex.json"
+HOOKS_PI = AQUI.parent / "hooks" / "hooks.pi.json"
 GOLDEN_DEL_REVISOR = {
     "sql": "069e1b2fd987dd14473bd1025f6d294e829d4f3bdf8d720455bc999e2d379319",
     "web": "8887ea14bcbaf7a2dec5be9f694fe32d0ba9f21be4d7ba69fa60b339d9033ba7",
@@ -607,7 +608,7 @@ def test_armar_da_lo_mismo_que_el_generador_de_cada_agente_y_los_nombres_salen_e
     assert a().nombres_de_agentes(("sql", "C_Sharp", 3)) == ["writer-sql", "revisor-sql", "revisor-diseno"]
     assert a().nombres_de_agentes(()) == [] and a().nombres_de_agentes(("C_Sharp",)) == []
     propio = re.sub(r"(?m)^description:.*$", 'description: "Mía"', plantilla_writer.generar("sql"), count=1)
-    for host in ("claude-code", "codex"):
+    for host in ("claude-code", "codex", "pi"):
         assert a().armar("writer-sql", propio, host) == plantilla_writer.generar("sql", propio, host=host)
         assert a().armar("revisor-web", None, host) == a().generar_revisor("web", host=host)
         assert a().armar("revisor-diseno", None, host) == a().generar_revisor_diseno(host=host)
@@ -625,6 +626,89 @@ def test_generar_con_codex_es_pura_y_determinista():
     primero = a().generar(spec, HOY)
     assert a().generar(spec, HOY) == primero and spec == copia
     assert len(primero) == 8 + 5 + 1, [accion[0] for accion in primero]
+
+
+def pi():
+    return importlib.import_module("odd_ws.hosts.pi")
+
+
+def nombre_en(texto):
+    return re.search(r"(?m)^name: (.*)$", texto.split("\n---\n", 1)[0]).group(1)
+
+
+def test_con_pi_salen_los_md_de_pi_agents_detras_de_lo_de_siempre():
+    sin = a().generar(spec_de(*CAPAS), HOY)
+    con_codex = a().generar(con_hosts(["claude-code", "codex"], *CAPAS), HOY)
+    de_pi = [capas.agente_pi(nombre) for nombre in agentes_de(CAPAS)]
+    assert de_pi[0] == ".pi/agents/writer-sql.md" and capas.PI_AGENTES == ".pi/agents", de_pi
+    for hosts, previas in ((["pi"], sin), (["claude-code", "pi"], sin), (["pi", "claude-code"], sin),
+                           (["claude-code", "codex", "pi"], con_codex)):
+        con = a().generar(con_hosts(hosts, *CAPAS), HOY)
+        assert con[:len(previas)] == previas, hosts
+        assert [accion[0] for accion in con[len(previas):]] == de_pi, (hosts, con[len(previas):])
+    pi_primero = [accion[0] for accion in a().generar(con_hosts(["pi", "codex"], *CAPAS), HOY)[len(sin):]]
+    assert pi_primero == de_pi + [capas.agente_codex(nombre) for nombre in agentes_de(CAPAS)] + [capas.CODEX_CONFIG], pi_primero
+
+
+def test_cada_md_de_pi_deriva_del_md_de_su_agente_armado_con_los_textos_de_pi():
+    bootstrap = importlib.import_module("bootstrap")
+    extra = a().generar(con_hosts(["pi"], *CAPAS), HOY)[len(a().generar(spec_de(*CAPAS), HOY)):]
+    assert len(extra) == len(agentes_de(CAPAS)), [accion[0] for accion in extra]
+    for accion, nombre in zip(extra, agentes_de(CAPAS)):
+        assert isinstance(accion, bootstrap.AccionDerivada), accion[0]
+        assert (accion.ruta, accion.fuente, accion.arreglo) == (capas.agente_pi(nombre), capas.agente(nombre), "pi-agentes"), accion
+        assert accion.contenido == pi().md(plantilla_writer.agente(a().armar(nombre, None, "pi"))), nombre
+        assert nombre_en(accion.contenido) == nombre, nombre
+
+
+def test_sin_pi_declarado_no_sale_nada_de_pi():
+    for hosts in (None, ["claude-code"], ["codex"], ["claude-code", "codex"]):
+        spec = spec_de(*CAPAS) if hosts is None else con_hosts(hosts, *CAPAS)
+        rutas = [accion[0] for accion in a().generar(spec, HOY)]
+        assert not [r for r in rutas if r.startswith(capas.PI + "/") or r.startswith(".pi")], (hosts, rutas)
+
+
+def test_los_writers_de_pi_cumplen_la_regex_de_hooks_pi_json_y_los_revisores_no():
+    regex = json.loads(HOOKS_PI.read_text(encoding="utf-8"))["writer"]
+    generados = contenidos(a().generar(con_hosts(["pi"], *CAPAS), HOY))
+    for capa in CAPAS:
+        assert re.search(regex, nombre_en(generados[capas.agente_pi("writer-%s" % capa)])), (capa, regex)
+    for nombre in ("revisor-sql", "revisor-diseno"):
+        assert not re.search(regex, nombre_en(generados[capas.agente_pi(nombre)])), nombre
+
+
+def test_el_md_de_pi_deriva_del_md_con_los_bloques_y_la_description_de_la_instancia():
+    rara = "Mía: ''' y \"\"\" con C:\\x\\y, ñ, [corchetes] y # no es comentario"
+    propia = "Identidad '''propia''' con \"\"\"comillas\"\"\", una \\ barra al final\\\n---\n\tcon tab y \x7f.\n"
+    claude = plantilla_writer.generar("sql")
+    propio = re.sub(r"(?m)^description:.*$", lambda _m: "description: " + json.dumps(rara, ensure_ascii=False), claude, count=1)
+    propio = re.sub(r"(<!-- instancia:identidad -->\n).*?(<!-- /instancia:identidad -->)", lambda e: e.group(1) + propia + e.group(2),
+                    propio, count=1, flags=re.S)
+    archivos = contenidos(pi().archivos([plantilla_writer.agente(plantilla_writer.generar("sql", propio, host="pi"))]))
+    texto = archivos[capas.agente_pi("writer-sql")]
+    assert 'description: "%s"' % rara in texto.split("\n---\n", 1)[0], texto[:400]
+    assert propia.rstrip("\n") in texto.split("\n---\n", 1)[1], texto
+
+
+def test_las_skills_de_la_instancia_traen_el_nombre_y_la_description_que_pi_exige():
+    generados = archivos(*CAPAS)
+    skills = sorted(ruta for ruta in generados if ruta.startswith(".claude/skills/") and ruta.endswith("/SKILL.md"))
+    assert skills == sorted([capas.skill(capa) for capa in CAPAS] + [capas.CRITERIOS_SKILL]), skills
+    for ruta in skills:
+        cabecera = frontmatter(generados[ruta])
+        assert cabecera[0] == "---", (ruta, cabecera[:1])
+        descripcion = json.loads(next(l for l in cabecera if l.startswith("description:")).split(":", 1)[1].strip())
+        nombre = next(l for l in cabecera if l.startswith("name:")).split(":", 1)[1].strip()
+        assert isinstance(descripcion, str) and descripcion.strip() and len(descripcion) <= 1024, (ruta, descripcion)
+        assert nombre == ruta.split("/")[-2] and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", nombre) and len(nombre) <= 64, (ruta, nombre)
+
+
+def test_generar_con_pi_es_pura_y_determinista():
+    spec = con_hosts(["claude-code", "codex", "pi"], "sql", "web")
+    copia = json.loads(json.dumps(spec))
+    primero = a().generar(spec, HOY)
+    assert a().generar(spec, HOY) == primero and spec == copia
+    assert len(primero) == 8 + 5 + 1 + 5, [accion[0] for accion in primero]
 
 
 def main():
