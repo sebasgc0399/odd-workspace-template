@@ -101,6 +101,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | X13 | — | Ya estaba en la base: en Windows, un `Write` (o un `write` de Pi) a una ruta con espacio al final, como `…\nuevo.sql `, pasa sin primer toque. Windows crea `nuevo.sql`, y `canonica` no quita el espacio de un archivo que todavía no existe (A7 de L46) | inline, aparte; ítem 2 | pendiente |
 | X14 | — | Del rechequeo de F2e (L51): `pi-plugin` da un OK falso en cinco casos forzados. En tres, junctions que duplican el plugin; Pi descarta los duplicados por la ruta canónica (`getResourcePathKey` con `realpath`) y el doctor agrupa sin resolver enlaces. En otro, un `NaN` en el `settings.json`, que Pi no lee y `json.loads` sí (falta `parse_constant`). En el último, un filtro escrito como `-file:///…/shim/pi.ts`, que Pi normaliza. Además, `pi.py` importa helpers privados de `codex.py`, que irían a `hosts/base.py` | inline, aparte; ítem 2 | pendiente |
 | X15 | — | Del rechequeo de F2h (L54), fuera de dominio: una carpeta `.git` vacía o inválida en la raíz de una instancia que está dentro de otro repo hace que el shim la tome como la raíz git, mientras `git` la saltea y corre al writer en la raíz del repo de arriba. El arreglo barato es contar una carpeta `.git` solo si tiene `HEAD`, `objects` y `refs`, como `git`. Además, el doctor podría avisar de una instancia en una subcarpeta de su repo, donde no hay writers en gentle-shell | inline, aparte; ítem 2 | pendiente |
+| X16 | — | Del CI de F2 (L56), anterior a F2: dos tests de plazo fallan de vez en cuando en el CI, `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` de `afirmaciones.tests.py` (`cc13362`) en macOS y `test_un_git_que_pasa_el_plazo_se_informa_y_la_salida_sigue_en_cero` de `bootstrap.tests.py` (`f561e8e`) en Windows. Main estuvo en verde; en la rama salieron en 3 de sus 10 corridas | inline, aparte; ítem 5 | pendiente |
 
 ## Log
 
@@ -952,3 +953,15 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
   - **Lo que cambia:** P5 y P9 de `pi.py`, el README, el CHANGELOG y `Doc/diseno.md` dicen lo que se probó en vivo y lo que no, en vez de «sin probar en un Pi real». `pi.tests.py` lo fija: RED de 2 tests, y después 61 de 61.
   - **F2h queda hecha. La entrega `0.6.0` espera la autorización del usuario.**
   - **Risk:** ninguno (textos del `MANIFIESTO` de Pi, que solo leen sus tests, y docs).
+- **L56 (2026-11-15), el CI antes de la entrega.** El usuario autorizó la entrega `0.6.0` («Si autorizo»). Antes de subir la versión, el CI de la rama estaba en rojo desde F2d, y nadie lo había mirado.
+  - **Una falla determinista, de F2e:** `test_pi_plugin_sigue_los_filtros_de_extensions_como_pi` da FALTA con `!s*.ts` en Ubuntu y macOS desde `853c400`.
+    - **La causa:** en POSIX, la ruta absoluta empieza con un segmento vacío. `_segmento` declaraba indecidible cualquier comodín contra un texto vacío, y `**` frente a ese segmento agregaba un `None` fijo. En Windows el primer segmento es `C:`, y por eso pasaba en local.
+    - **Escondida detrás,** porque el test corta en el primer filtro que falla: `!**/.*/pi.ts` daba lo mismo.
+    - **El arreglo:** un segmento del patrón con algo más que `*` necesita al menos un carácter, así que contra un texto vacío da `False`; un `*` puro sigue indecidible. Y `**` frente a un segmento vacío es dudoso solo si tragárselo llevaría a coincidir.
+    - **No abre nada,** por S4: solo cambia `None` por `False` donde ninguna lectura de `minimatch` puede coincidir.
+  - **Pruebas:**
+    - Un test nuevo de `_minimatch` con una ruta de POSIX, que se reproduce en Windows: RED, después 62 de 62.
+    - Una simulación de los 17 filtros del test del doctor con una ruta de POSIX: con la base, reproduce las dos fallas; con el arreglo, ninguna.
+    - `doctor.tests.py`, 176 de 176. Lo de POSIX lo confirma el CI.
+  - **Dos fallas intermitentes, anteriores a F2:** van a X16. Main estuvo en verde, y no se tocan en esta entrega.
+  - **Risk:** ninguno. El doctor solo diagnostica, el test nuevo fija la regla en todos los sistemas, y el del doctor en POSIX lo corre el CI.

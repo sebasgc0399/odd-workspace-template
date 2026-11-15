@@ -608,6 +608,15 @@ def test_p7_dice_el_mecanismo_de_los_agentes_de_pi_y_su_fallback_y_p8_las_skills
     assert "el modelo saca la carpeta" not in p8, p8
 
 
+def test_el_glob_decide_el_segmento_vacio_de_una_ruta_absoluta_de_posix():
+    absoluta = "/tmp/d/plugin-instalado/shim/pi.ts"
+    for patron in ("s*.ts", "?", "s*/pi.ts", "**/.*/pi.ts", "**/otro/*.ts"):
+        assert m()._minimatch(absoluta, patron) is False, patron
+    for texto, patron in (("/x", "*/x"), ("/x", "**/x"), (absoluta, "**/shim/pi.ts")):
+        assert m()._minimatch(texto, patron) is None, (texto, patron)
+    assert m()._minimatch("shim/pi.ts", "**/shim/pi.ts") is True
+
+
 def test_p9_dice_el_paquete_de_la_raiz_y_como_se_instala():
     p9 = m().MANIFIESTO["P9"][1]
     for frase in ("package.json", "raíz del repositorio", "./plugin/shim/pi.ts", "./plugin/skills", "gentle-shell install", "git",

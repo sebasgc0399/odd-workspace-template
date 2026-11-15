@@ -689,8 +689,10 @@ def _alguno(valores):
 
 
 def _segmento(patron, texto):
-    if "**" in patron or (texto == "" and COMODIN.search(patron)):
+    if "**" in patron:
         return None
+    if texto == "" and COMODIN.search(patron):
+        return None if set(patron) == {"*"} else False
     if texto.startswith(".") and patron[:1] in ("*", "?"):
         return False
     regex = "".join("[^/]*" if letra == "*" else "[^/]" if letra == "?" else re.escape(letra) for letra in patron)
@@ -710,7 +712,7 @@ def _minimatch(texto, patron):
                 return None
             valores = [desde(i + 1, j)]
             if j < len(segmentos) and segmentos[j] == "":
-                valores.append(None)
+                valores.append(None if desde(i, j + 1) is not False else False)
             elif j < len(segmentos) and not segmentos[j].startswith("."):
                 valores.append(desde(i, j + 1))
             return _alguno(valores)
