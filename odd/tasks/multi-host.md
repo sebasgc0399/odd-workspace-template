@@ -970,3 +970,13 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
   - **La etiqueta** la creó `claude plugin tag ./plugin`, después de su `--dry-run`. `main` y la etiqueta subieron juntas, en fast-forward desde `318864e`, y el pre-push dio «entrega limpia».
   - **El release** lo publicó `release.yml`: «odd-ws 0.6.0», sin borrador (https://github.com/sebasgc0399/odd-workspace-template/releases/tag/odd-ws--v0.6.0).
   - **Después de la entrega:** la fuente git del paquete (`gentle-shell install git:…@odd-ws--v0.6.0`) ya existe, y se puede probar a mano.
+- **L58 (2026-11-15), la fuente git, probada a mano con la 0.6.1.**
+  - **Antes de probar:** en el home de prueba se quitó el paquete del clon (`gentle-shell remove`), y la capa de prueba recibió una regla real, `NN-A1`.
+  - **La instalación la corrió el usuario** con `gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.6.1`.
+  - **`/skill:doctor`:**
+    - `pi-plugin` en OK: Pi carga `plugin/shim/pi.ts` desde la copia de git del home.
+    - El doctor corrió desde esa copia, así que `${CLAUDE_PLUGIN_ROOT}` funciona con la fuente git.
+    - `plugin-root` en FALTA, como se esperaba: la instancia se creó con el clon, y el doctor propuso su arreglo. Una instancia creada con la fuente git no lo tiene.
+    - `python` en AVISO, por el alias de Windows de esta máquina.
+  - **La lectura de `a.ext`:** llegó el contenido, después la marca «[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.» y luego `NN-A1`. El modelo separó bien las dos partes: dijo que el archivo contiene solo `valor = 7`.
+  - **Pendiente para la próxima versión:** la nota P9 del `MANIFIESTO` de `odd_ws/hosts/pi.py` (y su test) todavía dice «la fuente git, sin probar a mano». Está en `plugin/`, así que se corrige con la próxima entrega.

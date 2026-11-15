@@ -139,7 +139,7 @@ El CI (`.github/workflows/pruebas.yml`) corre todas las suites en Ubuntu, Window
 <summary><strong>Limitaciones conocidas</strong></summary>
 
 - **Codex en Windows:** los writers necesitan `[windows] sandbox` en la config de Codex. Con el sandbox `unelevated`, la medición de líneas del writer da 0/0 (pendiente X7). Afecta solo esa medición, no los bloqueos.
-- **gentle-shell:** el humo instaló el paquete desde un clon, así que la fuente git no se probó a mano. Que la compuerta le pida seguir a un writer solo se probó con una Pi simulada: en el humo, el writer cerró bien a la primera.
+- **gentle-shell:** la instalación por git se probó a mano con la 0.6.1, en Windows. Que la compuerta le pida seguir a un writer solo se probó con una Pi simulada: en el humo, el writer cerró bien a la primera.
 - **Si Python no arranca:** con Claude Code 2.1.295 o más, y en Pi, la herramienta se bloquea con el error. Con una versión anterior de Claude Code, y siempre en Codex, la herramienta pasa sin el chequeo.
 
 </details>

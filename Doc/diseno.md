@@ -263,7 +263,7 @@ Pi carga el shim y las skills del plugin desde un paquete: una carpeta con un `p
   `doctor.tests.py` lo prueba con una copia del repo real (los archivos de la raíz y las carpetas del plugin que lee Pi), por la ruta del clon y por un clon de git en el home.
 - **Sin cambio en Claude Code ni en Codex (S5).** El `package.json` está fuera de `plugin/`: Claude Code carga `./plugin` desde `.claude-plugin/marketplace.json`, y Codex, `plugin/.codex-plugin/plugin.json`, que según lo que se leyó de su código (L12 y L15 de `odd/tasks/multi-host.md`) no mira un `package.json`. `claude plugin validate` da lo mismo antes y después, en `./plugin` y en la raíz; Codex no se corrió.
 - **Límites:**
-  - **En un gentle-shell real** (L53): el paquete se instaló desde un clon, y el ítem `pi-plugin` del doctor dio OK. La fuente git no se probó a mano.
+  - **En un gentle-shell real** (L53): el paquete se instaló desde un clon, y el ítem `pi-plugin` del doctor dio OK. La fuente git se probó a mano con la 0.6.1 (L58), y `pi-plugin` también dio OK. El doctor corrió desde la copia de git, así que la extensión definió `${CLAUDE_PLUGIN_ROOT}`. La instancia, creada con el clon, sacó `plugin-root` en FALTA, con el arreglo que la apunta a esa copia.
   - La regla de las skills se leyó del código de Pi 1.5.2, y el port solo sabe leer un frontmatter de pares `clave: valor` simples.
 
 ### El arranque de Python (`python3`, `onFailure` y `commandWindows`, M2)
