@@ -2,12 +2,19 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
-## Sin publicar
+## 0.6.1
 
-### Correcciones
+**Dos correcciones del primer toque,** encontradas al grabar odd-ws en gentle-shell.
 
-- **El primer toque ya no manda el texto de la plantilla como si fueran reglas.** En una capa recién generada, el bloque de no-negociables trae un texto de ejemplo. El primer toque lo inyectaba y bloqueaba la primera edición con él. Ahora una capa con ese texto cuenta como una capa sin reglas: la lectura no inyecta nada y la edición pasa.
-- **En gentle-shell, lo que odd-ws suma a un resultado ya no se confunde con el resultado.** Pi junta en un solo texto lo que devuelve una herramienta, y los no-negociables llegaban pegados al final del archivo leído, sin marca: un modelo los tomó como parte del archivo. Ahora van después de una línea en blanco y de la marca «[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.».
+### Lo que cambia para ti
+
+- **Una capa recién generada ya no recibe el texto de ejemplo como reglas.** Mientras no escribas los no-negociables de una capa, la primera lectura no inyecta nada y la primera edición pasa. Antes, el texto de ejemplo de la plantilla llegaba como si fueran reglas y bloqueaba la primera edición. No tienes que hacer nada en tu instancia.
+- **En gentle-shell, lo que odd-ws suma a un resultado ya no se confunde con el resultado.** Los no-negociables y los motivos de un bloqueo llegan después de la línea «[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.». Antes llegaban pegados al final del archivo leído, y un modelo los tomó como parte del archivo.
+
+### Detalle técnico
+
+- `verificar_capa.no_negociables` compara el bloque, sin contar espacios ni saltos de línea, con el de `plugin/plantillas/capa.md` renderizado para la capa (`odd_ws/capas.relleno_de_la_plantilla`). Si coinciden, la capa no tiene no-negociables. La plantilla tuvo un solo texto desde que existe, así que la comparación cubre toda instancia generada.
+- En el shim de Pi, `conTexto` antepone una línea en blanco y la marca al texto que agrega, sea contexto, bloqueo o falla. Los proveedores de `pi-ai` juntan los bloques de texto de un resultado con un salto de línea, así que sin la marca el texto quedaba pegado al resultado.
 
 ## 0.6.0
 
