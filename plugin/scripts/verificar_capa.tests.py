@@ -854,6 +854,23 @@ def test_primer_read_inyecta_una_vez_por_sesion_agente_y_capa():
         assert w.marcas() == ["s1/a1b2.sql", "s1/principal.sql", "s1/principal.web", "s2/principal.sql"], w.marcas()
 
 
+def test_el_relleno_de_la_plantilla_no_cuenta_como_no_negociables():
+    plantilla = (PLUGIN / "plantillas" / "capa.md").read_text(encoding="utf-8")
+    generada = plantilla.replace("{{capa}}", "sql").replace("{{fecha}}", "2026-11-15")
+    with Toque(capas=("sql",)) as w:
+        for texto in (generada, generada.replace("\n", "\r\n")):
+            escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", texto)
+            assert w.correr(leer(w.sql)) == (0, "", b""), "un read no inyecta el relleno"
+            assert w.correr(a_escribir(w.sql)) == (0, "", b""), "el primer edit no se bloquea por el relleno"
+            assert w.correr(a_escribir(w.sql, "Edit")) == (0, "", b"")
+            assert w.marcas() == [], w.marcas()
+        con_regla = generada.replace("<!-- /no-negociables -->", "- NN-SQL-REAL nunca borrar la tabla de auditoria\n<!-- /no-negociables -->")
+        escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", con_regla)
+        texto = contexto(w.correr(leer(w.sql))[1])
+        assert texto is not None and "NN-SQL-REAL" in texto, "un bloque que suma una regla al relleno sí se inyecta"
+        assert w.marcas() == ["s1/principal.sql"], w.marcas()
+
+
 def test_primer_toque_sin_subprocess_y_calla_fuera_de_las_capas():
     with Toque() as w:
         with SinSubprocess() as guardia:

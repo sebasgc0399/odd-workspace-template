@@ -1,3 +1,4 @@
+import os
 import re
 
 MARCA_ABRE = "<!-- no-negociables -->"
@@ -89,3 +90,21 @@ def partir_bloque(lineas):
     if en_bloque:
         return dentro, fuera, "abierto"
     return dentro, fuera, "ok" if cerrados else "ausente"
+
+
+PLANTILLA_CAPA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                              "plantillas", "capa.md")
+
+
+def sin_espacios(texto):
+    return " ".join(texto.split())
+
+
+def relleno_de_la_plantilla(capa):
+    try:
+        with open(PLANTILLA_CAPA, encoding="utf-8-sig") as f:
+            lineas = f.read().replace("{{capa}}", capa).splitlines()
+    except OSError:
+        return None
+    dentro, _, estado = partir_bloque(lineas)
+    return sin_espacios("\n".join(dentro)) if estado == "ok" else None

@@ -247,7 +247,9 @@ def no_negociables(capa, raiz):
     with open(ruta, encoding="utf-8-sig") as f:
         dentro, _, estado = convencion.partir_bloque(f.read().splitlines())
     texto = "\n".join(dentro).strip()
-    return texto if estado == "ok" and texto else None
+    if estado != "ok" or not texto or convencion.sin_espacios(texto) == convencion.relleno_de_la_plantilla(capa):
+        return None
+    return texto
 
 
 def _clave(evento):

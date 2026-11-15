@@ -189,8 +189,11 @@ def test_el_hook_de_la_capa_lee_el_bloque_de_lo_generado():
     generados = archivos("sql")
     with Temporal() as t:
         volcar(t.raiz, generados)
+        assert verificar_capa.no_negociables("sql", str(t.raiz)) is None, "lo recién generado trae solo el relleno"
+        con_regla = generados[capas.skill("sql")].replace(capas.MARCA_CIERRA, "- NN-SQL nunca borrar datos\n" + capas.MARCA_CIERRA)
+        (t.raiz / capas.skill("sql")).write_text(con_regla, encoding="utf-8")
         leido = verificar_capa.no_negociables("sql", str(t.raiz))
-        assert leido and "sql" in leido, leido
+        assert leido and "NN-SQL nunca borrar datos" in leido, leido
         assert verificar_capa.no_negociables("web", str(t.raiz)) is None
 
 

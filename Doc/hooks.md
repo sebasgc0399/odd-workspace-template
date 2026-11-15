@@ -26,6 +26,8 @@ Los guards frenan los errores y los atajos del agente, también cuando escribe e
 
 ## Si Python no arranca
 
+Una capa sin no-negociables no tiene primer toque: si el bloque `<!-- no-negociables -->` de su skill está vacío, o conserva el texto que trae la plantilla de la capa, la lectura no inyecta nada y la primera edición no se bloquea.
+
 Los hooks los lanza `python3`. Si no arranca, en Claude Code 2.1.295 o más la herramienta queda bloqueada con el error; con una versión anterior, y siempre en Codex, la herramienta pasa sin el chequeo. En ese caso, la defensa es el ítem `python` de `/odd-ws:doctor`, que revisa el intérprete que lanza cada CLI declarado.
 
 ## En Codex

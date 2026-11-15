@@ -2,6 +2,12 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## Sin publicar
+
+### Correcciones
+
+- **El primer toque ya no manda el texto de la plantilla como si fueran reglas.** En una capa recién generada, el bloque de no-negociables trae un texto de ejemplo. El primer toque lo inyectaba y bloqueaba la primera edición con él. Ahora una capa con ese texto cuenta como una capa sin reglas: la lectura no inyecta nada y la edición pasa.
+
 ## 0.6.0
 
 **Soporte para gentle-shell (Pi).** Una instancia puede trabajarse también desde gentle-shell, que es Pi con subagentes. Los guards, el primer toque, las reglas de las capas y la compuerta de los writers corren con los mismos scripts. Se probó a mano en Windows, con gentle-shell 4.8.0 y Pi 1.5.2.
