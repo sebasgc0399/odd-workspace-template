@@ -31,11 +31,11 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 |---|---|---|---|
 | Claude Code | Uso diario del autor, y el CI | Solo el CI | Solo el CI |
 | Codex CLI | Prueba de humo a mano con la 0.144 y la 0.167, y el CI | Solo el CI | Solo el CI |
-| gentle-shell (Pi) | Solo el CI, con una Pi simulada | Solo el CI | Solo el CI |
+| gentle-shell (Pi) | Prueba de humo a mano con gentle-shell 4.8.0 y Pi 1.5.2, y el CI | Solo el CI | Solo el CI |
 
 - **El CI** (`.github/workflows/pruebas.yml`) corre todas las suites en Ubuntu, Windows y macOS. No instala ningún CLI. En Linux y macOS nadie lo probó a mano todavía.
 - **Codex en Windows:** los writers necesitan `[windows] sandbox` en la config de Codex. Con el sandbox `unelevated`, la medición de líneas del writer da 0/0 (pendiente X7). Afecta solo esa medición, no los bloqueos.
-- **gentle-shell:** todavía no corrió dentro de un Pi real. La prueba de humo llega con la próxima entrega.
+- **gentle-shell:** el humo instaló el paquete desde un clon, así que la fuente git no se probó a mano. Que la compuerta le pida seguir a un writer solo se probó con una Pi simulada: en el humo, el writer cerró bien a la primera.
 - **Si Python no arranca:** con Claude Code 2.1.295 o más, y en Pi, la herramienta se bloquea con el error. Con una versión anterior de Claude Code, y siempre en Codex, la herramienta pasa sin el chequeo.
 
 ## Instalación

@@ -582,9 +582,11 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
                        "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.SOPORTADO, "P9": C.SOPORTADO,
                        "P10": C.DEGRADADO}, estados
-    for clave, tareas in (("P5", ("F2g",)), ("P9", ("F2g",))):
+    for clave in ("P5", "P9"):
         nota = m().MANIFIESTO[clave][1]
-        assert all(tarea in nota for tarea in tareas), (clave, nota)
+        assert "gentle-shell real (F2g)" in nota, (clave, nota)
+        assert "hasta F2g" not in nota, "F2g ya no es lo que falta: %r" % (nota,)
+    assert "la fuente git, sin probar a mano" in m().MANIFIESTO["P9"][1], m().MANIFIESTO["P9"]
     for clave in ("P7", "P8", "P9"):
         for tarea in ("F2d", "F2f"):
             assert tarea not in m().MANIFIESTO[clave][1], "%s ya no es lo que falta: %r" % (tarea, m().MANIFIESTO[clave])
@@ -805,8 +807,8 @@ def test_el_port_de_las_skills_de_pi_sabe_decir_que_no():
 
 def test_p5_y_p6_dicen_el_rodeo_de_gentle_shell_y_que_con_pi_a_secas_el_writer_queda_sin_compuerta():
     p5, p6 = m().MANIFIESTO["P5"][1], m().MANIFIESTO["P6"][1]
-    for frase in ("gentle-shell", "agent_before_settle", "hijo", "writer_stop", "continue", "sin probar", "F2g", "Pi a secas",
-                  "sin compuerta", "SubagentStop"):
+    for frase in ("gentle-shell", "agent_before_settle", "hijo", "writer_stop", "continue", "Pi a secas", "sin compuerta",
+                  "SubagentStop", "dejó cerrar a un writer que cerró bien", "sin probar en vivo", "una Pi simulada"):
         assert frase in p5, (frase, p5)
     for frase in ("Pi", "gentle-shell", "subagent_run", "marca", "GENTLE_PI_AGENTS_CHILD", "id de sesión", "Pi a secas",
                   "el rodeo se borra"):

@@ -4,7 +4,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 ## Sin publicar
 
-**Soporte para gentle-shell (Pi).** Una instancia puede trabajarse también desde gentle-shell, que es Pi con subagentes. Los guards, el primer toque, las reglas de las capas y la compuerta de los writers corren con los mismos scripts. Todavía no corrió dentro de un Pi real: la prueba de humo llega con la entrega.
+**Soporte para gentle-shell (Pi).** Una instancia puede trabajarse también desde gentle-shell, que es Pi con subagentes. Los guards, el primer toque, las reglas de las capas y la compuerta de los writers corren con los mismos scripts. Se probó a mano en Windows, con gentle-shell 4.8.0 y Pi 1.5.2.
 
 ### Lo que cambia para ti
 
