@@ -27,6 +27,13 @@ const SIN_PANTALLA = "Esta sesión de Pi no tiene pantalla para pedir confirmaci
 const FALLA_EN_PRE = "Como un guard de odd-ws no pudo correr, esta herramienta queda bloqueada.";
 const FALLA_EN_POST = "Como un guard de odd-ws no pudo correr, este resultado no se revisó.";
 const SIN_CONFIRMAR = "No se confirmó (el usuario dijo que no, cerró el diálogo o venció el plazo de 60 s), así que este comando queda bloqueado.";
+const MARCA_DE_ODD_WS = "[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.";
+
+function deOddWs(texto: string): string {
+  const inicio = `\n${MARCA_DE_ODD_WS}\n`;
+  assert.ok(texto.startsWith(inicio), texto);
+  return texto.slice(inicio.length);
+}
 const SKILL_SQL = "---\nname: capa-sql\n---\n# capa-sql\n\n<!-- no-negociables -->\n- NN-SQL: regla uno de la capa\n<!-- /no-negociables -->\n";
 const REGLAS_SQL = [
   "def verificar(ctx):",
@@ -289,8 +296,21 @@ test("de punta a punta: el primer toque bloquea el edit y el reintento pasa; si 
   assert.equal(leido.content.length, 2);
   assert.deepEqual(leido.content[0], { type: "text", text: "salida de la herramienta" });
   assert.equal(leido.content[1].type, "text");
-  assert.match(leido.content[1].text, /^primer toque \(capa-sql\): los no negociables/);
+  assert.match(deOddWs(leido.content[1].text), /^primer toque \(capa-sql\): los no negociables/);
   assert.equal(await pi.emitir(edicion, lector), undefined, "el read ya fue el primer toque");
+});
+
+test("lo que odd-ws suma al resultado abre con su marca, porque Pi junta los bloques en un solo texto", async () => {
+  const { inst, db } = mundo("marca");
+  const leido = await conPi().emitir(resultado("read", { path: join(db, "x.sql") }), ctxFalso(inst, { sesion: "marca" }));
+  assert.equal(leido.isError, undefined);
+  assert.equal(leido.content.length, 2);
+  assert.deepEqual(leido.content[0], { type: "text", text: "salida de la herramienta" });
+  assert.ok(leido.content[1].text.startsWith(`\n${MARCA_DE_ODD_WS}\nprimer toque (capa-sql): los no negociables`), leido.content[1].text);
+  const devuelto = await conPi().emitir(resultado("edit", { path: join(db, "malo.sql"), edits: [] }), ctxFalso(inst));
+  assert.equal(devuelto.isError, true);
+  assert.ok(devuelto.content[1].text.startsWith(`\n${MARCA_DE_ODD_WS}\n`), devuelto.content[1].text);
+  assert.match(devuelto.content[1].text, /T-01/);
 });
 
 test("de punta a punta: el post con bloqueo marca el resultado como error y suma el motivo al contenido", async () => {
@@ -432,7 +452,7 @@ test("el JSON por stdin lleva el evento y el ctx, sin oddWs, y el hook corre en 
   mkdirSync(cwd, { recursive: true });
   const pi = conPi(plugin);
   const devuelto = await pi.emitir(resultado("read", { path: "a.txt" }), ctxFalso(cwd, { hasUI: true, sesion: "sesion-eco" }));
-  const visto = JSON.parse(devuelto.content[1].text);
+  const visto = JSON.parse(deOddWs(devuelto.content[1].text));
   assert.deepEqual(visto.entrada, { type: "tool_result", toolName: "read", input: { path: "a.txt" }, isError: false,
     ctx: { cwd, sessionId: "sesion-eco", hasUI: true, mode: "interactive" } });
   assert.equal(realpathSync.native(visto.cwd).toLowerCase(), realpathSync.native(cwd).toLowerCase());
@@ -478,7 +498,7 @@ test("una accion fuera de lugar falla cerrada: contexto o seguir en el pre bloqu
   const plugin = pluginFalso("fuera-preguntar", { "x.py": RESPONDE }, enTodo("x.py", [JSON.stringify({ accion: "preguntar", texto: "en post" })]));
   const post = await conPi(plugin).emitir(resultado("read", { path: "a" }), ctxFalso(BASE));
   assert.equal(post.isError, true);
-  assert.equal(post.content[1].text, "en post");
+  assert.equal(deOddWs(post.content[1].text), "en post");
 });
 
 test("un error del propio shim cierra el pre, marca el post como error y deja el inicio sin contexto", async () => {
@@ -489,7 +509,7 @@ test("un error del propio shim cierra el pre, marca el post como error y deja el
   assert.equal(bloqueo.reason, `odd-ws: el shim de Pi no pudo correr sus guards (sesion ilegible).\n\n${FALLA_EN_PRE}`);
   const post = await pi.emitir(resultado("read", { path: "a.sql" }), roto);
   assert.equal(post.isError, true);
-  assert.equal(post.content[1].text, `odd-ws: el shim de Pi no pudo correr sus guards (sesion ilegible).\n\n${FALLA_EN_POST}`);
+  assert.equal(deOddWs(post.content[1].text), `odd-ws: el shim de Pi no pudo correr sus guards (sesion ilegible).\n\n${FALLA_EN_POST}`);
   await pi.emitir({ type: "session_start", reason: "startup" }, roto);
   assert.equal(await pi.emitir({ type: "before_agent_start", systemPrompt: "P" }, roto), undefined);
 });
@@ -579,7 +599,7 @@ function payloads(registro: string): any[] {
 }
 
 async function oddWsVisto(pi: ReturnType<typeof piFalso>, ctx: unknown): Promise<unknown> {
-  return JSON.parse((await pi.emitir(resultado("read", { path: "a" }), ctx)).content[1].text).entrada.oddWs;
+  return JSON.parse(deOddWs((await pi.emitir(resultado("read", { path: "a" }), ctx)).content[1].text)).entrada.oddWs;
 }
 
 test("la regex de los writers sale de hooks.pi.json y reconoce los mismos nombres que la de Python", () => {
@@ -799,7 +819,7 @@ test("sin una sola linea de marca, entera, en su primer prompt, el hijo no es wr
   }
   const padre = conPiEn(plugin, {});
   await padre.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctxFalso(BASE));
-  const visto = JSON.parse((await padre.emitir(resultado("read", { path: "a" }), ctxFalso(BASE))).content[1].text).entrada;
+  const visto = JSON.parse(deOddWs((await padre.emitir(resultado("read", { path: "a" }), ctxFalso(BASE))).content[1].text)).entrada;
   assert.equal("oddWs" in visto, false, "el padre no manda oddWs");
 });
 

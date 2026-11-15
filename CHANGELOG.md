@@ -7,6 +7,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 ### Correcciones
 
 - **El primer toque ya no manda el texto de la plantilla como si fueran reglas.** En una capa recién generada, el bloque de no-negociables trae un texto de ejemplo. El primer toque lo inyectaba y bloqueaba la primera edición con él. Ahora una capa con ese texto cuenta como una capa sin reglas: la lectura no inyecta nada y la edición pasa.
+- **En gentle-shell, lo que odd-ws suma a un resultado ya no se confunde con el resultado.** Pi junta en un solo texto lo que devuelve una herramienta, y los no-negociables llegaban pegados al final del archivo leído, sin marca: un modelo los tomó como parte del archivo. Ahora van después de una línea en blanco y de la marca «[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.».
 
 ## 0.6.0
 

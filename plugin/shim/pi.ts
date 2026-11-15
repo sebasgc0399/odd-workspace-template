@@ -24,6 +24,7 @@ const MARCAS = /<!--\s*odd-ws[\s\S]*?-->[ \t]*(?:\r?\n)?/gi;
 const TITULO = "odd-ws pide confirmación";
 const FALLA_EN_PRE = "Como un guard de odd-ws no pudo correr, esta herramienta queda bloqueada.";
 const FALLA_EN_POST = "Como un guard de odd-ws no pudo correr, este resultado no se revisó.";
+const MARCA_DE_ODD_WS = "[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.";
 const SIN_CONFIRMAR = "No se confirmó (el usuario dijo que no, cerró el diálogo o venció el plazo de 60 s), así que este comando queda "
   + "bloqueado.";
 
@@ -298,7 +299,7 @@ function fijarIdentidad(estado: Estado, evento: EventoDePi, ctx: ContextoDePi): 
 }
 
 function conTexto(evento: EventoDePi, texto: string): unknown[] {
-  return [...(Array.isArray(evento.content) ? evento.content : []), { type: "text", text: texto }];
+  return [...(Array.isArray(evento.content) ? evento.content : []), { type: "text", text: `\n${MARCA_DE_ODD_WS}\n${texto}` }];
 }
 
 async function confirmar(ctx: ContextoDePi, texto: string): Promise<Bloqueo | undefined> {
