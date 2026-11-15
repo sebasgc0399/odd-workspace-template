@@ -7,6 +7,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 ### Detalle técnico
 
 - La nota P9 del manifiesto de Pi (`odd_ws/hosts/pi.py`) registra que la instalación desde la fuente git se probó a mano con la 0.6.1, y que el ítem `pi-plugin` del doctor dio OK.
+- La nota P5 registra que la acción `seguir` de la compuerta se probó en vivo con la 0.6.1: frenó una vez a un writer que cerró sin el bloque de resultado, y el writer volvió a cerrar con el bloque completo.
 
 ## 0.6.1
 

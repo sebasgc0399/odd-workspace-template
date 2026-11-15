@@ -818,8 +818,9 @@ def test_el_port_de_las_skills_de_pi_sabe_decir_que_no():
 def test_p5_y_p6_dicen_el_rodeo_de_gentle_shell_y_que_con_pi_a_secas_el_writer_queda_sin_compuerta():
     p5, p6 = m().MANIFIESTO["P5"][1], m().MANIFIESTO["P6"][1]
     for frase in ("gentle-shell", "agent_before_settle", "hijo", "writer_stop", "continue", "Pi a secas", "sin compuerta",
-                  "SubagentStop", "dejó cerrar a un writer que cerró bien", "sin probar en vivo", "una Pi simulada"):
+                  "SubagentStop", "dejó cerrar a un writer que cerró bien", "la acción seguir se probó en vivo (0.6.1)"):
         assert frase in p5, (frase, p5)
+    assert "sin probar en vivo" not in p5, p5
     for frase in ("Pi", "gentle-shell", "subagent_run", "marca", "GENTLE_PI_AGENTS_CHILD", "id de sesión", "Pi a secas",
                   "el rodeo se borra"):
         assert frase in p6, (frase, p6)

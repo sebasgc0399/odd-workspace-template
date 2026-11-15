@@ -42,7 +42,8 @@ MANIFIESTO = {
                       "seguir vuelve como una entrada custom_message y continue: true, una sola vez por cierre; si la compuerta "
                       "misma falla (el shim o Python), el writer cierra, como con un SubagentStop que no corre en Claude Code; "
                       "en un gentle-shell real (F2g), la marca llegó al hijo y la compuerta midió y dejó cerrar a un writer que "
-                      "cerró bien; la acción seguir, sin probar en vivo, está probada con los hooks reales y una Pi simulada; "
+                      "cerró bien; la acción seguir se probó en vivo (0.6.1): frenó una vez a un writer que cerró sin el "
+                      "bloque de resultado, y el writer volvió a cerrar con el bloque completo; "
                       "con Pi a secas no hay subagent_run ni hijos, y un writer queda sin "
                       "compuerta, cosa que el doctor avisa en el ítem gentle-shell"),
     "P6": (DEGRADADO, "ni Pi ni gentle-shell le pasan al hijo el nombre del agente: la extensión del padre lo pone en la tarea "
