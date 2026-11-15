@@ -82,7 +82,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | F2e | S2–S4, S8 | Doctor de Pi: la versión, el paquete instalado en el home activo (el aislado de gentle-shell, o `~/.pi/agent` con `--link`), el Python, `pi-agentes` con la regla de L18 y `hooks-host` con `hooks.pi.json` | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3, 5 y 6) | hecho (L51) |
 | F2f | S2, S8 | Empaquetado: `package.json` con la clave `pi` (extensiones y skills) y la versión en paridad con los otros manifiestos. Hay que verificar si `pi install git:…` acepta el paquete en `plugin/`. Y en el README, «Usarlo desde gentle-shell» | delegado: un writer, por el respaldo de contexto; el padre, `CLAUDE_PLUGIN_ROOT` y los textos fuera de la superficie; después, un verificador independiente (ítem 5) | hecho (L52) |
 | F2g | S1 | Prueba de humo en un gentle-shell aparte, y la entrega `0.6.0` con autorización | inline; el usuario instala gentle-pi y autoriza la entrega | humo hecho (L53): dos fallas abiertas, que van a F2h; la entrega espera a F2h |
-| F2h | S2–S4 | Lo que encontró el humo (L53):<br>• guardar todas las herramientas de shell de gentle-pi: `bash_background` y `monitor` además de `bash` y `powershell`, como hace gentle-pi mismo (`lib/auto-permission-runtime.ts:124`), y revisar si alguna otra herramienta de sus extensiones escribe archivos<br>• un writer lanzado con un `repository_root` fuera de la instancia corre con ese `cwd`, los guards no encuentran la instancia y quedan apagados en silencio | por decidir | pendiente |
+| F2h | S2–S4 | Lo que encontró el humo (L53):<br>• guardar todas las herramientas de shell de gentle-pi: `bash_background` y `monitor` además de `bash` y `powershell`, como hace gentle-pi mismo (`lib/auto-permission-runtime.ts:124`), y revisar si alguna otra herramienta de sus extensiones escribe archivos<br>• un writer lanzado con un `repository_root` fuera de la instancia corre con ese `cwd`, los guards no encuentran la instancia y quedan apagados en silencio | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3 y 6) | hecho (L54); falta el segundo humo |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
 | F5 | S2–S4, S7 | Copilot CLI: verificar antes los nombres de las tools y el payload de cada evento | por decidir | pendiente |
@@ -100,6 +100,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | X12 | — | Fuera de dominio hoy: en PowerShell sobre POSIX, `Remove-Item <scratch>/dentro/../../x`, con un enlace interno, podría salir del scratch si pwsh resuelve `..` como texto (L42) | cuando un host dé PowerShell en POSIX | pendiente |
 | X13 | — | Ya estaba en la base: en Windows, un `Write` (o un `write` de Pi) a una ruta con espacio al final, como `…\nuevo.sql `, pasa sin primer toque. Windows crea `nuevo.sql`, y `canonica` no quita el espacio de un archivo que todavía no existe (A7 de L46) | inline, aparte; ítem 2 | pendiente |
 | X14 | — | Del rechequeo de F2e (L51): `pi-plugin` da un OK falso en cinco casos forzados. En tres, junctions que duplican el plugin; Pi descarta los duplicados por la ruta canónica (`getResourcePathKey` con `realpath`) y el doctor agrupa sin resolver enlaces. En otro, un `NaN` en el `settings.json`, que Pi no lee y `json.loads` sí (falta `parse_constant`). En el último, un filtro escrito como `-file:///…/shim/pi.ts`, que Pi normaliza. Además, `pi.py` importa helpers privados de `codex.py`, que irían a `hosts/base.py` | inline, aparte; ítem 2 | pendiente |
+| X15 | — | Del rechequeo de F2h (L54), fuera de dominio: una carpeta `.git` vacía o inválida en la raíz de una instancia que está dentro de otro repo hace que el shim la tome como la raíz git, mientras `git` la saltea y corre al writer en la raíz del repo de arriba. El arreglo barato es contar una carpeta `.git` solo si tiene `HEAD`, `objects` y `refs`, como `git`. Además, el doctor podría avisar de una instancia en una subcarpeta de su repo, donde no hay writers en gentle-shell | inline, aparte; ítem 2 | pendiente |
 
 ## Log
 
@@ -905,3 +906,38 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
     - **El writer con un `repository_root` fuera de la instancia.** El modelo del padre lanzó al writer con `repository_root` igual al repo de la capa, y gentle-shell usa ese valor como `cwd` del hijo. Desde ahí, los guards no encuentran `workspace.config.json`: el hijo no dejó ni bitácora ni primer toque, y el writer corrió sin guards ni compuerta, en silencio. En Claude Code y en Codex, el subagente corre en la raíz de la instancia.
   - **Sin probar en vivo:** el camino en que la compuerta obliga a seguir. En dos intentos, el writer cerró bien a la primera, aunque se le pidió cerrar mal, porque su plantilla pesa más que la tarea. Ese camino está probado con los hooks reales y una Pi simulada (F2c).
   - **La entrega `0.6.0` espera a F2h.**
+- **L54 (2026-11-15), F2h.** El humo quedó en `3b59ab7`, con push de la rama.
+  - **La decisión del usuario,** sobre el writer con `repository_root` fuera de la instancia: «Bloquear y relanzar (Recomendado)». Se descartaron quitarlo en silencio, que pisa la elección del modelo, y pasar la raíz en la marca, que toca el modelo de eventos que comparten Claude Code y Codex.
+  - **Ruta:** un writer delegado, por el respaldo de contexto, cortado una vez por el límite de la cuenta y reanudado. Después, un verificador independiente, por los ítems 2, 3 y 6.
+  - **El writer:**
+    - **Las herramientas de shell de gentle-pi 4.8.0:**
+      - `bash_background` (`{command, label?}`) y `monitor` (`{command, timeout_seconds, label?}`) usan el bash configurado en Pi, así que son shell POSIX (`lib/background-jobs-tools.ts:99-160` y `gentle-agents.ts:438-443`).
+      - `pi.py` las mapea, `hooks.pi.json` las suma a `writer_guard` y a `guard_comandos`, la `COBERTURA` del doctor las exige, y la paridad con `hooks.json` dice que `Bash` equivale a las tres.
+    - **El inventario de los `registerTool` de 4.8.0:**
+      - Fuera de las tres de shell, ninguna corre un comando del modelo ni escribe en una ruta que da el modelo.
+      - `quiet-tools` re-registra `edit`, `write` y `read` con el mismo nombre.
+      - El codemode pasa sus llamadas anidadas por los mismos eventos.
+      - `gentle_design` escribe en una carpeta fija, y `codegraph` y la revisión de gentle-ai corren binarios fijos: quedan como límites escritos.
+    - **El `cwd` del hijo** lo elige gentle-pi en `buildRequest` (`gentle-agents.ts:2496-2630`):
+      - con `repository_root`, ese valor;
+      - con `workspace_root`, la raíz git de esa ruta;
+      - sin ninguno de los dos, la raíz git del `cwd` del padre.
+      
+      `marcar` calcula ese `cwd` y bloquea el lanzamiento de un writer si queda fuera de la instancia. El padre aceptó una ampliación del writer, por S4: también bloquea el caso sin selector, cuando la instancia está en una subcarpeta de un repo más grande, porque es la misma falla. El costo es que, en esa configuración, no hay writers en gentle-shell.
+    - **Pruebas:** RED observado, 14 de 14 mutantes muertos, y el diferencial de S5 con 2184 de 2184 filas iguales.
+  - **El verificador:** S3 y S5 cumplen; S2 y S4 quedaron parciales por dos blockers en la regla del `cwd`.
+    - **El inventario,** revisado por su cuenta, coincide.
+    - **S5:** 871 pasos por bandera en Claude Code y 472 en Codex, sin diferencias, y los tres mutantes se detectaron.
+    - **B1:** un `workspace_root` escrito con `~/` o con `@` pasaba aunque apuntara afuera. gentle-pi lo normaliza con `canonicalDirectory` (`lib/session-worktree-registry.ts:26-31`), y el shim no.
+    - **B2:** un worktree enlazado dentro de la instancia (`.worktrees/feat`) pasaba. El hijo encuentra primero el `workspace.config.json` versionado del worktree, sin `workspace.local.json`, y corre con la config rota y sin guards.
+  - **La corrección (una tanda, del writer):**
+    - **B1:** `workspace_root` se normaliza como `canonicalDirectory` antes de resolverlo.
+    - **B2:** en vez de comprobar que la ruta esté contenida, compara la instancia que se encuentra desde el `cwd` del hijo con la del padre, y bloquea si son distintas, con un motivo propio para «otra instancia».
+    - **La documentación:**
+      - `subagent_continue` retoma en `previous.cwd`, salvo que cambie la topología git sobre la instancia (A2), y queda como límite escrito;
+      - el CHANGELOG suma las herramientas de shell y la restricción del writer (A4);
+      - P6 dice lo que hace el código.
+    - **Pruebas:** RED de 3 tests, y 76 de 76 en Node.
+  - **El rechequeo: B1 y B2 cerrados.** Con 114 casos, las fallas abiertas bajan de 30 a 3, todas `mono2`, y no hay bloqueos de más. De punta a punta, el padre bloquea el absoluto, el `~/` y el `@`. F2c y F2c2 siguen igual.
+  - **Lo nuevo va a X15:** una carpeta `.git` vacía (`mono2`), fuera de dominio, y que el doctor avise de una instancia en una subcarpeta de su repo.
+  - **Risk:** ítem 2 (la regla decide si un writer se lanza, y qué ven los guards de shell), ítem 3 (`hooks.pi.json`, la `COBERTURA` y el input de `subagent_run`, que comparte gentle-pi) e ítem 6 (falta el segundo humo).

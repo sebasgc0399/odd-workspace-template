@@ -29,7 +29,8 @@ COMANDO_WINDOWS_DE_CODEX = re.compile(r'python "\$\{PLUGIN_ROOT\}/scripts/([a-z_
 EVENTOS_DE_PI = {"SessionStart": ("session_start", "session_compact"), "PreToolUse": ("tool_call",), "PostToolUse": ("tool_result",),
                  "SubagentStop": ("agent_before_settle",)}
 EVENTOS_DE_HERRAMIENTA_DE_PI = ("tool_call", "tool_result")
-HERRAMIENTAS_DE_PI = {"Edit": "edit", "Write": "write", "Read": "read", "Bash": "bash", "PowerShell": "powershell"}
+HERRAMIENTAS_DE_PI = {"Edit": ("edit",), "Write": ("write",), "Read": ("read",), "Bash": ("bash", "bash_background", "monitor"),
+                      "PowerShell": ("powershell",)}
 SCRIPT_DE_PI = re.compile(r"([a-z_]+)\.py")
 
 
@@ -272,9 +273,20 @@ def test_cada_agente_que_genera_un_host_deriva_del_md_de_su_agente_con_el_arregl
 def test_las_herramientas_de_los_agentes_de_pi_son_las_que_vigilan_los_hooks_de_pi():
     pi = importlib.import_module("odd_ws.hosts.pi")
     for claude, de_pi in HERRAMIENTAS_DE_PI.items():
-        assert pi.HERRAMIENTAS[claude] == de_pi, (claude, pi.HERRAMIENTAS.get(claude), de_pi)
+        assert pi.HERRAMIENTAS[claude] == de_pi[0], (claude, pi.HERRAMIENTAS.get(claude), de_pi)
     vigiladas = {herramienta for evento, grupo, _ in entradas(leer_json(HOOKS_PI)) for herramienta in grupo.get("tools", ())}
-    assert vigiladas == set(HERRAMIENTAS_DE_PI.values()), vigiladas
+    assert vigiladas == {herramienta for de_pi in HERRAMIENTAS_DE_PI.values() for herramienta in de_pi}, vigiladas
+
+
+def test_bash_de_claude_code_es_en_pi_cada_herramienta_que_gentle_shell_corre_en_un_shell():
+    pi = importlib.import_module("odd_ws.hosts.pi")
+    de_shell = {nombre for nombre, tipo in pi.TIPOS.items() if tipo == "shell"}
+    assert de_shell == set(HERRAMIENTAS_DE_PI["Bash"]) | set(HERRAMIENTAS_DE_PI["PowerShell"]), de_shell
+    assert {nombre: pi.DIALECTOS[nombre] for nombre in de_shell} == {"bash": "posix", "bash_background": "posix", "monitor": "posix",
+                                                                    "powershell": "powershell"}, pi.DIALECTOS
+    for script in ("writer_guard.py", "guard_comandos.py"):
+        for nombre in de_shell:
+            assert script in pi.COBERTURA["tool_call"].get(nombre, ()), (script, nombre, pi.COBERTURA["tool_call"])
 
 
 def leer_json(ruta):
@@ -346,7 +358,7 @@ def pares_de_pi(evento, grupo, hook):
         nombres = grupo["matcher"].split("|")
         assert all(nombre in HERRAMIENTAS_DE_PI for nombre in nombres), (
             "el matcher %r de Claude Code no tiene su traducción a Pi" % grupo["matcher"])
-        herramientas = [HERRAMIENTAS_DE_PI[nombre] for nombre in nombres]
+        herramientas = [herramienta for nombre in nombres for herramienta in HERRAMIENTAS_DE_PI[nombre]]
     return [(de_pi, herramientas, script, plazo, hook["timeout"]) for de_pi in EVENTOS_DE_PI[evento]]
 
 
@@ -414,7 +426,8 @@ def test_la_cobertura_que_revisa_el_doctor_de_pi_es_la_paridad_con_claude_code()
     esperada = {}
     for evento, grupo, hook in entradas(leer_json(HOOKS_CLAUDE)):
         script = SCRIPT_DE_CLAUDE.fullmatch(hook["args"][0]).group(1) + ".py"
-        herramientas = [HERRAMIENTAS_DE_PI[nombre] for nombre in grupo["matcher"].split("|")] if evento in EVENTOS_DE_HERRAMIENTA else [None]
+        herramientas = ([herramienta for nombre in grupo["matcher"].split("|") for herramienta in HERRAMIENTAS_DE_PI[nombre]]
+                        if evento in EVENTOS_DE_HERRAMIENTA else [None])
         for evento_de_pi in EVENTOS_DE_PI[evento]:
             for herramienta in herramientas:
                 esperada.setdefault(evento_de_pi, {}).setdefault(herramienta, set()).add(script)

@@ -29,8 +29,9 @@ MANIFIESTO = {
     "P2": (SOPORTADO, "tool_call de edit y write: la acción bloquear por JSON con exit 0, que el shim de F2b devuelve como block "
                       "(un error del shim también bloquea); una ruta por llamada, resuelta como Pi: sin la @ inicial, con ~ "
                       "expandido, en Windows las rutas de Git Bash pasan a su unidad, y las relativas van contra el cwd"),
-    "P3": (DEGRADADO, "tool_call de bash (POSIX en todas las plataformas: en Windows es Git Bash) y de powershell: la acción "
-                      "bloquear por JSON con exit 0; preguntar sale como la acción preguntar, que el shim de F2b confirma con "
+    "P3": (DEGRADADO, "tool_call de bash (POSIX en todas las plataformas: en Windows es Git Bash), de bash_background y monitor, "
+                      "que gentle-shell corre en segundo plano con el bash configurado en Pi (también POSIX), y de powershell: la "
+                      "acción bloquear por JSON con exit 0; preguntar sale como la acción preguntar, que el shim de F2b confirma con "
                       "ctx.ui.confirm, solo si ctx.hasUI es true: sin pantalla, o con hasUI ausente o raro, se degrada a bloquear, "
                       "con el motivo y el pedido de que el usuario corra el comando"),
     "P4": (SOPORTADO, "tool_result de edit, write y read: las acciones bloquear y contexto por JSON con exit 0, que el shim de F2b "
@@ -46,8 +47,15 @@ MANIFIESTO = {
                       "de subagent_run (una marca en su última línea), borra las marcas que haya escrito el modelo y bloquea "
                       "el lanzamiento de un writer que no puede marcar; el hijo (GENTLE_PI_AGENTS_CHILD=1) la lee del primer "
                       "mensaje del usuario de su sesión y la fija en memoria, con su id de sesión como id del agente, y la manda "
-                      "en oddWs; con Pi a secas no hay subagent_run y todo corre como el agente principal; el rodeo se borra "
-                      "cuando gentle-shell pase el nombre al hijo"),
+                      "en oddWs; los guards del hijo buscan la instancia desde su cwd, así que el padre también bloquea el "
+                      "lanzamiento de un writer que gentle-shell correría fuera de la raíz de la instancia o dentro de otra "
+                      "instancia: con un repository_root o un workspace_root afuera o en otra instancia, como un worktree dentro de "
+                      "ella con su propia config (el workspace_root se lee como gentle-shell, sin la @ inicial y con ~/ expandido), o "
+                      "sin ellos con la instancia en una subcarpeta de su repo git, porque entonces gentle-shell corre al hijo en la "
+                      "raíz de ese repo; subagent_continue retoma la tarea en el cwd de su lanzamiento, salvo que cambie la topología git "
+                      "sobre la instancia (un .git que aparece arriba de una instancia que no estaba en un repo), y eso el padre no lo "
+                      "ve; con Pi a secas no hay subagent_run y todo corre como el agente principal; el rodeo se borra cuando "
+                      "gentle-shell pase el nombre al hijo"),
     "P7": (DEGRADADO, "los agentes de gentle-shell son .pi/agents/<nombre>.md, derivados del .md de .claude/agents, que es la "
                       "fuente, y generados solo si la instancia declara pi en hosts: name, description y tools en el frontmatter, "
                       "y de cuerpo el del .md con los textos de Pi; las herramientas son las del frontmatter pasadas a las de Pi "
@@ -151,7 +159,8 @@ COBERTURA = {
     "session_start": {None: ("verificar_capa.py",)},
     "session_compact": {None: ("verificar_capa.py",)},
     "tool_call": {"edit": ("verificar_capa.py", "writer_guard.py"), "write": ("verificar_capa.py", "writer_guard.py"),
-                  "bash": ("writer_guard.py", "guard_comandos.py"), "powershell": ("writer_guard.py", "guard_comandos.py")},
+                  "bash": ("writer_guard.py", "guard_comandos.py"), "bash_background": ("writer_guard.py", "guard_comandos.py"),
+                  "monitor": ("writer_guard.py", "guard_comandos.py"), "powershell": ("writer_guard.py", "guard_comandos.py")},
     "tool_result": {"edit": ("verificar_capa.py",), "write": ("verificar_capa.py",), "read": ("verificar_capa.py",)},
     "agent_before_settle": {None: ("writer_stop.py",)},
 }
@@ -196,8 +205,9 @@ FASES = {"tool_call": "pre", "tool_result": "post"}
 EVENTOS_DE_HERRAMIENTA = tuple(FASES)
 INICIOS = ("session_start", "session_compact")
 FIN = "agent_before_settle"
-TIPOS = {"edit": "edicion", "write": "edicion", "read": "lectura", "bash": "shell", "powershell": "shell"}
-DIALECTOS = {"bash": POSIX, "powershell": POWERSHELL}
+TIPOS = {"edit": "edicion", "write": "edicion", "read": "lectura", "bash": "shell", "bash_background": "shell", "monitor": "shell",
+         "powershell": "shell"}
+DIALECTOS = {"bash": POSIX, "bash_background": POSIX, "monitor": POSIX, "powershell": POWERSHELL}
 ORIGENES = {"new": "clear", "reload": "resume"}
 SISTEMA = os.name
 ESPACIOS = re.compile("[\u00a0\u2000-\u200a\u202f\u205f\u3000]")

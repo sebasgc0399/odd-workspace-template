@@ -1,7 +1,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -258,6 +258,18 @@ test("de punta a punta: git push --force se bloquea por bash y por powershell, y
     assert.equal(bloqueo.block, true, herramienta);
     assert.match(bloqueo.reason, /^guard-comandos bloqueó el comando: /, herramienta);
     assert.equal(await pi.emitir(llamada(herramienta, { command: "git status" }), ctxFalso(inst)), undefined, herramienta);
+  }
+});
+
+test("de punta a punta: bash_background y monitor de gentle-shell pasan por guard_comandos como bash: el push por refspec se bloquea y git status pasa", async () => {
+  const { inst } = mundo("push-de-fondo");
+  const pi = conPi();
+  const extras: [string, Record<string, unknown>][] = [["bash", {}], ["bash_background", { label: "push" }], ["monitor", { timeout_seconds: 30 }]];
+  for (const [herramienta, extra] of extras) {
+    const bloqueo = await pi.emitir(llamada(herramienta, { ...extra, command: "git push origin +main" }), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, herramienta);
+    assert.match(bloqueo.reason, /^guard-comandos bloqueó el comando: git push con un refspec "\+"/, herramienta);
+    assert.equal(await pi.emitir(llamada(herramienta, { ...extra, command: "git status" }), ctxFalso(inst)), undefined, herramienta);
   }
 });
 
@@ -928,6 +940,289 @@ test("de punta a punta, padre e hijo con los hooks reales: el writer marcado ano
   const sidecar = JSON.parse(readFileSync(join(inst, ".claude", "estado", "writers", "hija-buena", "hija-buena.json"), "utf8"));
   assert.deepEqual([sidecar.agent_type, sidecar.agent_id, sidecar.formato_ok, sidecar.archivos, sidecar.stop_hook_active],
     ["writer-sql", "hija-buena", true, [sql], false]);
+});
+
+test("de punta a punta, el hijo writer: writer_guard le aplica sus reglas en bash_background y monitor, y anota sus comandos en la bitacora", async () => {
+  const { inst, db } = mundo("writer-de-fondo");
+  const entrada = { agent: "writer-sql", task: "Revisa x.sql" };
+  assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst, { sesion: "padre" })), undefined);
+  const hijo = conPiEn(PLUGIN, HIJO);
+  const ctx = ctxFalso(inst, { sesion: "hija-de-fondo" });
+  await hijo.emitir(turnoDelHijo(entrada.task), ctx);
+  const extras: [string, Record<string, unknown>][] = [["bash_background", { label: "x" }], ["monitor", { timeout_seconds: 5 }]];
+  for (const [herramienta, extra] of extras) {
+    const commit = await hijo.emitir(llamada(herramienta, { ...extra, command: `git -C ${aPosix(db)} commit -am x` }), ctx);
+    assert.match(commit?.reason ?? "", /^writer-guard bloqueó el comando\. `git [^`]*commit[^`]*`: los writers no commitean/, herramienta);
+    assert.equal(await hijo.emitir(llamada(herramienta, { ...extra, command: `ls -la ${herramienta}` }), ctx), undefined, herramienta);
+  }
+  const bitacora = join(inst, ".claude", "estado", "writers", "hija-de-fondo", "hija-de-fondo.fotos", "bitacora.jsonl");
+  const registros = existsSync(bitacora) ? readFileSync(bitacora, "ascii").split("\n").filter((linea) => linea !== "").map((linea) => JSON.parse(linea)) : [];
+  assert.deepEqual(registros, [{ tipo: "shell", comando: "ls -la bash_background", dialecto: "posix" },
+    { tipo: "shell", comando: "ls -la monitor", dialecto: "posix" }]);
+});
+
+function hayGitArriba(desde: string): boolean {
+  for (let actual = dirname(desde); ; actual = dirname(actual)) {
+    if (existsSync(join(actual, ".git"))) {
+      return true;
+    }
+    if (dirname(actual) === actual) {
+      return false;
+    }
+  }
+}
+
+const AFUERA = /ahí sus guards y su compuerta de cierre no encuentran la instancia/;
+const OTRA = /ahí sus guards y su compuerta de cierre usarían la config y el estado de esa otra instancia, no los de esta/;
+
+test("en el padre, un writer con repository_root fuera de la instancia se bloquea con el writer, el repository_root y la raiz, sin marcar", async () => {
+  const { inst, db } = mundo("raiz-afuera");
+  const pi = conPi();
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "Cambia x.sql", repository_root: db };
+  const antes = JSON.stringify(entrada);
+  const bloqueo = await pi.emitir(lanzamiento(entrada), ctxFalso(inst));
+  assert.equal(bloqueo?.block, true);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con repository_root ${db}, fuera de la raíz de la instancia (${inst}): `),
+    bloqueo.reason);
+  assert.match(bloqueo.reason, AFUERA);
+  assert.match(bloqueo.reason, /Relánzalo sin repository_root: el writer edita los archivos de los repos por su ruta absoluta/);
+  assert.equal(JSON.stringify(entrada), antes, "lo que bloquea no se marca");
+  const relanzado: Record<string, unknown> = { agent: "writer-sql", task: "Cambia x.sql" };
+  assert.equal(await pi.emitir(lanzamiento(relanzado), ctxFalso(inst)), undefined, "sin repository_root corre en la raíz de la instancia");
+  assert.equal(relanzado.task, `Cambia x.sql\n${MARCA_SQL}`);
+  const desdeSubcarpeta = await pi.emitir(lanzamiento({ agent: "writer-sql", task: "x", repository_root: db }), ctxFalso(join(inst, "tickets", "uno")));
+  assert.equal(desdeSubcarpeta?.block, true, "la raíz de la instancia se busca subiendo desde ctx.cwd");
+});
+
+test("en el padre, un writer con repository_root dentro de la instancia pasa y se marca", async () => {
+  const { inst } = mundo("raiz-adentro");
+  const anidado = join(inst, "repos", "propio");
+  mkdirSync(anidado, { recursive: true });
+  git(anidado, "init", "-q");
+  const pi = conPi();
+  for (const raiz of [anidado, inst]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "Cambia x.sql", repository_root: raiz };
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, raiz);
+    assert.equal(entrada.task, `Cambia x.sql\n${MARCA_SQL}`, raiz);
+  }
+  for (const vacio of ["", 7, null]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: vacio };
+    assert.equal(await pi.emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, String(vacio));
+    assert.equal(entrada.task, `x\n${MARCA_SQL}`, "un repository_root vacío o que no es texto no mueve el cwd: gentle-shell lo ignora o lo rechaza");
+  }
+});
+
+test("en Windows, repository_root se compara con la raiz de la instancia sin distinguir mayusculas", { skip: process.platform !== "win32" }, async () => {
+  const { inst } = mundo("raiz-mayusculas");
+  const anidado = join(inst, "repos", "propio");
+  mkdirSync(anidado, { recursive: true });
+  for (const raiz of [anidado.toUpperCase(), anidado.toLowerCase(), join(inst.toUpperCase(), "repos", "NUEVO")]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: raiz };
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst.toLowerCase())), undefined, raiz);
+    assert.equal(entrada.task, `x\n${MARCA_SQL}`, raiz);
+  }
+});
+
+test("la raiz de la instancia y el repository_root se comparan por su ruta canonica: un enlace a la instancia no la saca de ella", async () => {
+  const { inst, db } = mundo("raiz-enlace");
+  const enlace = join(BASE, "raiz-enlace", "enlace-a-inst");
+  symlinkSync(inst, enlace, "junction");
+  const anidado = join(inst, "repos", "propio");
+  mkdirSync(anidado, { recursive: true });
+  const pi = conPi();
+  const adentro: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: realpathSync(anidado) };
+  assert.equal(await pi.emitir(lanzamiento(adentro), ctxFalso(enlace)), undefined);
+  assert.equal(adentro.task, `x\n${MARCA_SQL}`);
+  const porElEnlace: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: join(enlace, "repos", "propio") };
+  assert.equal(await pi.emitir(lanzamiento(porElEnlace), ctxFalso(inst)), undefined);
+  const afuera = await pi.emitir(lanzamiento({ agent: "writer-sql", task: "x", repository_root: db }), ctxFalso(enlace));
+  assert.equal(afuera?.block, true);
+  assert.match(afuera.reason, AFUERA);
+});
+
+test("en el padre, un agente que no es writer con repository_root fuera de la instancia pasa sin tocarse", async () => {
+  const { inst, db } = mundo("raiz-otro-agente");
+  for (const agente of ["explorador", "revisor-sql", "writer-", "Writer-sql"]) {
+    const entrada: Record<string, unknown> = { agent: agente, task: "Mira x.sql", repository_root: db };
+    const antes = JSON.stringify(entrada);
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, agente);
+    assert.equal(JSON.stringify(entrada), antes, agente);
+  }
+});
+
+test("si el padre no esta en una instancia, un writer con repository_root se marca como antes, sin bloqueo nuevo", async () => {
+  const { db, api } = mundo("raiz-sin-instancia");
+  const afuera = join(BASE, "raiz-sin-instancia", "repos");
+  for (const raiz of [db, api, afuera]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "Cambia x.sql", repository_root: raiz };
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(api)), undefined, raiz);
+    assert.equal(entrada.task, `Cambia x.sql\n${MARCA_SQL}`, raiz);
+  }
+});
+
+test("en el padre, un writer con workspace_root en un worktree fuera de la instancia se bloquea, y dentro de ella pasa", async () => {
+  const { inst } = mundo("worktree");
+  const fuera = join(BASE, "worktree", "inst-wt");
+  git(inst, "worktree", "add", "-q", "-b", "rama-wt", fuera);
+  const pi = conPi();
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: fuera };
+  const bloqueo = await pi.emitir(lanzamiento(entrada), ctxFalso(inst));
+  assert.equal(bloqueo?.block, true);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con workspace_root ${fuera} (gentle-shell lo correría en `),
+    bloqueo.reason);
+  assert.match(bloqueo.reason, /fuera de la raíz de la instancia/);
+  assert.match(bloqueo.reason, AFUERA);
+  assert.match(bloqueo.reason, /Relánzalo sin workspace_root/);
+  assert.equal(entrada.task, "x");
+  const dentro: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: join(inst, "tickets") };
+  assert.equal(await pi.emitir(lanzamiento(dentro), ctxFalso(inst)), undefined, "gentle-shell lo corre en la raíz del worktree, que es la instancia");
+  assert.equal(dentro.task, `x\n${MARCA_SQL}`);
+});
+
+async function conHome<T>(home: string, correr: () => Promise<T>): Promise<T> {
+  const previos = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  try {
+    return await correr();
+  } finally {
+    for (const [clave, valor] of Object.entries(previos)) {
+      if (valor === undefined) {
+        delete process.env[clave];
+      } else {
+        process.env[clave] = valor;
+      }
+    }
+  }
+}
+
+test("un workspace_root escrito con @, ~/ o ~/.. se lee como lo lee gentle-shell: hacia un worktree afuera se bloquea desde la raiz, una subcarpeta y un enlace", async () => {
+  const { inst } = mundo("worktree-tilde");
+  const home = join(BASE, "worktree-tilde", "casa");
+  mkdirSync(home, { recursive: true });
+  const fuera = join(BASE, "worktree-tilde", "inst-wt");
+  const enCasa = join(home, "inst-wt-casa");
+  git(inst, "worktree", "add", "-q", "-b", "rama-fuera", fuera);
+  git(inst, "worktree", "add", "-q", "-b", "rama-casa", enCasa);
+  mkdirSync(join(inst, "tickets"), { recursive: true });
+  const enlace = join(BASE, "worktree-tilde", "enlace-a-inst");
+  symlinkSync(inst, enlace, "junction");
+  await conHome(home, async () => {
+    const casos: [string, string][] = [[`@${fuera}`, fuera], ["~/inst-wt-casa", enCasa], ["~/../inst-wt", fuera]];
+    for (const desde of [inst, join(inst, "tickets"), enlace]) {
+      for (const [valor, destino] of casos) {
+        const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: valor };
+        const bloqueo = await conPi().emitir(lanzamiento(entrada), ctxFalso(desde));
+        assert.equal(bloqueo?.block, true, `${desde} ${valor}`);
+        assert.ok(bloqueo.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con workspace_root ${valor} (gentle-shell lo correría en `
+          + `${realpathSync.native(destino)}), fuera de la raíz de la instancia (`), bloqueo.reason);
+        assert.match(bloqueo.reason, AFUERA);
+        assert.equal(entrada.task, "x", `${desde} ${valor}`);
+      }
+    }
+    for (const valor of [`@${join(inst, "tickets")}`, "@tickets", "@."]) {
+      const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: valor };
+      assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, valor);
+      assert.equal(entrada.task, `x\n${MARCA_SQL}`, valor);
+    }
+  });
+});
+
+test("un worktree enlazado dentro de la instancia (.worktrees/feat) se bloquea: sus guards encontrarian la config versionada del worktree", async () => {
+  const { inst } = mundo("worktree-adentro");
+  git(inst, "add", "workspace.config.json");
+  git(inst, "commit", "-q", "-m", "config");
+  const feat = join(inst, ".worktrees", "feat");
+  git(inst, "worktree", "add", "-q", "-b", "feat", feat);
+  assert.ok(existsSync(join(feat, "workspace.config.json")) && !existsSync(join(feat, "workspace.local.json")));
+  const pi = conPi();
+  for (const valor of [feat, join(feat, "sub")]) {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: valor };
+    const bloqueo = await pi.emitir(lanzamiento(entrada), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, valor);
+    assert.ok(bloqueo.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con workspace_root ${valor} (gentle-shell lo correría en `
+      + `${realpathSync.native(feat)}), donde sus guards encuentran otra instancia (${realpathSync.native(feat)}) y no esta (${inst}): `), bloqueo.reason);
+    assert.match(bloqueo.reason, OTRA);
+    assert.match(bloqueo.reason, /Relánzalo sin workspace_root/);
+    assert.equal(entrada.task, "x", valor);
+  }
+  const sinSelector: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  assert.equal(await pi.emitir(lanzamiento(sinSelector), ctxFalso(inst)), undefined, "sin selector corre en la raíz de la instancia");
+  assert.equal(sinSelector.task, `x\n${MARCA_SQL}`);
+});
+
+test("un repository_root en una instancia anidada se bloquea: sus guards usarian la config de la anidada y no la del padre", async () => {
+  const { inst } = mundo("instancia-anidada");
+  const anidada = instancia(join(inst, "sub", "otra"), false);
+  git(anidada, "init", "-q");
+  const propio = join(inst, "repos", "propio");
+  mkdirSync(propio, { recursive: true });
+  git(propio, "init", "-q");
+  const pi = conPi();
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: anidada };
+  const bloqueo = await pi.emitir(lanzamiento(entrada), ctxFalso(inst));
+  assert.equal(bloqueo?.block, true);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con repository_root ${anidada}, donde sus guards encuentran otra `
+    + `instancia (${realpathSync.native(anidada)}) y no esta (${inst}): `), bloqueo.reason);
+  assert.match(bloqueo.reason, OTRA);
+  assert.equal(entrada.task, "x");
+  const enUnRepoPropio: Record<string, unknown> = { agent: "writer-sql", task: "x", repository_root: propio };
+  assert.equal(await pi.emitir(lanzamiento(enUnRepoPropio), ctxFalso(inst)), undefined, "un repo propio sin instancia sigue siendo esta instancia");
+  assert.equal(enUnRepoPropio.task, `x\n${MARCA_SQL}`);
+  const desdeLaAnidada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  assert.equal(await pi.emitir(lanzamiento(desdeLaAnidada), ctxFalso(anidada)), undefined, "el padre en la anidada corre al hijo en ella");
+  assert.equal(desdeLaAnidada.task, `x\n${MARCA_SQL}`);
+});
+
+test("sin selector, gentle-shell corre al writer en la raiz del repo git: con la instancia en una subcarpeta del repo, se bloquea", async () => {
+  const repo = join(BASE, "monorepo");
+  mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q");
+  const inst = instancia(join(repo, "equipo", "inst"), false);
+  const pi = conPi();
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  const bloqueo = await pi.emitir(lanzamiento(entrada), ctxFalso(inst));
+  assert.equal(bloqueo?.block, true);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(repo)}, la raíz del repo git que contiene la instancia, `
+    + `fuera de la raíz de la instancia (${inst}): `), bloqueo.reason);
+  assert.match(bloqueo.reason, AFUERA);
+  assert.match(bloqueo.reason, /En gentle-shell, un writer necesita que la instancia sea la raíz de su repo git, o que no esté dentro de ninguno\.$/);
+  assert.equal(entrada.task, "x");
+  assert.equal(await pi.emitir(lanzamiento({ agent: "explorador", task: "x" }), ctxFalso(inst)), undefined, "a otro agente no lo toca");
+  const conWorkspace: Record<string, unknown> = { agent: "writer-sql", task: "x", workspace_root: inst };
+  const porWorkspace = await pi.emitir(lanzamiento(conWorkspace), ctxFalso(inst));
+  assert.equal(porWorkspace?.block, true, "workspace_root dentro de la instancia, pero gentle-shell corre al hijo en la raíz de su repo");
+  assert.ok(porWorkspace.reason.startsWith(`odd-ws: este writer (writer-sql) se lanza con workspace_root ${inst} (gentle-shell lo correría en `
+    + `${realpathSync.native(repo)}), fuera de la raíz de la instancia (${inst}): `), porWorkspace.reason);
+  assert.equal(conWorkspace.task, "x");
+  git(inst, "init", "-q");
+  const conRepoPropio: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  assert.equal(await pi.emitir(lanzamiento(conRepoPropio), ctxFalso(inst)), undefined, "con su propio repo, la raíz de git es la instancia");
+  assert.equal(conRepoPropio.task, `x\n${MARCA_SQL}`);
+});
+
+test("una instancia fuera de todo repo git: el writer sin selector corre en ctx.cwd y pasa", { skip: hayGitArriba(BASE) }, async () => {
+  const inst = instancia(join(BASE, "sin-git", "inst"), false);
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined);
+  assert.equal(entrada.task, `x\n${MARCA_SQL}`);
+});
+
+test("un ctx.cwd que entra a la instancia por un enlace hacia afuera tambien se bloquea, con el pedido de abrir en la raiz", { skip: hayGitArriba(BASE) }, async () => {
+  const inst = instancia(join(BASE, "enlace-afuera", "inst"), false);
+  const destino = join(BASE, "enlace-afuera", "destino");
+  mkdirSync(destino, { recursive: true });
+  const enlace = join(inst, "por-aca");
+  symlinkSync(destino, enlace, "junction");
+  const bloqueo = await conPi().emitir(lanzamiento({ agent: "writer-sql", task: "x" }), ctxFalso(enlace));
+  assert.equal(bloqueo?.block, true);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(destino)}, fuera de la raíz de la `
+    + `instancia (${inst}): `), bloqueo.reason);
+  assert.match(bloqueo.reason, AFUERA);
+  assert.match(bloqueo.reason, /Abre gentle-shell en la raíz de la instancia, sin pasar por un enlace\.$/);
+  const enLaRaiz: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  assert.equal(await conPi().emitir(lanzamiento(enLaRaiz), ctxFalso(inst)), undefined);
+  assert.equal(enLaRaiz.task, `x\n${MARCA_SQL}`);
 });
 
 const SCRIPTS = join(PLUGIN, "scripts");

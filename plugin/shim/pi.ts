@@ -1,5 +1,6 @@
-import { statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { combinar, contexto, correrEvento, leerLista, writerDe } from "./nucleo.ts";
 import type { ListaDeHooks, Resultado } from "./nucleo.ts";
@@ -10,8 +11,13 @@ export const PLAZO_DE_CONFIRMACION = 60000;
 export const VARIABLE_DEL_HIJO = "GENTLE_PI_AGENTS_CHILD";
 const CONFIG_DE_LA_INSTANCIA = "workspace.config.json";
 const SKILLS_DE_LA_INSTANCIA = join(".claude", "skills");
+const MARCA_DE_GIT = ".git";
 const LANZAR = "subagent_run";
 const SUBAGENTES: readonly string[] = [LANZAR, "subagent_continue", "subagent_send_message"];
+const CAMPOS_DE_RAIZ: readonly ("repository_root" | "workspace_root")[] = ["repository_root", "workspace_root"];
+const SIN_LA_INSTANCIA = "ahí sus guards y su compuerta de cierre no encuentran la instancia, así que correría sin ellos";
+const CON_OTRA_INSTANCIA = "ahí sus guards y su compuerta de cierre usarían la config y el estado de esa otra instancia, no los de esta";
+const ESPACIOS_DE_GENTLE_PI = /[  -   　]/g;
 const TIPO_DEL_MENSAJE = "odd-ws";
 const MARCA = /^<!-- odd-ws:agente (\S+) -->$/;
 const MARCAS = /<!--\s*odd-ws[\s\S]*?-->[ \t]*(?:\r?\n)?/gi;
@@ -59,7 +65,8 @@ interface ApiDePi {
 interface Bloqueo { block: true; reason: string }
 interface Revision { isError?: true; content: unknown[] }
 interface Continuacion { entries: unknown[]; continue: true }
-interface Lanzamiento { agent: string; task: string; context?: string }
+interface Lanzamiento { agent: string; task: string; context?: string; repository_root?: unknown; workspace_root?: unknown }
+interface CwdDelHijo { cwd: string; campo?: string; valor?: string }
 interface Identidad { agent: string | null; agentId: string | null }
 interface Estado { hijo: boolean; fijada: boolean; identidad: Identidad; continuado: boolean }
 
@@ -163,7 +170,55 @@ function empiezaConBarra(nombre: string): string {
     + "tarea que no empiece con /; si necesita una skill o una plantilla, nómbrala en el texto.";
 }
 
-function marcar(evento: EventoDePi, hooks: ListaDeHooks): Bloqueo | undefined {
+function comoLaLeeGentleShell(valor: string): string {
+  const escrita = valor.replace(/^@/, "").replace(ESPACIOS_DE_GENTLE_PI, " ");
+  return escrita === "~" || escrita.startsWith("~/") ? homedir() + escrita.slice(1) : escrita;
+}
+
+function cwdDelHijo(entrada: Lanzamiento, desde: string): CwdDelHijo {
+  for (const campo of CAMPOS_DE_RAIZ) {
+    const valor = entrada[campo];
+    if (typeof valor === "string" && valor !== "") {
+      const ruta = canonica(resolve(desde, campo === "workspace_root" ? comoLaLeeGentleShell(valor) : valor));
+      return { cwd: campo === "workspace_root" ? raizDeGit(ruta) ?? ruta : ruta, campo, valor };
+    }
+  }
+  const propio = canonica(desde);
+  return { cwd: raizDeGit(propio) ?? propio };
+}
+
+function fueraDeLaInstancia(nombre: string, entrada: Lanzamiento, desde: unknown): string | undefined {
+  if (typeof desde !== "string" || desde === "") {
+    return undefined;
+  }
+  const raiz = raizDeLaInstancia(desde);
+  if (raiz === null) {
+    return undefined;
+  }
+  const canonicaDeLaRaiz = canonica(raiz);
+  const hijo = cwdDelHijo(entrada, desde);
+  const delHijo = raizDeLaInstancia(hijo.cwd);
+  const otra = delHijo === null ? null : canonica(delHijo);
+  if (otra !== null && comparable(otra) === comparable(canonicaDeLaRaiz)) {
+    return undefined;
+  }
+  const efecto = otra === null
+    ? `fuera de la raíz de la instancia (${raiz}): ${SIN_LA_INSTANCIA}`
+    : `donde sus guards encuentran otra instancia (${otra}) y no esta (${raiz}): ${CON_OTRA_INSTANCIA}`;
+  if (hijo.campo !== undefined) {
+    const donde = hijo.campo === "repository_root" ? "" : ` (gentle-shell lo correría en ${hijo.cwd})`;
+    return `odd-ws: este writer (${nombre}) se lanza con ${hijo.campo} ${hijo.valor}${donde}, ${efecto}. Relánzalo sin ${hijo.campo}: el `
+      + "writer edita los archivos de los repos por su ruta absoluta y tiene que correr en la raíz de la instancia.";
+  }
+  if (dentro(hijo.cwd, canonicaDeLaRaiz)) {
+    return `odd-ws: gentle-shell correría este writer (${nombre}) en ${hijo.cwd}, la raíz del repo git que contiene la instancia, ${efecto}. `
+      + "En gentle-shell, un writer necesita que la instancia sea la raíz de su repo git, o que no esté dentro de ninguno.";
+  }
+  return `odd-ws: gentle-shell correría este writer (${nombre}) en ${hijo.cwd}, ${efecto}. Abre gentle-shell en la raíz de la instancia, `
+    + "sin pasar por un enlace.";
+}
+
+function marcar(evento: EventoDePi, hooks: ListaDeHooks, ctx: ContextoDePi): Bloqueo | undefined {
   if (evento.toolName !== LANZAR) {
     limpiar(evento.input);
     return undefined;
@@ -179,6 +234,10 @@ function marcar(evento: EventoDePi, hooks: ListaDeHooks): Bloqueo | undefined {
   }
   if (entrada.task.trimStart().startsWith("/")) {
     return { block: true, reason: empiezaConBarra(entrada.agent) };
+  }
+  const afuera = fueraDeLaInstancia(entrada.agent, entrada, ctx.cwd);
+  if (afuera !== undefined) {
+    return { block: true, reason: afuera };
   }
   if (entrada.task.trim() !== "") {
     entrada.task = `${entrada.task}\n${marca(entrada.agent)}`;
@@ -256,7 +315,7 @@ async function antesDeLaHerramienta(plugin: string, evento: EventoDePi, ctx: Con
   try {
     const hooks = lista(plugin);
     if (evento.toolName !== undefined && SUBAGENTES.includes(evento.toolName)) {
-      const bloqueo = marcar(evento, hooks);
+      const bloqueo = marcar(evento, hooks, ctx);
       if (bloqueo !== undefined) {
         return bloqueo;
       }
@@ -375,10 +434,10 @@ function es(ruta: string, tipo: "archivo" | "carpeta"): boolean {
   }
 }
 
-function raizDeLaInstancia(desde: string): string | null {
+function subir(desde: string, cumple: (carpeta: string) => boolean): string | null {
   let actual = resolve(desde);
   for (;;) {
-    if (es(join(actual, CONFIG_DE_LA_INSTANCIA), "archivo")) {
+    if (cumple(actual)) {
       return actual;
     }
     const padre = dirname(actual);
@@ -387,6 +446,33 @@ function raizDeLaInstancia(desde: string): string | null {
     }
     actual = padre;
   }
+}
+
+function raizDeLaInstancia(desde: string): string | null {
+  return subir(desde, (carpeta) => es(join(carpeta, CONFIG_DE_LA_INSTANCIA), "archivo"));
+}
+
+function raizDeGit(desde: string): string | null {
+  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || es(join(carpeta, MARCA_DE_GIT), "carpeta"));
+}
+
+function canonica(ruta: string): string {
+  const absoluta = resolve(ruta);
+  try {
+    return realpathSync.native(absoluta);
+  } catch {
+    const padre = dirname(absoluta);
+    return padre === absoluta ? absoluta : join(canonica(padre), basename(absoluta));
+  }
+}
+
+function comparable(ruta: string): string {
+  return process.platform === "win32" ? ruta.toLowerCase() : ruta;
+}
+
+function dentro(raiz: string, ruta: string): boolean {
+  const relativa = relative(comparable(raiz), comparable(ruta));
+  return relativa === "" || (!isAbsolute(relativa) && relativa.split(sep)[0] !== "..");
 }
 
 function skillsDeLaInstancia(evento: EventoDePi, ctx: Partial<ContextoDePi>): { skillPaths: string[] } | undefined {

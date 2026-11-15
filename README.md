@@ -107,6 +107,8 @@ Ten en cuenta:
 
 - **Sin gentle-shell no hay compuerta.** Con Pi a secas corren los guards, pero no hay subagentes: no hay writers ni su compuerta de cierre, y el doctor lo avisa.
 - **La tarea de un writer no puede empezar con `/`.** Pi la expandiría como una skill o una plantilla, y el writer correría sin guards, así que el lanzamiento se bloquea. Nombra la skill en el texto de la tarea.
+- **El writer corre en la raíz de la instancia.** Si gentle-shell lo correría afuera o en otra instancia, el lanzamiento se bloquea: pasa con un `repository_root` o un `workspace_root` fuera de la instancia, con un worktree dentro de ella que trae su propia config, o con la instancia en una subcarpeta de su repo git. Relánzalo sin esos campos; el writer edita tus repos por su ruta absoluta. En gentle-shell, la instancia tiene que ser la raíz de su repo git, o no estar en ninguno.
+- **Los guards de comandos cubren `bash`, `bash_background` y `monitor`,** las tres herramientas de gentle-shell que corren un comando en un shell, además de `powershell`.
 - **Los comandos de las skills usan `${CLAUDE_PLUGIN_ROOT}`, que Pi no define.** La extensión de odd-ws la define al cargarse, con la carpeta del plugin, si no estaba. Si algo la pisa, corre el doctor a mano desde la raíz de la instancia: `python3 <raíz del paquete>/plugin/scripts/doctor.py`. La raíz del paquete es tu clon o, con la fuente git, `~/.gentle-shell/agent/git/github.com/sebasgc0399/odd-workspace-template` (con `--link`, `~/.pi/agent/git/github.com/sebasgc0399/odd-workspace-template`).
 
 ## Documentación

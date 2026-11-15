@@ -26,13 +26,13 @@
         ]
       },
       {
-        "tools": ["bash", "powershell", "edit", "write"],
+        "tools": ["bash", "bash_background", "monitor", "powershell", "edit", "write"],
         "hooks": [
           { "script": "writer_guard.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
         ]
       },
       {
-        "tools": ["bash", "powershell"],
+        "tools": ["bash", "bash_background", "monitor", "powershell"],
         "hooks": [
           { "script": "guard_comandos.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
         ]

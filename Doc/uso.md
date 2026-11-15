@@ -67,10 +67,12 @@ gentle-shell es un agente de código sobre Pi que le suma subagentes. La instanc
 - **Confiar el proyecto (`/trust`):** sin confianza, Pi no carga las skills de la instancia ni los paquetes declarados en `.pi/settings.json`.
 - **Las skills se invocan con `/skill:<nombre>`,** por ejemplo `/skill:doctor`. No tienen el prefijo `odd-ws:`.
 
-Dos cosas a tener en cuenta:
+A tener en cuenta:
 
 - **Sin gentle-shell no hay writers con compuerta.** Pi a secas corre los guards y el primer toque, pero no tiene subagentes.
 - **La tarea de un writer no puede empezar con `/`.** Pi la expandiría como comando y el writer perdería su marca, así que odd-ws bloquea el lanzamiento. Nombra la skill o la plantilla dentro del texto.
+- **El writer corre en la raíz de la instancia.** Sus guards y su compuerta buscan la instancia desde la carpeta donde corre, así que odd-ws bloquea un writer que gentle-shell correría afuera o en otra instancia: con `repository_root` o `workspace_root` fuera de la instancia, o en un worktree dentro de ella que trae su propia config, o sin ellos si la instancia está en una subcarpeta de su repo git, porque gentle-shell lo correría en la raíz de ese repo. Relánzalo sin esos campos: el writer edita los archivos de tus repos por su ruta absoluta. En gentle-shell, la instancia tiene que ser la raíz de su repo git, o no estar en ninguno.
+- **Los guards de comandos cubren las tres herramientas de shell de gentle-shell:** `bash`, `bash_background` y `monitor`, además de `powershell`. Las tres corren en el bash que tengas configurado en Pi (en Windows, Git Bash).
 
 ## El ciclo de un ticket
 

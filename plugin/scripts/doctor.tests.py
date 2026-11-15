@@ -2451,6 +2451,26 @@ def test_hooks_host_de_pi_es_falta_con_lo_que_el_shim_acepta_pero_apaga_un_guard
         assert por_id(ctx)["hooks-host"].estado == "OK", "un grupo sin tools corre en toda herramienta y no apaga nada"
 
 
+def test_hooks_host_de_pi_es_falta_si_bash_background_o_monitor_de_gentle_shell_quedan_sin_guard():
+    def sin(*herramientas):
+        def cambiar(datos):
+            for grupo in datos["hooks"]["tool_call"]:
+                grupo["tools"] = [nombre for nombre in grupo.get("tools", []) if nombre not in herramientas]
+        return cambiar
+
+    with Escenario() as e:
+        _, ctx = instancia_pi_sana(e)
+        for herramientas in (("bash_background",), ("monitor",), ("bash_background", "monitor")):
+            escribir_hooks_de_pi(ctx, sin(*herramientas))
+            r = por_id(ctx)["hooks-host"]
+            rastros = ["tool_call de %s no corre %s" % (herramienta, script) for herramienta in herramientas
+                       for script in ("writer_guard.py", "guard_comandos.py")]
+            assert r.estado == "FALTA" and all(rastro in r.detalle for rastro in rastros), (herramientas, r)
+            assert pim().AYUDA_HOOKS in r.ayuda and r.arreglo is None, r
+        escribir_hooks_de_pi(ctx)
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+
+
 def test_hooks_host_de_pi_revisa_que_cada_script_exista_y_que_la_compuerta_pueda_seguir():
     otro = {"script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10}
     casos = ((lambda d: d["hooks"]["agent_before_settle"][0]["hooks"][0].update(timeout=50),

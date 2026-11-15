@@ -13,6 +13,8 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **Abre gentle-shell en la raíz de la instancia y dale confianza con `/trust`.** gentle-shell solo lee los agentes de `<cwd>/.pi/agents`, y sin confianza no llegan las skills de la instancia. Las del plugin se invocan con `/skill:<nombre>`, por ejemplo `/skill:doctor`.
 - **Preguntar necesita pantalla.** Con pantalla, un comando dudoso pide tu confirmación; sin ella, se bloquea con el motivo.
 - **Los writers necesitan gentle-shell.** Con Pi a secas no hay subagentes, y el doctor lo avisa. La tarea de un writer no puede empezar con `/`: Pi la expandiría, y el writer correría sin guards.
+- **El writer corre en la raíz de la instancia.** odd-ws bloquea su lanzamiento si gentle-shell lo correría afuera o en otra instancia: con un `repository_root` o un `workspace_root` fuera de la instancia, con un worktree dentro de ella que trae su propia config, o sin ellos si la instancia está en una subcarpeta de su repo git. Relánzalo sin esos campos: el writer edita tus repos por su ruta absoluta. En gentle-shell, la instancia tiene que ser la raíz de su repo git, o no estar en ninguno.
+- **Los guards de comandos cubren las tres herramientas de shell de gentle-shell:** `bash`, `bash_background` y `monitor`, además de `powershell`. Las dos nuevas corren un comando en segundo plano con el mismo bash que `bash`, y antes pasaban sin guard.
 - **`/skill:doctor` en Pi revisa** la versión de Pi (1.5.0 o más), gentle-shell, que el paquete cargue el shim, la confianza del proyecto y los `.pi/agents`. `--arreglar pi-agentes` los genera o los pone al día.
 - **Las skills en Pi:** sus comandos usan `${CLAUDE_PLUGIN_ROOT}`, que Pi no define, así que la extensión la define al cargarse, con la carpeta del plugin, si no estaba.
 
@@ -20,7 +22,8 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 - **`odd_ws/hosts/pi.py`:** el adaptador de Pi, con su manifiesto de capacidades. Sin pantalla, preguntar se degrada a bloquear. P3, P5 a P7 y P10 son `degradado`; P1, P2, P4, P8 y P9, `soportado`.
 - **`plugin/shim/`:** una extensión TypeScript sin dependencias ni build. Lanza los scripts de Python sin shell, les pone un timeout y falla cerrada en pre. `nucleo.ts` es neutral, para que lo reuse otro host. Los hooks están en `hooks/hooks.pi.json`, con su test de paridad contra `hooks.json`.
-- **El writer en gentle-shell:** el padre marca la tarea de `subagent_run` con el nombre del writer, y el hijo corre `writer_stop` en `agent_before_settle`, con la bitácora de `writer_guard`.
+- **El writer en gentle-shell:** el padre marca la tarea de `subagent_run` con el nombre del writer, y el hijo corre `writer_stop` en `agent_before_settle`, con la bitácora de `writer_guard`. Antes de marcarla, el padre calcula el `cwd` que le daría gentle-shell al hijo y bloquea si la instancia que encontrarían sus guards no es la del padre.
+- **`bash_background` y `monitor`:** `pi.py` las lee como shell POSIX, `hooks.pi.json` les corre `writer_guard` y `guard_comandos`, y el doctor exige esa cobertura.
 - **`package.json` en la raíz del repo:** es el paquete de Pi. Va en la raíz porque Pi instala un repo git entero y no admite un paquete en una subcarpeta. Es privado y no tiene dependencias ni scripts. Su versión sube con los dos `plugin.json`: lo exige un test.
 - **El doctor de Pi:** los ítems `pi`, `gentle-shell`, `pi-plugin`, `pi-confianza` y `pi-agentes`; `hooks-host` revisa también la forma de `hooks.pi.json`. `pi-plugin` calca la resolución de paquetes de Pi y no cuenta una fuente `npm:`.
 - **El pre-commit y el CI** corren también las suites `*.test.ts` del shim, con Node 22.18 o más (el CI usa 24).

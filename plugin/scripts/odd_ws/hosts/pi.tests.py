@@ -338,6 +338,25 @@ def test_bash_es_posix_en_todas_las_plataformas_y_powershell_es_powershell():
                 tipo="shell", herramienta="powershell", comando="Get-ChildItem", dialecto="powershell"), nombre
 
 
+def test_bash_background_y_monitor_de_gentle_shell_son_shell_posix_como_bash():
+    for nombre in ("nt", "posix"):
+        with sistema(nombre):
+            assert visto(llamada("bash_background", {"command": "npm test", "label": "pruebas"})) == herramienta(
+                tipo="shell", herramienta="bash_background", comando="npm test", dialecto="posix"), nombre
+            assert visto(llamada("monitor", {"command": "tail -f app.log", "timeout_seconds": 30, "label": "log"})) == herramienta(
+                tipo="shell", herramienta="monitor", comando="tail -f app.log", dialecto="posix"), nombre
+            assert visto(resultado("monitor", {"command": "ls", "timeout_seconds": 5})) == herramienta(
+                fase="post", tipo="shell", herramienta="monitor", comando="ls", dialecto="posix"), nombre
+    for entrada in (None, {}, {"command": 7}, {"label": "x"}):
+        for nombre in ("bash_background", "monitor"):
+            assert (visto(llamada(nombre, entrada)).tipo, visto(llamada(nombre, entrada)).comando) == ("shell", None), (nombre, entrada)
+    for nombre, entrada in (("job_stop", {"job_id": "job-1"}), ("job_list", {}), ("codegraph", {"operation": "query", "query": "x"}),
+                            ("gentle_design_comments", {"action": "resolve", "slug": "login", "ids": ["c1"]}),
+                            ("session_worktree_register", {"path": "../otro"}), ("Bash_background", {"command": "ls"})):
+        leido = visto(llamada(nombre, entrada))
+        assert (leido.tipo, leido.rutas, leido.comando, leido.dialecto) == ("otra", (), None, None), (nombre, leido)
+
+
 def test_tool_call_es_pre_y_tool_result_es_post():
     assert visto(llamada("bash", {"command": "ls"})).fase == "pre"
     assert visto(resultado("bash", {"command": "ls"}, isError=True)) == herramienta(
@@ -592,6 +611,16 @@ def test_p9_dice_el_paquete_de_la_raiz_y_como_se_instala():
     for frase in ("package.json", "raíz del repositorio", "./plugin/shim/pi.ts", "./plugin/skills", "gentle-shell install", "git",
                   "etiqueta", "ruta", "subcarpeta", "npm", "PLUGIN_ROOT", "pi-plugin"):
         assert frase in p9, (frase, p9)
+
+
+def test_p3_nombra_las_tres_herramientas_de_shell_de_gentle_shell_y_p6_el_cwd_del_writer():
+    p3, p6 = m().MANIFIESTO["P3"][1], m().MANIFIESTO["P6"][1]
+    for frase in ("bash_background", "monitor", "gentle-shell", "bash configurado"):
+        assert frase in p3, (frase, p3)
+    for frase in ("repository_root", "workspace_root", "raíz de la instancia", "bloquea", "subagent_continue", "otra instancia",
+                  "sin la @ inicial y con ~/ expandido", "topología git"):
+        assert frase in p6, (frase, p6)
+    assert "no mueve el cwd" not in p6, p6
 
 
 INDICADORES_DE_YAML = "-?:,[]{}#&*!|>'\"%@`"
@@ -1106,6 +1135,43 @@ def test_de_punta_a_punta_guard_comandos_con_host_pi_bloquea_por_json_con_exit_0
             assert datos["accion"] == "bloquear" and datos["texto"].startswith("guard-comandos bloqueó el comando: "), datos
             r = correr_hook("guard_comandos", llamada(herramienta_, {"command": "git status"}, ctx=en_inst), inst, entorno, *bandera)
             assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "control: lo que no bloquea calla: %r" % (r,)
+
+
+def test_de_punta_a_punta_guard_comandos_con_host_pi_bloquea_bash_background_y_monitor_como_bash():
+    with temporal() as base:
+        inst = base / "inst"
+        inst.mkdir()
+        (inst / "workspace.config.json").write_text(json.dumps(CONFIG_MINIMA), encoding="utf-8")
+        entorno = entorno_aislado(base)
+        en_inst = ctx(cwd=str(inst))
+        entradas = {"bash": {}, "bash_background": {"label": "push"}, "monitor": {"timeout_seconds": 30}}
+        for herramienta_, extra in entradas.items():
+            push = dict(extra, command="git push origin +main")
+            datos = decision_de(correr_hook("guard_comandos", llamada(herramienta_, push, ctx=en_inst), inst, entorno, "--host", "pi"))
+            assert datos and datos["accion"] == "bloquear", (herramienta_, datos)
+            assert datos["texto"].startswith('guard-comandos bloqueó el comando: git push con un refspec "+"'), (herramienta_, datos)
+            control = dict(extra, command="git status")
+            r = correr_hook("guard_comandos", llamada(herramienta_, control, ctx=en_inst), inst, entorno, "--host", "pi")
+            assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), (herramienta_, r)
+
+
+def test_de_punta_a_punta_writer_guard_anota_los_comandos_de_bash_background_y_monitor_y_les_aplica_sus_reglas():
+    with temporal() as base:
+        inst, db, entorno = mundo_sql(base)
+        writer = odd_ws(agent="writer-sql", agentId="a1")
+        en_inst = ctx(cwd=str(inst), sessionId="w1")
+        for herramienta_, extra in (("bash_background", {"label": "lista"}), ("monitor", {"timeout_seconds": 5})):
+            commit = dict(extra, command="git -C %s commit -am x" % db.as_posix())
+            datos = decision_de(correr_hook("writer_guard", llamada(herramienta_, commit, ctx=en_inst, oddWs=writer), inst, entorno, "--host", "pi"))
+            assert datos and datos["accion"] == "bloquear" and "los writers no commitean" in datos["texto"], (herramienta_, datos)
+            lista = dict(extra, command="ls -la %s" % herramienta_)
+            assert decision_de(correr_hook("writer_guard", llamada(herramienta_, lista, ctx=en_inst, oddWs=writer), inst, entorno,
+                                           "--host", "pi")) is None, herramienta_
+        bitacora = inst / ".claude" / "estado" / "writers" / "w1" / "a1.fotos" / "bitacora.jsonl"
+        registros = [json.loads(linea) for linea in bitacora.read_text(encoding="ascii").splitlines()]
+        assert registros == [{"tipo": "shell", "comando": "ls -la bash_background", "dialecto": "posix"},
+                             {"tipo": "shell", "comando": "ls -la monitor", "dialecto": "posix"}], registros
+        assert m().comandos_del_writer(None, str(bitacora.parent)) == [("posix", "ls -la bash_background"), ("posix", "ls -la monitor")]
 
 
 def test_de_punta_a_punta_un_host_mal_escrito_con_un_payload_de_pi_bloquea_en_tool_call_y_calla_en_lo_demas():
