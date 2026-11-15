@@ -81,7 +81,8 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | F2d | S2, S5, S6, S8 | Generación: `hosts` acepta `pi`; `.pi/agents/*.md` derivados del `.md` de `.claude/agents`, con la lista de tools de Pi; los textos de Pi en los marcadores; la extensión publica las skills de la instancia por `resources_discover`. Claude Code y Codex generan lo mismo, byte a byte | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 5 y 6) | hecho (L50) |
 | F2e | S2–S4, S8 | Doctor de Pi: la versión, el paquete instalado en el home activo (el aislado de gentle-shell, o `~/.pi/agent` con `--link`), el Python, `pi-agentes` con la regla de L18 y `hooks-host` con `hooks.pi.json` | delegado: un writer, por el respaldo de contexto; después, un verificador independiente (ítems 2, 3, 5 y 6) | hecho (L51) |
 | F2f | S2, S8 | Empaquetado: `package.json` con la clave `pi` (extensiones y skills) y la versión en paridad con los otros manifiestos. Hay que verificar si `pi install git:…` acepta el paquete en `plugin/`. Y en el README, «Usarlo desde gentle-shell» | delegado: un writer, por el respaldo de contexto; el padre, `CLAUDE_PLUGIN_ROOT` y los textos fuera de la superficie; después, un verificador independiente (ítem 5) | hecho (L52) |
-| F2g | S1 | Prueba de humo en un gentle-shell aparte, y la entrega `0.6.0` con autorización | inline; el usuario instala gentle-pi y autoriza la entrega | pendiente |
+| F2g | S1 | Prueba de humo en un gentle-shell aparte, y la entrega `0.6.0` con autorización | inline; el usuario instala gentle-pi y autoriza la entrega | humo hecho (L53): dos fallas abiertas, que van a F2h; la entrega espera a F2h |
+| F2h | S2–S4 | Lo que encontró el humo (L53):<br>• guardar todas las herramientas de shell de gentle-pi: `bash_background` y `monitor` además de `bash` y `powershell`, como hace gentle-pi mismo (`lib/auto-permission-runtime.ts:124`), y revisar si alguna otra herramienta de sus extensiones escribe archivos<br>• un writer lanzado con un `repository_root` fuera de la instancia corre con ese `cwd`, los guards no encuentran la instancia y quedan apagados en silencio | por decidir | pendiente |
 | F3 | S2–S4, S7 | OpenCode V2: shim TS → Python y la compuerta sobre `experimental.idle`. Reusa el shim de F2 si encaja | por decidir | pendiente |
 | F4 | S2–S4, S7 | Gemini CLI: writer `no disponible`, o el rodeo de `complete_task` (sin probar) | por decidir | pendiente |
 | F5 | S2–S4, S7 | Copilot CLI: verificar antes los nombres de las tools y el payload de cada evento | por decidir | pendiente |
@@ -886,3 +887,21 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
     - **A5:** hasta la etiqueta `odd-ws--v0.6.0`, la instalación por git da FALTA, porque las etiquetas viejas no traen `package.json`.
     - **A6:** en la herramienta `powershell` de Pi, `${CLAUDE_PLUGIN_ROOT}` no resuelve. Las skills corren por `bash`, que es el default.
   - **Risk:** ítem 5 (el `package.json` de la raíz es lo que instala Pi, y con la fuente git corre `npm install`) e ítem 6 (nada corrió en un Pi real hasta F2g).
+- **L53 (2026-11-14), F2g: la prueba de humo en un gentle-shell real.** F2f quedó en `61d1fb0`, con push de la rama.
+  - **La decisión del usuario:** «Global, home aparte (Recomendado)».
+    - Se instaló `gentle-pi@4.8.0` (la última, posterior a la 4.7.0 investigada) con Pi 1.5.2. El home de prueba está en `D:\dev-cache\gentle-shell-prueba-odd-ws\home`, por `GENTLE_SHELL_HOME`, sin tocar `~/.gentle-shell` ni `~/.pi`.
+    - La instancia de prueba salió del bootstrap con `hosts` en `["claude-code","pi"]` y una capa sobre un repo git de prueba. odd-ws se instaló desde el clon (`gentle-shell install <ruta>`).
+    - El usuario hizo el login y corrió las pruebas en la TUI. El padre revisó el estado de la instancia y las sesiones de gentle-shell.
+  - **El doctor, contra el gentle-shell real:** `pi`, `gentle-shell`, `pi-plugin`, `pi-confianza`, `pi-agentes` y `hooks-host`, todos en OK.
+  - **Lo que funcionó:**
+    - **Carga:** gentle-shell lista `pi.ts` entre sus extensiones, las skills del plugin y las de la instancia, y `CLAUDE.md` como contexto.
+    - **El guard de shell por `bash`:** `git push origin +main` lo bloqueó `guard-comandos` (el push por refspec). Antes había preguntado el permiso propio de gentle-pi, porque sus handlers cargan primero.
+    - **El primer toque:** el `read` del archivo de la capa trajo los no-negociables en su resultado, y la edición siguiente pasó.
+    - **El writer en la raíz de la instancia:** la marca llegó al primer mensaje del hijo, y el hijo se reconoció como `writer-capa-a`. `writer_guard` anotó la bitácora y la foto, y `writer_stop` midió 1/1 contra la foto y dejó cerrar con `formato_ok`. N2 queda resuelto: el hijo carga odd-ws.
+    - **La etiqueta del aviso de fin** fue la de la tarea, no la marca, así que B1 de F2c también se cumple en vivo.
+    - **`/skill:doctor`** corrió y dio 0 FALTA.
+  - **Lo que falló, y va a F2h:**
+    - **`bash_background` y `monitor` no tienen guard.** El modelo usó `bash_background` para el push forzado y para el doctor. Al push lo frenó la política propia de gentle-pi, no odd-ws. `hooks.pi.json` solo vigila `bash` y `powershell`, pero gentle-pi trata como shell a `bash`, `bash_background` y `monitor` (`lib/auto-permission-runtime.ts:124`).
+    - **El writer con un `repository_root` fuera de la instancia.** El modelo del padre lanzó al writer con `repository_root` igual al repo de la capa, y gentle-shell usa ese valor como `cwd` del hijo. Desde ahí, los guards no encuentran `workspace.config.json`: el hijo no dejó ni bitácora ni primer toque, y el writer corrió sin guards ni compuerta, en silencio. En Claude Code y en Codex, el subagente corre en la raíz de la instancia.
+  - **Sin probar en vivo:** el camino en que la compuerta obliga a seguir. En dos intentos, el writer cerró bien a la primera, aunque se le pidió cerrar mal, porque su plantilla pesa más que la tarea. Ese camino está probado con los hooks reales y una Pi simulada (F2c).
+  - **La entrega `0.6.0` espera a F2h.**
