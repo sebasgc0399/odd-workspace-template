@@ -980,3 +980,10 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
     - `python` en AVISO, por el alias de Windows de esta máquina.
   - **La lectura de `a.ext`:** llegó el contenido, después la marca «[odd-ws] Lo que sigue no es parte del resultado de la herramienta: lo agrega odd-ws.» y luego `NN-A1`. El modelo separó bien las dos partes: dijo que el archivo contiene solo `valor = 7`.
   - **Pendiente para la próxima versión:** la nota P9 del `MANIFIESTO` de `odd_ws/hosts/pi.py` (y su test) todavía dice «la fuente git, sin probar a mano». Está en `plugin/`, así que se corrige con la próxima entrega.
+- **L59 (2026-11-15), la acción `seguir` de la compuerta, probada en vivo con la 0.6.1.**
+  - **Primer intento, sin efecto:** se le pidió al writer cerrar con «listo» y sin el bloque. Cerró bien igual (`stop_hook_active` en `false`, `formato_ok` en `true`), porque su agente trae la sección «Cómo cierras» con la plantilla, y esa sección pesó más que el pedido.
+  - **Segundo intento:** se sacó esa sección del agente de la instancia de prueba (`.pi/agents/writer-capa-a.md`), con un respaldo, y se reabrió gentle-shell.
+    - El writer cerró sin el bloque. La compuerta lo frenó una vez con «writer-stop: todavía no puedes cerrar…», «falta el bloque `## Resultado`», las líneas reales (`a.ext +1 -1`) y la plantilla. Así consta en el registro de la sesión del hijo, en `gentle-agents/sessions` del home.
+    - El writer volvió a cerrar, con el bloque completo: `stop_hook_active` en `true` y `formato_ok` en `true`.
+  - **Después:** el agente se restauró desde el respaldo, idéntico byte a byte.
+  - **Pendiente para la próxima versión:** la nota P5 del `MANIFIESTO` todavía dice «la acción seguir, sin probar en vivo». Va con la nota P9.
