@@ -2,7 +2,7 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
-## Sin publicar
+## 0.6.0
 
 **Soporte para gentle-shell (Pi).** Una instancia puede trabajarse también desde gentle-shell, que es Pi con subagentes. Los guards, el primer toque, las reglas de las capas y la compuerta de los writers corren con los mismos scripts. Se probó a mano en Windows, con gentle-shell 4.8.0 y Pi 1.5.2.
 
