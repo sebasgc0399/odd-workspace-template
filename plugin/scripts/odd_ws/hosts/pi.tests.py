@@ -586,7 +586,8 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
         nota = m().MANIFIESTO[clave][1]
         assert "gentle-shell real (F2g)" in nota, (clave, nota)
         assert "hasta F2g" not in nota, "F2g ya no es lo que falta: %r" % (nota,)
-    assert "la fuente git, sin probar a mano" in m().MANIFIESTO["P9"][1], m().MANIFIESTO["P9"]
+    p9 = m().MANIFIESTO["P9"][1]
+    assert "desde la fuente git (0.6.1)" in p9 and "sin probar" not in p9, m().MANIFIESTO["P9"]
     for clave in ("P7", "P8", "P9"):
         for tarea in ("F2d", "F2f"):
             assert tarea not in m().MANIFIESTO[clave][1], "%s ya no es lo que falta: %r" % (tarea, m().MANIFIESTO[clave])

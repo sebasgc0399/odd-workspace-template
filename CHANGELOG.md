@@ -2,6 +2,12 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## Sin publicar
+
+### Detalle técnico
+
+- La nota P9 del manifiesto de Pi (`odd_ws/hosts/pi.py`) registra que la instalación desde la fuente git se probó a mano con la 0.6.1, y que el ítem `pi-plugin` del doctor dio OK.
+
 ## 0.6.1
 
 **Dos correcciones del primer toque,** encontradas al grabar odd-ws en gentle-shell.

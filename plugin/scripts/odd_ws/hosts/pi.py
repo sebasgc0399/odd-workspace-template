@@ -83,8 +83,8 @@ MANIFIESTO = {
                       "publica en npm; sin PLUGIN_ROOT: el shim saca la raíz del plugin de su propia carpeta; el ítem pi-plugin "
                       "del doctor decide, con la regla de Pi (las fuentes, el manifiesto pi.extensions, los filtros, autoload y "
                       "el proyecto contra el home), si los packages del home activo y de .pi/settings.json, este solo con "
-                      "confianza, cargan shim/pi.ts; en un gentle-shell real (F2g) se instaló desde un clon y el ítem pi-plugin "
-                      "dio OK; la fuente git, sin probar a mano"),
+                      "confianza, cargan shim/pi.ts; en un gentle-shell real (F2g) se instaló desde un clon y, después, "
+                      "desde la fuente git (0.6.1), y en los dos casos el ítem pi-plugin dio OK"),
     "P10": (DEGRADADO, "Pi lee un archivo de instrucciones por carpeta, desde el cwd hasta la raíz y solo al arrancar: el primero "
                        "que encuentra de AGENTS.override.md, AGENTS.md y CLAUDE.md, así que un AGENTS.md tapa el CLAUDE.md de su "
                        "carpeta, y los de las subcarpetas que se tocan después no se cargan; no se genera nada"),
