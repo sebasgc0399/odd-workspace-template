@@ -25,7 +25,7 @@ PUSH = re.compile(r"(?i)\bpush\b")
 FORCE = re.compile(r"(?i)(^|\s)--force(\s|$)")
 FORCE_CORTO = re.compile(r"(?i)(^|\s)-f(\s|$)")
 LEASE = re.compile(r"(?i)--force-with-lease")
-PARCHE_DE_CODEX = re.compile(r"(?i)(^|\s)--codex-run-as-apply-patch(?=[\s;&|)}]|$)")
+PARCHE_DE_CODEX = re.compile(r"(?i)(^|\s)--codex-run-as-apply-patch(?=[\s;&|)}<>]|$)")
 PUSHES = re.compile(r"(?i)\bgit(?:\.exe)?(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir\s+\S+|--work-tree\s+\S+|--namespace\s+\S+|"
                     r"--?[\w-]+(?:=\S+)?))*\s+push\b([^;&|)}\r\n]*)")
 CONTINUACION = re.compile(r"[\\`]\r?\n")

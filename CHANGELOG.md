@@ -6,7 +6,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 ### Lo que cambia para ti
 
-- **En Codex, el guard de comandos bloquea el parche aplicado por la shell.** Cuando la herramienta de edición fallaba, un agente podía escribir un archivo con `codex.exe --codex-run-as-apply-patch`, y los chequeos de capa no corrían. Ahora ese comando se bloquea, con un mensaje que le pide usar la herramienta de edición.
+- **El guard de comandos bloquea el parche de Codex aplicado por la shell.** En Codex, cuando la herramienta de edición fallaba, un agente podía escribir un archivo con `codex.exe --codex-run-as-apply-patch`, y los chequeos de capa no corrían. Ahora ese comando se bloquea en los tres CLI, con un mensaje que pide usar la herramienta de edición.
 
 ### Detalle técnico
 

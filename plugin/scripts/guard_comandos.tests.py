@@ -606,6 +606,8 @@ def test_codex_aplicando_un_parche_por_la_shell_se_bloquea_y_nombrarlo_en_texto_
         "*** Update File: vistas/v_clientes.sql\n*** End Patch\n'@",
         "powershell -Command \"codex.exe --codex-run-as-apply-patch 'x'\"",
         "bash -c 'codex --codex-run-as-apply-patch x'",
+        "codex --codex-run-as-apply-patch>log x",
+        "codex --codex-run-as-apply-patch<parche.txt",
     )
     for comando in bloquean:
         for herramienta in (None, "PowerShell"):
