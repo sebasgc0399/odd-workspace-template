@@ -4,8 +4,13 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 ## Sin publicar
 
+### Lo que cambia para ti
+
+- **En Codex, el guard de comandos bloquea el parche aplicado por la shell.** Cuando la herramienta de edición fallaba, un agente podía escribir un archivo con `codex.exe --codex-run-as-apply-patch`, y los chequeos de capa no corrían. Ahora ese comando se bloquea, con un mensaje que le pide usar la herramienta de edición.
+
 ### Detalle técnico
 
+- `guard_comandos` (capa 1) bloquea `--codex-run-as-apply-patch` cuando va como argumento, también dentro de `bash -c` y `powershell -Command`. Nombrado dentro de comillas, por ejemplo en un mensaje de commit, no bloquea.
 - La nota P9 del manifiesto de Pi (`odd_ws/hosts/pi.py`) registra que la instalación desde la fuente git se probó a mano con la 0.6.1, y que el ítem `pi-plugin` del doctor dio OK.
 - La nota P5 registra que la acción `seguir` de la compuerta se probó en vivo con la 0.6.1: frenó una vez a un writer que cerró sin el bloque de resultado, y el writer volvió a cerrar con el bloque completo.
 

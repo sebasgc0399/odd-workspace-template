@@ -599,6 +599,29 @@ def test_casos_del_origen_con_la_decision_exacta():
     assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
 
 
+def test_codex_aplicando_un_parche_por_la_shell_se_bloquea_y_nombrarlo_en_texto_pasa():
+    bloquean = (
+        'codex --codex-run-as-apply-patch "*** Begin Patch"',
+        "& 'C:\\Users\\u\\AppData\\Local\\codex\\codex.exe' --codex-run-as-apply-patch @'\n*** Begin Patch\n"
+        "*** Update File: vistas/v_clientes.sql\n*** End Patch\n'@",
+        "powershell -Command \"codex.exe --codex-run-as-apply-patch 'x'\"",
+        "bash -c 'codex --codex-run-as-apply-patch x'",
+    )
+    for comando in bloquean:
+        for herramienta in (None, "PowerShell"):
+            resultado, motivo = G.analizar(comando, None, ENTORNO, None, herramienta)
+            assert resultado == "block" and "--codex-run-as-apply-patch" in motivo and "herramienta de edición" in motivo, (
+                comando, herramienta, resultado, motivo)
+    pasan = (
+        'git commit -m "guard: bloquea --codex-run-as-apply-patch"',
+        "rg -n '--codex-run-as-apply-patch' plugin",
+        "codex --version",
+    )
+    for comando in pasan:
+        for herramienta in (None, "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta) == (None, None), (comando, herramienta)
+
+
 def test_sin_la_bandera_lo_que_preguntaba_pasa_y_la_capa_1_sigue():
     for bandera in (None, False):
         with mundo(bandera) as m:

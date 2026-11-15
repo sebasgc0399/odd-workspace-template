@@ -25,6 +25,7 @@ PUSH = re.compile(r"(?i)\bpush\b")
 FORCE = re.compile(r"(?i)(^|\s)--force(\s|$)")
 FORCE_CORTO = re.compile(r"(?i)(^|\s)-f(\s|$)")
 LEASE = re.compile(r"(?i)--force-with-lease")
+PARCHE_DE_CODEX = re.compile(r"(?i)(^|\s)--codex-run-as-apply-patch(?=[\s;&|)}]|$)")
 PUSHES = re.compile(r"(?i)\bgit(?:\.exe)?(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir\s+\S+|--work-tree\s+\S+|--namespace\s+\S+|"
                     r"--?[\w-]+(?:=\S+)?))*\s+push\b([^;&|)}\r\n]*)")
 CONTINUACION = re.compile(r"[\\`]\r?\n")
@@ -605,6 +606,9 @@ def _capa_1(base, entorno, powershell=False, profundidad=0):
     if motivo:
         return motivo
     scan = SIMPLES.sub(" ", DOBLES.sub(" ", base))
+    if PARCHE_DE_CODEX.search(scan):
+        return ("codex --codex-run-as-apply-patch, que escribe archivos por la shell y se saltea los chequeos de capa "
+                "(usa la herramienta de edición)")
     carpeta = carpeta_scratch(entorno)
     scratch = config_loader.canonica(carpeta) if carpeta else None
     casa = entorno.get("HOME") or entorno.get("USERPROFILE")
