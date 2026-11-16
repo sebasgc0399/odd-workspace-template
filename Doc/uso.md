@@ -1,6 +1,6 @@
 # Usar odd-ws
 
-Esta guía es para quien ya instaló el plugin y lo usa en su proyecto: los conceptos, lo que necesita la máquina, el ciclo de un ticket y qué hace cada skill. La instalación en tres pasos está en el [README](../README.md#instalación).
+Esta guía es para quien ya instaló el plugin y lo usa en su proyecto: los conceptos, lo que necesita la máquina, el ciclo de un ticket y qué hace cada skill. La instalación en tres pasos está en el [README](../README.md#instalación), y cómo comparte un equipo una instancia, en [Trabajar en equipo](equipo.md).
 
 ## Conceptos
 

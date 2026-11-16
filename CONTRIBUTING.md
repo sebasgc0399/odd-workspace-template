@@ -70,4 +70,4 @@ La sección `## <versión>` es lo que lee la comunidad en el release, así que v
 | `.githooks/` | Los hooks de git del repo |
 | `.github/workflows/release.yml` | Publica el release de cada etiqueta `odd-ws--v*` |
 | `CHANGELOG.md` | Las notas de cada versión, una sección `## <versión>` por entrega |
-| `README.md` y `Doc/` | La portada y la referencia de uso: `uso.md`, `hooks.md`, `capas-y-reglas.md` y `actualizar.md`. `diseno.md` guarda el porqué |
+| `README.md` y `Doc/` | La portada y la referencia de uso: `uso.md`, `equipo.md`, `hooks.md`, `capas-y-reglas.md` y `actualizar.md`. `diseno.md` guarda el porqué |

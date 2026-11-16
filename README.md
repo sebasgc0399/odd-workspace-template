@@ -150,6 +150,7 @@ El CI (`.github/workflows/pruebas.yml`) corre todas las suites en Ubuntu, Window
 | Conocer los conceptos, el ciclo de un ticket y cada skill | [Doc/uso.md](Doc/uso.md) |
 | Entender por qué el agente frenó una edición o un comando | [Doc/hooks.md](Doc/hooks.md) |
 | Escribir reglas para tu stack | [Doc/capas-y-reglas.md](Doc/capas-y-reglas.md) |
+| Compartir una instancia con tu equipo | [Doc/equipo.md](Doc/equipo.md) |
 | Actualizar el plugin | [Doc/actualizar.md](Doc/actualizar.md) |
 | Saber qué cambió en cada versión | [CHANGELOG.md](CHANGELOG.md) |
 | Modificar la plantilla misma | [CONTRIBUTING.md](CONTRIBUTING.md) |
