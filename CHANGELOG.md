@@ -2,6 +2,27 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.7.0
+
+**Paquetes de reglas importables desde git, y una guía para trabajar en equipo.**
+
+### Lo que cambia para ti
+
+- **Paquetes de reglas.** Con `/odd-ws:paquetes` importas a una capa de tu instancia las reglas de un repo git, fijadas a una etiqueta. Se copian a `.claude/reglas/paquetes/<nombre>/`, y un lock guarda la fuente, la etiqueta y su commit. Sus reglas corren junto a las tuyas, el primer toque muestra sus no-negociables y el pre-commit corre su suite. Importar nunca ejecuta código del paquete: lo lees en el diff antes de commitear. Cómo se escribe y se publica uno está en `Doc/capas-y-reglas.md`.
+- **El doctor suma el ítem `paquetes`.** Sin paquetes sale NO APLICA y nada más cambia. Con paquetes revisa el lock, que nadie haya editado a mano lo copiado, los prefijos y los enlaces.
+- **Una guía para compartir una instancia en equipo,** en `Doc/equipo.md`: qué viaja en el repo, qué hace cada dev al clonar, cómo se gradúa y se revisa la matriz en un pull request, y cómo encaja engram.
+- **`/odd-ws:cerrar memorias` reconoce lo que ya graduó un compañero.** El origen de una memoria de engram es ahora su `sync_id`, que es el mismo en todas las máquinas. Las filas anteriores, con el número de la memoria, se siguen reconociendo en la máquina que las escribió.
+- **No tienes que regenerar nada.** Si quieres la skill nueva en la lista de skills del `CLAUDE.md` de tu instancia, agrégala a mano: el bootstrap no pisa un archivo que ya existe.
+
+### Detalle técnico
+
+- `odd_ws/paquetes.py` (interno, fuera de `PUBLICO`) lee y valida el lock `.claude/reglas/paquetes.json` y el manifiesto `odd-ws-paquete.json`, calcula la huella (sha256 de la lista blanca, con CRLF normalizado) y detecta enlaces, junctions y choques de prefijo.
+- `verificar_capa` corre cada paquete de la capa aislado: uno roto no calla a la capa ni a otro paquete. Solo el hook aísla también el módulo de la capa (`verificar_archivo(aislar_la_capa=True)`); la compuerta del writer sigue viendo su excepción. El primer toque suma el `no-negociables.md` de cada paquete, por nombre.
+- `reglas.py --test` corre la suite de cada paquete en su propio proceso (`python -I`, tope de 300 s). `matriz.py` valida la matriz de cada paquete contra sus archivos (`chequeo`, `pasiva`, `evidencia` y `descarte`). Un lock roto, o un prefijo de paquete igual al de una capa, sale con 2.
+- `paquetes.py` (`importar`, `actualizar`, `quitar` y `listar`, con `--ensayo`) resuelve la etiqueta con `ls-remote --tags`, clona solo esa etiqueta fuera de la instancia y exige que `HEAD` sea su commit. Rechaza enlaces y submódulos en la etiqueta, una URL con credenciales y un destino enlazado. Git corre sin prompts (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`) y solo con los protocolos file, https, ssh y git. Una fuente local se guarda absoluta, con un aviso.
+- En `/odd-ws:cerrar memorias`, el origen de engram es `memoria:engram-<sync_id>`, con el id numérico como respaldo, y el chequeo de reconocimiento acepta los dos.
+- Sin lock, la salida de cada comando es la misma que en la 0.6.2, salvo la fila nueva del doctor (diferencial de 57 escenarios).
+
 ## 0.6.2
 
 **Un hueco del guard en Codex y una compuerta del writer que lee mejor el cierre.**

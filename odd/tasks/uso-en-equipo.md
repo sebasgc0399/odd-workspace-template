@@ -17,7 +17,7 @@ Objetivo: documentar cómo trabaja un equipo con una instancia compartida por gi
 | ID | Specs | Qué | Ruta | Estado |
 |---|---|---|---|---|
 | P | S4 | Prueba con dos clones en el scratch: instalación, bootstrap, clon, doctor, graduación en ramas paralelas, primer toque tras el pull y engram entre dos almacenes | inline | hecho (L2-L6) |
-| T1 | S0-S3 | `Doc/equipo.md` con lo probado, enlazada desde el README, `Doc/uso.md` y la estructura de CONTRIBUTING | inline: documentación, sin razón de writer | hecho (L10) |
+| T1 | S0-S3 | `Doc/equipo.md` con lo probado, enlazada desde el README, `Doc/uso.md` y la estructura de CONTRIBUTING | inline: documentación, sin razón de writer | hecho: `d9d8777` (L10); sale en la 0.7.0 |
 | T2 | S3, S5 | `cerrar memorias` anota el `sync_id` de engram en el `origen`, porque el id numérico es local de cada máquina (L6): la skill, `Doc/uso.md` y una prueba de `matriz.py` que fija que ese origen es válido | inline: un cambio entendido | hecho: `161be57` (L8, L9) |
 | V | S5 | Un verificador independiente sobre T2 | delegado (ítem 1) | hecho: S5 cumple, sin blockers (L9) |
 | F1 | S2 | Seguimiento: el pre-commit de la instancia no valida la matriz; una unión a ciegas de dos filas pasa en verde (L5) | aparte | anotado |
