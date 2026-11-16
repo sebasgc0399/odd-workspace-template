@@ -9,7 +9,7 @@ Esta guía es para un equipo que ya tiene su instancia. Para crearla, empieza po
 | Viaja en el repo de la instancia | Queda en cada máquina |
 |---|---|
 | `workspace.config.json`: los repos, las capas y los CLI | `workspace.local.json`: la ruta de cada repo y `plugin_root`. El bootstrap lo pone en `.gitignore` |
-| `.claude/reglas/`: `matriz.csv`, `evidencia.md` y `verificar_<capa>.py` con su prueba | `.claude/estado/`: el estado de las sesiones, también en `.gitignore` |
+| `.claude/reglas/`: `matriz.csv`, `evidencia.md` y `verificar_<capa>.py` con su prueba, y los paquetes de reglas con su lock (`paquetes/` y `paquetes.json`) | `.claude/estado/`: el estado de las sesiones, también en `.gitignore` |
 | `.claude/skills/` (`capa-<capa>` y `criterios`) y `.claude/agents/` | `core.hooksPath`: es config de git, y `git clone` no la copia |
 | `.githooks/pre-commit` | La instalación del plugin: Claude Code la registra para la carpeta donde la hiciste |
 | `.claude/settings.json`, con el plugin habilitado | Las memorias de cada uno, y el registro de las que ya viste en `/odd-ws:cerrar memorias` |
@@ -86,6 +86,16 @@ Además de los dos comandos:
 - [ ] La fila, la regla y la evidencia no copian nada que no deba quedar en el repo. En la instancia no corre ningún barrido de confidencialidad: lo que se aprueba es lo que queda escrito.
 
 **Después del merge,** cada dev recibe las reglas con `git pull`: la primera edición en una capa le entrega sus no-negociables, con las reglas nuevas.
+
+## Paquetes de reglas
+
+Un [paquete de reglas](capas-y-reglas.md#paquetes-de-reglas) viaja en el repo como las demás reglas: su carpeta en `.claude/reglas/paquetes/` y el lock, `.claude/reglas/paquetes.json`.
+
+- **Lo importa uno,** con `/odd-ws:paquetes`, y lo sube en un pull request. El pull request muestra el código copiado y el lock con la etiqueta y el commit.
+- **Quien revisa lee el código del paquete,** sobre todo `verificar.py` y su suite: corren en los hooks y en el pre-commit de cada dev. Esa lectura es la barrera.
+- **Los demás lo reciben con `git pull`.** No lo importan de nuevo ni necesitan acceso al repo del paquete. En cada clon, `/odd-ws:doctor` compara la huella de lo copiado con la del lock.
+- **La fuente, una URL.** Una ruta local se guarda absoluta y solo existe en la máquina de quien importó: en otro clon, `actualizar` no la encuentra. Para un repo privado, quien actualiza se autentica antes con git.
+- **Nadie edita lo copiado.** Un cambio va al repo del paquete, con una etiqueta nueva, y entra con `actualizar` en otro pull request.
 
 ## Con engram
 

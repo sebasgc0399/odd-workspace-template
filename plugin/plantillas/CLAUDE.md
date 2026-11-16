@@ -131,6 +131,8 @@ Su ODD sigue siendo el método (tamaño de la tarea, test-first, cuándo delegar
   contradicen.
 - `/odd-ws:eval-reviewers` — mide un revisor contra la revisión real de un líder, a ciegas y repetible.
 - `/odd-ws:bootstrap` — genera o completa esta instancia desde una entrevista, sin pisar nada.
+- `/odd-ws:paquetes` — trae las reglas de una capa desde otro repo git, fijadas a una etiqueta: importa,
+  actualiza, quita o lista, con ensayo y autorización.
 - `/odd-ws:abrir` — abre un ticket: carpeta desde la plantilla, alcance y no-goals, y los docs de dominio
   que toca.
 - `/odd-ws:revisar` — revisión antes del commit: triaje, revisores por capa y recibo atado al diff.

@@ -104,6 +104,7 @@ claude --add-dir D:/code/mi-repo
 | `/odd-ws:cerrar` | Al terminar un ticket, o con `memorias` para graduar las memorias del proyecto | La instancia: su raíz o el ticket | Solo tú |
 | `/odd-ws:conocimiento` | Para revisar la salud de los docs del proyecto | La raíz de la instancia | Solo tú |
 | `/odd-ws:eval-reviewers` | Para medir un revisor contra la revisión real de un líder | La instancia | Tú o Claude |
+| `/odd-ws:paquetes` | Para traer las reglas de una capa desde otro repo git, cambiarlas de etiqueta, sacarlas o verlas | La raíz de la instancia | Solo tú |
 
 En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`; ver [Usarlo desde Codex](#usarlo-desde-codex).
 
@@ -209,6 +210,15 @@ El registro vive fuera del repo, en tu máquina, con una entrada por memoria baj
 - **A ciegas.** Mide un revisor contra la revisión real de un líder: rescata los reportes, audita qué leyó cada corrida y las puntúa, con una ratificación a ciegas.
 - **Antes de correr** te muestra cuántas corridas son y su costo, y espera tu sí. El fixture ciego hoy se arma a mano.
 - **El modo sombra.** Antes de la revisión real de un líder, congela las corridas en `revision/<fecha>-sombra/` y las commitea, para compararlas después.
+
+### `/odd-ws:paquetes`
+
+- **Trae reglas de otro repo git,** fijadas a una etiqueta: `importar`, `actualizar`, `quitar` y `listar`. Las copia a `.claude/reglas/paquetes/<nombre>/` y las fija en `.claude/reglas/paquetes.json`.
+- **Ensayo primero.** Te muestra el plan (en `actualizar`, qué archivos cambian) y solo con tu sí escribe. Nunca ejecuta código del paquete.
+- **Lee el código antes del commit.** Lo copiado corre en tus hooks. La skill te ofrece el commit con las rutas exactas, con un segundo sí, y el pre-commit corre la suite del paquete.
+- **La fuente,** mejor una URL: una ruta local solo sirve en tu máquina. Un repo privado se autentica antes con git; una URL con credenciales se rechaza.
+
+Cómo se escribe un paquete, qué revisa el doctor y por qué funciona así: [Paquetes de reglas](capas-y-reglas.md#paquetes-de-reglas).
 
 ## Qué genera el bootstrap
 

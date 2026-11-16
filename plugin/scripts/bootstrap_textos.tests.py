@@ -176,6 +176,7 @@ def test_el_indice_trae_la_metodologia_generica():
         "/odd-ws:conocimiento",
         "/odd-ws:eval-reviewers",
         "/odd-ws:bootstrap",
+        "/odd-ws:paquetes",
         "/odd-ws:abrir",
         "/odd-ws:revisar",
         "/odd-ws:cerrar",

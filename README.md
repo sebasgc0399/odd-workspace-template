@@ -29,6 +29,7 @@ El plugin convierte la carpeta de tu proyecto en una **instancia**, un espacio d
 - **Los hooks chequean cada edición** contra las reglas de su capa, y frenan los comandos peligrosos.
 - **Los cambios grandes los escriben agentes con compuerta,** y los revisores dejan un recibo atado al diff.
 - **Lo aprendido en un ticket sube** a reglas y docs verificables.
+- **Las reglas de un stack se pueden traer de otro repo git,** fijadas a una etiqueta, con `/odd-ws:paquetes`.
 
 ## Así se ve un bloqueo
 
@@ -149,7 +150,7 @@ El CI (`.github/workflows/pruebas.yml`) corre todas las suites en Ubuntu, Window
 |---|---|
 | Conocer los conceptos, el ciclo de un ticket y cada skill | [Doc/uso.md](Doc/uso.md) |
 | Entender por qué el agente frenó una edición o un comando | [Doc/hooks.md](Doc/hooks.md) |
-| Escribir reglas para tu stack | [Doc/capas-y-reglas.md](Doc/capas-y-reglas.md) |
+| Escribir reglas para tu stack, o traerlas de otro repo como paquete | [Doc/capas-y-reglas.md](Doc/capas-y-reglas.md) |
 | Compartir una instancia con tu equipo | [Doc/equipo.md](Doc/equipo.md) |
 | Actualizar el plugin | [Doc/actualizar.md](Doc/actualizar.md) |
 | Saber qué cambió en cada versión | [CHANGELOG.md](CHANGELOG.md) |
