@@ -426,6 +426,181 @@ def test_la_ayuda_documenta_los_dos_modos():
         assert opcion in out, opcion
 
 
+SUITE_DE_PAQUETE = r'''import importlib.util
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("verificar_del_paquete", Path(__file__).with_name("verificar.py"))
+M = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(M)
+
+if __name__ == "__main__":
+    print("suite del paquete %s argv=%d" % (M.NOMBRE, len(sys.argv)))
+    sys.exit(CODIGO)
+'''
+
+
+def paquete(raiz, nombre, capa, prefijo, codigo=0, con_suite=True):
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    archivos = {carpeta + "verificar.py": "NOMBRE = %r\ndef verificar(ctx):\n    return []\n" % nombre}
+    if con_suite:
+        archivos[carpeta + "verificar.tests.py"] = SUITE_DE_PAQUETE.replace("CODIGO", str(codigo))
+    escribir(raiz, archivos)
+    lock = Path(raiz) / ".claude" / "reglas" / "paquetes.json"
+    datos = json.loads(lock.read_text(encoding="utf-8")) if lock.is_file() else {"version": 1, "paquetes": {}}
+    datos["paquetes"][nombre] = {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
+                                 "etiqueta": "v1.0.0", "commit": "b" * 40, "huella": "sha256:" + "0" * 64}
+    escribir(raiz, {".claude/reglas/paquetes.json": json.dumps(datos)})
+
+
+def test_test_sin_capa_corre_tambien_la_suite_de_cada_paquete_tras_la_de_su_capa():
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "0"))
+        paquete(raiz, "zeta", "sql", "ZET")
+        paquete(raiz, "alfa", "sql", "ALF", codigo=3)
+        paquete(raiz, "de-docs", "docs", "DOC")
+        paquete(raiz, "sin-suite", "sql", "SIN", con_suite=False)
+        paquete(raiz, "de-otra-capa", "rust", "RUS")
+        codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+        ls = out.splitlines()
+        assert codigo == 1, (codigo, out, err)
+        assert ls[0] == "sin suite: sql/sin-suite, docs", ls
+        cabeceras = [l for l in ls if l.startswith("== ")]
+        assert cabeceras == ["== sql: .claude/reglas/verificar_sql.tests.py",
+                             "== sql/alfa: .claude/reglas/paquetes/alfa/verificar.tests.py",
+                             "== sql/zeta: .claude/reglas/paquetes/zeta/verificar.tests.py",
+                             "== docs/de-docs: .claude/reglas/paquetes/de-docs/verificar.tests.py"], cabeceras
+        assert ls.index("suite del paquete alfa argv=1") == ls.index(cabeceras[1]) + 1, ls
+        assert "suite del paquete zeta argv=1" in ls and "suite del paquete de-docs argv=1" in ls, ls
+        assert not any("de-otra-capa" in l for l in ls), "un paquete de una capa no declarada no corre"
+        assert ls[-1] == "suites en rojo: sql/alfa", ls[-1]
+
+
+def test_test_sin_capa_con_los_paquetes_en_verde_los_cuenta():
+    with temporal() as raiz:
+        instancia(raiz)
+        paquete(raiz, "alfa", "sql", "ALF")
+        codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+        ls = out.splitlines()
+        assert codigo == 0 and ls[0] == "sin suite: sql, docs" and ls[-1] == "suites: 1, todas en verde", (codigo, ls, err)
+
+
+def test_test_de_una_capa_con_paquetes_corre_la_suya_y_las_de_sus_paquetes():
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "0"))
+        paquete(raiz, "alfa", "sql", "ALF")
+        paquete(raiz, "de-docs", "docs", "DOC", codigo=3)
+        codigo, out, err = correr(["--test", "sql", "--raiz", str(raiz)])
+        ls = out.splitlines()
+        assert codigo == 0, (codigo, out, err)
+        assert [l for l in ls if l.startswith("== ")] == ["== sql: .claude/reglas/verificar_sql.tests.py",
+                                                         "== sql/alfa: .claude/reglas/paquetes/alfa/verificar.tests.py"], ls
+        assert ls[-1] == "suites: 2, todas en verde", ls
+        paquete(raiz, "alfa", "sql", "ALF", codigo=5)
+        codigo, out, _ = correr(["--test", "sql", "--raiz", str(raiz)])
+        assert codigo == 1 and out.splitlines()[-1] == "suites en rojo: sql/alfa", (codigo, out)
+    with temporal() as raiz:
+        instancia(raiz)
+        paquete(raiz, "alfa", "sql", "ALF")
+        codigo, out, err = correr(["--test", "sql", "--raiz", str(raiz)])
+        ls = out.splitlines()
+        assert codigo == 0 and ls[0] == "sin suite: sql" and ls[-1] == "suites: 1, todas en verde", (codigo, ls, err)
+
+
+def test_test_con_el_lock_roto_es_error_de_entorno():
+    for lock in ("{roto", json.dumps({"version": 9, "paquetes": {}})):
+        with temporal() as raiz:
+            instancia(raiz, suite=SUITE.replace("CODIGO", "0"))
+            escribir(raiz, {".claude/reglas/paquetes.json": lock})
+            for argv in (["--test", "--raiz", str(raiz)], ["--test", "sql", "--raiz", str(raiz)]):
+                codigo, out, err = correr(argv)
+                assert codigo == 2 and out == "" and err.startswith("reglas: .claude/reglas/paquetes.json roto: "), (argv, codigo, out, err)
+
+
+def test_test_sin_paquetes_de_la_capa_sale_con_el_codigo_de_su_suite_como_siempre():
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "3"))
+        paquete(raiz, "de-docs", "docs", "DOC")
+        codigo, out, err = correr(["--test", "sql", "--raiz", str(raiz)])
+        assert codigo == 3 and out.splitlines() == ["suite __main__ argv=1 a SQL-01 mañana"], (codigo, out, err)
+        codigo, out, err = correr(["--test", "docs", "--raiz", str(raiz)])
+        assert codigo == 0 and out.splitlines()[-1] == "suites: 1, todas en verde", (codigo, out, err)
+
+
+def test_test_con_un_paquete_que_usa_el_prefijo_de_una_capa_es_error_de_entorno():
+    capas = {"sql": {"extensions": [".sql"], "rule_prefix": "SQL"}, "docs": {"extensions": [".md"]}}
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "0"), capas=capas)
+        paquete(raiz, "alfa", "docs", "SQL")
+        for argv in (["--test"], ["--test", "sql"], ["--test", "docs"]):
+            codigo, out, err = correr(argv + ["--raiz", str(raiz)])
+            assert (codigo, out, err) == (2, "", "reglas: .claude/reglas/paquetes.json roto: alfa: el prefijo SQL ya lo usa "
+                                                 "layers.sql.rule_prefix\n"), (argv, codigo, out, err)
+
+
+def test_test_cada_suite_de_paquete_corre_aparte_y_un_os_exit_no_corta_las_demas():
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "0"))
+        paquete(raiz, "a-sale", "sql", "ASA")
+        escribir(raiz, {".claude/reglas/paquetes/a-sale/verificar.tests.py": "import os\nprint('se va', flush=True)\nos._exit(0)\n"})
+        paquete(raiz, "b-roja", "sql", "BRO", codigo=3)
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONUTF8")}
+        r = subprocess.run([sys.executable, str(_RUTA), "--test", "--raiz", str(raiz)], capture_output=True, env=env, cwd=str(raiz),
+                           timeout=120)
+        ls = r.stdout.decode("utf-8").splitlines()
+        assert r.returncode == 1, (r.returncode, ls, r.stderr)
+        assert ls.index("se va") == ls.index("== sql/a-sale: .claude/reglas/paquetes/a-sale/verificar.tests.py") + 1, ls
+        assert ls.index("suite del paquete b-roja argv=1") == ls.index("== sql/b-roja: .claude/reglas/paquetes/b-roja/verificar.tests.py") + 1, ls
+        assert ls[-1] == "suites en rojo: sql/b-roja", ls
+
+
+def test_test_una_suite_de_paquete_que_se_cuelga_o_revienta_queda_en_rojo_y_las_otras_corren():
+    with temporal() as raiz:
+        instancia(raiz)
+        paquete(raiz, "colgada", "sql", "COL")
+        paquete(raiz, "rota", "sql", "ROT")
+        paquete(raiz, "verde", "sql", "VER")
+        escribir(raiz, {".claude/reglas/paquetes/colgada/verificar.tests.py": "import time\ntime.sleep(10)\n",
+                        ".claude/reglas/paquetes/rota/verificar.tests.py": "raise RuntimeError('suite rota')\n"})
+        previo = getattr(M, "TOPE_DE_UNA_SUITE_DE_PAQUETE", None)
+        M.TOPE_DE_UNA_SUITE_DE_PAQUETE = 2
+        try:
+            codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+        finally:
+            M.TOPE_DE_UNA_SUITE_DE_PAQUETE = previo
+        ls = out.splitlines()
+        assert codigo == 1 and ls[-1] == "suites en rojo: sql/colgada, sql/rota", (codigo, out, err)
+        assert "suite del paquete verde argv=1" in ls, ls
+        assert "RuntimeError: suite rota" in err, err
+        assert "reglas: la suite .claude/reglas/paquetes/colgada/verificar.tests.py no termino en 2 s" in err.splitlines(), err
+
+
+def test_test_no_corre_la_suite_de_un_paquete_enlazado_fuera_de_su_carpeta():
+    with temporal() as raiz:
+        instancia(raiz)
+        paquete(raiz, "alfa", "sql", "ALF")
+        carpeta = Path(raiz) / ".claude" / "reglas" / "paquetes" / "alfa"
+        real = Path(raiz) / "alfa-real"
+        shutil.move(str(carpeta), str(real))
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(real), str(carpeta))
+        else:
+            os.symlink(str(real), str(carpeta), target_is_directory=True)
+        codigo, out, err = correr(["--test", "--raiz", str(raiz)])
+        assert codigo == 1 and out.splitlines()[-1] == "suites en rojo: sql/alfa", (codigo, out, err)
+        assert "suite del paquete alfa argv=1" not in out, out
+        assert "reglas: .claude/reglas/paquetes/alfa: enlace o fuera de su carpeta, no se corre" in err.splitlines(), err
+
+
+def test_calibrar_no_mira_el_lock():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir(raiz, {"db/a.sql": "SELECT 1\n", ".claude/reglas/paquetes.json": "{roto"})
+        codigo, out, err = calibrar(raiz)
+        assert codigo == 0 and "SQL-01 archivos=0 aciertos=0" in out.splitlines(), (codigo, out, err)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

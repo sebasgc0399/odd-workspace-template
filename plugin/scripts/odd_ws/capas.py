@@ -8,6 +8,8 @@ REGLAS = ".claude/reglas"
 MATRIZ = REGLAS + "/matriz.csv"
 EVIDENCIA = REGLAS + "/evidencia.md"
 SENALES = REGLAS + "/senales.py"
+PAQUETES_LOCK = REGLAS + "/paquetes.json"
+PAQUETES = REGLAS + "/paquetes"
 CRITERIOS_SKILL = ".claude/skills/criterios/SKILL.md"
 CRITERIOS_REFS = ".claude/skills/criterios/references/"
 AGENTES = ".claude/agents"
@@ -42,6 +44,10 @@ def chequeo(capa):
 
 def prueba(capa):
     return "%s/verificar_%s.tests.py" % (REGLAS, capa)
+
+
+def paquete(nombre):
+    return "%s/%s" % (PAQUETES, nombre)
 
 
 def skill(capa):

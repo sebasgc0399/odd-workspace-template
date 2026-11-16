@@ -118,6 +118,15 @@ def test_rutas_de_codex():
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
+def test_rutas_de_los_paquetes_de_reglas():
+    assert m().PAQUETES_LOCK == ".claude/reglas/paquetes.json"
+    assert m().PAQUETES == ".claude/reglas/paquetes"
+    assert m().paquete("go-basico") == ".claude/reglas/paquetes/go-basico"
+    for ruta in (m().PAQUETES_LOCK, m().PAQUETES, m().paquete("x")):
+        assert ruta.startswith(m().REGLAS + "/"), ruta
+        assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
+
+
 def test_rutas_de_la_plantilla_del_ticket():
     assert m().TICKET_PLANTILLA_DIR == "tickets/_plantilla"
     assert m().TICKET_SETTINGS == "tickets/_plantilla/.claude/settings.json"

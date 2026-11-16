@@ -2,6 +2,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import copy
 import difflib
 import os
 import re
@@ -12,6 +13,7 @@ import time
 import config_loader
 from odd_ws import capas as convencion
 from odd_ws import hosts
+from odd_ws import paquetes
 from odd_ws.capacidades import INICIO, POST, PRE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git,
                           host_de, id_valido, lineas, plazo_de, por_ruta, raiz_de_instancia)
@@ -194,32 +196,77 @@ def es_hallazgo(h):
     return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
 
 
-def verificar_archivo(ruta, config, limite=None):
+def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False):
     global _LIMITE
     previo = _LIMITE
     _LIMITE = limite
     try:
-        return _verificar_archivo(ruta, config)
+        return _verificar_archivo(ruta, config, aislar_la_capa)
     finally:
         _LIMITE = previo
 
 
-def _verificar_archivo(ruta, config):
+def _sin_tiempo():
+    return _LIMITE is not None and time.monotonic() >= _LIMITE
+
+
+def _paquetes_de(config, capa):
+    try:
+        return paquetes.activos(config["raiz"], capa, config["layers"])
+    except Exception:
+        return []
+
+
+def _validos(encontrados, valido):
+    hallazgos = [h for h in encontrados if valido(h)]
+    return hallazgos if len(hallazgos) == len(encontrados) else None
+
+
+def _hallazgos_de_la_capa(archivo_modulo, capa, ctx):
+    modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_modulo_%s" % capa)
+    return _validos(modulo.verificar(ctx), es_hallazgo)
+
+
+def _hallazgos_del_paquete(paquete, ctx, raiz):
+    archivo_modulo = os.path.join(raiz, paquetes.carpeta(paquete.nombre), paquetes.MODULO)
+    try:
+        modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_paquete_%s" % paquete.nombre.replace("-", "_"))
+        return _validos(modulo.verificar(ctx), lambda h: es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"])) or []
+    except (Exception, SystemExit):
+        return []
+
+
+def _verificar_archivo(ruta, config, aislar_la_capa):
     info = config_loader.clasificar(ruta, config)
     if info is None:
         return None
     capa, origen = info
     archivo_modulo = os.path.join(config["raiz"], convencion.chequeo(capa))
-    if not os.path.isfile(archivo_modulo):
+    propio = os.path.isfile(archivo_modulo)
+    de_paquetes = _paquetes_de(config, capa)
+    if not propio and not de_paquetes:
         return None
     ctx = armar_ctx(ruta, capa, origen, config)
     if ctx is None:
         return None
-    modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_modulo_%s" % capa)
-    encontrados = modulo.verificar(ctx)
-    hallazgos = [h for h in encontrados if es_hallazgo(h)]
-    if len(hallazgos) != len(encontrados):
-        return None
+    if not de_paquetes:
+        hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
+        if hallazgos is None:
+            return None
+        return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
+    intacto = copy.deepcopy(ctx)
+    hallazgos = []
+    if propio:
+        try:
+            hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx) or []
+        except (Exception, SystemExit):
+            if not aislar_la_capa:
+                raise
+            hallazgos = []
+    for paquete in de_paquetes:
+        if _sin_tiempo():
+            break
+        hallazgos += _hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"])
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 
 
@@ -228,7 +275,7 @@ def _edicion_verificable(evento):
 
 
 def _verificar_ruta(evento, config):
-    resultado = verificar_archivo(evento.rutas[0], config, _LIMITE)
+    resultado = verificar_archivo(evento.rutas[0], config, _LIMITE, aislar_la_capa=True)
     if resultado is None or not resultado[1]:
         return Permitir()
     return _salida(*resultado)
@@ -240,7 +287,7 @@ def _post_tool_use(evento, config):
     return por_ruta(evento, lambda una: _verificar_ruta(una, config))
 
 
-def no_negociables(capa, raiz):
+def _bloque_de_la_capa(capa, raiz):
     ruta = os.path.join(raiz, convencion.skill(capa))
     if not os.path.isfile(ruta):
         return None
@@ -250,6 +297,44 @@ def no_negociables(capa, raiz):
     if estado != "ok" or not texto or convencion.sin_espacios(texto) == convencion.relleno_de_la_plantilla(capa):
         return None
     return texto
+
+
+def _no_negociables_de_los_paquetes(capa, raiz, capas):
+    try:
+        activos = paquetes.activos(raiz, capa, capas)
+    except Exception:
+        return []
+    textos = []
+    for paquete in activos:
+        relativa = "%s/%s" % (paquetes.carpeta(paquete.nombre), paquetes.NO_NEGOCIABLES)
+        try:
+            with open(os.path.join(raiz, relativa), encoding="utf-8-sig") as f:
+                texto = f.read().strip()
+        except (OSError, ValueError):
+            continue
+        if texto:
+            textos.append("Del paquete %s (fuente: %s):\n%s" % (paquete.nombre, relativa, texto))
+    return textos
+
+
+def _capas_de(raiz):
+    try:
+        return config_loader.capas(raiz)
+    except Exception:
+        return None
+
+
+def no_negociables(capa, raiz, capas=None):
+    capas = _capas_de(raiz) if capas is None else capas
+    de_paquetes = _no_negociables_de_los_paquetes(capa, raiz, capas) if capas is not None else []
+    try:
+        propio = _bloque_de_la_capa(capa, raiz)
+    except (OSError, ValueError):
+        if not de_paquetes:
+            raise
+        propio = None
+    partes = ([propio] if propio else []) + de_paquetes
+    return "\n\n".join(partes) if partes else None
 
 
 def _clave(evento):
@@ -336,11 +421,13 @@ def _tocar(evento, config):
         return None
     capa, raiz = info[0], config["raiz"]
     sesion, agente = clave
-    if _precarga(evento, capa, raiz):
+    precargada = _precarga(evento, capa, raiz)
+    de_paquetes = _no_negociables_de_los_paquetes(capa, raiz, config["layers"]) if precargada else None
+    if precargada and not de_paquetes:
         return None
     if os.path.exists(os.path.join(_marcas_dir(raiz), sesion, "%s.%s" % (agente, capa))):
         return None
-    bloque = no_negociables(capa, raiz)
+    bloque = "\n\n".join(de_paquetes) if precargada else no_negociables(capa, raiz, config["layers"])
     if bloque is None or not _marcar(raiz, sesion, agente, capa):
         return None
     return capa, bloque

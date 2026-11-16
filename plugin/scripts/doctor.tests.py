@@ -877,7 +877,7 @@ def test_leer_version():
 
 NUEVOS = ("config", "instancia-hooks", "instancia-plugin")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
-ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "agentes-skills", "agentes-hooks", "python",
+ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
 
 
@@ -2712,6 +2712,151 @@ def test_hooks_host_no_sale_en_una_instancia_solo_de_claude_code():
         ctx = con_hooks_del_plugin(Falso(e.base, cwd=instancia_sana(e)))
         assert "hooks-host" not in por_id(ctx)
         assert "hooks-host" not in por_id(Falso(e.base))
+
+
+def biblioteca_de_paquetes():
+    return importlib.import_module("odd_ws.paquetes")
+
+
+ARCHIVOS_DE_PAQUETE = {"verificar.py": "def verificar(ctx):\n    return []\n", "verificar.tests.py": "print('suite')\n",
+                       "matriz.csv": "id,origen,tipo,destino,severidad,numeros,resumen,motivo\n", "no-negociables.md": "- regla\n",
+                       "evidencia.md": "# Evidencia\n"}
+
+
+def poner_paquete(raiz, nombre="alfa", capa="sql", prefijo="ALF", manifiesto=None):
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    for archivo, texto in ARCHIVOS_DE_PAQUETE.items():
+        poner(raiz, carpeta + archivo, texto)
+    datos = {"formato": 1, "nombre": nombre, "prefijo": prefijo, "odd_ws_api": 1, "descripcion": "de prueba"}
+    poner(raiz, carpeta + "odd-ws-paquete.json", json.dumps({**datos, **(manifiesto or {})}))
+    return {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre, "etiqueta": "v1.0.0",
+            "commit": "d" * 40, "huella": biblioteca_de_paquetes().huella(str(raiz / carpeta))}
+
+
+def poner_lock(raiz, entradas):
+    return poner(raiz, ".claude/reglas/paquetes.json", entradas if isinstance(entradas, str) else
+                 json.dumps({"version": 1, "paquetes": entradas}))
+
+
+def test_paquetes_sin_lock_no_aplica_y_va_tras_los_writers():
+    with Escenario() as e:
+        raiz = e.instancia(capas=("sql", "web"))
+        resultados = d().diagnosticar(Falso(e.base, cwd=raiz))
+        ids = [r.id for r in resultados]
+        assert ids[ids.index("writer-web") + 1] == "paquetes", ids
+        r = next(r for r in resultados if r.id == "paquetes")
+        assert r.estado == "NO APLICA" and ".claude/reglas/paquetes.json" in r.detalle and r.arreglo is None and r.comando is None, r
+
+
+def test_paquetes_fuera_de_una_instancia_no_hay_item():
+    with Escenario() as e:
+        assert "paquetes" not in por_id(Falso(e.base))
+
+
+def test_paquetes_sanos_es_ok():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner_lock(raiz, {"alfa": poner_paquete(raiz), "beta": poner_paquete(raiz, "beta", prefijo="BET")})
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["paquetes"]
+        assert r.estado == "OK" and r.detalle.startswith("2 paquetes"), r
+        codigo, salida = correr([], ctx)
+        assert codigo == 0 and "paquetes" in salida, salida
+
+
+def test_paquetes_cada_inconsistencia_es_falta_con_su_detalle_y_sin_arreglo():
+    def capa_no_declarada(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz, capa="rust")})
+
+    def sin_carpeta(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz)})
+        shutil.rmtree(raiz / ".claude" / "reglas" / "paquetes" / "alfa", onexc=_forzar_borrado)
+
+    def sin_un_archivo(raiz):
+        entrada = poner_paquete(raiz)
+        os.remove(raiz / ".claude" / "reglas" / "paquetes" / "alfa" / "evidencia.md")
+        entrada["huella"] = biblioteca_de_paquetes().huella(str(raiz / ".claude" / "reglas" / "paquetes" / "alfa"))
+        poner_lock(raiz, {"alfa": entrada})
+
+    def editado_a_mano(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz)})
+        poner(raiz, ".claude/reglas/paquetes/alfa/verificar.py", "def verificar(ctx):\n    return []  # retocado\n")
+
+    def prefijo_de_una_capa(raiz):
+        poner(raiz, "workspace.config.json", json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"], "rule_prefix": "ALF"}}}))
+        poner_lock(raiz, {"alfa": poner_paquete(raiz)})
+
+    def prefijo_de_otro_paquete(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz), "beta": poner_paquete(raiz, "beta", prefijo="ALF")})
+
+    def api_mas_nueva(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz, manifiesto={"odd_ws_api": 2})})
+
+    def manifiesto_ajeno(raiz):
+        poner_lock(raiz, {"alfa": poner_paquete(raiz, manifiesto={"nombre": "otro", "prefijo": "OTR"})})
+
+    def lock_roto(raiz):
+        poner_lock(raiz, "{roto")
+
+    def lock_de_otra_version(raiz):
+        poner(raiz, ".claude/reglas/paquetes.json", json.dumps({"version": 2, "paquetes": {}}))
+
+    def carpeta_enlazada(raiz):
+        entrada = poner_paquete(raiz)
+        carpeta = raiz / ".claude" / "reglas" / "paquetes" / "alfa"
+        real = raiz.parent / "alfa-real"
+        shutil.move(str(carpeta), str(real))
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(real), str(carpeta))
+        else:
+            os.symlink(str(real), str(carpeta), target_is_directory=True)
+        poner_lock(raiz, {"alfa": entrada})
+
+    casos = [
+        (carpeta_enlazada, "alfa: enlace o fuera de .claude/reglas/paquetes/alfa, así que no se carga: .claude/reglas/paquetes/alfa"),
+        (capa_no_declarada, "alfa: la capa rust no está declarada en workspace.config.json"),
+        (sin_carpeta, "alfa: falta la carpeta .claude/reglas/paquetes/alfa"),
+        (sin_un_archivo, "alfa: falta evidencia.md en .claude/reglas/paquetes/alfa"),
+        (editado_a_mano, "alfa: la huella no coincide con el lock"),
+        (prefijo_de_una_capa, "alfa: el prefijo ALF ya lo usa layers.sql.rule_prefix"),
+        (prefijo_de_otro_paquete, ".claude/reglas/paquetes.json: el prefijo ALF lo usan alfa y beta"),
+        (api_mas_nueva, "alfa: pide odd_ws_api 2 y este plugin da 1, así que no se carga"),
+        (manifiesto_ajeno, "alfa: el manifiesto dice nombre otro y el lock alfa; alfa: el manifiesto dice prefijo OTR y el lock ALF"),
+        (lock_roto, ".claude/reglas/paquetes.json: no se puede leer como JSON"),
+        (lock_de_otra_version, ".claude/reglas/paquetes.json: version 2 no es la que entiende este plugin (1)"),
+    ]
+    for preparar, rastro in casos:
+        with Escenario() as e:
+            raiz = instancia_sana(e)
+            preparar(raiz)
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)["paquetes"]
+            assert r.estado == "FALTA" and rastro in r.detalle, (preparar.__name__, r)
+            assert r.arreglo is None and r.comando is None and "/odd-ws:paquetes" in r.ayuda, (preparar.__name__, r)
+            codigo, salida = correr([], ctx)
+            assert codigo == 1 and "cómo: " + r.ayuda in salida and "arreglo: --arreglar paquetes" not in salida, salida
+
+
+def test_paquetes_arreglar_no_tiene_arreglo_automatico_y_dice_como():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner_lock(raiz, "{roto")
+        codigo, salida = correr(["--arreglar", "paquetes"], Falso(e.base, cwd=raiz))
+        assert codigo == 2 and salida.startswith("paquetes no tiene arreglo automático.") and "/odd-ws:paquetes" in salida, salida
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        codigo, salida = correr(["--arreglar", "paquetes"], Falso(e.base, cwd=raiz))
+        assert codigo == 0 and salida.strip() == "paquetes: NO APLICA; no hay nada que arreglar", salida
+
+
+def test_paquetes_con_la_config_rota_y_un_lock_es_falta():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        poner_lock(raiz, {"alfa": poner_paquete(raiz)})
+        poner(raiz, "workspace.config.json", '{"schema_version": 1, "layers": {}}')
+        r = por_id(Falso(e.base, cwd=raiz))["paquetes"]
+        assert r.estado == "FALTA" and "no se pueden revisar los paquetes" in r.detalle and "layers" in r.detalle, r
 
 
 def main():

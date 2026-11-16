@@ -15,6 +15,7 @@ import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
 from odd_ws import hosts as registro_de_hosts
+from odd_ws import paquetes
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, host_de
 
 MARKETPLACE = "odd-workspace-template"
@@ -65,6 +66,8 @@ AYUDA_HOOKS_NO_TOCAR = ("Integrá .githooks/pre-commit a esos hooks (llamalo des
                         "corre hoy dejaría de correr o que el cambio alcanza a todos los checkouts del repo. El doctor no lo hace por vos.")
 AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
 AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
+AYUDA_PAQUETES = ("Lo copiado de un paquete no se edita a mano: el cambio va en el repo del paquete y se reimporta con /odd-ws:paquetes, "
+                  "que reescribe su carpeta y el lock (o lo quita). El doctor no toca ninguno de los dos.")
 COPIA_DE_EMERGENCIA = ".claude/plugin"
 SETTINGS = ".claude/settings.json"
 PLUGIN = "odd-ws"
@@ -342,6 +345,30 @@ def chequear_writer(raiz, capa):
                    else f"{ruta}: regenerarlo lo cambiaría (plantilla v{actual})")
         return resultado(id, AVISO, detalle, arreglo=arreglo)
     return resultado(id, OK, f"{ruta} al día (plantilla v{actual})")
+
+
+def chequear_paquetes(ctx):
+    raiz = raiz_de_instancia(ctx)
+    return [] if raiz is None else [chequear_paquetes_de(raiz)]
+
+
+def chequear_paquetes_de(raiz):
+    id = "paquetes"
+    try:
+        lock = paquetes.leer_lock(raiz)
+    except paquetes.LockRoto as error:
+        return resultado(id, FALTA, f"{paquetes.LOCK}: {error}", None, AYUDA_PAQUETES)
+    if lock is None:
+        return resultado(id, NO_APLICA, f"la instancia no importa paquetes de reglas (no hay {paquetes.LOCK})")
+    try:
+        capas = config_loader.capas(raiz)
+    except config_loader.ConfigRota as error:
+        return resultado(id, FALTA, f"no se pueden revisar los paquetes: {error}", None, AYUDA_CONFIG)
+    problemas = paquetes.problemas(raiz, lock, capas)
+    if problemas:
+        return resultado(id, FALTA, "; ".join(problemas), None, AYUDA_PAQUETES)
+    cuantos = f"{len(lock)} paquete{'' if len(lock) == 1 else 's'}"
+    return resultado(id, OK, f"{cuantos} en {paquetes.LOCK}, cada uno con su carpeta, su huella y un prefijo propio")
 
 
 def leer_texto(ruta):
@@ -641,6 +668,7 @@ def diagnosticar(ctx):
         chequear_plugin_root(ctx),
         *chequear_instancia(ctx),
         *chequear_writers(ctx),
+        *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),
         chequear_python(ctx),
         chequear_credenciales(ctx),

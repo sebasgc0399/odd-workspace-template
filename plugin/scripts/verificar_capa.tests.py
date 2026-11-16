@@ -1370,6 +1370,262 @@ def test_main_elige_el_host_con_el_argumento():
         assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido") and b"'gemini'" in r.stderr, r
 
 
+HUELLA_CUALQUIERA = "sha256:" + "0" * 64
+PAQUETE_MALO = '''def verificar(ctx):
+    return [{"id": "%(prefijo)s-01", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None,
+             "mensaje": "regla del paquete %(nombre)s en " + __name__}
+            for n, t in ctx["agregadas"] if "MALO" in t]
+'''
+
+
+def poner_paquete(w, nombre, prefijo, fuente=None, capa="web", no_negociables="", api=1, manifiesto=None):
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    escribir(w.raiz, carpeta + "verificar.py", PAQUETE_MALO % {"prefijo": prefijo, "nombre": nombre} if fuente is None else fuente)
+    escribir(w.raiz, carpeta + "no-negociables.md", no_negociables)
+    datos = manifiesto or {"formato": 1, "nombre": nombre, "prefijo": prefijo, "odd_ws_api": api, "descripcion": "de prueba"}
+    escribir(w.raiz, carpeta + "odd-ws-paquete.json", json.dumps(datos))
+    lock = w.raiz / ".claude" / "reglas" / "paquetes.json"
+    contenido = json.loads(lock.read_text(encoding="utf-8")) if lock.is_file() else {"version": 1, "paquetes": {}}
+    contenido["paquetes"][nombre] = {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
+                                     "etiqueta": "v1.0.0", "commit": "a" * 40, "huella": HUELLA_CUALQUIERA}
+    escribir(w.raiz, ".claude/reglas/paquetes.json", json.dumps(contenido))
+
+
+def problemas_de(err):
+    return err.decode("utf-8").rstrip("\n").split("\n")
+
+
+def archivo_con_malo(w, texto="a // MALO BLOQ\n"):
+    escribir(w.web, "Core/Base.cs", "x\n")
+    commitear(w.web)
+    return escribir(w.web, "Core/N.cs", texto)
+
+
+def test_paquetes_sus_hallazgos_se_suman_a_los_de_la_capa_en_orden_de_nombre():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        poner_paquete(w, "zeta", "ZET")
+        poner_paquete(w, "alfa-uno", "ALF")
+        poner_paquete(w, "de-sql", "DSQ", capa="sql")
+        codigo, out, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and out == "", (codigo, out, err)
+        assert problemas_de(err) == ["verificar-capa: Core/N.cs tiene 3 problema(s): corregir y reintentar.",
+                                     "[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+                                     "[ALF-01] linea 1: regla del paquete alfa-uno en verificar_capa_paquete_alfa_uno",
+                                     "[ZET-01] linea 1: regla del paquete zeta en verificar_capa_paquete_zeta"], problemas_de(err)
+
+
+def test_paquetes_corren_aunque_la_capa_no_tenga_modulo_propio():
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "alfa", "ALF")
+        codigo, _, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa"], err
+
+
+def test_paquetes_uno_roto_no_calla_la_capa_ni_a_los_otros():
+    rotos = {
+        "excepcion": "def verificar(ctx):\n    raise RuntimeError('boom')\n",
+        "invalido": "def verificar(ctx):\n    return [{'id': 'INV-01'}]\n",
+        "mezcla": "def verificar(ctx):\n    return [{'id': 'MEZ-01', 'modo': 'bloqueo', 'mensaje': 'valido'}, {'modo': 'bloqueo'}]\n",
+        "fuera-de-prefijo": "def verificar(ctx):\n    return [{'id': 'T-02', 'modo': 'bloqueo', 'mensaje': 'ajeno'}]\n",
+        "salida": "import sys\ndef verificar(ctx):\n    sys.exit(3)\n",
+        "sintaxis": "def verificar(ctx) syntax error\n",
+        "tipo": "def verificar(ctx):\n    return 42\n",
+        "muta-el-ctx": "def verificar(ctx):\n    ctx['agregadas'].clear()\n    ctx['hunks'].clear()\n    return []\n",
+    }
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        prefijos = {"excepcion": "EXC", "invalido": "INV", "mezcla": "MEZ", "fuera-de-prefijo": "FUE", "salida": "SAL",
+                    "sintaxis": "SIN", "tipo": "TIP", "muta-el-ctx": "MUT"}
+        for nombre, fuente in rotos.items():
+            poner_paquete(w, nombre, prefijos[nombre], fuente)
+        poner_paquete(w, "pide-mas-api", "API", api=2)
+        poner_paquete(w, "sano", "ZZZ")
+        codigo, out, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+                                                         "[ZZZ-01] linea 1: regla del paquete sano en verificar_capa_paquete_sano"], err
+
+
+def test_paquetes_un_modulo_de_la_capa_roto_no_calla_a_los_paquetes():
+    for fuente in ("def verificar(ctx):\n    raise RuntimeError('boom')\n", "def verificar(ctx):\n    return [{'id': 'X'}]\n",
+                   "import sys\ndef verificar(ctx):\n    sys.exit(3)\n"):
+        with git_aislado(), Mundo() as w:
+            w.modulo("web", fuente)
+            poner_paquete(w, "alfa", "ALF")
+            codigo, _, err = w.correr(evento(archivo_con_malo(w)))
+            assert codigo == 2 and problemas_de(err)[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa"], (fuente, err)
+
+
+def test_paquetes_la_compuerta_del_writer_sigue_viendo_el_error_del_modulo_de_la_capa():
+    spec = importlib.util.spec_from_file_location("writer_stop", AQUI / "writer_stop.py")
+    writer_stop = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer_stop)
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", "def verificar(ctx):\n    raise RuntimeError('boom')\n")
+        poner_paquete(w, "alfa", "ALF")
+        ruta = archivo_con_malo(w)
+        try:
+            M.verificar_archivo(ruta, w.config())
+        except RuntimeError as error:
+            assert str(error) == "boom"
+        else:
+            raise AssertionError("con un paquete instalado, quien llama a verificar_archivo sigue viendo el error de la capa")
+        bloqueos, avisos, internos = writer_stop._chequear([str(ruta)], w.config(), None)
+        assert (bloqueos, avisos) == ([], []) and len(internos) == 1 and "boom" in internos[0], (bloqueos, avisos, internos)
+        codigo, _, err = w.correr(evento(ruta))
+        assert codigo == 2 and "ALF-01" in err.decode("utf-8"), "el hook aísla la capa y los hallazgos del paquete salen igual"
+
+
+def test_paquetes_con_el_lock_roto_se_ignoran_y_la_capa_sigue_verificando():
+    for lock in ("{roto", json.dumps({"version": 2, "paquetes": {}}), json.dumps({"version": 1, "paquetes": {"Mal": {}}})):
+        with git_aislado(), Mundo() as w:
+            w.modulo("web", STUB_MALO)
+            poner_paquete(w, "alfa", "ALF")
+            escribir(w.raiz, ".claude/reglas/paquetes.json", lock)
+            codigo, _, err = w.correr(evento(archivo_con_malo(w)))
+            assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs"], (lock, err)
+
+
+def test_paquetes_el_hook_no_mira_la_huella():
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "alfa", "ALF")
+        codigo, _, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and "ALF-01" in err.decode("utf-8"), "el lock tiene una huella cualquiera y el paquete corre igual"
+
+
+def test_paquetes_con_el_prefijo_de_una_capa_no_corren():
+    with git_aislado(), Mundo() as w:
+        config = json.loads((w.raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        config["layers"]["sql"]["rule_prefix"] = "ALF"
+        escribir(w.raiz, "workspace.config.json", json.dumps(config))
+        poner_paquete(w, "alfa", "ALF")
+        poner_paquete(w, "beta", "BET")
+        codigo, _, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[BET-01] linea 1: regla del paquete beta en verificar_capa_paquete_beta"], err
+
+
+LENTO = '''import time
+def verificar(ctx):
+    time.sleep(max(0.0, ctx["limite"] - time.monotonic()) + 0.05)
+    return [{"id": "%s", "modo": "aviso", "severidad": "", "linea": None, "fragmento": None, "mensaje": "lento"}]
+'''
+
+
+def test_paquetes_respetan_el_plazo_y_no_corren_si_ya_vencio():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", LENTO % "T-07")
+        poner_paquete(w, "alfa", "ALF")
+        antes = time.monotonic()
+        codigo, out, err = w.correr(evento(archivo_con_malo(w)), plazo=2)
+        assert time.monotonic() - antes < 2 + 2, time.monotonic() - antes
+        assert codigo == 0 and err == b"" and contexto(out).split("\n")[1:] == ["[T-07] archivo: lento"], (codigo, out, err)
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "a-lento", "ALE", LENTO % "ALE-01")
+        poner_paquete(w, "b-rapido", "BRA")
+        codigo, out, err = w.correr(evento(archivo_con_malo(w)), plazo=2)
+        assert codigo == 0 and err == b"" and contexto(out).split("\n")[1:] == ["[ALE-01] archivo: lento"], (codigo, out, err)
+
+
+def test_sin_lock_un_modulo_de_la_capa_que_revienta_sigue_subiendo_a_quien_llama():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", "def verificar(ctx):\n    raise RuntimeError('boom')\n")
+        ruta = archivo_con_malo(w)
+        try:
+            M.verificar_archivo(ruta, w.config())
+        except RuntimeError as error:
+            assert str(error) == "boom"
+        else:
+            raise AssertionError("sin paquetes, la compuerta del writer sigue viendo el error del módulo")
+        w.modulo("web", "def verificar(ctx):\n    return [{'id': 'X'}]\n")
+        assert M.verificar_archivo(ruta, w.config()) is None
+        assert w.correr(evento(ruta)) == (0, "", b"")
+        escribir(w.raiz, ".claude/reglas/paquetes.json", json.dumps({"version": 1, "paquetes": {}}))
+        assert M.verificar_archivo(ruta, w.config()) is None, "un lock sin paquetes de la capa es lo mismo que no tenerlo"
+
+
+REGLA_DE_PAQUETE = "- **%s-01** Regla del paquete %s."
+
+
+def texto_de_paquete(nombre, prefijo):
+    return "Del paquete %s (fuente: .claude/reglas/paquetes/%s/no-negociables.md):\n%s" % (nombre, nombre, REGLA_DE_PAQUETE % (prefijo, nombre))
+
+
+def test_paquetes_el_primer_toque_suma_sus_no_negociables_tras_el_bloque_de_la_capa():
+    with git_aislado(), Toque() as w:
+        poner_paquete(w, "zeta", "ZET", capa="sql", no_negociables="﻿" + REGLA_DE_PAQUETE % ("ZET", "zeta") + "\r\n\r\n")
+        poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("ALF", "alfa") + "\n")
+        poner_paquete(w, "vacio", "VAC", capa="sql", no_negociables="  \n\n")
+        poner_paquete(w, "nuevo", "NUE", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("NUE", "nuevo"), api=2)
+        poner_paquete(w, "de-web", "DWE", capa="web", no_negociables=REGLA_DE_PAQUETE % ("DWE", "de-web"))
+        texto = contexto(w.correr(leer(w.sql))[1])
+        partes = texto.split("\n", 1)
+        assert partes[0].startswith("primer toque (capa-sql):"), partes[0]
+        assert partes[1] == "\n\n".join([REGLA % "SQL", texto_de_paquete("alfa", "ALF"), texto_de_paquete("zeta", "ZET")]), partes[1]
+        codigo, _, err = w.correr(a_escribir(w.sql, sesion="s2"))
+        assert codigo == 2 and texto_de_paquete("alfa", "ALF").encode("utf-8") in err, err
+        assert texto_de_paquete("de-web", "DWE") in contexto(w.correr(leer(w.cs))[1])
+
+
+def test_paquetes_traen_sus_no_negociables_aunque_la_capa_tenga_solo_el_relleno_o_ninguno():
+    plantilla = (PLUGIN / "plantillas" / "capa.md").read_text(encoding="utf-8")
+    generada = plantilla.replace("{{capa}}", "sql").replace("{{fecha}}", "2026-11-16")
+    for skill_sql in (generada, None):
+        with git_aislado(), Toque(capas=("web",)) as w:
+            if skill_sql is not None:
+                escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", skill_sql)
+            poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("ALF", "alfa"))
+            texto = contexto(w.correr(leer(w.sql))[1])
+            assert texto is not None and texto.split("\n", 1)[1] == texto_de_paquete("alfa", "ALF"), texto
+            assert w.marcas() == ["s1/principal.sql"], w.marcas()
+            poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables="")
+            assert w.correr(leer(w.sql, sesion="s2")) == (0, "", b""), "un no-negociables.md vacío no suma nada"
+            assert w.correr(a_escribir(w.sql, sesion="s3")) == (0, "", b"")
+
+
+def test_paquetes_con_el_lock_roto_el_primer_toque_trae_solo_la_capa():
+    with git_aislado(), Toque() as w:
+        poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("ALF", "alfa"))
+        escribir(w.raiz, ".claude/reglas/paquetes.json", "{roto")
+        texto = contexto(w.correr(leer(w.sql))[1])
+        assert texto.split("\n", 1)[1] == REGLA % "SQL", texto
+
+
+def test_paquetes_un_agente_con_la_skill_precargada_recibe_solo_los_de_los_paquetes():
+    with git_aislado(), Toque() as w:
+        w.agente("writer-sql", "---\nname: writer-sql\nskills:\n  - capa-sql\n---\n")
+        e = leer(w.sql, agente="a1")
+        e["agent_type"] = "writer-sql"
+        assert w.correr(e) == (0, "", b""), "sin paquetes, como siempre: la skill ya trae el bloque"
+        poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("ALF", "alfa"))
+        texto = contexto(w.correr(e)[1])
+        delegar = "Para más que un ajuste mínimo, delegar en `writer-sql`."
+        assert texto is not None and texto.split("\n", 1)[1] == texto_de_paquete("alfa", "ALF") + "\n" + delegar, texto
+        assert w.correr(e) == (0, "", b""), "una vez por sesión y agente"
+        assert w.marcas() == ["s1/a1.sql"], w.marcas()
+
+
+def test_sin_lock_el_primer_toque_no_cambia():
+    with git_aislado(), Toque() as w:
+        texto = contexto(w.correr(leer(w.sql))[1])
+        assert texto.split("\n", 1)[1] == REGLA % "SQL", texto
+        assert M.no_negociables("sql", str(w.raiz)) == REGLA % "SQL"
+
+
+def test_paquetes_una_skill_de_la_capa_ilegible_no_calla_los_de_los_paquetes():
+    with git_aislado(), Toque() as w:
+        (w.raiz / ".claude" / "skills" / "capa-sql" / "SKILL.md").write_bytes(b"\xff\xfe\xff no es utf-8\n")
+        assert w.correr(leer(w.sql)) == (0, "", b"") and w.marcas() == [], "sin paquetes, como siempre"
+        try:
+            M.no_negociables("sql", str(w.raiz))
+        except UnicodeDecodeError:
+            pass
+        else:
+            raise AssertionError("sin paquetes, el error de la skill sigue subiendo")
+        poner_paquete(w, "alfa", "ALF", capa="sql", no_negociables=REGLA_DE_PAQUETE % ("ALF", "alfa"))
+        texto = contexto(w.correr(leer(w.sql, sesion="s2"))[1])
+        assert texto is not None and texto.split("\n", 1)[1] == texto_de_paquete("alfa", "ALF"), texto
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

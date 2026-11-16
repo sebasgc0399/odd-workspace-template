@@ -11,12 +11,15 @@ from pathlib import Path
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import paquetes
 from odd_ws.capas import partir_bloque
 from odd_ws.comun import raiz_de_instancia
 
 ENCABEZADO = ["id", "origen", "tipo", "destino", "severidad", "numeros", "resumen", "motivo"]
 TIPOS = ("CE", "CC", "PR", "CR", "MT", "META")
 DESTINOS = ("chequeo", "pasiva", "skill", "reviewer-PR", "criterios", "evidencia", "descarte")
+DESTINOS_DE_PAQUETE = ("chequeo", "pasiva", "evidencia", "descarte")
+ARCHIVO_DE_PAQUETE = {"chequeo": paquetes.MODULO, "pasiva": paquetes.NO_NEGOCIABLES, "evidencia": paquetes.EVIDENCIA}
 SEVERIDADES = ("CRITICAL", "WARNING", "SUGGESTION")
 
 RE_MEMORIA = re.compile(r"memoria:([\w.\-]+)")
@@ -85,7 +88,7 @@ def _re_id(prefijos):
     return re.compile(r"(%s)-[0-9]{2,}" % alternativas), "^(%s)-[0-9]{2,}$" % alternativas
 
 
-def _errores_fila(reg, vistos, n, prefijos, re_id, forma):
+def _errores_fila(reg, vistos, n, prefijos, re_id, forma, destinos=DESTINOS):
     errores = []
     d = dict(zip(ENCABEZADO, reg))
     capa, origenes, numeros = None, [], []
@@ -114,8 +117,8 @@ def _errores_fila(reg, vistos, n, prefijos, re_id, forma):
             origenes.append(o)
     if d["tipo"] not in TIPOS:
         errores.append("tipo '%s' no es %s" % (d["tipo"], "|".join(TIPOS)))
-    if d["destino"] not in DESTINOS:
-        errores.append("destino '%s' no es %s" % (d["destino"], "|".join(DESTINOS)))
+    if d["destino"] not in destinos:
+        errores.append("destino '%s' no es %s" % (d["destino"], "|".join(destinos)))
     if d["severidad"] and d["severidad"] not in SEVERIDADES:
         errores.append("severidad '%s' no es %s (o vacia)" % (d["severidad"], "|".join(SEVERIDADES)))
     if d["numeros"]:
@@ -133,7 +136,7 @@ def _errores_fila(reg, vistos, n, prefijos, re_id, forma):
     return d, []
 
 
-def cargar_matriz(texto, prefijos):
+def cargar_matriz(texto, prefijos, destinos=DESTINOS):
     try:
         lector = csv.reader(io.StringIO(texto, newline=""))
         registros, previa = [], 0
@@ -155,14 +158,19 @@ def cargar_matriz(texto, prefijos):
         if len(reg) != len(ENCABEZADO):
             errores.append((n, "%d columnas en vez de %d" % (len(reg), len(ENCABEZADO))))
             continue
-        fila, errs = _errores_fila(reg, vistos, n, prefijos, re_id, forma)
+        fila, errs = _errores_fila(reg, vistos, n, prefijos, re_id, forma, destinos)
         errores += [(n, e) for e in errs]
         if fila:
             filas.append(fila)
     return filas, errores
 
 
-def archivos_destino(destino, capa, archivos):
+def archivos_destino(destino, capa, archivos, paquete=None):
+    if paquete is not None:
+        if destino not in ARCHIVO_DE_PAQUETE:
+            return [], None
+        canon = "%s/%s" % (paquete, ARCHIVO_DE_PAQUETE[destino])
+        return [r for r in [canon] if r in archivos], canon
     if destino == "chequeo":
         canon = convencion.chequeo(capa)
         cand = [canon]
@@ -185,18 +193,18 @@ def archivos_destino(destino, capa, archivos):
     return [r for r in cand if r in archivos], canon
 
 
-def todos_los_destinos(capa, archivos):
+def todos_los_destinos(capa, archivos, paquete=None):
     res = []
-    for d in ("chequeo", "skill", "reviewer-PR", "criterios", "evidencia"):
-        for r in archivos_destino(d, capa, archivos)[0]:
+    for d in ("chequeo", "pasiva", "skill", "reviewer-PR", "criterios", "evidencia"):
+        for r in archivos_destino(d, capa, archivos, paquete)[0]:
             if r not in res:
                 res.append(r)
     return res
 
 
-def _alcance(destino, ruta, archivos):
+def _alcance(destino, ruta, archivos, paquete=None):
     ls = lineas_de(archivos[ruta])
-    if destino not in ("pasiva", "skill"):
+    if destino not in ("pasiva", "skill") or paquete is not None:
         return ls, None
     dentro, fuera, estado = partir_bloque(ls)
     if destino == "pasiva":
@@ -211,24 +219,28 @@ def _alcance(destino, ruta, archivos):
 _ZONA = {"pasiva": " (dentro del bloque no-negociables)", "skill": " (fuera del bloque no-negociables)"}
 
 
-def verificar_destinos(filas, capa, archivos):
+def _zona(destino, paquete):
+    return "" if paquete is not None else _ZONA.get(destino, "")
+
+
+def verificar_destinos(filas, capa, archivos, paquete=None):
     fallas, pendientes = [], []
     for f in filas:
         if f["capa"] != capa:
             continue
         id_, destino = f["id"], f["destino"]
         if destino == "descarte":
-            for ruta in todos_los_destinos(capa, archivos):
+            for ruta in todos_los_destinos(capa, archivos, paquete):
                 if contar_id(id_, archivos[ruta]):
                     fallas.append("FALLA %s: descarte aparece en %s" % (id_, ruta))
             continue
-        existentes, canon = archivos_destino(destino, capa, archivos)
+        existentes, canon = archivos_destino(destino, capa, archivos, paquete)
         if not existentes:
             pendientes.append("PENDIENTE %s: %s no existe todavia" % (id_, canon))
             continue
         total, problema = 0, None
         for ruta in existentes:
-            ls, problema = _alcance(destino, ruta, archivos)
+            ls, problema = _alcance(destino, ruta, archivos, paquete)
             if problema:
                 break
             total += contar_id(id_, "\n".join(ls))
@@ -236,27 +248,27 @@ def verificar_destinos(filas, capa, archivos):
         if problema:
             fallas.append("FALLA %s: %s" % (id_, problema))
         elif total == 0:
-            fallas.append("FALLA %s: no aparece en %s%s" % (id_, rutas, _ZONA.get(destino, "")))
+            fallas.append("FALLA %s: no aparece en %s%s" % (id_, rutas, _zona(destino, paquete)))
         elif total > 1:
             fallas.append("FALLA %s: aparece %d veces en %s%s (debe ser exactamente 1)"
-                          % (id_, total, rutas, _ZONA.get(destino, "")))
+                          % (id_, total, rutas, _zona(destino, paquete)))
     return fallas, pendientes
 
 
-def verificar_severidad(filas, capa, archivos):
+def verificar_severidad(filas, capa, archivos, paquete=None):
     fallas, pendientes = [], []
     ids = {f["id"] for f in filas}
     for f in filas:
         if f["capa"] != capa or f["destino"] == "descarte" or not (f["severidad"] or f["numeros"]):
             continue
         id_ = f["id"]
-        existentes, canon = archivos_destino(f["destino"], capa, archivos)
+        existentes, canon = archivos_destino(f["destino"], capa, archivos, paquete)
         if not existentes:
             pendientes.append("PENDIENTE %s: %s no existe todavia" % (id_, canon))
             continue
         candidatos, problema = [], None
         for ruta in existentes:
-            ls, problema = _alcance(f["destino"], ruta, archivos)
+            ls, problema = _alcance(f["destino"], ruta, archivos, paquete)
             if problema:
                 break
             candidatos += [(ruta, s) for s in segmentos(id_, ls, ids)]
@@ -265,7 +277,7 @@ def verificar_severidad(filas, capa, archivos):
             continue
         if not candidatos:
             fallas.append("FALLA %s: no aparece en %s%s"
-                          % (id_, ", ".join(existentes), _ZONA.get(f["destino"], "")))
+                          % (id_, ", ".join(existentes), _zona(f["destino"], paquete)))
             continue
         mejor = None
         for ruta, seg in candidatos:
@@ -297,6 +309,53 @@ def cargar_archivos(raiz, nombres_de_capas):
     return {r: leer_texto(raiz / r) for r in rutas if (raiz / r).is_file()}
 
 
+def cargar_archivos_del_paquete(raiz, carpeta):
+    rutas = ["%s/%s" % (carpeta, nombre) for nombre in ARCHIVO_DE_PAQUETE.values()]
+    return {r: leer_texto(Path(raiz) / r) for r in rutas if (Path(raiz) / r).is_file()}
+
+
+def _decodificada(crudo, prefijos, destinos):
+    try:
+        return cargar_matriz(crudo.decode("utf-8"), prefijos, destinos)
+    except UnicodeDecodeError:
+        return [], [(1, "no es UTF-8 valido")]
+
+
+def _reportar(filas, errores, archivos, capa, modo, paquete=None, prefijo=""):
+    fallas, pendientes = [], []
+    if not any(n == 1 for n, _ in errores):
+        verificar = verificar_destinos if modo == "destinos" else verificar_severidad
+        fallas, pendientes = verificar(filas, capa, archivos(), paquete)
+    filas = [f for f in filas if f["capa"] == capa]
+    for n, msg in errores:
+        print("%sESQUEMA fila %d: %s" % (prefijo, n, msg))
+    for linea in fallas + pendientes:
+        print(prefijo + linea)
+    print("%sRESUMEN %s: filas=%d esquema=%d fallas=%d pendientes=%d"
+          % (prefijo, modo, len(filas), len(errores), len(fallas), len(pendientes)))
+    return bool(errores or fallas)
+
+
+def validar_paquete(raiz, paquete, capa, modo):
+    carpeta = paquetes.carpeta(paquete.nombre)
+    relativa = "%s/%s" % (carpeta, paquetes.MATRIZ)
+    try:
+        crudo = (Path(raiz) / relativa).read_bytes()
+    except OSError as exc:
+        filas, errores = [], [(1, "no se puede leer %s (%s)" % (relativa, exc.strerror or exc))]
+    else:
+        filas, errores = _decodificada(crudo, {paquete.prefijo: capa}, DESTINOS_DE_PAQUETE)
+    return _reportar(filas, errores, lambda: cargar_archivos_del_paquete(raiz, carpeta), capa, modo, carpeta,
+                     "paquete %s: " % paquete.nombre)
+
+
+def _paquetes_de(raiz, capa):
+    try:
+        return paquetes.de_la_capa(paquetes.leer_lock_contra(raiz, config_loader.capas(raiz)) or {}, capa)
+    except paquetes.LockRoto as exc:
+        raise ErrorEntorno("%s roto: %s" % (paquetes.LOCK, exc))
+
+
 def _prefijos(raiz, capa):
     if not (Path(raiz) / config_loader.NOMBRE).is_file():
         raise ErrorEntorno("no hay %s en %s" % (config_loader.NOMBRE, raiz))
@@ -315,7 +374,10 @@ def _prefijos(raiz, capa):
 
 def construir_parser():
     p = argparse.ArgumentParser(prog="matriz.py", allow_abbrev=False,
-                                description="Valida la matriz de reglas de la instancia contra sus destinos (solo lectura).")
+                                description="Valida la matriz de reglas de la instancia contra sus destinos y, con paquetes "
+                                            "de la capa en %s, la de cada paquete contra sus propios archivos (destinos "
+                                            "%s; sus lineas empiezan con 'paquete <nombre>:'). Solo lectura."
+                                            % (paquetes.LOCK, "|".join(DESTINOS_DE_PAQUETE)))
     modo = p.add_mutually_exclusive_group(required=True)
     modo.add_argument("--destinos", dest="modo", action="store_const", const="destinos",
                       help="cada regla de la capa aparece una vez en su destino")
@@ -337,6 +399,7 @@ def main(argv=None):
         if raiz is None:
             raise ErrorEntorno("no hay %s en la carpeta de la sesion ni en sus padres (pasa --raiz)" % config_loader.NOMBRE)
         prefijos = _prefijos(raiz, args.capa)
+        de_paquetes = _paquetes_de(raiz, args.capa)
         matriz = Path(args.matriz) if args.matriz else Path(raiz) / convencion.MATRIZ
         try:
             crudo = matriz.read_bytes()
@@ -345,25 +408,11 @@ def main(argv=None):
     except ErrorEntorno as exc:
         print("matriz: %s" % exc, file=sys.stderr)
         return 2
-    try:
-        filas, errores = cargar_matriz(crudo.decode("utf-8"), prefijos)
-    except UnicodeDecodeError:
-        filas, errores = [], [(1, "no es UTF-8 valido")]
-
-    fallas, pendientes = [], []
-    if not any(n == 1 for n, _ in errores):
-        archivos = cargar_archivos(raiz, sorted(set(prefijos.values())))
-        verificar = verificar_destinos if args.modo == "destinos" else verificar_severidad
-        fallas, pendientes = verificar(filas, args.capa, archivos)
-    filas = [f for f in filas if f["capa"] == args.capa]
-
-    for n, msg in errores:
-        print("ESQUEMA fila %d: %s" % (n, msg))
-    for linea in fallas + pendientes:
-        print(linea)
-    print("RESUMEN %s: filas=%d esquema=%d fallas=%d pendientes=%d"
-          % (args.modo, len(filas), len(errores), len(fallas), len(pendientes)))
-    return 1 if (errores or fallas) else 0
+    filas, errores = _decodificada(crudo, prefijos, DESTINOS)
+    malo = _reportar(filas, errores, lambda: cargar_archivos(raiz, sorted(set(prefijos.values()))), args.capa, args.modo)
+    for paquete in de_paquetes:
+        malo = validar_paquete(raiz, paquete, args.capa, args.modo) or malo
+    return 1 if malo else 0
 
 
 if __name__ == "__main__":

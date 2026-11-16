@@ -704,6 +704,135 @@ def test_cli_utf8_en_consola_cp1252():
     assert b"Traceback" not in r.stderr
 
 
+def paquete(raiz, nombre, capa, prefijo, filas=None, archivos=None):
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    if filas is not None:
+        escribir(raiz, {carpeta + "matriz.csv": csv_texto(filas)})
+    escribir(raiz, {carpeta + archivo: texto for archivo, texto in (archivos or {}).items()})
+    lock = Path(raiz) / ".claude" / "reglas" / "paquetes.json"
+    datos = json.loads(lock.read_text(encoding="utf-8")) if lock.is_file() else {"version": 1, "paquetes": {}}
+    datos["paquetes"][nombre] = {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
+                                 "etiqueta": "v1.0.0", "commit": "c" * 40, "huella": "sha256:" + "0" * 64}
+    escribir(raiz, {".claude/reglas/paquetes.json": json.dumps(datos)})
+
+
+def instancia_con_paquetes(raiz):
+    instancia(raiz)
+    escribir(raiz, {H_SQL: "SQL-01\n"})
+    escribir_matriz(raiz, [fila("SQL-01", destino="chequeo")], nombre=MATRIZ_DEFECTO)
+    paquete(raiz, "alfa", "sql", "ALF",
+            [fila("ALF-01", destino="chequeo"), fila("ALF-02", destino="pasiva"), fila("ALF-03", destino="evidencia"),
+             fila("ALF-04", destino="descarte")],
+            {"verificar.py": "REGLAS = ['ALF-01']\n", "no-negociables.md": "- **ALF-02** sin bloque: el archivo entero es pasivo\n",
+             "evidencia.md": "ALF-03 se midio\n"})
+    paquete(raiz, "beta", "sql", "BET",
+            [fila("BET-01", destino="chequeo"), fila("BET-02", destino="pasiva"), fila("BET-03", destino="descarte"),
+             fila("BET-04", destino="skill"), fila("ALF-09", destino="chequeo"), fila("SQL-05", destino="chequeo")],
+            {"verificar.py": "nada\n", "no-negociables.md": "BET-02 y otra vez BET-02\n", "evidencia.md": "BET-03 descartada\n"})
+    paquete(raiz, "de-web", "web", "DWE", [fila("XX-1")])
+
+
+def test_cli_paquetes_cada_paquete_de_la_capa_se_valida_contra_sus_archivos():
+    with temporal() as raiz:
+        instancia_con_paquetes(raiz)
+        codigo, out, err = correr(["--destinos", "--capa", "sql", "--raiz", str(raiz)])
+        assert codigo == 1 and err == "", (codigo, out, err)
+        assert lineas(out) == [
+            "RESUMEN destinos: filas=1 esquema=0 fallas=0 pendientes=0",
+            "paquete alfa: RESUMEN destinos: filas=4 esquema=0 fallas=0 pendientes=0",
+            "paquete beta: ESQUEMA fila 5: destino 'skill' no es chequeo|pasiva|evidencia|descarte",
+            "paquete beta: ESQUEMA fila 6: id 'ALF-09' no cumple ^(BET)-[0-9]{2,}$",
+            "paquete beta: ESQUEMA fila 7: id 'SQL-05' no cumple ^(BET)-[0-9]{2,}$",
+            "paquete beta: FALLA BET-01: no aparece en .claude/reglas/paquetes/beta/verificar.py",
+            "paquete beta: FALLA BET-02: aparece 2 veces en .claude/reglas/paquetes/beta/no-negociables.md (debe ser exactamente 1)",
+            "paquete beta: FALLA BET-03: descarte aparece en .claude/reglas/paquetes/beta/evidencia.md",
+            "paquete beta: RESUMEN destinos: filas=3 esquema=3 fallas=3 pendientes=0",
+        ], lineas(out)
+
+
+def test_cli_paquetes_en_verde_y_la_instancia_en_rojo_sale_1():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir_matriz(raiz, [fila("SQL-01", destino="chequeo")], nombre=MATRIZ_DEFECTO)
+        escribir(raiz, {H_SQL: "nada\n"})
+        paquete(raiz, "alfa", "sql", "ALF", [fila("ALF-01", destino="chequeo")], {"verificar.py": "ALF-01\n"})
+        codigo, out, _ = correr(["--destinos", "--capa", "sql", "--raiz", str(raiz)])
+        assert codigo == 1 and lineas(out)[-1] == "paquete alfa: RESUMEN destinos: filas=1 esquema=0 fallas=0 pendientes=0", out
+        escribir(raiz, {H_SQL: "SQL-01\n"})
+        codigo, out, _ = correr(["--destinos", "--capa", "sql", "--raiz", str(raiz)])
+        assert codigo == 0, out
+
+
+def test_cli_paquetes_severidad_en_el_segmento_de_su_archivo():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir_matriz(raiz, [fila("SQL-01", destino="descarte")], nombre=MATRIZ_DEFECTO)
+        paquete(raiz, "alfa", "sql", "ALF",
+                [fila("ALF-01", destino="chequeo", severidad="CRITICAL", numeros="16"),
+                 fila("ALF-02", destino="pasiva", severidad="WARNING", numeros="151")],
+                {"verificar.py": "ALF-01 CRITICAL 16\n", "no-negociables.md": "ALF-02 solo WARNING\n"})
+        codigo, out, _ = correr(["--severidad", "--capa", "sql", "--raiz", str(raiz)])
+        assert codigo == 1 and lineas(out) == [
+            "RESUMEN severidad: filas=1 esquema=0 fallas=0 pendientes=0",
+            "paquete alfa: FALLA ALF-02: el segmento en .claude/reglas/paquetes/alfa/no-negociables.md no contiene numero 151",
+            "paquete alfa: RESUMEN severidad: filas=2 esquema=0 fallas=1 pendientes=0",
+        ], lineas(out)
+
+
+def test_cli_paquetes_sin_su_matriz_o_sin_un_destino():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir_matriz(raiz, [fila("SQL-01", destino="descarte")], nombre=MATRIZ_DEFECTO)
+        paquete(raiz, "alfa", "sql", "ALF")
+        paquete(raiz, "beta", "sql", "BET", [fila("BET-01", destino="evidencia")])
+        codigo, out, _ = correr(["--destinos", "--capa", "sql", "--raiz", str(raiz)])
+        ls = lineas(out)
+        assert codigo == 1, out
+        assert ls[1].startswith("paquete alfa: ESQUEMA fila 1: no se puede leer .claude/reglas/paquetes/alfa/matriz.csv"), ls
+        assert ls[2] == "paquete alfa: RESUMEN destinos: filas=0 esquema=1 fallas=0 pendientes=0", ls
+        assert ls[3:] == ["paquete beta: PENDIENTE BET-01: .claude/reglas/paquetes/beta/evidencia.md no existe todavia",
+                          "paquete beta: RESUMEN destinos: filas=1 esquema=0 fallas=0 pendientes=1"], ls
+
+
+def test_cli_paquetes_con_el_lock_roto_es_error_de_entorno():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir_matriz(raiz, [fila("SQL-01", destino="descarte")], nombre=MATRIZ_DEFECTO)
+        escribir(raiz, {".claude/reglas/paquetes.json": "{roto"})
+        codigo, out, err = correr(["--destinos", "--capa", "sql", "--raiz", str(raiz)])
+        assert codigo == 2 and not lineas(out) and err.startswith("matriz: .claude/reglas/paquetes.json roto: "), (codigo, out, err)
+
+
+def test_cli_sin_paquetes_de_la_capa_la_salida_es_la_de_siempre():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir(raiz, {H_SQL: "SQL-01\n"})
+        escribir_matriz(raiz, [fila("SQL-01", destino="chequeo"), fila("SQL-02", destino="pasiva")], nombre=MATRIZ_DEFECTO)
+        sin = [correr([modo, "--capa", "sql", "--raiz", str(raiz)]) for modo in ("--destinos", "--severidad")]
+        paquete(raiz, "de-web", "web", "DWE", [fila("DWE-01", destino="chequeo")])
+        con = [correr([modo, "--capa", "sql", "--raiz", str(raiz)]) for modo in ("--destinos", "--severidad")]
+        assert con == sin, (con, sin)
+        assert sin[0][0] == 0 and lineas(sin[0][1])[-1] == "RESUMEN destinos: filas=2 esquema=0 fallas=0 pendientes=1", sin
+
+
+def test_cli_paquetes_con_el_prefijo_de_una_capa_es_error_de_entorno():
+    with temporal() as raiz:
+        instancia(raiz)
+        escribir_matriz(raiz, [fila("SQL-01", destino="descarte")], nombre=MATRIZ_DEFECTO)
+        paquete(raiz, "alfa", "sql", "WEB", [fila("WEB-01", destino="descarte")])
+        for capa in ("sql", "web"):
+            codigo, out, err = correr(["--destinos", "--capa", capa, "--raiz", str(raiz)])
+            assert (codigo, out, err) == (2, "", "matriz: .claude/reglas/paquetes.json roto: alfa: el prefijo WEB ya lo usa "
+                                                 "layers.web.rule_prefix\n"), (capa, codigo, out, err)
+
+
+def test_esquema_los_destinos_validos_se_pasan_y_por_defecto_son_los_de_siempre():
+    filas, errores = M.cargar_matriz(csv_texto([fila("SQL-01", destino="criterios")]), PREFIJOS)
+    assert not errores and filas[0]["destino"] == "criterios"
+    _, errores = M.cargar_matriz(csv_texto([fila("SQL-01", destino="criterios")]), PREFIJOS, M.DESTINOS_DE_PAQUETE)
+    assert errores == [(2, "destino 'criterios' no es chequeo|pasiva|evidencia|descarte")], errores
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

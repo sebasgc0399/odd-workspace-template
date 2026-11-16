@@ -5,17 +5,28 @@ sys.dont_write_bytecode = True
 import argparse
 import os
 import runpy
+import subprocess
 import traceback
 from pathlib import Path
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import paquetes
 from odd_ws.comun import cargar_por_ruta, decodificar, lineas, raiz_de_instancia
 from verificar_capa import es_hallazgo
 
 IGNORADAS = (".git", "node_modules")
 TOPE_DETALLE = 20
 TODAS = object()
+TOPE_DE_UNA_SUITE_DE_PAQUETE = 300
+SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+ARRANQUE_DE_UNA_SUITE = ("import runpy, sys\n"
+                         "sys.dont_write_bytecode = True\n"
+                         "for flujo in (sys.stdout, sys.stderr):\n"
+                         "    flujo.reconfigure(encoding='utf-8', errors='replace', newline='\\n')\n"
+                         "sys.path.insert(0, sys.argv[1])\n"
+                         "sys.argv = sys.argv[2:]\n"
+                         "runpy.run_path(sys.argv[0], run_name='__main__')\n")
 
 
 class ErrorEntorno(Exception):
@@ -37,6 +48,13 @@ def _capa(raiz, capa):
         raise ErrorEntorno("la capa %s no esta declarada en %s (capas: %s)"
                            % (capa, config_loader.NOMBRE, ", ".join(declaradas)))
     return declaradas[capa]
+
+
+def _lock(raiz, capas):
+    try:
+        return paquetes.leer_lock_contra(raiz, capas) or {}
+    except paquetes.LockRoto as exc:
+        raise ErrorEntorno("%s roto: %s" % (paquetes.LOCK, exc))
 
 
 def _existente(raiz, relativa, que, capa):
@@ -136,19 +154,57 @@ def correr_suite(suite):
     return 0
 
 
-def correr_todas(raiz, capas):
-    con = [capa for capa in capas if (Path(raiz) / convencion.prueba(capa)).is_file()]
-    sin = [capa for capa in capas if capa not in con]
+def _volcar(salida, error):
+    for crudo, flujo in ((salida, sys.stdout), (error, sys.stderr)):
+        if crudo:
+            flujo.write(crudo.decode("utf-8", errors="replace").replace("\r\n", "\n"))
+            flujo.flush()
+
+
+def correr_suite_de_paquete(raiz, paquete, relativa):
+    malos = paquetes.enlaces(raiz, paquete.nombre)
+    if malos:
+        print("reglas: %s: enlace o fuera de su carpeta, no se corre" % ", ".join(malos), file=sys.stderr)
+        return 1
+    sys.stdout.flush()
+    try:
+        r = subprocess.run([sys.executable, "-I", "-c", ARRANQUE_DE_UNA_SUITE, SCRIPTS, str(Path(raiz) / relativa)],
+                           capture_output=True, timeout=TOPE_DE_UNA_SUITE_DE_PAQUETE)
+    except subprocess.TimeoutExpired as exc:
+        _volcar(exc.stdout, exc.stderr)
+        print("reglas: la suite %s no termino en %s s" % (relativa, TOPE_DE_UNA_SUITE_DE_PAQUETE), file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print("reglas: no se pudo correr la suite %s: %s" % (relativa, exc), file=sys.stderr)
+        return 1
+    _volcar(r.stdout, r.stderr)
+    return r.returncode
+
+
+def suites_de(capas, lock):
+    suites = []
+    for capa in capas:
+        suites.append((capa, convencion.prueba(capa), None))
+        suites += [("%s/%s" % (capa, paquete.nombre), "%s/%s" % (paquetes.carpeta(paquete.nombre), paquetes.SUITE), paquete)
+                   for paquete in paquetes.de_la_capa(lock, capa)]
+    return suites
+
+
+def correr_todas(raiz, capas, lock=None):
+    suites = suites_de(capas, lock or {})
+    con = [suite for suite in suites if (Path(raiz) / suite[1]).is_file()]
+    sin = [suite[0] for suite in suites if suite not in con]
     if sin:
         print("sin suite: %s" % ", ".join(sin))
     if not con:
         print("ninguna capa tiene suite")
         return 0
     rojas = []
-    for capa in con:
-        print("== %s: %s" % (capa, convencion.prueba(capa)))
-        if correr_suite(Path(raiz) / convencion.prueba(capa)) != 0:
-            rojas.append(capa)
+    for nombre, relativa, paquete in con:
+        print("== %s: %s" % (nombre, relativa))
+        codigo = correr_suite(Path(raiz) / relativa) if paquete is None else correr_suite_de_paquete(raiz, paquete, relativa)
+        if codigo != 0:
+            rojas.append(nombre)
     print("suites en rojo: %s" % ", ".join(rojas) if rojas else "suites: %d, todas en verde" % len(con))
     return 1 if rojas else 0
 
@@ -158,8 +214,11 @@ def construir_parser():
                                 description="Corridas sueltas del modulo de una capa de la instancia: su suite y su calibracion.")
     modo = p.add_mutually_exclusive_group(required=True)
     modo.add_argument("--test", nargs="?", const=TODAS, metavar="CAPA",
-                      help="corre %s como __main__ y sale con su codigo; sin CAPA, la suite de cada capa que tenga una"
-                      % convencion.prueba("<capa>"))
+                      help="corre %s como __main__ y sale con su codigo; sin CAPA, la suite de cada capa que tenga una. "
+                      "Con paquetes en %s, corre tambien %s de cada paquete de la capa, tras la suya y en su propio "
+                      "proceso (tope de %d s), y sale con 1 si alguna queda en rojo"
+                      % (convencion.prueba("<capa>"), paquetes.LOCK, "%s/%s" % (paquetes.carpeta("<paquete>"), paquetes.SUITE),
+                         TOPE_DE_UNA_SUITE_DE_PAQUETE))
     modo.add_argument("--calibrar", nargs=2, metavar=("CAPA", "CARPETA"),
                       help="pasa los archivos de la capa bajo CARPETA por %s como nuevos y cuenta los aciertos por regla"
                       % convencion.chequeo("<capa>"))
@@ -183,11 +242,15 @@ def main(argv=None):
         if raiz is None:
             raise ErrorEntorno("no hay %s en la carpeta de la sesion ni en sus padres (pasa --raiz)" % config_loader.NOMBRE)
         if capa is TODAS:
-            capas = list(_declaradas(raiz))
+            declaradas = _declaradas(raiz)
+            capas = list(declaradas)
+            lock = _lock(raiz, declaradas)
         else:
             datos = _capa(raiz, capa)
             if args.test:
-                suite = _existente(raiz, convencion.prueba(capa), "suite", capa)
+                lock = _lock(raiz, _declaradas(raiz))
+                if not paquetes.de_la_capa(lock, capa):
+                    suite = _existente(raiz, convencion.prueba(capa), "suite", capa)
             else:
                 carpeta = args.calibrar[1]
                 if not os.path.isdir(carpeta):
@@ -197,9 +260,9 @@ def main(argv=None):
         print("reglas: %s" % exc, file=sys.stderr)
         return 2
     if capa is TODAS:
-        return correr_todas(raiz, capas)
+        return correr_todas(raiz, capas, lock)
     if args.test:
-        return correr_suite(suite)
+        return correr_todas(raiz, [capa], lock) if paquetes.de_la_capa(lock, capa) else correr_suite(suite)
     return calibrar(modulo, capa, carpeta, {e.lower() for e in datos["extensions"]}, args.detalle)
 
 
