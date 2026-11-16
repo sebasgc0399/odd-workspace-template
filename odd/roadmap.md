@@ -17,7 +17,8 @@ Actualizado: 2026-11-16, después de la `0.7.0`.
 
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
-| R1 | Escribir un archivo de capa por la shell, fuera de un writer, se salta el chequeo de capa en cualquier CLI. Dentro de un writer ya lo frena `writer_guard`. Pide diseño antes de código. | [multi-host](tasks/multi-host.md), X17 parte 2 | siguiente |
+| R1 | Escribir un archivo de capa por la shell, fuera de un writer, se salta el chequeo de capa en cualquier CLI. Dentro de un writer ya lo frena `writer_guard`. Primera capa: bloquear el comando antes de que corra. | [capa-por-shell](tasks/capa-por-shell.md), parte A | en curso |
+| R1b | Segunda capa de R1: al final del turno, los archivos de capa que cambiaron pasan por las reglas, sin importar cómo se escribieron. Es a R1 lo que `writer_stop` es a `writer_guard`. | [capa-por-shell](tasks/capa-por-shell.md), parte B | en cola |
 | R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | en cola |
 | R3 | Soporte para OpenCode (F3), Gemini CLI (F4) y Copilot CLI (F5), a partir del estudio de align-cli guardado en engram (`odd-ws/estudio-align-cli`). | [multi-host](tasks/multi-host.md), F3 a F5 | en cola |
 
@@ -48,6 +49,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 | [multi-host](tasks/multi-host.md) | X1, X3 a X8, X12 y X13 |
 | [paquetes-de-reglas](tasks/paquetes-de-reglas.md) | A4 a A8, los avisos del verificador de T1 |
 | [uso-en-equipo](tasks/uso-en-equipo.md) | F1 y F2 |
+| [capa-por-shell](tasks/capa-por-shell.md) | F1, la caché de bytecode de los hooks |
 
 ## Hecho
 

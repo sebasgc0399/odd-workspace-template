@@ -1761,6 +1761,129 @@ def test_un_host_desconocido_bloquea_en_pre_aunque_no_haya_instancia():
         assert r.returncode == 2 and r.stderr.startswith(b"odd-ws: host desconocido"), r
 
 
+def instancia_con_capa(base):
+    repo = base / "app"
+    (repo / "db").mkdir(parents=True)
+    inst = instancia(base, {"schema_version": 1, "repos": {"app": {}},
+                            "layers": {"sql": {"extensions": [".sql"], "repos": ["app"], "workshop": ["taller/*.sql"]}}})
+    (inst / "workspace.local.json").write_text(json.dumps({"repos": {"app": {"path": str(repo)}}}), encoding="utf-8")
+    return inst, repo
+
+
+def por_la_shell(comando, inst, cwd, herramienta="Bash", **extra):
+    return G.correr(evento(comando, cwd=str(cwd), herramienta=herramienta, **extra), entorno=entorno_de(inst))
+
+
+def bloqueo_de_capa(salida):
+    codigo, texto, error = salida
+    if codigo != 2 or texto:
+        return None
+    return error.decode("utf-8", "replace")
+
+
+def test_capa_el_principal_no_escribe_un_archivo_de_capa_por_la_shell():
+    with carpeta() as base:
+        inst, repo = instancia_con_capa(base)
+        absoluta = fw(repo / "db" / "a.sql")
+        casos = [
+            ("echo x > db/a.sql", "Bash"),
+            ("echo x >> db/a.sql", "Bash"),
+            ("printf x | tee db/a.sql", "Bash"),
+            ("cp /otra/p.sql db/a.sql", "Bash"),
+            ("mv /otra/p.sql db/a.sql", "Bash"),
+            ("cp /otra/p.sql db/", "Bash"),
+            ("mv /otra/p.sql db", "Bash"),
+            ("Copy-Item /otra/p.sql -Destination db", "PowerShell"),
+            ("sed -i s/a/b/ db/a.sql", "Bash"),
+            ("perl -pi -e s/a/b/ db/a.sql", "Bash"),
+            ("python3 -c \"open('db/a.sql','w').write('x')\"", "Bash"),
+            ("python3 - <<'EOF'\nopen('db/a.sql','w').write('x')\nEOF", "Bash"),
+            ("cat > db/a.sql <<'EOF'\nselect 1\nEOF", "Bash"),
+            ("bash -c \"echo x > db/a.sql\"", "Bash"),
+            ("cd db && echo x > a.sql", "Bash"),
+            ("echo x > " + absoluta, "Bash"),
+            ("Set-Content db/a.sql x", "PowerShell"),
+            ("'x' | Out-File db/a.sql", "PowerShell"),
+            ("'x' > db/a.sql", "PowerShell"),
+            ("Copy-Item /otra/p.sql db/a.sql", "PowerShell"),
+            ("New-Item db/a.sql -Value x", "PowerShell"),
+            ("[IO.File]::WriteAllText('" + absoluta + "','x')", "PowerShell"),
+            ("@'\nselect 1\n'@ | Set-Content db/a.sql", "PowerShell"),
+        ]
+        if NT:
+            casos += [("Set-Content db\\a.sql x", "PowerShell"), ("cmd /c \"echo x > db\\a.sql\"", "PowerShell")]
+        pasaron = [comando for comando, herramienta in casos if bloqueo_de_capa(por_la_shell(comando, inst, repo, herramienta)) is None]
+        assert not pasaron, "no se bloquearon: %r" % pasaron
+        assert bloqueo_de_capa(por_la_shell("echo x > " + absoluta, inst, inst)) is not None, "desde la raíz de la instancia"
+
+
+def test_capa_el_principal_si_puede_lo_que_no_deja_contenido_nuevo_en_la_capa():
+    with carpeta() as base:
+        inst, repo = instancia_con_capa(base)
+        scratch = RAIZ_SCRATCH + "/sesion/a.sql"
+        casos = [
+            ("echo x > README.md", "Bash"),
+            ("echo x > " + scratch, "Bash"),
+            ("echo x > /otra/a.sql", "Bash"),
+            ("cat db/a.sql", "Bash"),
+            ("rm db/a.sql", "Bash"),
+            ("rm -f db/a.sql", "Bash"),
+            ("truncate -s 0 db/a.sql", "Bash"),
+            ("touch db/a.sql", "Bash"),
+            ("mv db/a.sql " + scratch, "Bash"),
+            ("git mv db/a.sql db/b.sql", "Bash"),
+            ("Get-Content db/a.sql", "PowerShell"),
+            ("Remove-Item db/a.sql", "PowerShell"),
+            ("Clear-Content db/a.sql", "PowerShell"),
+        ]
+        frenados = [(comando, salida) for comando, herramienta in casos
+                    for salida in [por_la_shell(comando, inst, repo, herramienta)] if salida != (0, "", b"")]
+        assert not frenados, frenados
+
+
+def test_capa_en_un_writer_decide_writer_guard_y_otro_subagente_se_bloquea():
+    with carpeta() as base:
+        inst, repo = instancia_con_capa(base)
+        assert por_la_shell("echo x > db/a.sql", inst, repo, agent_type="writer-sql") == (0, "", b"")
+        assert bloqueo_de_capa(por_la_shell("echo x > db/a.sql", inst, repo, agent_type="Explore")) is not None
+
+
+def test_capa_el_taller_de_la_instancia_tambien_es_capa():
+    with carpeta() as base:
+        inst, _repo = instancia_con_capa(base)
+        assert bloqueo_de_capa(por_la_shell("echo x > taller/a.sql", inst, inst)) is not None
+        assert por_la_shell("echo x > notas/a.sql", inst, inst) == (0, "", b"")
+
+
+def test_capa_el_mensaje_nombra_el_archivo_y_manda_a_la_herramienta_de_edicion():
+    with carpeta() as base:
+        inst, repo = instancia_con_capa(base)
+        mensaje = bloqueo_de_capa(por_la_shell("echo x > db/a.sql", inst, repo))
+        assert mensaje and "a.sql" in mensaje and "capa sql" in mensaje, mensaje
+        for pieza in ("Edit", "apply_patch", "git mv"):
+            assert pieza in mensaje, (pieza, mensaje)
+        assert "que la corra el usuario a mano" not in mensaje, mensaje
+
+
+def test_capa_codex_y_pi_tambien_bloquean():
+    with carpeta() as base:
+        inst, repo = instancia_con_capa(base)
+        codex = G.correr(evento("echo x > db/a.sql", cwd=str(repo)), entorno=entorno_de(inst), host="codex")
+        assert "a.sql" in (negado_en_codex(codex) or ""), codex
+        pi = {"type": "tool_call", "toolName": "bash", "input": {"command": "echo x > db/a.sql"},
+              "ctx": {"cwd": str(repo), "sessionId": "s1", "hasUI": False, "mode": "rpc"},
+              "oddWs": {"agent": None, "agentId": None, "lastAssistantMessage": "", "continued": False}}
+        codigo, texto, _ = G.correr(pi, entorno=entorno_de(inst), host="pi")
+        accion = json.loads(texto) if codigo == 0 and texto else {}
+        assert accion.get("accion") == "bloquear" and "a.sql" in accion.get("texto", ""), (codigo, texto)
+
+
+def test_capa_con_la_config_rota_no_se_puede_clasificar_y_deja_pasar():
+    with carpeta() as base:
+        inst = instancia(base, "{ rota")
+        assert G.correr(evento("echo x > db/a.sql", cwd=str(base)), entorno=entorno_de(inst)) == (0, "", b"")
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

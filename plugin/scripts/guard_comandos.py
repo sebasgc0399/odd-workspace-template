@@ -8,6 +8,7 @@ import re
 import time
 
 import config_loader
+from odd_ws import capas as convencion
 from odd_ws import hosts, rutas
 from odd_ws.capacidades import PRE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, carpeta_scratch, correr_hook, host_de, plazo_de,
@@ -652,6 +653,7 @@ def _capa_1(base, entorno, powershell=False, profundidad=0):
 
 class Protegidos:
     def __init__(self, config=None, rota=None):
+        self.config = config
         self.rota = rota
         self.arboles = []
         for clave, repo in ((config or {}).get("repos") or {}).items():
@@ -1081,6 +1083,31 @@ def _preguntar(motivo):
     return Preguntar("guard-comandos pregunta antes de correr el comando: " + motivo)
 
 
+def _mensaje_de_capa(ruta, capa):
+    return ("guard-comandos bloqueó el comando: escribe por la shell en %s, un archivo de la capa %s, y así se salta el chequeo "
+            "de la capa, con sus no-negociables y sus reglas. Escríbelo con la herramienta de edición: Edit o Write en Claude "
+            "Code, apply_patch en Codex, edit o write en Pi. Para mover o renombrar un archivo que ya está en git, usa `git mv`."
+            % (ruta, capa))
+
+
+def _escritura_de_capa(evento, comando, cwd, protegidos):
+    if protegidos.config is None or convencion.es_writer(evento.agente):
+        return None
+    import writer_guard
+
+    writer_guard._LIMITE = _LIMITE
+    try:
+        for ruta in writer_guard.escrituras(comando, cwd or os.getcwd(), evento.dialecto):
+            clase = config_loader.clasificar(ruta, protegidos.config)
+            if clase:
+                return ruta, clase[0]
+    except writer_guard._SinTiempo:
+        raise _SinTiempo()
+    finally:
+        writer_guard._LIMITE = None
+    return None
+
+
 def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
     protegidos = None
@@ -1100,6 +1127,9 @@ def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
         resultado, motivo = analizar(comando, cwd, entorno, protegidos, evento.dialecto)
         if resultado == "block":
             return Bloquear(_mensaje(motivo))
+        capa = _escritura_de_capa(evento, comando, cwd, protegidos)
+        if capa:
+            return Bloquear(_mensaje_de_capa(*capa))
         if resultado == "ask":
             return _preguntar(motivo)
         return Permitir()

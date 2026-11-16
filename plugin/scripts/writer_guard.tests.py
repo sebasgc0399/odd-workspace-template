@@ -2093,6 +2093,49 @@ def test_claude_code_no_escribe_la_bitacora():
         assert fotos_de(raiz) == [G.clave_foto(archivo) + ".foto"], fotos_de(raiz)
 
 
+def _mismas(hallado, esperado):
+    if NT:
+        return [x.lower() for x in hallado] == [x.lower() for x in esperado]
+    return list(hallado) == list(esperado)
+
+
+def test_escrituras_deja_solo_lo_que_recibe_contenido_nuevo():
+    fallos = []
+    otro = fw(DB / "Current/esq.Proc_Y.sql")
+    nuevo = fw(DB / "Current/esq.Proc_Z.sql")
+    casos = [
+        ("echo x > " + SQL, None, [SQL]),
+        ("printf x | tee " + SQL, None, [SQL]),
+        ("cp /otra/plantilla.sql " + SQL, None, [SQL]),
+        ("mv " + otro + " " + SQL, None, [SQL]),
+        ("cp /otra/plantilla.sql " + fw(DB / "Current") + "/", None, [fw(DB / "Current/plantilla.sql")]),
+        ("mv " + SCRATCH_FW + " " + fw(DB) + "/", None, [fw(DB / "salida.txt")]),
+        ("sed -i s/a/b/ " + SQL, None, [SQL]),
+        ("python3 -c \"open('" + SQL + "','w').write('x')\"", None, [SQL]),
+        ("rm " + SQL + " && echo x > " + SQL, None, [SQL]),
+        ("rm " + SQL, None, []),
+        ("rm -f " + SQL + " && touch " + otro, None, []),
+        ("truncate -s 0 " + SQL, None, []),
+        ("unlink " + SQL, None, []),
+        ("python3 -c \"import os; os.remove('" + SQL + "')\"", None, []),
+        ("Set-Content " + SQL + " x", "PowerShell", [SQL]),
+        ("Move-Item " + otro + " " + SQL, "PowerShell", [SQL]),
+        ("Rename-Item " + otro + " esq.Proc_Z.sql", "PowerShell", [nuevo]),
+        ("Remove-Item " + SQL, "PowerShell", []),
+        ("Clear-Content " + SQL, "PowerShell", []),
+        ("[IO.File]::WriteAllText('" + SQL + "','x')", "PowerShell", [SQL]),
+        ("[IO.File]::Move('" + otro + "','" + SQL + "')", "PowerShell", [SQL]),
+        ("[IO.File]::Delete('" + SQL + "')", "PowerShell", []),
+    ]
+    for comando, herramienta, esperado in casos:
+        hallado = G.escrituras(comando, None, herramienta)
+        esperar(fallos, _mismas(hallado, esperado), "%s: %r, se esperaba %r" % (comando, hallado, esperado))
+    esperar(fallos, _mismas(G.destinos("rm " + SQL), [SQL]), "destinos sigue devolviendo los borrados")
+    esperar(fallos, _mismas(G.destinos("mv " + otro + " " + SQL), [otro, SQL]), "destinos sigue devolviendo el origen y el destino")
+    esperar(fallos, G.escrituras("") == [] and G.escrituras(None) == [], "vacío o None")
+    comprobar(fallos)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

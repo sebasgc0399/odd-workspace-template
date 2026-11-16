@@ -72,6 +72,9 @@ ESCRIBEN_TODO = {
 PRIMER_POSICIONAL = {"set-content", "add-content", "out-file", "clear-content", "new-item", "set-item", "sc", "ac", "ni"}
 COPIAN = {"cp", "copy", "copy-item", "cpi", "xcopy", "robocopy", "install"}
 COPIAN_CON_BARRAS = {"xcopy", "robocopy"}
+SIN_CONTENIDO = {"rm", "del", "erase", "rmdir", "rd", "ri", "remove-item", "unlink", "shred", "truncate", "clear-content", "touch"}
+MUEVEN = {"mv", "move", "move-item", "mi", "ren", "rename", "rename-item", "rni"}
+RENOMBRAN = {"ren", "rename-item", "rni"}
 XARGS_CON_VALOR = {"-I", "-L", "-n", "-P", "-s", "-E", "-d", "-a", "--max-args", "--max-procs", "--max-lines", "--delimiter",
                    "--replace", "--arg-file", "--max-chars", "--eof"}
 OPCION_BARRA = re.compile(r"^/[A-Za-z?][A-Za-z0-9_]*(:.*)?$")
@@ -95,6 +98,7 @@ PY_ESCRIBE = re.compile(
     r"""open\s*\(\s*[^,)]+,\s*['"][rwabxt+]*[wax+][rwabxt+]*['"]|\.open\s*\(\s*['"][rwabxt+]*[wax+][rwabxt+]*['"]|"""
     r"""mode\s*=\s*['"][rwabxt+]*[wax+][rwabxt+]*['"]|write_text|write_bytes|\.write\s*\(|shutil\.|"""
     r"""os\.(remove|rename|replace|unlink|rmdir|removedirs|makedirs|mkdir)|\.unlink\s*\(|\.rename\s*\(|\.rmdir\s*\(|\.touch\s*\(""")
+PY_SIN_CONTENIDO = re.compile(r"shutil\.rmtree|os\.(?:remove|unlink|rmdir|removedirs|makedirs|mkdir)\b|\.unlink\s*\(|\.rmdir\s*\(|\.touch\s*\(")
 PY_PROCESO = re.compile(r"subprocess|os\.system|os\.popen|\bPopen\b|check_call|check_output|os\.exec|os\.spawn")
 PY_GIT = re.compile(r"\bgit(?:\.exe)?\b")
 PYTHON_RE = re.compile(r"python[0-9.]*|py|pythonw")
@@ -110,6 +114,8 @@ SET_OPCIONES = re.compile(r"[-+][A-Za-z]+")
 MAX_CWDS = 64
 
 _COLECTOR = None
+_ESCRITURAS = None
+_OPERACION = "contenido"
 _UNIR = False
 _CUERPOS = False
 _BASH = False
@@ -480,15 +486,80 @@ def _resolver(ruta, cwd, logica=False):
     return rutas.resolver(ruta, cwd, _variable, logica)
 
 
-def _recoger(ruta, cwd):
+def _ruta_recogida(ruta, cwd):
     r = _normalizar(ruta)
-    if r.lower() in NULOS or len(_COLECTOR) >= 100:
-        return
+    if r.lower() in NULOS:
+        return None
     if _es_relativa(r) and cwd:
         r = _normalizar(cwd) + "/" + r
-    r = posixpath.normpath(r)
+    return posixpath.normpath(r)
+
+
+def _recoger(ruta, cwd):
+    if len(_COLECTOR) >= 100:
+        return
+    r = _ruta_recogida(ruta, cwd)
+    if r is None:
+        return
     if r not in _COLECTOR:
         _COLECTOR.append(r)
+    if _OPERACION == "contenido":
+        _anotar_escritura(r)
+
+
+def _anotar_escritura(r):
+    if _ESCRITURAS is not None and r not in _ESCRITURAS and len(_ESCRITURAS) < 100:
+        _ESCRITURAS.append(r)
+
+
+def _con_operacion(operacion, funcion, *args):
+    global _OPERACION
+    previa, _OPERACION = _OPERACION, operacion
+    try:
+        return funcion(*args)
+    finally:
+        _OPERACION = previa
+
+
+def _es_carpeta(destino, cwd):
+    if not destino or destino.startswith("&"):
+        return False
+    if destino.endswith(("/", "\\")):
+        return True
+    r = _ruta_recogida(destino, cwd if isinstance(cwd, str) else None)
+    return r is not None and os.path.isdir(r)
+
+
+def _recoger_destino(fuentes, destino, cwd, renombra=False):
+    if not destino or destino.startswith("&"):
+        return
+    if renombra and fuentes and not re.search(r"[\\/]", destino):
+        _con_operacion("nombre", _protegida, destino, cwd)
+        r = _ruta_recogida("/".join(re.split(r"[\\/]", fuentes[0])[:-1] + [destino]), cwd)
+        if r is not None:
+            _anotar_escritura(r)
+        return
+    if fuentes and _es_carpeta(destino, cwd):
+        _con_operacion("carpeta", _protegida, destino, cwd)
+        for fuente in fuentes:
+            r = _ruta_recogida(destino.rstrip("\\/") + "/" + re.split(r"[\\/]", fuente.rstrip("\\/"))[-1], cwd)
+            if r is not None:
+                _anotar_escritura(r)
+        return
+    _protegida(destino, cwd)
+
+
+def _recoger_escritura(cmd, objetivos, cwd):
+    if cmd in PRIMER_POSICIONAL:
+        objetivos = objetivos[:1]
+    if cmd in MUEVEN and len(objetivos) >= 2:
+        for fuente in objetivos[:-1]:
+            _con_operacion("borrado", _protegida, fuente, cwd)
+        _recoger_destino(objetivos[:-1], objetivos[-1], cwd, cmd in RENOMBRAN)
+        return
+    operacion = "borrado" if cmd in SIN_CONTENIDO else "contenido"
+    for objetivo in objetivos:
+        _con_operacion(operacion, _protegida, objetivo, cwd)
 
 
 def _protegida(ruta, cwd):
@@ -738,8 +809,9 @@ def _python_codigo_escribe(codigo, cwd):
         if escritura:
             return "git %s" % escritura[0]
     if PY_ESCRIBE.search(codigo):
+        operacion = "contenido" if PY_ESCRIBE.search(PY_SIN_CONTENIDO.sub("", codigo)) else "borrado"
         for m in PY_COMILLADO.finditer(codigo):
-            if (_COLECTOR is None or re.search(r"[\\/.]", m.group(2))) and _protegida(m.group(2), cwd):
+            if (_COLECTOR is None or re.search(r"[\\/.]", m.group(2))) and _con_operacion(operacion, _protegida, m.group(2), cwd):
                 return m.group(2)
     return None
 
@@ -781,11 +853,13 @@ def _escribe(cmd, rest, cwd, texto=None):
         return None
     if cmd in ESCRIBEN_TODO:
         objetivos = _posicionales(rest)
-        if _COLECTOR is not None and cmd in PRIMER_POSICIONAL:
-            objetivos = objetivos[:1]
+        if _COLECTOR is not None:
+            _recoger_escritura(cmd, objetivos, cwd)
+            return None
         return next((t for t in objetivos if _protegida(t, cwd)), None)
     if cmd in COPIAN:
         destino, posicionales, i = None, [], 0
+        fuentes = None
         while i < len(rest):
             t = rest[i]
             if t.lower() in OPCIONES_DESTINO and i + 1 < len(rest):
@@ -795,8 +869,13 @@ def _escribe(cmd, rest, cwd, texto=None):
             if not t.startswith("-"):
                 posicionales.append(t)
             i += 1
-        if destino is None and len(posicionales) >= 2:
-            destino = posicionales[-1]
+        if destino is not None:
+            fuentes = posicionales
+        elif len(posicionales) >= 2:
+            destino, fuentes = posicionales[-1], posicionales[:-1]
+        if _COLECTOR is not None:
+            _recoger_destino(fuentes or [], destino, cwd)
+            return None
         return destino if destino and _protegida(destino, cwd) else None
     if cmd == "dd":
         return next((t[3:] for t in rest if t.startswith("of=") and _protegida(t[3:], cwd)), None)
@@ -914,7 +993,8 @@ def _clr(texto, cwd):
         indice = 1 if m.group(1).lower() in CLR_DESTINO_SEGUNDO else 0
         if indice >= len(args):
             continue
-        destino = _clr_destino(args[indice], cwd, texto)
+        operacion = "borrado" if m.group(1).lower() == "delete" else "contenido"
+        destino = _con_operacion(operacion, _clr_destino, args[indice], cwd, texto)
         if destino:
             return "[IO.File]::%s sobre %s" % (m.group(1), destino)
     return None
@@ -1172,6 +1252,17 @@ def destinos(comando, cwd=None, herramienta=None):
         return list(_COLECTOR)
     finally:
         _COLECTOR = previo
+
+
+def escrituras(comando, cwd=None, herramienta=None):
+    global _ESCRITURAS
+    previas = _ESCRITURAS
+    _ESCRITURAS = []
+    try:
+        destinos(comando, cwd, herramienta)
+        return list(_ESCRITURAS)
+    finally:
+        _ESCRITURAS = previas
 
 
 def _mensaje(motivo):
