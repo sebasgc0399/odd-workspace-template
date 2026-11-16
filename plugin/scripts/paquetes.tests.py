@@ -398,10 +398,11 @@ def test_errores_de_entorno_salen_con_2():
 
 def test_una_fuente_local_se_guarda_absoluta_y_avisa_que_solo_sirve_en_esta_maquina():
     with Mundo() as w:
-        absoluta = os.path.normpath(os.path.abspath(str(w.base / "paquete.git")))
         codigo, out, err = w.correr("importar", "paquete.git", "--etiqueta", "v1", "--capa", "sql", cwd=w.base)
-        assert (codigo, err) == (0, AVISO_LOCAL % absoluta), (codigo, out, err)
-        assert B.leer_lock(str(w.raiz))["alfa"].fuente == absoluta
+        guardada = B.leer_lock(str(w.raiz))["alfa"].fuente
+        assert (codigo, err) == (0, AVISO_LOCAL % guardada), (codigo, out, err)
+        assert os.path.isabs(guardada) and guardada == os.path.normpath(guardada), guardada
+        assert os.path.samefile(guardada, w.base / "paquete.git"), "la ruta guardada es la del repo, aunque el sistema la escriba con un enlace resuelto (/var y /private/var en macOS)"
         codigo, out, err = w.correr("actualizar", "alfa", "--etiqueta", "v2", cwd=w.raiz)
         assert (codigo, err) == (0, "") and B.leer_lock(str(w.raiz))["alfa"].etiqueta == "v2", (codigo, out, err)
         w.sin_rastros()
