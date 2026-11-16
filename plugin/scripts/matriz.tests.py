@@ -227,6 +227,13 @@ def test_esquema_origen_formatos():
         assert not filas and errores and "origen" in errores[0][1], (o, errores)
 
 
+def test_origen_de_engram_con_sync_id():
+    o = M.parsear_origen("memoria:engram-obs-d2a572e53ec05212")
+    assert (o["tipo"], o["slug"]) == ("memoria", "engram-obs-d2a572e53ec05212"), o
+    filas, errores = cargar([fila(origen="memoria:engram-obs-d2a572e53ec05212;memoria:engram-12")])
+    assert not errores and len(filas) == 1, errores
+
+
 def test_esquema_origen_sin_hash():
     for o, pieza in (("a.md:1-2", "a.md:1-2"), ("memoria:x;dir/a.md:3-9", "dir/a.md:3-9"),
                      ("a.md@abc1234:1-2;b.md:5-5", "b.md:5-5")):

@@ -228,12 +228,14 @@ Lo consultás vos, no el script.
 - **Después, `mem_search`** con ese `project`, `scope: "project"` y `limit: 20`. Nunca `scope: "personal"` ni `all_projects`. Hacé una consulta por capa de la instancia y por tema (una convención, un error que se repitió). Para leer una observación entera, `mem_get_observation`.
 - **Una observación que describe a una persona** (su perfil, su rol, sus preferencias) cuenta como `user` y no entra.
 - **La cobertura es parcial, y se declara así:** «engram: parcial; N consultas, K llegaron al tope 20/20, puede haber más». Nunca «no hay más»: `mem_search` no tiene cursor.
-- **El origen** de lo que se gradúa desde engram es `memoria:engram-<id>`, con el id de la observación y sin otro `:` dentro del slug, porque la regex de `matriz.py` no lo admite.
-- **Si ya está graduada,** alguna pieza de un `origen` de la matriz, partido por `;`, es exactamente `memoria:engram-<id>`: no la propongas. Compará la pieza entera, nunca una subcadena (`memoria:engram-12` no es `memoria:engram-123`). Este comando imprime `True` si ya está:
+- **El origen** de lo que se gradúa desde engram es `memoria:engram-<sync_id>`, con el `sync_id` que trae cada resultado de `mem_search` (por ejemplo, `memoria:engram-obs-d2a572e53ec05212`). No uses el `id` numérico: es de esta máquina, y en la de un compañero que comparte las memorias del equipo la misma observación tiene otro, así que ahí la fila no se reconocería. Si un resultado no trae `sync_id`, el origen es `memoria:engram-<id>`, y la propuesta avisa que esa fila solo se reconoce en esta máquina. Nunca otro `:` dentro del slug, porque la regex de `matriz.py` no lo admite.
+- **Si ya está graduada,** alguna pieza de un `origen` de la matriz, partido por `;`, es exactamente `memoria:engram-<sync_id>` o, en una fila anterior a este formato, `memoria:engram-<id>`: no la propongas. Compará la pieza entera, nunca una subcadena (`memoria:engram-12` no es `memoria:engram-123`). Este comando imprime `True` si ya está:
 
   ```bash
-  python3 -c "import csv, sys; filas = list(csv.reader(open('.claude/reglas/matriz.csv', encoding='utf-8', newline='')))[1:]; print(any(pieza == sys.argv[1] for fila in filas if len(fila) > 1 for pieza in fila[1].split(';')))" "memoria:engram-<id>"
+  python3 -c "import csv, sys; filas = list(csv.reader(open('.claude/reglas/matriz.csv', encoding='utf-8', newline='')))[1:]; print(any(pieza in sys.argv[1:] for fila in filas if len(fila) > 1 for pieza in fila[1].split(';')))" "memoria:engram-<sync_id>" "memoria:engram-<id>"
   ```
+
+  Una fila con el `id` numérico solo es segura en la máquina que la escribió: en otra, ese número puede ser otra observación.
 
 - **El límite:** el registro local solo acepta slugs de archivos, así que lo de engram no se registra como `vista` ni `descartada`. Puede volver a proponerse en la próxima corrida; lo ya graduado se reconoce por su fila.
 
@@ -242,7 +244,7 @@ Lo consultás vos, no el script.
 Juzgá cuáles de los candidatos suenan a regla (un criterio de revisión o una convención de una capa) y con qué destino. Mostrá, **antes de escribir nada**:
 
 1. **La cobertura de cada fuente:** la línea de la memoria en archivos (`completa`, con cuántas, el directorio y si fue `pasada` o `derivada`, o `no disponible`) y la de engram.
-2. **Los candidatos, uno por fila:** el slug (o `engram-<id>`); la fila exacta de la matriz con todos sus campos (el `id` que le va a tocar y `memoria:<slug>` como `origen`); el destino, con el texto exacto de la regla que va ahí; y la entrada de `.claude/reglas/evidencia.md`, con su texto exacto (salvo un `descarte`, que no lleva).
+2. **Los candidatos, uno por fila:** el slug (o `engram-<sync_id>`; sin `sync_id`, `engram-<id>`, con el aviso de que esa fila solo se reconoce en esta máquina); la fila exacta de la matriz con todos sus campos (el `id` que le va a tocar y `memoria:<slug>` como `origen`); el destino, con el texto exacto de la regla que va ahí; y la entrada de `.claude/reglas/evidencia.md`, con su texto exacto (salvo un `descarte`, que no lleva).
 3. **Las «sin fila»:** las `nueva` y `cambiada` que no suenan a regla, las de dominio o de metodología y las de motor, cada una con su slug y el porqué en pocas palabras.
 4. **El registro local:** qué slugs quedan como `vista` (lo mostrado que no se aprueba, las «sin fila» incluidas) y cuáles como `descartada` (lo que el usuario descarta explícitamente). Avisá que lo que queda `vista` o `descartada` no vuelve a proponerse mientras el `modified` de su memoria no cambie.
 5. **El commit** (M5): los archivos y el mensaje.
