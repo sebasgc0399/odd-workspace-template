@@ -95,7 +95,7 @@ Y `evidencia.md`, con lo que respalda cada regla, por ejemplo su calibración co
 ### Publicar un paquete
 
 1. **Un repo git** con esos archivos en la raíz.
-2. **Pruébalo antes de etiquetar,** importándolo en una instancia de prueba con una ruta local: `reglas.py --test` corre su suite y `matriz.py --destinos --capa <capa>` valida su matriz (abajo).
+2. **Pruébalo antes de publicar.** El importador solo acepta etiquetas, así que crea una local sin empujarla (`git tag v1.0.0-rc1`) e impórtala en una instancia de prueba con la ruta local del repo: `reglas.py --test` corre su suite y `matriz.py --destinos --capa <capa>` valida su matriz (abajo).
 3. **Etiqueta cada versión,** anotada o liviana: `git tag -a v1.0.0 -m "go-basico 1.0.0"` y `git push origin v1.0.0`. Una instancia se fija a una etiqueta: una rama o un hash no se importan. Para cambiar algo, haz una etiqueta nueva.
 
 Fuera de esta versión: textos para el revisor (`reviewer-PR`) o los `criterios` desde un paquete, subcarpetas dentro del paquete, dependencias entre paquetes y un índice de paquetes de la comunidad.
