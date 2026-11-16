@@ -2,7 +2,9 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
-## Sin publicar
+## 0.6.2
+
+**Un hueco del guard en Codex y una compuerta del writer que lee mejor el cierre.**
 
 ### Lo que cambia para ti
 
