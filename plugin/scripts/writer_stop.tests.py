@@ -347,6 +347,50 @@ def test_limites_vale_en_los_tres_estados_y_queda_en_lo_declarado():
     assert campos["verificacion"] == ["python -m unittest: 12 pasan, 0 fallan"], "verificacion no se mezcla con limites: %r" % campos
 
 
+def test_f1_los_nombres_de_campo_con_tilde_o_mayuscula_se_reconocen():
+    base = resultado("ok", limites="- no cubre Windows")
+    variantes = {
+        "límites": base.replace("limites:", "límites:"),
+        "Limites": base.replace("limites:", "Limites:"),
+        "límites descompuesto": base.replace("limites:", "límites:"),
+        "verificación": base.replace("verificacion:", "verificación:"),
+        "árbol": base.replace("arbol:", "árbol:"),
+        "Estado": base.replace("estado:", "Estado:"),
+    }
+    for etiqueta, mensaje in variantes.items():
+        campos, errores = W.parsear_resultado(mensaje)
+        assert errores == [], (etiqueta, errores)
+        assert campos["limites"] == ["no cubre Windows"], (etiqueta, campos)
+        assert campos["verificacion"] == ["python -m unittest: 12 pasan, 0 fallan"], (etiqueta, campos)
+        assert campos["estado"] == "ok" and campos["arbol"] == "sucio (B.cs, 1 hunk)", (etiqueta, campos)
+    _, errores = W.parsear_resultado(base.replace("limites:", "limitaciones:"))
+    assert any("limites" in e for e in errores), "un nombre que no es campo sigue sin contar: %r" % errores
+
+
+def test_f2_una_vineta_de_lista_que_empieza_con_un_nombre_de_campo_no_lo_pisa():
+    campos, errores = W.parsear_resultado(resultado("ok", limites="- estado: no cubre el caso de error\n- regla: no probó T-12"))
+    assert errores == [] and campos["estado"] == "ok" and campos["regla"] == "ninguna", (campos, errores)
+    assert campos["limites"] == ["estado: no cubre el caso de error", "regla: no probó T-12"], campos
+    campos, errores = W.parsear_resultado(resultado("ok", verificacion="- arbol: git status sin cambios ajenos"))
+    assert errores == [] and campos["arbol"] == "sucio (B.cs, 1 hunk)", (campos, errores)
+    assert campos["verificacion"] == ["arbol: git status sin cambios ajenos"], campos
+    campos, errores = W.parsear_resultado("## Resultado\n- estado: ok\n- regla: ninguna\n- intento: ninguno\n- presupuesto: B.cs 10\n"
+                                          "- reales: x\n- arbol: sin cambios\n- verificacion:\n  - cmd: ok\n- limites:\n  - no cubre Windows\n")
+    assert errores == [] and campos["verificacion"] == ["cmd: ok"] and campos["limites"] == ["no cubre Windows"], (campos, errores)
+
+
+def test_f4_otras_formas_de_nada_tampoco_valen_como_limite():
+    for nada in ("- n/a", "- N/A", "- na", "- nada", "- Nada.", "- none", "- ningún límite", "- Ningun limite", "- (ninguno)",
+                 "- [ninguna]", "- no aplica", "- sin límites", "- Sin limite"):
+        _, errores = W.parsear_resultado(resultado(limites=nada))
+        assert any("limites" in e for e in errores), (nada, errores)
+    for real in ("- n/a en Windows: no se probó", "- nada cubre la migración de datos", "- no aplica a la capa web, no se corrió"):
+        _, errores = W.parsear_resultado(resultado(limites=real))
+        assert errores == [], (real, errores)
+    _, errores = W.parsear_resultado(resultado(limites="- n/a\n- no cubre datos reales"))
+    assert errores == [], "un límite real junto a una forma de nada vale: %r" % errores
+
+
 def test_la_plantilla_es_un_bloque_resultado_que_no_valida():
     assert W.PLANTILLA.startswith("## Resultado\n"), W.PLANTILLA[:20]
     assert W.PLANTILLA.endswith("\nlimites:\n- <qué no demuestra la verificación>"), W.PLANTILLA[-80:]

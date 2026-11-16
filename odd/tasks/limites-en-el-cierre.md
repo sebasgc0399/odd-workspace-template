@@ -17,10 +17,10 @@ Objetivo: sumar al bloque de cierre del writer el eslabón «límite» (qué no 
 |---|---|---|---|---|
 | T1 | S1-S4 | `limites:` en `writer_stop.PLANTILLA` y su validación, la plantilla del writer en v2 con su huella, y la documentación (`writer.md`, `Doc/diseno.md`, `Doc/actualizar.md`, CHANGELOG) | inline: un cambio entendido, sin razón de writer (Writer trigger no aplica) | hecho: `b2faca3`, avisos del verificador en el commit siguiente (L5) |
 | V | S1-S4 | Un verificador independiente sobre T1 | delegado (ítem 3: el contrato del bloque) | hecho: S1-S4 cumplen, sin blockers (L4) |
-| F1 | — | Seguimiento: `límites:` con tilde o `Limites:` no se reconocen (igual que `verificación:` en la base); bloquea una vez y, si va después de `verificacion`, sus viñetas terminan en `resultado.verificacion` del sidecar (A4) | inline, aparte | pendiente |
-| F2 | — | Seguimiento: una viñeta de `limites` o `verificacion` que empieza con un nombre de campo (`- estado: …`) pisa ese campo, porque `CAMPO_RE` acepta viñeta. Previo para `verificacion` (A5) | inline, aparte | pendiente |
-| F3 | — | Seguimiento: `writer.md` usa «límites» para tres cosas (`## Tus límites`, el bloque `instancia:limites` y el campo); un writer podría listar sus restricciones como límites de la verificación (A6) | inline, aparte | pendiente |
-| F4 | — | Seguimiento: otras formas de «nada» validan como límite (`n/a`, `nada`, `none`, `ningún límite`, `(ninguno)`); S1 solo pide `ninguno`/`ninguna` (A3). Y el orden de las claves de `resultado` en el sidecar cambió (A2: valores idénticos, nadie lo lee) | inline, aparte | pendiente |
+| F1 | — | Seguimiento: `límites:` con tilde o `Limites:` no se reconocen (igual que `verificación:` en la base); bloquea una vez y, si va después de `verificacion`, sus viñetas terminan en `resultado.verificacion` del sidecar (A4) | inline, aparte | hecho en `fix/limites-seguimientos` (L6) |
+| F2 | — | Seguimiento: una viñeta de `limites` o `verificacion` que empieza con un nombre de campo (`- estado: …`) pisa ese campo, porque `CAMPO_RE` acepta viñeta. Previo para `verificacion` (A5) | inline, aparte | hecho en `fix/limites-seguimientos` (L6) |
+| F3 | — | Seguimiento: `writer.md` usa «límites» para tres cosas (`## Tus límites`, el bloque `instancia:limites` y el campo); un writer podría listar sus restricciones como límites de la verificación (A6) | inline, aparte | pospuesto (L6): cambiar el encabezado de `writer.md` sube la plantilla a v3 y obliga a regenerar los writers de cada instancia; va con el próximo cambio de la plantilla |
+| F4 | — | Seguimiento: otras formas de «nada» validan como límite (`n/a`, `nada`, `none`, `ningún límite`, `(ninguno)`); S1 solo pide `ninguno`/`ninguna` (A3). Y el orden de las claves de `resultado` en el sidecar cambió (A2: valores idénticos, nadie lo lee) | inline, aparte | las formas de «nada», hecho en `fix/limites-seguimientos` (L6); el orden de las claves no se toca |
 
 ## Log
 
@@ -53,3 +53,10 @@ Objetivo: sumar al bloque de cierre del writer el eslabón «límite» (qué no 
   - **A7 y A9:** `Doc/actualizar.md` cita el AVISO que imprime el doctor y la FALTA de `codex-agentes`; `Doc/diseno.md` y el CHANGELOG dicen «regenerar con `--arreglar`».
   - **A8:** un test de Codex con el escenario limpio: solo falta `limites` y el cierre completo pasa a la primera.
   - **Suites:** `writer_stop` 54/54, `plantilla_writer` 32/32, `bootstrap_agentes` 47/47, `doctor` 131/131 y `codex` 41/41.
+- **L6 (2026-11-16), los seguimientos F1, F2 y F4, en la rama `fix/limites-seguimientos`** (desde `fix/codex-apply-patch-por-shell`, para entrar en la próxima entrega). El usuario: «sigamos con lo nuestro».
+  - **F1:** `CAMPO_RE` acepta cualquier palabra antes de `:`, y `_nombre_de_campo` la cuenta como campo si, sin tildes y en minúscula, está en `CAMPOS`. El mensaje se normaliza a NFC antes de leerlo, así que una tilde escrita como carácter combinado también se reconoce.
+  - **F2:** dentro de `verificacion` o `limites`, una viñeta con el nombre de un campo ya visto es una entrada de la lista y no pisa el campo. El bloque entero en viñetas sigue valiendo, porque ahí cada campo aparece por primera vez.
+  - **F4:** `NINGUNO_RE` rechaza también `ningún límite`, `nada`, `n/a`, `na`, `none`, `no aplica` y `sin límites`, con paréntesis o corchetes además de los envoltorios de antes. Solo las frases completas: «n/a en Windows: no se probó» sigue valiendo. El mensaje de error dice ««ninguno», «n/a» o «nada» no valen». El orden de las claves del sidecar no se toca.
+  - **F3, pospuesto:** el encabezado «## Tus límites» vive en `writer.md`, y cambiarlo sube la plantilla a v3, con un AVISO en cada instancia hasta regenerar. No compensa por un título; va con el próximo cambio de la plantilla.
+  - **Pruebas:** tres nuevas en `writer_stop.tests.py`, en rojo antes del cambio y en verde después (57/57). En verde también `capacidades`, `comun`, `codex`, `pi` y `plantilla_writer`.
+  - **Risk:** ninguno. `parsear_resultado` solo lo usa la compuerta del writer, y el bloque de la plantilla sigue validando igual.

@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import time
+import unicodedata
 
 import config_loader
 from odd_ws import capas as convencion
@@ -38,12 +39,13 @@ limites:
 
 ENCABEZADO_RE = re.compile(r"^#{1,6}\s")
 RESULTADO_RE = re.compile(r"^##\s+Resultado\s*$")
-CAMPO_RE = re.compile(r"^\s*(?:[-*]\s+)?(%s)\s*:\s*(.*?)\s*$" % "|".join(CAMPOS))
+CAMPO_RE = re.compile(r"^\s*([-*]\s+)?([^\W\d_]+)\s*:\s*(.*?)\s*$")
 ENTRADA_RE = re.compile(r"^\s*[-*]\s+(\S.*?)\s*$")
 CON_RESULTADO_RE = re.compile(r"\S:\s+\S")
 PLACEHOLDER_RE = re.compile(r"<[^<>\n]+>")
 ARBOL_RE = re.compile(r"^(sin cambios|sucio\s*\(.+\))\.?$", re.IGNORECASE)
-NINGUNO_RE = re.compile(r"^[`*_\s\"'«“]*ningun[oa][`*_\s.\"'»”]*$", re.IGNORECASE)
+NINGUNO_RE = re.compile(r"^[`*_\s\"'«“(\[]*(?:ning[uú]n[oa]?(?:\s+l[ií]mites?)?|nada|n/?a|none|no\s+aplica|sin\s+l[ií]mites?)"
+                        r"[`*_\s.\"'»”)\]]*$", re.IGNORECASE)
 
 _VERIFICAR = []
 _GUARDIA = []
@@ -77,8 +79,13 @@ def escritos_por_bash(evento, fotos, anfitrion):
     return escritos
 
 
+def _nombre_de_campo(texto):
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", texto) if not unicodedata.combining(c)).lower()
+    return sin_tildes if sin_tildes in CAMPOS else None
+
+
 def parsear_resultado(mensaje):
-    lineas = mensaje.splitlines() if isinstance(mensaje, str) else []
+    lineas = unicodedata.normalize("NFC", mensaje).splitlines() if isinstance(mensaje, str) else []
     inicios = [i for i, l in enumerate(lineas) if RESULTADO_RE.match(l.strip())]
     if not inicios:
         return {}, ["falta el bloque `## Resultado` en tu último mensaje"]
@@ -87,11 +94,15 @@ def parsear_resultado(mensaje):
         if ENCABEZADO_RE.match(l.strip()):
             break
         bloque.append(l)
-    campos, listas, lista = {}, {nombre: [] for nombre in LISTAS}, None
+    campos, listas, lista, vistos = {}, {nombre: [] for nombre in LISTAS}, None, set()
     for l in bloque:
         m = CAMPO_RE.match(l)
-        if m:
-            nombre, valor = m.group(1), m.group(2)
+        nombre = _nombre_de_campo(m.group(2)) if m else None
+        if nombre and lista and m.group(1) and nombre in vistos:
+            nombre = None
+        if nombre:
+            valor = m.group(3)
+            vistos.add(nombre)
             lista = nombre if nombre in LISTAS else None
             if lista:
                 if valor:
@@ -124,7 +135,7 @@ def parsear_resultado(mensaje):
     if not validas:
         errores.append("falta `verificacion:` con al menos una línea `- <comando>: <resultado observado>`")
     if not [e for e in listas["limites"] if LIMITE_PLACEHOLDER not in e and not NINGUNO_RE.match(e)]:
-        errores.append("falta `limites:` con al menos una línea `- %s`; «ninguno» no vale: una suite verde demuestra "
+        errores.append("falta `limites:` con al menos una línea `- %s`; «ninguno», «n/a» o «nada» no valen: una suite verde demuestra "
                        "los casos que ejecuta, nada más" % LIMITE_PLACEHOLDER)
     campos.update(listas)
     return campos, errores

@@ -7,10 +7,12 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 ### Lo que cambia para ti
 
 - **El guard de comandos bloquea el parche de Codex aplicado por la shell.** En Codex, cuando la herramienta de edición fallaba, un agente podía escribir un archivo con `codex.exe --codex-run-as-apply-patch`, y los chequeos de capa no corrían. Ahora ese comando se bloquea en los tres CLI, con un mensaje que pide usar la herramienta de edición.
+- **La compuerta del writer lee mejor el cierre.** Reconoce los campos escritos con tilde o mayúscula (`límites:`, `Verificación:`). Una línea de la lista que empieza con el nombre de otro campo ya no lo pisa. Y en `limites`, ni `n/a`, ni `nada`, ni `none`, ni `no aplica` valen como límite, igual que `ninguno`. No tienes que regenerar los writers.
 
 ### Detalle técnico
 
 - `guard_comandos` (capa 1) bloquea `--codex-run-as-apply-patch` cuando va como argumento, también dentro de `bash -c` y `powershell -Command`. Nombrado dentro de comillas, por ejemplo en un mensaje de commit, no bloquea.
+- `writer_stop.parsear_resultado` normaliza el mensaje a NFC y compara los nombres de campo sin tildes y en minúscula. Dentro de `verificacion` o `limites`, una viñeta con el nombre de un campo ya visto queda como entrada. `NINGUNO_RE` suma `ningún límite`, `nada`, `n/a`, `none`, `no aplica` y `sin límites`, solo como frase completa (seguimientos F1, F2 y F4 de `odd/tasks/limites-en-el-cierre.md`).
 - La nota P9 del manifiesto de Pi (`odd_ws/hosts/pi.py`) registra que la instalación desde la fuente git se probó a mano con la 0.6.1, y que el ítem `pi-plugin` del doctor dio OK.
 - La nota P5 registra que la acción `seguir` de la compuerta se probó en vivo con la 0.6.1: frenó una vez a un writer que cerró sin el bloque de resultado, y el writer volvió a cerrar con el bloque completo.
 
