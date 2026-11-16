@@ -449,6 +449,78 @@ def test_un_paquete_con_enlaces_o_fuera_de_su_carpeta_no_se_carga_y_se_nombra():
     assert "_junction" in probados, probados
 
 
+def _entrada_de(nombre, capa, prefijo, etiqueta, commit, huella):
+    return m().Paquete(nombre, capa, prefijo, "https://example.com/%s.git" % nombre, etiqueta, commit, huella)
+
+
+def test_escribir_lock_es_determinista_valida_antes_y_borra_el_lock_vacio():
+    zeta = _entrada_de("zeta", "go", "ZET", "v1", "a" * 40, "sha256:" + "1" * 64)
+    alfa = _entrada_de("alfa", "sql", "ALF", "v2.0", "b" * 40, "sha256:" + "2" * 64)
+    with Temporal() as base:
+        m().escribir_lock(str(base), {"zeta": zeta, "alfa": alfa})
+        ruta = base / ".claude" / "reglas" / "paquetes.json"
+        esperado = {"version": 1, "paquetes": {
+            "alfa": {"capa": "sql", "prefijo": "ALF", "fuente": "https://example.com/alfa.git", "etiqueta": "v2.0", "commit": "b" * 40,
+                     "huella": "sha256:" + "2" * 64},
+            "zeta": {"capa": "go", "prefijo": "ZET", "fuente": "https://example.com/zeta.git", "etiqueta": "v1", "commit": "a" * 40,
+                     "huella": "sha256:" + "1" * 64}}}
+        assert ruta.read_bytes() == (json.dumps(esperado, ensure_ascii=False, indent=2) + "\n").encode("utf-8"), ruta.read_bytes()
+        assert m().datos_del_lock({"zeta": zeta, "alfa": alfa}) == esperado
+        assert m().leer_lock(str(base)) == {"alfa": alfa, "zeta": zeta}
+        antes = ruta.read_bytes()
+        for malo in ({"zeta": zeta._replace(commit="no")}, {"zeta": zeta, "alfa": alfa._replace(prefijo="ZET")}):
+            try:
+                m().escribir_lock(str(base), malo)
+            except m().LockRoto:
+                pass
+            else:
+                raise AssertionError("escribió un lock inválido: %r" % (malo,))
+            assert ruta.read_bytes() == antes, "un lock inválido no toca el que había"
+        m().escribir_lock(str(base), {})
+        assert not ruta.exists() and m().leer_lock(str(base)) is None, "sin paquetes, sin lock"
+        m().escribir_lock(str(base), {})
+        assert sorted(p.name for p in ruta.parent.iterdir()) == [], "no deja temporales"
+
+
+def test_presentes_y_enlaces_en_una_carpeta_suelta():
+    with Temporal() as base:
+        carpeta = poner_paquete(base)
+        (carpeta / "extra.py").write_text("x = 1\n", encoding="utf-8")
+        (carpeta / "LICENSE").mkdir()
+        assert m().presentes(str(carpeta)) == ["evidencia.md", "matriz.csv", "no-negociables.md", "odd-ws-paquete.json", "verificar.py",
+                                               "verificar.tests.py"], m().presentes(str(carpeta))
+        assert m().enlaces_en(str(carpeta)) == []
+        afuera = base / "afuera.py"
+        afuera.write_text("x = 2\n", encoding="utf-8")
+        os.remove(carpeta / "verificar.py")
+        if _enlazar(afuera, carpeta / "verificar.py"):
+            assert m().enlaces_en(str(carpeta)) == ["verificar.py"], m().enlaces_en(str(carpeta))
+            assert "verificar.py" not in m().presentes(str(carpeta)), "un enlace no es un archivo del paquete"
+
+
+def test_destino_enlazado_mira_la_carpeta_mas_honda_que_existe():
+    with Temporal() as base:
+        assert m().destino_enlazado(str(base), "alfa") is None, "sin .claude todavía no hay nada que mirar"
+        (base / ".claude" / "reglas" / "paquetes").mkdir(parents=True)
+        assert m().destino_enlazado(str(base), "alfa") is None
+        poner_paquete(base, "alfa")
+        assert m().destino_enlazado(str(base), "alfa") is None
+    with Temporal() as base:
+        real = base / "afuera"
+        real.mkdir()
+        (base / ".claude" / "reglas").mkdir(parents=True)
+        _junction(real, base / ".claude" / "reglas" / "paquetes")
+        assert m().destino_enlazado(str(base), "alfa") == ".claude/reglas/paquetes"
+        (real / "alfa").mkdir()
+        assert m().destino_enlazado(str(base), "alfa") == ".claude/reglas/paquetes/alfa", "su carpeta sale por el enlace de arriba"
+    with Temporal() as base:
+        poner_paquete(base, "alfa")
+        real = base / "alfa-real"
+        shutil.move(str(base / ".claude" / "reglas" / "paquetes" / "alfa"), str(real))
+        _junction(real, base / ".claude" / "reglas" / "paquetes" / "alfa")
+        assert m().destino_enlazado(str(base), "alfa") == ".claude/reglas/paquetes/alfa"
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

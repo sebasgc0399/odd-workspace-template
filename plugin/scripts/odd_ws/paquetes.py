@@ -113,6 +113,31 @@ def leer_lock(raiz):
     return validar_lock(datos)
 
 
+def datos_del_lock(lock):
+    return {"version": VERSION_DEL_LOCK,
+            "paquetes": {paquete.nombre: {clave: getattr(paquete, clave) for clave in CLAVES_DE_UN_PAQUETE}
+                         for paquete in sorted(lock.values(), key=lambda paquete: paquete.nombre)}}
+
+
+def escribir_lock(raiz, lock):
+    ruta = os.path.join(str(raiz), LOCK)
+    if not lock:
+        if os.path.lexists(ruta):
+            os.remove(ruta)
+        return
+    datos = datos_del_lock(lock)
+    validar_lock(datos)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    temporal = ruta + ".nuevo"
+    try:
+        with open(temporal, "wb") as f:
+            f.write((json.dumps(datos, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        os.replace(temporal, ruta)
+    finally:
+        if os.path.lexists(temporal):
+            os.remove(temporal)
+
+
 def de_la_capa(lock, capa):
     return sorted((paquete for paquete in lock.values() if paquete.capa == capa), key=lambda paquete: paquete.nombre)
 
@@ -161,12 +186,14 @@ def _archivo(ruta):
     return os.path.isfile(ruta) and not os.path.islink(ruta)
 
 
+def presentes(carpeta_del_paquete):
+    return [nombre for nombre in sorted(LISTA_BLANCA) if _archivo(os.path.join(str(carpeta_del_paquete), nombre))]
+
+
 def huella(carpeta_del_paquete):
     suma = hashlib.sha256()
-    for nombre in sorted(LISTA_BLANCA):
+    for nombre in presentes(carpeta_del_paquete):
         ruta = os.path.join(str(carpeta_del_paquete), nombre)
-        if not _archivo(ruta):
-            continue
         with open(ruta, "rb") as f:
             contenido = f.read().replace(b"\r\n", b"\n")
         suma.update(nombre.encode("utf-8") + b"\0" + str(len(contenido)).encode("ascii") + b"\0")
@@ -196,13 +223,18 @@ def leer_lock_contra(raiz, capas):
     return lock
 
 
-def _es_enlace(ruta):
+def es_enlace(ruta):
     es_junction = getattr(os.path, "isjunction", None)
     return os.path.islink(ruta) or bool(es_junction and es_junction(ruta))
 
 
 def _fuera_de_lugar(ruta):
-    return _es_enlace(ruta) or os.path.normcase(os.path.realpath(ruta)) != os.path.normcase(ruta)
+    return es_enlace(ruta) or os.path.normcase(os.path.realpath(ruta)) != os.path.normcase(ruta)
+
+
+def _enlazados(base):
+    return [archivo for archivo in LISTA_BLANCA
+            if os.path.lexists(os.path.join(base, archivo)) and _fuera_de_lugar(os.path.join(base, archivo))]
 
 
 def enlaces(raiz, nombre):
@@ -210,8 +242,21 @@ def enlaces(raiz, nombre):
     base = os.path.join(os.path.realpath(str(raiz)), *relativa.split("/"))
     if os.path.lexists(base) and _fuera_de_lugar(base):
         return [relativa]
-    return [f"{relativa}/{archivo}" for archivo in LISTA_BLANCA
-            if os.path.lexists(os.path.join(base, archivo)) and _fuera_de_lugar(os.path.join(base, archivo))]
+    return [f"{relativa}/{archivo}" for archivo in _enlazados(base)]
+
+
+def enlaces_en(carpeta_suelta):
+    return _enlazados(os.path.realpath(str(carpeta_suelta)))
+
+
+def destino_enlazado(raiz, nombre):
+    partes = carpeta(nombre).split("/")
+    base = os.path.realpath(str(raiz))
+    for hasta in range(len(partes), 0, -1):
+        ruta = os.path.join(base, *partes[:hasta])
+        if os.path.lexists(ruta):
+            return "/".join(partes[:hasta]) if _fuera_de_lugar(ruta) else None
+    return None
 
 
 def activos(raiz, capa, capas):
