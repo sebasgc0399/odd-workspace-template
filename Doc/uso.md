@@ -119,7 +119,7 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
 - **El prefijo de los tickets.** Si no usas un tracker, la clave `tickets` fija el prefijo de los ids: `"tickets": {"prefix": "T"}`. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarte. El bootstrap te pregunta si usas un tracker.
 - **Hace el primer commit.** Solo con los archivos que creó, con el hook ya marcado como ejecutable, y nunca hace push. Si prefieres aprobar cada commit, pon `"ask_before_commit": true` en `workspace.config.json`: entonces no commitea y te dice qué hacer.
-- **Termina con el doctor y el siguiente paso:** abrir tu primer ticket con `/odd-ws:abrir`. La matriz arranca vacía y se llena al cerrar tickets; para no arrancar de cero, `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`.
+- **Termina con el doctor y el siguiente paso:** abrir tu primer ticket con `/odd-ws:abrir`. La matriz arranca vacía y se llena al cerrar tickets; para no arrancar de cero, `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`. Si tu repo ya tiene reglas escritas (su `CLAUDE.md`, sus gotchas, sus docs), te propone que el primer ticket sea sembrarlas: leerlas, anotarlas en la bitácora con su archivo y su commit, y graduarlas con `/odd-ws:cerrar`.
 
 Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-bootstrap).
 

@@ -117,7 +117,8 @@ Cerrá con lo que sigue, en pocas líneas:
 
 - **Abrir el primer ticket** con `/odd-ws:abrir`, con un cambio real y chico.
 - **Que la matriz esté vacía es lo normal.** Las reglas nacen al cerrar tickets: `/odd-ws:cerrar` gradúa lo aprendido. No las cargues a mano ahora.
-- **Dos atajos:** `/odd-ws:cerrar memorias` pasa a la matriz las reglas que ya están en las memorias del proyecto, y `/odd-ws:paquetes` trae las reglas de una capa desde otro repo git.
+- **Dos atajos:** `/odd-ws:cerrar memorias` pasa a la matriz las reglas que ya están en las memorias del proyecto (las de la instancia y las de cada repo), y `/odd-ws:paquetes` trae las reglas de una capa desde otro repo git.
+- **Si el repo ya tiene reglas escritas** (su `CLAUDE.md`, una carpeta de gotchas, sus docs o sus propios agentes), proponé que el primer ticket sea **sembrarlas**: abrir un ticket «sembrar las reglas de <capa>», leer esas fuentes y anotar en la bitácora cada regla con su archivo y el commit del repo, para graduarlas al cerrarlo con `/odd-ws:cerrar`. La matriz cita la bitácora del ticket, porque un archivo de un repo de código no se puede citar directo como origen.
 
 ## Reglas
 

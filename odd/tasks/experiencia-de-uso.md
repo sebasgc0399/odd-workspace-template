@@ -17,7 +17,7 @@ Cada spec cita al autor tal cual. La definición de cada mejora es la fila de su
 - **S7. La sesión del ticket (I7 e I13).** «Otra cosa yo puedo trabajar desde esa sesion, no estar obligado a entrar a esa ruta cierto» y «Eso no seria un area de mejora de nosotros tambien?». `abrir` anota el ticket activo en `.claude/estado/`, y el hook de inicio inyecta su `CLAUDE.md` cuando la sesión corre en la raíz, al arrancar y después de cada `/compact`, en los tres CLI. Si hay un `.code-workspace`, `abrir` le agrega el worktree. El cierre de `abrir` explica las dos formas de trabajar el ticket: desde su carpeta con `--add-dir`, o desde la raíz.
 - **S8. Las memorias de los repos (I14).** Entra por S1. `cerrar memorias` también lee las memorias de los repos de la config, en archivos y en engram.
 - **S9. El ticket como documento de ODD (I15).** «Encontre un problema que es muy cierto sobre ODD de gentle-ia y odd-ws» y «Vale me parece bien». La plantilla del ticket suma `## Specs` y `## Tareas` opcionales para las tareas grandes, la Bitácora hace de Log con el pedido textual en L1, y se fija la clave del espejo en engram. La regla «el ticket es el documento de la feature» sube de lugar en el `CLAUDE.md`, o la recuerda `abrir`.
-- **S10. El arranque en frío de las reglas (I16).** Entra por S1. Supuesto: primero un estudio acotado decide cómo sembrar las capas con lo que el repo ya sabe (su `CLAUDE.md`, sus gotchas, sus docs), porque la idea todavía no tiene mecanismo; el estudio vuelve al autor antes de implementar.
+- **S10. El arranque en frío de las reglas (I16).** Entra por S1. Supuesto: primero un estudio acotado decide cómo sembrar las capas con lo que el repo ya sabe (su `CLAUDE.md`, sus gotchas, sus docs), porque la idea todavía no tiene mecanismo; el estudio vuelve al autor antes de implementar. Resuelto con «si» a la opción C (L25): un ticket de siembra que sugiere el cierre del bootstrap, sin código nuevo.
 
 ## Tareas
 
@@ -32,8 +32,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | hecho | `c82376e` |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | `fd45a3c` |
 | T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | `2dac068` |
-| T7 | S8 | Memorias de los repos | inline | hecho | el commit que suma L23 |
-| T8 | S10 | Estudio del arranque en frío | inline, solo lectura | pendiente | |
+| T7 | S8 | Memorias de los repos | inline | hecho | `19d0f21` |
+| T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | el commit que suma L25 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
 ## Log
@@ -153,3 +153,15 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Docs: `Doc/diseno.md` («Memorias»), `Doc/uso.md` y la skill `cerrar`, con `<repo>` sumado a los sustitutos del test que valida sus comandos.
   - Risk: none. Es una opción nueva de solo lectura, y la salida sin ella es la misma.
 - **L24 (2026-11-17), lo siguiente:** T8, el estudio del arranque en frío, que vuelve al autor antes de implementarse.
+- **L25 (2026-11-17), T8: el estudio y la decisión.**
+  - **La restricción.** El origen de una fila de la matriz es `<ruta>@<hash>:<ini>-<fin>`, relativo a la instancia (`matriz.parsear_origen`), y `RE_RANGO` no admite `:` en la ruta. Un archivo de un repo de código no se puede citar directo.
+  - **Tres opciones:**
+    - A, un modo `cerrar repo` con un origen nuevo `repo:<repo>/<ruta>@<hash>`: trazabilidad exacta, a un costo medio-alto;
+    - B, copiar el fragmento a un doc de la instancia y citarlo: duplica texto que se desactualiza;
+    - C, un ticket de siembra con el `cerrar` de siempre: cero código.
+  - **El autor eligió C:** «si».
+  - **Lo que se hizo:** el paso 6 de la skill del bootstrap propone, si el repo ya tiene reglas escritas, que el primer ticket sea sembrarlas. Lo dicen también `Doc/uso.md` y `Doc/diseno.md`.
+  - Si sembrar resulta frecuente, A queda como idea, con datos reales.
+  - Sin tests, porque son textos de una skill y docs: se revisaron leyéndolos.
+  - Risk: none.
+- **L26 (2026-11-17), lo siguiente:** T9, la entrega de la `0.9.0`.
