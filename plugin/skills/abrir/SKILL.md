@@ -127,7 +127,7 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 4. **Decí qué quedó escrito** y qué sigue:
    - las dos formas de trabajar el ticket, con las rutas reales:
      - **desde su carpeta**, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
-     - **desde la raíz**, que es lo cómodo en VS Code: `ticket.py` ya lo dejó como ticket activo, así que su `CLAUDE.md` se inyecta al arrancar y después de cada `/compact`;
+     - **desde la raíz**, que es lo cómodo en VS Code: `ticket.py` ya lo dejó como ticket activo, así que un resumen de su `CLAUDE.md` (objetivo, specs, tareas, seguimientos y la bitácora reciente) llega al arrancar y después de cada `/compact`;
    - las preguntas por fijar con el líder, que van primero;
    - el Paso 0, antes de cualquier código;
    - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder;

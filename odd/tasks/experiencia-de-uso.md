@@ -21,6 +21,11 @@ Cada spec cita al autor tal cual. La definición de cada mejora es la fila de su
 - **S11. Las rondas de una revisión (I19).** «Si quieres observa como va actualmente a ver que mas observas» y, sobre las tres fricciones de `revisar`, «Me parece bien analizadas 3 fricciones se van agregar en esta version? esas 3?». Una segunda revisión del mismo día y modo no pisa la primera: va en `revision/<fecha>-<modo>-<n>/`, y `recibo.py` la reconoce como la más nueva.
 - **S12. Las extensiones de código sin capa (I18).** Las mismas citas que S11. El bootstrap propone cubrir los scripts del mismo lenguaje (por ejemplo, `.mjs` en una capa `ts`), y el doctor avisa cuando un repo tiene extensiones de código que ninguna capa cubre, porque esos archivos llevan el triaje a modo `completo`.
 - **S13. La base de la revisión de una unidad (I20).** Las mismas citas que S11. Cuando el ticket ya tiene un recibo válido, la base por defecto del triaje es el commit que ese recibo cubrió, y no el merge-base con `origin/HEAD`, para no volver a revisar unidades ya revisadas. Cambia qué se revisa por defecto: lleva verificador independiente.
+- **S14. El rechequeo después de una corrección (I23).** «Cunato termines T12 analiza la sesion a ver que otras mejoras podemos encontrar» y, sobre la lista de lo encontrado, «Me parece bien». Una ronda de rechequeo revisa solo lo que cambió desde la ronda anterior, y su recibo hereda del recibo anterior válido los hashes de los archivos que no cambiaron (`recibo.py --write --previo <recibo>`), para que la unidad entera se pueda sellar. Hoy la re-revisión vuelve a revisar toda la unidad y cuesta lo mismo que la primera, y una re-revisión parcial no se puede sellar.
+- **S15. Cómo se cierra una revisión (I24).** Las mismas citas que S14. `revisar` trae una regla de cierre: una sola corrección, después un rechequeo que verifica los hallazgos anteriores, y un hallazgo nuevo que no es CRITICAL se deriva a otra tarea en vez de corregirse en esa unidad. El recibo anota los hallazgos derivados con su destino (`--derivado <hallazgo>=<destino>`), y la plantilla del ticket suma `## Seguimientos`, para que lo derivado no rompa la tabla de Tareas.
+- **S16. Menos síes en `revisar` (I25).** Las mismas citas que S14. El modo 0, que cuesta cero corridas, corre sin pedir el sí. Aprobar un lote de corrección cuyo mensaje anuncia el rechequeo y su costo aprueba también ese rechequeo.
+- **S17. El resumen del ticket activo (I26).** Las mismas citas que S14. Lo que T6 inyecta deja de ser un recorte a 12000 caracteres, que en un ticket real de 30600 caracteres cortaba `## Tareas` a la mitad, y pasa a ser un resumen: la cabecera, el Objetivo, los S#, la tabla de Tareas entera, los Seguimientos y las últimas entradas de la Bitácora, con la ruta del archivo completo. Si aun así pasa el tope, se recorta con la línea de dónde sigue.
+- **S18. Los scratch donde se pueden borrar (I27).** Las mismas citas que S14. Las skills y las plantillas que sugieren «el temp del sistema» para el scratch dicen `%TEMP%\claude` (o el scratch de la sesión), porque fuera de ahí el guard no deja borrar con `rm -rf` y la limpieza le queda al usuario.
 
 ## Tareas
 
@@ -39,7 +44,10 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | `69f0b2c` |
 | T10 | S11 | Las rondas de una revisión | inline | hecho | `c5735a5` |
 | T11 | S12 | Las extensiones de código sin capa | inline | hecho | `87c64b3` |
-| T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho, verificador pendiente | el commit que suma L33 |
+| T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho, verificador pendiente (junto con T13) | `3aaf174` |
+| T13 | S14, S15, S16 | El rechequeo, el cierre de una revisión y menos síes | writer A, en paralelo con T14 (superficies disjuntas) | hecho, verificador pendiente (junto con T12) | `478a3e7` |
+| T14 | S17 | El resumen del ticket activo | writer B, en paralelo con T13 | hecho | el commit que suma L39 |
+| T15 | S18 | Los scratch donde se pueden borrar | inline | hecho | el commit que suma L39 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
 ## Log
@@ -215,3 +223,40 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - El writer deja su scratch para que lo borre el autor: `tmp.mbpQqFpjm7` en el temp del sistema.
   - Risk: item 3. Cambia qué se revisa por defecto cuando se pasa `--ticket`, que la skill pasa siempre. Lleva el verificador independiente.
 - **L34 (2026-11-17), lo siguiente:** el verificador de T12, y el análisis de lo nuevo en la sesión de SM-1.
+- **L35 (2026-11-17), lo nuevo de SM-1 entre las 17:20 y las 20:01.** Lo leyó un agente de solo lectura y verificó cada punto contra el código. Trajo siete fricciones.
+  - **Entran a la versión, con «Me parece bien»:** F1 (S14), F2 (S15), F3 (S16), F6 (S17) y F7 (S18).
+  - **Quedan como ideas aparte:**
+    - F4, medir el costo real de una revisión: cada corrida de `revisor-diseno` gastó entre 155k y 254k tokens y entre 6 y 13 minutos;
+    - F5, un writer genérico para lo que no tiene capa: los 8 writers de SM-1 fueron genéricos, así que la compuerta del writer nunca corrió.
+  - **Lo que anduvo bien:**
+    - `recibo --check` atrapó cada cambio posterior a una revisión;
+    - el modo 0 costó cero corridas;
+    - la consolidación por frecuencia sacó a la luz una regresión real;
+    - `rescatar.py` recuperó cada corrida al primer intento;
+    - el guard frenó el borrado de una carpeta con una junction que apuntaba a un `node_modules` real.
+  - **Orden:** F1 cambia el diseño del sello de T12, así que el verificador independiente corre una sola vez sobre T12 y T13 juntos. T13 y T14 van con dos writers en paralelo, sobre superficies disjuntas. `Doc/diseno.md` es de T13, y el writer de T14 devuelve su texto para que lo inserte el parent.
+- **L36 (2026-11-17), lo siguiente:** T13 y T14 en paralelo, T15 inline, el verificador de T12 y T13, y la entrega.
+- **L37 (2026-11-17), T15 hecho.** La skill del bootstrap (la spec) y la de `eval-reviewers` (el fixture) dicen dónde va el scratch para que el guard deje borrarlo: el scratch de la sesión, o una carpeta bajo `%TEMP%\claude` en Windows, `/tmp/claude-<uid>` en macOS y `claude-<uid>` dentro del temp en Linux. Es lo que acepta `comun.carpeta_scratch`, que se verificó en el código antes de escribirlo. Son solo textos, sin tests, y se revisaron leyéndolos. Risk: none.
+- **L38 (2026-11-17), T14 hecho por el writer B.** Los dos writers se cortaron por el límite de 5 horas y retomaron desde donde quedaron.
+  - **`_ticket_activo` inyecta un resumen y ya no un recorte:**
+    - la cabecera sin las citas del molde;
+    - `## Objetivo`, `## Specs`, `## Tareas` (la tabla entera) y `## Seguimientos`, en el orden del ticket;
+    - las últimas 5 entradas de la Bitácora, con una línea que dice cuántas había;
+    - y la ruta del archivo completo, donde está lo demás.
+  - **Más allá del brief, aceptado:**
+    - un `## ` dentro de un bloque de código no corta la sección;
+    - las secciones se reconocen por su título exacto.
+  - Si el resumen pasa los 12000 caracteres, se recorta con la línea de dónde sigue.
+  - En la plantilla del ticket, el resumen pasa de 3216 a 1015 caracteres.
+  - Rojo: verificar_capa 92/97. Verde: verificar_capa 97/97, confirmado por el parent, y los adaptadores base 8/8, claude_code 41/41, codex 44/44 y pi 66/66.
+  - **Docs:** el parent ajustó la plantilla del `CLAUDE.md`, que queda en 149 líneas. El texto de `Doc/diseno.md` que trajo B y la línea de `abrir` se aplican cuando termine T13, que es dueño de esos dos archivos.
+  - El writer B deja su scratch `t14-tbuG` bajo `%TEMP%\claude`, donde el guard deja borrarlo.
+  - Risk: none.
+- **L39 (2026-11-17), T13 hecho por el writer A, en `478a3e7`.** Cubre S14, S15 y S16.
+  - `recibo.py --write --previo <recibo anterior>` escribe el recibo del rechequeo: rechequea lo pasado con `--archivo`, hereda los demás archivos del recibo previo con su base y sus hashes, y anota `previo`, `rechequeados`, `heredados` y `retirados`. Sale con 1 sin escribir si un heredado cambió o la base no es la del previo, y con 2 si el previo no es de este ticket o el rechequeo no queda después de él.
+  - `--derivado "<hallazgo>=<destino>"` anota en el recibo lo que se deriva, y la plantilla del ticket suma `## Seguimientos` después de las Tareas, también en un ticket chico.
+  - `revisar` suma la sección 9 (una corrección y un rechequeo) y las dos excepciones del sí: el modo `0` y el rechequeo aprobado con su lote.
+  - Rojo: recibo 67/75 y bootstrap_textos 25/27. Verde: recibo 75/75, bootstrap_textos 27/27, triaje 88/88, ticket 38/38, bootstrap_e2e 14/14 y verificar_capa 97/97, corridas por el parent antes del commit.
+  - Diferencial contra `3aaf174` en 23 pasos: stdout, códigos de salida y bytes del recibo idénticos sin las opciones nuevas; solo cambia el banner de uso de argparse en stderr.
+  - El parent aplicó el texto de B en `Doc/diseno.md`, y `Doc/uso.md` y `abrir` dicen que el ticket activo llega como resumen. Esos cambios van con T14, separados de T13 por hunk.
+  - Risk: item 3 (cambia el contrato de `revisar` sobre cuándo se pide el sí y qué acepta `--sellar` como cubierto). Lo siguiente: el commit de T14 y T15, y un solo verificador independiente sobre T12 y T13 juntos.

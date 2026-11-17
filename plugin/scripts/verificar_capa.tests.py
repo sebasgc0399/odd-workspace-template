@@ -1064,6 +1064,112 @@ def test_el_ticket_activo_largo_se_recorta_y_dice_donde_sigue():
         assert texto.rstrip().endswith("tickets/T-7-algo/CLAUDE.md"), texto[-200:]
 
 
+def ticket_largo(seguimientos=True):
+    relleno = "".join("- detalle del contexto técnico %03d, que ocupa lugar y no va al resumen\n" % i for i in range(150))
+    tareas = "".join("| T%02d | S1 | tarea %02d del ticket | en la sesión | hecho | `abc%04d` |\n" % (i, i, i) for i in range(1, 30))
+    bitacora = "".join("- 2026-11-%02d — ENTRADA-%02d\n  - detalle-%02d\n" % (i, i, i) for i in range(1, 9))
+    return ("# T-7 — algo largo\n\n"
+            "> **Contexto y metodología:** ver `../../CLAUDE.md` (la raíz de la instancia).\n"
+            "> Un ticket se abre con `/odd-ws:abrir`.\n\n"
+            "- **Estado:** en progreso\n- **Conocimiento:** pendiente\n\n"
+            "> **Los dos campos miden relojes distintos, a propósito.** CITA-DEL-MOLDE\n\n"
+            "## Objetivo\n\nOBJETIVO-DEL-TICKET\n\n"
+            "## Criterios de aceptación\n\n- [ ] CUERPO-CRITERIOS\n\n"
+            "## Alcance y no-goals\n\n- **Incluye:** CUERPO-ALCANCE\n\n"
+            "## Contexto técnico\n\n" + relleno + "\n"
+            "## Specs\n\n- S1: «SPEC-UNO»\n- S2: «SPEC-DOS»\n\n"
+            "## Tareas\n\n| ID | Specs | Qué | Ruta | Estado | Commit |\n|---|---|---|---|---|---|\n" + tareas +
+            "| T30 | S2 | FILA-FINAL | con un writer | pendiente | |\n\n" +
+            ("## Seguimientos\n\n- SEGUIMIENTO-UNO → T31\n\n" if seguimientos else "") +
+            "## Decisiones\n\n- CUERPO-DECISIONES\n\n"
+            "## Gotchas\n\n- CUERPO-GOTCHAS\n\n"
+            "## Bitácora\n\nHace de Log de ODD: INTRO-BITACORA\n\n" + bitacora +
+            "- 2026-11-09 — ENTRADA-09\n  - detalle-09\n    - sub-detalle-09\n\n"
+            "## Candidatos a graduar\n\n- CUERPO-CANDIDATOS\n\n"
+            "## Cierre\n\nCUERPO-CIERRE\n")
+
+
+def resumen_del_ticket(w, texto):
+    escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", texto)
+    marcar_activo(w.raiz, "tickets/T-7-algo")
+    codigo, out, err = w.correr(inicio_en("startup", w.raiz))
+    assert codigo == 0 and err == b"", (codigo, err)
+    return aviso_de(out)
+
+
+def test_el_ticket_activo_largo_inyecta_un_resumen_con_las_tareas_enteras_y_la_bitacora_reciente():
+    with Toque() as w:
+        ticket = ticket_largo()
+        assert len(ticket) > M.TOPE_DEL_TICKET and ticket.index("## Tareas") > 10000, (len(ticket), ticket.index("## Tareas"))
+        texto = resumen_del_ticket(w, ticket)
+        for presente in ("# T-7 — algo largo", "- **Estado:** en progreso", "- **Conocimiento:** pendiente", "## Objetivo",
+                         "OBJETIVO-DEL-TICKET", "## Specs", "SPEC-UNO", "SPEC-DOS", "## Tareas", "| ID | Specs |", "FILA-FINAL",
+                         "## Seguimientos", "SEGUIMIENTO-UNO", "## Bitácora", "Las últimas 5 de 9 entradas.", "sub-detalle-09"):
+            assert presente in texto, (presente, texto)
+        for i in range(1, 30):
+            assert "| T%02d | S1 | tarea %02d del ticket |" % (i, i) in texto, (i, texto)
+        for i in range(5, 10):
+            assert "ENTRADA-%02d" % i in texto and "  - detalle-%02d" % i in texto, (i, texto)
+        for ausente in ["ENTRADA-%02d" % i for i in range(1, 5)] + ["detalle-%02d" % i for i in range(1, 5)] + [
+                "CITA-DEL-MOLDE", "Contexto y metodología", "CUERPO-CRITERIOS", "CUERPO-ALCANCE", "detalle del contexto técnico",
+                "CUERPO-DECISIONES", "CUERPO-GOTCHAS", "INTRO-BITACORA", "CUERPO-CANDIDATOS", "CUERPO-CIERRE", "## Decisiones",
+                "## Gotchas", "## Candidatos a graduar", "[...] el resto sigue en"]:
+            assert ausente not in texto, (ausente, texto)
+        orden = [texto.index(marca) for marca in ("# T-7 — algo largo", "OBJETIVO-DEL-TICKET", "SPEC-UNO", "| T01 |", "FILA-FINAL",
+                                                  "SEGUIMIENTO-UNO", "ENTRADA-05", "ENTRADA-09")]
+        assert orden == sorted(orden), orden
+        cierre = texto.rstrip().rsplit("\n", 1)[1]
+        assert cierre.endswith("tickets/T-7-algo/CLAUDE.md"), cierre
+        for parte in ("alcance", "criterios", "decisiones", "gotchas", "candidatos", "archivo completo"):
+            assert parte in cierre, (parte, cierre)
+        assert len(texto) <= M.TOPE_DEL_TICKET, len(texto)
+
+
+def test_el_resumen_sin_seguimientos_no_los_pide():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, ticket_largo(seguimientos=False))
+        assert "Seguimientos" not in texto and "SEGUIMIENTO-UNO" not in texto, texto
+        assert "FILA-FINAL" in texto and "ENTRADA-09" in texto and texto.index("FILA-FINAL") < texto.index("## Bitácora"), texto
+        assert texto.rstrip().endswith("tickets/T-7-algo/CLAUDE.md"), texto[-200:]
+
+
+def test_un_ticket_sin_secciones_inyecta_su_cabecera_sin_las_citas_del_molde():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, "# T-7 — algo\n\n> cita del molde\n> otra cita\n\nSolo texto suelto del ticket.\n\n\n\nY otra línea.\n")
+        assert "# T-7 — algo\n\nSolo texto suelto del ticket.\n\nY otra línea." in texto, texto
+        assert "cita del molde" not in texto and "otra cita" not in texto, texto
+        assert texto.rstrip().endswith("tickets/T-7-algo/CLAUDE.md") and "[...]" not in texto, texto
+
+
+def test_las_secciones_del_resumen_se_reconocen_por_su_titulo_exacto():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo   \n\nOBJ-CON-ESPACIOS\n\n## Objetivos\n\nCUERPO-OBJETIVOS\n\n"
+                                      "## Tareas viejas\n\nCUERPO-TAREAS-VIEJAS\n\n## Tareas \n\nTAREAS-CON-ESPACIO\n\n"
+                                      "## Notas\n\n### Specs\n\nCUERPO-SUBSECCION\n\n##Specs\n\nSIN-ESPACIO\n\n"
+                                      "## Bitácora\n\n- E-UNO\n\n- E-DOS\n  sigue E-DOS\n")
+        for presente in ("## Objetivo\n\nOBJ-CON-ESPACIOS", "## Tareas\n\nTAREAS-CON-ESPACIO", "- E-UNO", "- E-DOS\n  sigue E-DOS"):
+            assert presente in texto, (presente, texto)
+        for ausente in ("CUERPO-OBJETIVOS", "CUERPO-TAREAS-VIEJAS", "Tareas viejas", "CUERPO-SUBSECCION", "SIN-ESPACIO", "Las últimas"):
+            assert ausente not in texto, (ausente, texto)
+
+
+def test_un_titulo_dentro_de_un_bloque_de_codigo_no_corta_la_seccion():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, "# T-7\n\n## Specs\n\n- S1: «el pedido»\n\n```markdown\n## Decisiones\nDENTRO-DEL-BLOQUE\n```\n\n"
+                                      "FIN-DE-SPECS\n\n## Decisiones\n\nCUERPO-DECISIONES\n")
+        assert "DENTRO-DEL-BLOQUE" in texto and "FIN-DE-SPECS" in texto and "CUERPO-DECISIONES" not in texto, texto
+
+
+def test_un_resumen_que_pasa_el_tope_se_recorta_y_dice_donde_sigue():
+    with Toque() as w:
+        filas = "".join("| T%03d | S1 | una tarea con bastante texto para ocupar lugar | en la sesión | hecho | |\n" % i for i in range(300))
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\nOBJETIVO-DEL-TICKET\n\n## Tareas\n\n" + filas +
+                                      "\n## Bitácora\n\n- ENTRADA-FINAL\n")
+        assert "OBJETIVO-DEL-TICKET" in texto and "ENTRADA-FINAL" not in texto, texto[-300:]
+        assert len(texto) <= M.TOPE_DEL_TICKET + 500, len(texto)
+        assert texto.rstrip().endswith("[...] el resto sigue en tickets/T-7-algo/CLAUDE.md"), texto[-200:]
+
+
 def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando():
     with Mundo() as w:
         escribir(w.raiz, "workspace.config.json", "{rota")

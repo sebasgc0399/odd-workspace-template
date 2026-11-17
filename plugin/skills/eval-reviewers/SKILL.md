@@ -20,7 +20,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 
 1. **Elegir y pronosticar.** Definir el fixture, los revisores, `N` corridas por revisor y la etiqueta de cada brazo (`v1`, `v2`…). Dar el costo estimado y esperar el sí.
 2. **Armar el fixture, a mano.**
-   - Crear un scratch nuevo con la entrada (los diffs y las copias de los repos en el commit base) y un prompt por corrida.
+   - Crear un scratch nuevo con la entrada (los diffs y las copias de los repos en el commit base) y un prompt por corrida. Va bajo `%TEMP%\claude` (en macOS, `/tmp/claude-<uid>`; en Linux, `claude-<uid>` dentro del temp del sistema), donde el guard de comandos deja borrarlo al terminar; en la raíz del temp del sistema no lo deja.
    - Sacar la verdad de terreno del alcance de los revisores, a una carpeta **hermana** del scratch (`<scratch>.oculto`), nunca hija.
    - Escribir un `manifest.json` con `prohibidas` y `permitidas`: rutas absolutas, donde `{scratch}` es el scratch de la corrida.
 3. **Lanzar los revisores en paralelo.**

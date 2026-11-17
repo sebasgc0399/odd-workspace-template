@@ -27,6 +27,12 @@ REMOTO_HEAD = "refs/remotes/origin/HEAD"
 ORIGENES_DEL_AVISO = ("startup", "resume")
 TOPE_DEL_MOTIVO = 200
 TOPE_DEL_TICKET = 12000
+SECCIONES_DEL_RESUMEN = ("Objetivo", "Specs", "Tareas", "Seguimientos")
+BITACORA = "Bitácora"
+ENTRADAS_DE_LA_BITACORA = 5
+CIERRE_DEL_RESUMEN = ("El resto (alcance, criterios de aceptación, contexto técnico, decisiones, gotchas y candidatos) "
+                      "está en el archivo completo: ")
+CERCAS = ("```", "~~~")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 _LIMITE = None
@@ -473,6 +479,71 @@ def _primer_toque_de_una(evento, config):
     return Bloquear(_texto_primer_toque(capa, config["raiz"], encabezado, bloque))
 
 
+def _sin_bordes(lineas):
+    desde, hasta = 0, len(lineas)
+    while desde < hasta and not lineas[desde].strip():
+        desde += 1
+    while hasta > desde and not lineas[hasta - 1].strip():
+        hasta -= 1
+    return lineas[desde:hasta]
+
+
+def _secciones(texto):
+    cabecera, secciones, cerca = [], [], None
+    actual = cabecera
+    for linea in texto.split("\n"):
+        marca = linea.lstrip()[:3]
+        if marca in CERCAS:
+            cerca = None if cerca == marca else cerca or marca
+        elif cerca is None and linea.startswith("## "):
+            actual = []
+            secciones.append((linea[3:].strip(), actual))
+            continue
+        actual.append(linea)
+    return cabecera, secciones
+
+
+def _entradas(lineas):
+    entradas, abierta = [], False
+    for linea in lineas:
+        if linea.startswith("- "):
+            entradas.append([linea])
+            abierta = True
+        elif abierta and (not linea.strip() or linea[:1] in (" ", "\t")):
+            entradas[-1].append(linea)
+        else:
+            abierta = False
+    return ["\n".join(_sin_bordes(entrada)) for entrada in entradas]
+
+
+def _cabecera(lineas):
+    juntas = []
+    for linea in lineas:
+        if not linea.startswith(">") and (linea.strip() or (juntas and juntas[-1].strip())):
+            juntas.append(linea)
+    return "\n".join(_sin_bordes(juntas))
+
+
+def _resumen_del_ticket(texto):
+    cabecera, secciones = _secciones(texto)
+    partes = [_cabecera(cabecera)]
+    for titulo, lineas in secciones:
+        if titulo in SECCIONES_DEL_RESUMEN:
+            cuerpo = "\n".join(_sin_bordes(lineas))
+        elif titulo == BITACORA:
+            entradas = _entradas(lineas)
+            if not entradas:
+                continue
+            ultimas = entradas[-ENTRADAS_DE_LA_BITACORA:]
+            cuerpo = "\n".join(ultimas)
+            if len(ultimas) < len(entradas):
+                cuerpo = "Las últimas %d de %d entradas.\n\n%s" % (len(ultimas), len(entradas), cuerpo)
+        else:
+            continue
+        partes.append("## %s\n\n%s" % (titulo, cuerpo) if cuerpo else "## " + titulo)
+    return "\n\n".join(parte for parte in partes if parte)
+
+
 def _ticket_activo(evento, config):
     raiz = config["raiz"]
     if not evento.cwd or config_loader.canonica(evento.cwd) != config_loader.canonica(raiz):
@@ -495,10 +566,13 @@ def _ticket_activo(evento, config):
     except OSError:
         return None
     destino = relativa + "/CLAUDE.md"
-    if len(texto) > TOPE_DEL_TICKET:
-        texto = texto[:TOPE_DEL_TICKET].rstrip() + "\n\n[...] el resto sigue en " + destino
+    resumen = _resumen_del_ticket(texto)
+    if len(resumen) > TOPE_DEL_TICKET:
+        resumen = resumen[:TOPE_DEL_TICKET].rstrip() + "\n\n[...] el resto sigue en " + destino
+    else:
+        resumen = (resumen + "\n\n" if resumen else "") + CIERRE_DEL_RESUMEN + destino
     return Contexto("odd-ws: el ticket activo de esta instancia es %s. La sesión corre en la raíz, así que Claude Code no carga "
-                    "su CLAUDE.md solo; este es su contenido, de %s:\n\n%s" % (relativa, destino, texto))
+                    "su CLAUDE.md solo; este es su resumen, de %s:\n\n%s" % (relativa, destino, resumen))
 
 
 def _session_start(evento, config):

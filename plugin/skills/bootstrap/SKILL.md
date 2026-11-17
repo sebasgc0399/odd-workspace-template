@@ -54,7 +54,7 @@ Con la propuesta, escribí la spec y corré el ensayo **en el mismo turno**, ant
 
 ### La spec
 
-Escribila con la herramienta Write, en UTF-8 y **fuera de la instancia** (en el scratch de la sesión o en el temp del sistema), para que no termine en un commit:
+Escribila con la herramienta Write, en UTF-8 y **fuera de la instancia**, para que no termine en un commit: en el scratch de la sesión o en una carpeta bajo `%TEMP%\claude` (en macOS, `/tmp/claude-<uid>`; en Linux, `claude-<uid>` dentro del temp del sistema). No en la raíz del temp del sistema: ahí el guard de comandos no deja borrar con `rm -rf`, y la limpieza le queda al usuario.
 
 ```json
 {
