@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-17, con la `0.8.0` y las ideas I1 a I7.
+Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I8 y R4.
 
 ## Cómo se mueve
 
@@ -18,6 +18,7 @@ Actualizado: 2026-11-17, con la `0.8.0` y las ideas I1 a I7.
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
 | R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | siguiente |
+| R4 | La experiencia del primer uso: el bootstrap en una sola propuesta, con la detección por script (I8), y la sesión del ticket en VS Code (I7). | [Ideas](#ideas), I7 e I8 | en cola |
 | R3 | Soporte para OpenCode (F3), Gemini CLI (F4) y Copilot CLI (F5), a partir del estudio de align-cli guardado en engram (`odd-ws/estudio-align-cli`). | [multi-host](tasks/multi-host.md), F3 a F5 | en cola |
 
 ## Esperando
@@ -39,7 +40,8 @@ Cada idea lleva su fuente (del autor, un video o un proyecto, con su enlace), la
 | I4 | 2026-11-17 | [Video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | Un banco reproducible de flujos adversariales por CLI. | El banco de más de 60 flujos de RDD, clasificados en in-band, out-of-band y callejón sin salida: vuelve automática la prueba de humo manual de los tres CLI. | nueva |
 | I5 | 2026-11-17 | [Video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | Un interruptor por hook en `workspace.config.json`. | El kill switch de RDD: apagar `revisar_turno`, que suma unos 400 ms por prompt, sin desinstalar el plugin. | nueva |
 | I6 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 20 | Clasificar las memorias en hechos, decisiones y comportamientos. | La regla del capítulo, en la que los hechos van a la búsqueda, las decisiones a la memoria y los comportamientos a las skills, aplicada en `cerrar memorias` para elegir el destino de cada una. | nueva |
-| I7 | 2026-11-17 | Del autor, al abrir una instancia desde la extensión de VS Code | En VS Code, la sesión de un ticket se abre con la carpeta del ticket como directorio principal. | Claude Code lee el `.claude/settings.json` compartido solo del directorio principal, y la extensión toma como principal la primera carpeta del `.code-workspace`: no está documentado, pero `/status` lo mostró el 2026-11-17. odd-ws solo documenta `claude --add-dir`. Primer paso: probar si `/cd <ticket>` recarga el plugin; si no lo hace, `abrir` genera un `.code-workspace` por ticket, con el ticket primero y los repos después. | nueva |
+| I7 | 2026-11-17 | Del autor, al abrir una instancia desde la extensión de VS Code | En VS Code, la sesión de un ticket se abre con la carpeta del ticket como directorio principal. | Claude Code lee el `.claude/settings.json` compartido solo del directorio principal, y la extensión toma como principal la primera carpeta del `.code-workspace`: no está documentado, pero `/status` lo mostró el 2026-11-17. odd-ws solo documenta `claude --add-dir`. Primer paso: probar si `/cd <ticket>` recarga el plugin; si no lo hace, `abrir` genera un `.code-workspace` por ticket, con el ticket primero y los repos después. | en la cola (R4) |
+| I8 | 2026-11-17 | Del autor, al correr `/odd-ws:bootstrap` en una instancia nueva | El bootstrap en una sola parada: una propuesta completa junto con el ensayo, y un sí la aplica. | Hoy la entrevista hace una pregunta por paso, y en una instancia nueva fueron seis paradas, todas con «sí». Se recicla: `bootstrap.py --proponer`, que lee el `.code-workspace` y cuenta las extensiones con `git ls-files`; el criterio de capas en la skill, una por tecnología y con su costo real según `revisar`; un resumen agrupado del ensayo; y el cierre con el primer commit listo para copiar y el siguiente paso. | en la cola (R4) |
 
 ## Seguimientos
 
