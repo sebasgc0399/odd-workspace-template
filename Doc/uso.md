@@ -112,13 +112,13 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 
 ### `/odd-ws:bootstrap`
 
-- **Entrevista,** de a una pregunta: el nombre del proyecto, los repos con su ruta absoluta y las capas, cada una con sus extensiones, sus repos y su prefijo de reglas. `diseno` es un nombre reservado.
-- **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan. Solo con tu sí escribe.
+- **Una sola parada.** Detecta los repos del `.code-workspace` de la carpeta y las extensiones de sus archivos (`bootstrap.py --proponer`), y te muestra la propuesta completa junto con el ensayo: el nombre del proyecto, los repos con su ruta, las capas (una por tecnología, con lo que cuesta cada una), el molde, el prefijo de los tickets y quién commitea, cada término explicado en una línea. Te hace una sola pregunta: si se aplica así o qué cambia. `diseno` es un nombre reservado.
+- **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan agrupado por capa, con aparte las líneas que piden atención. Solo con tu sí escribe.
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
 - **El prefijo de los tickets.** Si no usas un tracker, la clave `tickets` fija el prefijo de los ids: `"tickets": {"prefix": "T"}`. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarte. El bootstrap te pregunta si usas un tracker.
 - **Hace el primer commit.** Solo con los archivos que creó, con el hook ya marcado como ejecutable, y nunca hace push. Si prefieres aprobar cada commit, pon `"ask_before_commit": true` en `workspace.config.json`: entonces no commitea y te dice qué hacer.
-- **Termina con el doctor.**
+- **Termina con el doctor y el siguiente paso:** abrir tu primer ticket con `/odd-ws:abrir`. La matriz arranca vacía y se llena al cerrar tickets; para no arrancar de cero, `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`.
 
 Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-bootstrap).
 

@@ -79,7 +79,7 @@ En Windows, `python3` lo crean el Python install manager de python.org y la Micr
    claude plugin install odd-ws@odd-workspace-template --scope project
    ```
 
-2. **Abre `claude` en esa carpeta y corre `/odd-ws:bootstrap`.** Te entrevista (proyecto, repos y capas), te muestra el plan y solo escribe después de tu sí.
+2. **Abre `claude` en esa carpeta y corre `/odd-ws:bootstrap`.** Detecta tus repos, te muestra la propuesta completa (proyecto, repos y capas) junto con el plan y solo escribe después de tu sí, con el primer commit incluido.
 3. **Corre `/odd-ws:doctor`,** arregla lo que marque FALTA y abre tu primer ticket con `/odd-ws:abrir`.
 
 Antes de tu primer ticket, lee las [reglas de la instalación](Doc/uso.md#reglas-de-la-instalación): cada ticket lleva su `.claude/settings.json` y su sesión se abre con `--add-dir`.

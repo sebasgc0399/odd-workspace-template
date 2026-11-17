@@ -13,7 +13,10 @@ from odd_ws import capas as convencion
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
-USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear]"
+USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear]\n"
+       "     bootstrap.py --proponer [--raiz <carpeta>]")
+SIN_EXTENSION = "(sin extensión)"
+TOPE_DE_EXTENSIONES = 20
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
@@ -47,7 +50,7 @@ AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente arreglo", d
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
-Opciones = namedtuple("Opciones", "spec raiz ensayo commitear")
+Opciones = namedtuple("Opciones", "spec raiz ensayo commitear proponer")
 
 GENERADORES = []
 
@@ -589,6 +592,62 @@ def commitear(spec, plan, resultados, raiz):
     return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else "")
 
 
+def _nombre_corto(carpeta):
+    return re.sub(r"[^a-z0-9]+", "-", carpeta.name.lower()).strip("-") or "repo"
+
+
+def _extensiones(repo):
+    respuesta = _git(["-C", str(repo), "ls-files", "-z"])
+    if respuesta is None or respuesta[0] != 0:
+        return {}
+    cuenta = {}
+    for nombre in filter(None, respuesta[1].split("\0")):
+        extension = Path(nombre).suffix.lower() or SIN_EXTENSION
+        cuenta[extension] = cuenta.get(extension, 0) + 1
+    return dict(sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))[:TOPE_DE_EXTENSIONES])
+
+
+def _carpetas_del_workspace(archivo):
+    datos = json.loads(archivo.read_text(encoding="utf-8-sig"))
+    carpetas = datos.get("folders") if isinstance(datos, dict) else None
+    if not isinstance(carpetas, list):
+        raise ValueError("no tiene una lista folders")
+    return [c["path"] for c in carpetas if isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"]]
+
+
+def proponer(raiz):
+    raiz = Path(raiz)
+    real = raiz.resolve()
+    avisos, repos, vistos, workspaces = [], [], set(), []
+    for archivo in sorted(raiz.glob("*.code-workspace")):
+        workspaces.append(archivo.name)
+        try:
+            rutas = _carpetas_del_workspace(archivo)
+        except (OSError, ValueError) as error:
+            avisos.append(f"{archivo.name}: no se pudo leer como JSON ({error}); VS Code admite comentarios, este script no")
+            continue
+        for ruta in rutas:
+            carpeta = Path(ruta) if os.path.isabs(ruta) else raiz / ruta
+            carpeta = carpeta.resolve()
+            clave = os.path.normcase(str(carpeta))
+            if carpeta == real or clave in vistos:
+                continue
+            vistos.add(clave)
+            if not carpeta.is_dir():
+                avisos.append(f"{archivo.name}: {ruta} no existe")
+                continue
+            estado = _consultar_repo(carpeta)
+            if not estado.disponible:
+                avisos.append(f"{archivo.name}: {ruta} no se pudo revisar; git no está instalado")
+                continue
+            if estado.toplevel is None or not _es_la_raiz(estado.toplevel, carpeta):
+                avisos.append(f"{archivo.name}: {ruta} no es la raíz de un repo git")
+                continue
+            repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": _extensiones(carpeta)})
+    return {"raiz": str(real), "proyecto": real.name, "instancia_existente": (raiz / config_loader.NOMBRE).is_file(),
+            "workspaces": workspaces, "repos": repos, "avisos": avisos}
+
+
 def _confirmar(raiz, ruta, referencia):
     if os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(referencia):
         raise ErrorDePlan(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan")
@@ -746,6 +805,7 @@ def _argumentos(argv):
     valores = {}
     ensayo = False
     commitear_pedido = False
+    proponer_pedido = False
     i = 0
     while i < len(argv):
         argumento = argv[i]
@@ -755,14 +815,21 @@ def _argumentos(argv):
         elif argumento == "--commitear" and not commitear_pedido:
             commitear_pedido = True
             i += 1
+        elif argumento == "--proponer" and not proponer_pedido:
+            proponer_pedido = True
+            i += 1
         elif argumento in ("--spec", "--raiz") and argumento not in valores and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             valores[argumento] = argv[i + 1]
             i += 2
         else:
             return None
+    if proponer_pedido:
+        if "--spec" in valores or ensayo or commitear_pedido:
+            return None
+        return Opciones(None, valores.get("--raiz"), False, False, True)
     if "--spec" not in valores:
         return None
-    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido)
+    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido, False)
 
 
 def resolver_raiz(texto, cwd):
@@ -793,6 +860,14 @@ def principal(argv):
         return 2
     plan = []
     raiz = None
+    if opciones.proponer:
+        try:
+            print(json.dumps(proponer(resolver_raiz(opciones.raiz, Path(os.getcwd()))), ensure_ascii=False, indent=2))
+        except ErrorDePlan as error:
+            return _error(f"el plan no es válido: {error}")
+        except Exception as error:
+            return _error(f"error interno: {type(error).__name__}: {error}")
+        return 0
     try:
         raiz = resolver_raiz(opciones.raiz, Path(os.getcwd()))
         spec = leer_spec(opciones.spec)

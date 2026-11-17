@@ -205,6 +205,93 @@ def test_hosts_invalido_rechaza_la_spec_sin_escribir_nada():
             assert arbol(e.raiz) == {}, valor
 
 
+def repo_con_archivos(carpeta, archivos):
+    carpeta.mkdir(parents=True, exist_ok=True)
+    git_aislado("init", "-q", cwd=carpeta)
+    for ruta, datos in archivos.items():
+        destino = carpeta / ruta
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(datos)
+    git_aislado("add", "-A", cwd=carpeta)
+    return carpeta
+
+
+def proponer(raiz, *extra):
+    codigo, salida, errores = correr(["--proponer", "--raiz", str(raiz), *extra])
+    return codigo, (json.loads(salida) if codigo == 0 else None), errores
+
+
+def test_proponer_lee_los_repos_del_code_workspace_y_cuenta_sus_extensiones_sin_escribir_nada():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        repo = repo_con_archivos(e.base / "Mi Repo", {"src/a.ts": b"a", "src/b.ts": b"b", "src/c.tsx": b"c", "README.md": b"r", "Makefile": b"m"})
+        (raiz / "Proyecto.code-workspace").write_text(json.dumps({"folders": [{"path": "."}, {"name": "x", "path": "../Mi Repo"}]}), encoding="utf-8")
+        antes = arbol(e.base)
+        codigo, datos, errores = proponer(raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert arbol(e.base) == antes
+        assert datos["proyecto"] == "instancia" and datos["instancia_existente"] is False, datos
+        assert datos["workspaces"] == ["Proyecto.code-workspace"], datos
+        assert datos["repos"] == [{"nombre": "mi-repo", "ruta": str(repo.resolve()),
+                                   "extensiones": {".ts": 2, "(sin extensión)": 1, ".md": 1, ".tsx": 1}}], datos
+        assert list(datos["repos"][0]["extensiones"]) == [".ts", "(sin extensión)", ".md", ".tsx"]
+        assert datos["avisos"] == [], datos
+
+
+def test_proponer_sin_code_workspace_no_propone_repos():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        codigo, datos, errores = proponer(raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert datos["repos"] == [] and datos["workspaces"] == [] and datos["avisos"] == [], datos
+
+
+def test_proponer_avisa_de_una_carpeta_que_no_es_repo_y_de_un_workspace_ilegible():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (e.base / "suelta").mkdir()
+        repo_con_archivos(e.base / "con-repo", {"a.py": b"a"})
+        (e.base / "con-repo" / "sub").mkdir()
+        (raiz / "a.code-workspace").write_text(json.dumps({"folders": [{"path": "../suelta"}, {"path": "../no-existe"}, {"path": "../con-repo/sub"}]}),
+                                               encoding="utf-8")
+        (raiz / "b.code-workspace").write_text("{ esto no es json", encoding="utf-8")
+        codigo, datos, errores = proponer(raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert datos["repos"] == [] and datos["workspaces"] == ["a.code-workspace", "b.code-workspace"], datos
+        avisos = " | ".join(datos["avisos"])
+        for rastro in ("../suelta", "../no-existe", "../con-repo/sub", "b.code-workspace"):
+            assert rastro in avisos, (rastro, avisos)
+
+
+def test_proponer_no_repite_un_repo_y_respeta_el_orden_del_workspace():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        segundo = repo_con_archivos(e.base / "zeta", {"z.rs": b"z"})
+        primero = repo_con_archivos(e.base / "alfa", {"a.sql": b"a"})
+        (raiz / "a.code-workspace").write_text(json.dumps({"folders": [{"path": "../zeta"}, {"path": "../alfa"}]}), encoding="utf-8")
+        (raiz / "b.code-workspace").write_text(json.dumps({"folders": [{"path": str(primero)}]}), encoding="utf-8")
+        codigo, datos, _ = proponer(raiz)
+        assert codigo == 0 and [r["nombre"] for r in datos["repos"]] == ["zeta", "alfa"], datos
+        assert [r["ruta"] for r in datos["repos"]] == [str(segundo.resolve()), str(primero.resolve())]
+
+
+def test_proponer_en_una_instancia_que_ya_existe_lo_dice():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        (raiz / "workspace.config.json").write_text("{}", encoding="utf-8")
+        codigo, datos, _ = proponer(raiz)
+        assert codigo == 0 and datos["instancia_existente"] is True, datos
+
+
+def test_proponer_no_se_combina_con_spec_ensayo_ni_commitear():
+    with Escenario() as e:
+        spec = str(e.archivo_spec())
+        for argv in (["--proponer", "--spec", spec], ["--proponer", "--ensayo"], ["--proponer", "--commitear"], ["--proponer", "--proponer"]):
+            codigo, salida, errores = correr(argv)
+            assert codigo == 2 and "--proponer" in errores and salida == "", (argv, errores)
+        assert not e.raiz.exists()
+
+
 def test_tickets_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
     with Escenario() as e:
         for valor in ({"prefix": "S-M"}, {"prefix": ""}, "SM", {"prefix": "SM", "otra": 1}):

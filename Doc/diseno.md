@@ -745,10 +745,12 @@ Diagnostica la salud del conocimiento de la instancia con la skill `/odd-ws:cono
 
 ### Bootstrap (`bootstrap.py`, T8)
 
-Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con una entrevista (B8). **Nunca pisa un archivo del usuario.**
+Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con una sola propuesta (B8, I8). **Nunca pisa un archivo del usuario.**
 
 - **La skill** (`skills/bootstrap`, que solo invoca el usuario):
-  - entrevista de a una pregunta, cada una con una propuesta: el nombre del proyecto, los repos con su ruta, las capas con su `rule_prefix` derivado y confirmado, y `mold_source`;
+  - una sola parada (I8): detecta con `bootstrap.py --proponer`, arma la propuesta completa (el nombre del proyecto, los repos con su ruta, las capas con su criterio y su costo real, el `rule_prefix`, el molde, el prefijo de los tickets y quién commitea, cada término explicado en una línea), corre el ensayo en el mismo turno y hace una sola pregunta. Antes la entrevista hacía una pregunta por paso: en una instancia real fueron seis paradas, todas con «sí»;
+  - muestra el ensayo agrupado por capa, por lo común y por git, con las líneas que piden atención aparte y tal cual;
+  - cierra con el siguiente paso (I11): `/odd-ws:abrir`, la matriz vacía como estado normal, y los atajos `cerrar memorias` y `paquetes`;
   - si la raíz ya es una instancia, usa su config tal cual y solo pregunta lo que falta;
   - escribe la spec fuera de la instancia;
   - corre `--ensayo` y, con un sí, aplica;
@@ -806,7 +808,9 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Los globs no se interpretan, así que el informe puede marcar de más una línea que falta.
   - El informe dice `falta en .gitignore: <línea>` por cada línea que falta.
   - Si no se puede leer (por ejemplo, porque es una carpeta), el informe lo dice y lista qué revisar a mano.
-- **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo] [--commitear]`.
+- **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo] [--commitear]`, o `bootstrap.py --proponer [--raiz <carpeta>]`.
+  - **`--proponer` (I8)** no escribe nada e imprime un JSON: `proyecto` (el nombre de la carpeta raíz), `instancia_existente`, los `workspaces` (`*.code-workspace` de la raíz), los `repos` y los `avisos`. Un repo es una carpeta de algún workspace que es la raíz de un repo git, sin la raíz misma y sin repetir; lleva un nombre corto (minúsculas y guiones), su ruta resuelta y las extensiones de sus archivos versionados (`git ls-files`), de la más usada a la menos, hasta 20. Un workspace que no es JSON (VS Code admite comentarios) o una carpeta que no existe o no es la raíz de un repo van a `avisos`. No se combina con `--spec`, `--ensayo` ni `--commitear`.
+  - **`knowledge.docs` no se propone:** es una ruta dentro de la instancia, así que no puede apuntar a la carpeta de docs de un repo de código (L17 de `odd/tasks/experiencia-de-uso.md`).
   - `--ensayo` muestra el plan (`crearía …`, `ya existe …` y lo que haría git, como `git init: se haría (la raíz no está en ningún repo)`) sin escribir nada. Solo ejecuta git de lectura.
   - En Windows, debajo de un archivo creado con bit de ejecución, el informe agrega `al commitear, marcalo ejecutable: git add --chmod=+x <ruta>`, porque git ahí no registra el bit. Con `--commitear` no lo agrega, porque el commit ya lo marca.
   - **`--commitear` (I10):** después de escribir y de los pasos de git, hace el primer commit (`chore: crea la instancia con odd-ws`) solo con los archivos que creó esta corrida, sin los que ignora git (`git check-ignore`), con `git add --chmod=+x .githooks/pre-commit` y sin push. El commit corre el pre-commit de la instancia.
