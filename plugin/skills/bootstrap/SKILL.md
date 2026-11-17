@@ -38,6 +38,8 @@ La sección `knowledge` es opcional. Preguntala solo si el usuario la menciona.
 
 La clave `hosts` también es opcional: dice en qué CLI se trabaja la instancia. Sin ella, la instancia es solo de Claude Code. Preguntala solo si el usuario menciona otro CLI. Hoy el plugin conoce `claude-code` y `codex`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`: una lista sin repetidos. Con `codex`, el script también genera `.codex/agents/` y `.codex/config.toml`.
 
+La clave `tickets` también es opcional: el prefijo de los ids de los tickets cuando el usuario no usa un tracker. Preguntá si usa uno. Si no, proponé un prefijo corto (por ejemplo, las iniciales del proyecto) y ponelo dentro de `config`, como `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarlo.
+
 ## 3. La spec
 
 Escribila con la herramienta Write, en UTF-8 y **fuera de la instancia** (en el scratch de la sesión o en el temp del sistema), para que no termine en un commit:

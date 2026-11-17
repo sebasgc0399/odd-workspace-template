@@ -876,6 +876,37 @@ def test_hosts_no_devuelve_la_lista_de_la_config_original():
     assert m().hosts_de({}) == ["claude-code"]
 
 
+def con_tickets(valor):
+    config = config_valida()
+    config["tickets"] = valor
+    return config
+
+
+def test_sin_tickets_no_hay_prefijo():
+    with Instancia() as i:
+        assert m().prefijo_de_tickets(i.raiz) is None
+    assert m().tickets_de({}) is None
+
+
+def test_un_prefijo_de_tickets_valido_se_devuelve_tal_cual():
+    for prefijo in ("T", "SM", "sm", "Ab_9", "x" * 32):
+        with Instancia(config=con_tickets({"prefix": prefijo})) as i:
+            assert m().prefijo_de_tickets(i.raiz) == prefijo, prefijo
+
+
+def test_tickets_mal_formado_es_rota_y_cargar_no_lo_ve():
+    for malo in ("SM", None, [], {}, {"prefix": ""}, {"prefix": 3}, {"prefix": "S-M"}, {"prefix": "9A"}, {"prefix": "_A"},
+                 {"prefix": "x" * 33}, {"prefix": "SM", "otra": 1}, {"prefix": "S M"}, {"prefix": "SÑ"}):
+        with Instancia(config=con_tickets(malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().prefijo_de_tickets(i.raiz)
+            except m().ConfigRota as error:
+                assert str(error).startswith("tickets"), (malo, str(error))
+            else:
+                raise AssertionError(f"prefijo_de_tickets() debe lanzar ConfigRota para {malo!r}")
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

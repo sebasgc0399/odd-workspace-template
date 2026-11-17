@@ -966,6 +966,20 @@ def test_config_con_la_ruta_de_un_repo_que_no_existe_es_falta_con_su_ruta_en_el_
         assert r.estado == "FALTA" and "no existe" in r.detalle and ausente in r.detalle, r
 
 
+def test_config_con_el_prefijo_de_tickets_mal_formado_es_falta_y_uno_valido_es_ok():
+    for prefijo, estado in (("S-M", "FALTA"), ("SM", "OK")):
+        with Escenario() as e:
+            repo = e.base / "db"
+            repo.mkdir()
+            raiz = instancia_con_repos(e, {"repos": {"db": {"path": str(repo)}}})
+            config = json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))
+            config["tickets"] = {"prefix": prefijo}
+            (raiz / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado, (prefijo, r)
+            assert estado == "OK" or "tickets.prefix" in r.detalle, r
+
+
 def test_config_arreglar_sin_arreglo_automatico_sale_dos_y_no_toca_nada():
     with Escenario() as e:
         raiz = instancia_con_repos(e, {"repos": {"db": {}}})

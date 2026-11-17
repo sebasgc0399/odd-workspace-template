@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /odd-ws:abrir
 
-Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
+Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker, o el consecutivo de la instancia si no hay tracker, y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
 ## Reglas duras
 
@@ -20,6 +20,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 
 - Si la sesión tiene una herramienta del tracker del usuario, usala para leer el work item (título, descripción, criterios, enlaces). Mostrá lo que leíste.
 - Si no la tiene, pedile al usuario que pegue el pedido y su id. No inventes ni completes datos que no vengan en él.
+- **Si el usuario no usa un tracker**, no le pidas el id: proponé el siguiente con `python3 "<S>/ticket.py" --siguiente`, que busca en `tickets/` (archivados incluidos) el número más alto del prefijo de `tickets.prefix` y sale con `siguiente: <id>`. Si sale con 1 porque la config no fija el prefijo, proponé uno corto y pasáselo (`ticket.py --siguiente <prefijo>`); para no volver a preguntarlo, sugerí fijarlo en `workspace.config.json` como `"tickets": {"prefix": "<prefijo>"}`.
 - Anotá el enlace o la referencia del pedido: va al ticket como `Fuente:`.
 
 ## 2. El id, el slug y la carpeta
@@ -131,3 +132,4 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 | Script | Para qué | Salidas |
 |---|---|---|
 | `ticket.py` | crea `tickets/<id>-<slug>/` desde la plantilla sin pisar nada; `--ensayo` solo muestra | 0 ok · 1 pedido rechazado (conflicto, id o slug inválido, plantilla ausente) · 2 error de uso o de entorno |
+| `ticket.py --siguiente [<prefijo>]` | propone el siguiente id consecutivo, con el prefijo de `tickets.prefix` o el que se le pasa; no escribe nada | 0 `siguiente: <id>` · 1 sin prefijo o prefijo inválido · 2 error de uso, sin instancia o config rota |

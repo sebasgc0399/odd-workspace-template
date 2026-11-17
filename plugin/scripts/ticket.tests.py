@@ -30,7 +30,8 @@ arbol, crear_enlace, hay_repo_arriba = motor.arbol, motor.crear_enlace, motor.ha
 CLAUDE_MD = "# plantilla personalizada\r\ncon CRLF y ñ\r\n".encode("utf-8")
 SETTINGS = b'{"enabledPlugins": {"otro@sitio": true}}'
 GUIA = b"\x00guia binaria\xff\r\n"
-USO = "uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
+USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
+       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n")
 PLANTILLA = {
     "tickets/_plantilla/CLAUDE.md": CLAUDE_MD,
     "tickets/_plantilla/.claude/settings.json": SETTINGS,
@@ -308,6 +309,7 @@ def test_los_argumentos_mal_formados_dan_la_linea_de_uso_y_dos():
         casos = [
             [], ["12"], ["12", "a", "b"], ["12", "a", "--raiz"], ["12", "a", "--raiz", ""], ["12", "a", "--raiz", "--ensayo"],
             ["12", "a", "--ensayo", "--ensayo"], ["12", "a", "--raiz", "x", "--raiz", "y"], ["12", "a", "--otra"], ["--ensayo"],
+            ["--siguiente", "a", "b"], ["--siguiente", "--ensayo"], ["--siguiente", "--siguiente"], ["--siguiente", "a", "--raiz"],
         ]
         for argv in casos:
             rechazado(e, 2, USO.strip(), *argv)
@@ -427,6 +429,54 @@ def test_el_settings_del_ticket_generado_por_el_bootstrap_es_el_de_la_raiz():
     assert (destino / "CLAUDE.md").read_bytes() == (caja.raiz / "tickets" / "_plantilla" / "CLAUDE.md").read_bytes()
     assert sorted(p.relative_to(destino).as_posix() for p in destino.rglob("*") if p.is_file()) == [".claude/settings.json", "CLAUDE.md"]
     assert caja.global_.read_bytes() == b"" and caja.sistema.read_bytes() == b""
+
+
+def con_prefijo(e, prefijo):
+    ruta = e.raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["tickets"] = {"prefix": prefijo}
+    ruta.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+
+
+def test_siguiente_sin_tickets_es_el_uno_con_el_prefijo_de_la_config_y_no_escribe():
+    with Escenario() as e:
+        con_prefijo(e, "SM")
+        antes = arbol(e.base)
+        assert e.correr("--siguiente", "--raiz", str(e.raiz)) == (0, "siguiente: SM-1\n", "")
+        assert arbol(e.base) == antes
+
+
+def test_siguiente_cuenta_los_archivados_y_los_anidados_y_no_reusa_un_numero():
+    with Escenario() as e:
+        con_prefijo(e, "SM")
+        for ruta in ("tickets/SM-1-uno", "tickets/archivo/2025/SM-7-viejo", "tickets/sm-3-minusculas", "tickets/SM-2-x/SM-9-anidado",
+                     "tickets/OTRO-40-ajeno", "tickets/SMX-50-parecido", "tickets/SM-abc-sin-numero", "tickets/_plantilla/SM-99-ejemplo"):
+            (e.raiz / ruta).mkdir(parents=True)
+        (e.raiz / "tickets" / "SM-80-es-un-archivo.md").write_bytes(b"x")
+        assert e.correr("--siguiente", "--raiz", str(e.raiz)) == (0, "siguiente: SM-10\n", "")
+
+
+def test_siguiente_con_un_prefijo_explicito_no_necesita_la_config():
+    with Escenario() as e:
+        (e.raiz / "tickets" / "T-4-algo").mkdir(parents=True)
+        assert e.correr("--siguiente", "T", "--raiz", str(e.raiz)) == (0, "siguiente: T-5\n", "")
+
+
+def test_siguiente_sin_prefijo_en_la_config_ni_en_el_comando_se_rechaza_con_uno():
+    with Escenario() as e:
+        rechazado(e, 1, "tickets.prefix", "--siguiente", "--raiz", str(e.raiz))
+
+
+def test_siguiente_con_un_prefijo_invalido_se_rechaza_con_uno():
+    with Escenario() as e:
+        for malo in ("S-M", "9A", "x" * 33):
+            rechazado(e, 1, "prefijo", "--siguiente", malo, "--raiz", str(e.raiz))
+
+
+def test_siguiente_con_los_tickets_de_la_config_rotos_sale_con_dos():
+    with Escenario() as e:
+        con_prefijo(e, "S-M")
+        rechazado(e, 2, "tickets.prefix", "--siguiente", "--raiz", str(e.raiz))
 
 
 def main():

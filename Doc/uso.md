@@ -116,6 +116,7 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 - **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan. Solo con tu sí escribe.
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
+- **El prefijo de los tickets.** Si no usas un tracker, la clave `tickets` fija el prefijo de los ids: `"tickets": {"prefix": "T"}`. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarte. El bootstrap te pregunta si usas un tracker.
 - **Termina con el doctor.** No hace `git add` ni `commit`: el primer commit es tuyo.
 
 Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-bootstrap).
@@ -131,7 +132,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 ### `/odd-ws:abrir`
 
 - **Le pasas el pedido:** el ítem del tracker (si Claude tiene una herramienta MCP para leerlo) o el texto pegado.
-- **La carpeta.** Propone el id y el slug, y con tu sí crea la carpeta desde la plantilla (`ticket.py`, con ensayo antes).
+- **La carpeta.** Propone el id y el slug, y con tu sí crea la carpeta desde la plantilla (`ticket.py`, con ensayo antes). Sin tracker, el id es el siguiente consecutivo del prefijo de `tickets` (`ticket.py --siguiente`), contando también los tickets archivados, así que nunca repite un número.
 - **El `CLAUDE.md` del ticket.** Lo llena con el objetivo, los criterios, el alcance, las preguntas por fijar con el líder, los docs de dominio que toca y los candidatos a graduar de tickets hermanos. Te lo muestra antes de escribirlo.
 - **Si el ticket es grande**, suma sus Specs (tu pedido tal cual, numerado) y sus Tareas. Si usas el ODD de gentle-ai, ese ticket es su documento de feature: no se crea otro en `odd/tasks/`.
 - **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú.

@@ -114,6 +114,7 @@ def _cargar_en_temporal(contenidos, prefijo):
             config_loader.cargar(copia)
             config_loader.conocimiento(copia)
             config_loader.hosts(copia)
+            config_loader.prefijo_de_tickets(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 

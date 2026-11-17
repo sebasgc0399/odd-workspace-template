@@ -8,7 +8,10 @@ import config_loader
 from odd_ws import capas
 from odd_ws.comun import id_valido, raiz_de_instancia
 
-USO = "uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]"
+USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
+       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]")
+SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasá el prefijo (ticket.py --siguiente <prefijo>) "
+               f"o fijalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 PLANTILLA_FALTANTE = "falta {}: corré /odd-ws:bootstrap para generarla"
 AVISO_SIN_SETTINGS = (
@@ -67,6 +70,23 @@ def conflictos(raiz, id, slug):
     return sorted(hallados)
 
 
+def siguiente(raiz, prefijo):
+    if config_loader.PREFIJO_DE_TICKETS_RE.fullmatch(prefijo) is None:
+        raise Rechazo(f"el prefijo {prefijo!r} no es válido: empezá por una letra y seguí con letras, números o guion bajo (hasta 32)")
+    numerado = re.compile(re.escape(prefijo.casefold()) + r"-([0-9]+)-")
+    base = Path(raiz) / capas.TICKETS
+    plantilla = Path(raiz) / capas.TICKET_PLANTILLA_DIR
+    mayor = 0
+    for actual, carpetas, _ in _recorrer(base):
+        if actual == plantilla.parent and plantilla.name in carpetas:
+            carpetas.remove(plantilla.name)
+        for nombre in carpetas:
+            encontrado = numerado.match(nombre.casefold())
+            if encontrado:
+                mayor = max(mayor, int(encontrado.group(1)))
+    return f"{prefijo}-{mayor + 1}"
+
+
 def archivos_de_la_plantilla(raiz):
     carpeta = Path(raiz) / capas.TICKET_PLANTILLA_DIR
     real = os.path.realpath(carpeta)
@@ -99,11 +119,15 @@ def _argumentos(argv):
     posicionales = []
     raiz = None
     ensayo = False
+    pide_siguiente = False
     i = 0
     while i < len(argv):
         argumento = argv[i]
         if argumento == "--ensayo" and not ensayo:
             ensayo = True
+            i += 1
+        elif argumento == "--siguiente" and not pide_siguiente:
+            pide_siguiente = True
             i += 1
         elif argumento == "--raiz" and raiz is None and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             raiz = argv[i + 1]
@@ -113,9 +137,13 @@ def _argumentos(argv):
         else:
             posicionales.append(argumento)
             i += 1
+    if pide_siguiente:
+        if ensayo or len(posicionales) > 1:
+            return None
+        return "siguiente", (posicionales[0] if posicionales else None), raiz
     if len(posicionales) != 2:
         return None
-    return posicionales[0], posicionales[1], raiz, ensayo
+    return "crear", posicionales[0], posicionales[1], raiz, ensayo
 
 
 def _raiz(texto):
@@ -139,6 +167,26 @@ def _error(mensaje, codigo):
     return codigo
 
 
+def _siguiente(prefijo, texto_de_raiz):
+    try:
+        raiz = _raiz(texto_de_raiz)
+        if prefijo is None:
+            try:
+                prefijo = config_loader.prefijo_de_tickets(raiz)
+            except config_loader.ConfigRota as error:
+                raise ErrorDeEntorno(f"la config de {raiz} está rota ({error})")
+            if prefijo is None:
+                raise Rechazo(SIN_PREFIJO)
+        print(f"siguiente: {siguiente(raiz, prefijo)}")
+    except ErrorDeEntorno as error:
+        return _error(str(error), 2)
+    except Rechazo as error:
+        return _error(str(error), 1)
+    except Exception as error:
+        return _error(f"error interno: {type(error).__name__}: {error}", 2)
+    return 0
+
+
 def principal(argv):
     for flujo in (sys.stdout, sys.stderr):
         if hasattr(flujo, "reconfigure"):
@@ -147,7 +195,9 @@ def principal(argv):
     if argumentos is None:
         print(USO, file=sys.stderr)
         return 2
-    id, slug, texto_de_raiz, ensayo = argumentos
+    if argumentos[0] == "siguiente":
+        return _siguiente(*argumentos[1:])
+    _, id, slug, texto_de_raiz, ensayo = argumentos
     plan = []
     raiz = None
     try:

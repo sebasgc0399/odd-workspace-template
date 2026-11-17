@@ -853,6 +853,10 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
 - **La raíz:** sale de `CLAUDE_PROJECT_DIR` o del cwd (R-1). Con `--raiz`, esa carpeta tiene que tener `workspace.config.json`.
 - **Rechaza (exit 1):** un id o un slug inválido, la plantilla ausente (manda a `/odd-ws:bootstrap`) y lo que escape de la raíz o de la plantilla.
 - **Exit 2:** el uso mal formado, sin instancia, la config rota o un error al escribir.
+- **`--siguiente [<prefijo>]`** (I12): imprime `siguiente: <prefijo>-<n>`, donde `n` es uno más que el número más alto de las carpetas `<prefijo>-<n>-…` bajo `tickets/`, archivadas y anidadas incluidas, sin distinguir mayúsculas y sin la plantilla, así que nunca reusa un número. No escribe nada.
+  - **El prefijo** sale del argumento o de la clave opcional `tickets` de `workspace.config.json` (`"tickets": {"prefix": "T"}`): empieza por letra y sigue con letras, números o guion bajo, hasta 32. Sin guion, para que `<prefijo>-<n>-<slug>` no choque con el límite de los ids con guion.
+  - **La valida** `config_loader.prefijo_de_tickets(raiz)` (o `tickets_de(config)`), igual que `hosts`: `cargar` no la mira, el bootstrap la valida antes de escribir y el doctor la marca en el ítem `config`.
+  - **Exit 1:** sin prefijo en el argumento ni en la config, o un prefijo inválido. **Exit 2:** la clave `tickets` rota.
 
 ### Abrir (`skills/abrir`, T9)
 

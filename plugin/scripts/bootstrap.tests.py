@@ -205,6 +205,20 @@ def test_hosts_invalido_rechaza_la_spec_sin_escribir_nada():
             assert arbol(e.raiz) == {}, valor
 
 
+def test_tickets_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in ({"prefix": "S-M"}, {"prefix": ""}, "SM", {"prefix": "SM", "otra": 1}):
+            spec = e.spec()
+            spec["config"]["tickets"] = valor
+            rechazada(e, spec, "tickets")
+        spec = e.spec()
+        spec["config"]["tickets"] = {"prefix": "SM"}
+        raiz = e.base / "instancia-con-prefijo"
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+
+
 def test_hosts_valido_pasa_y_viaja_tal_cual_en_la_config():
     with Escenario() as e:
         for valor in (["claude-code"], ["codex"], ["claude-code", "codex"]):

@@ -74,6 +74,8 @@ PLUGIN = "odd-ws"
 CLAVE_PLUGIN = f"{PLUGIN}@{MARKETPLACE}"
 HOOKS_PATH = ".githooks"
 PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
+AYUDA_TICKETS = ('Corregí "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
+                 "y siga con letras, números o guion bajo (es tu archivo: el doctor no lo toca).")
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -251,6 +253,10 @@ def chequear_config(raiz):
         config = config_loader.cargar(raiz)
     except config_loader.ConfigRota as error:
         return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
+    try:
+        config_loader.prefijo_de_tickets(raiz)
+    except config_loader.ConfigRota as error:
+        return resultado("config", FALTA, str(error), None, AYUDA_TICKETS)
     return resultado("config", OK, f"{len(config['repos'])} repos con su ruta y {len(config['layers'])} capas")
 
 

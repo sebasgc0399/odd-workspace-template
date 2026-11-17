@@ -18,6 +18,8 @@ CLAVES_DE_CONOCIMIENTO = ("docs", "index", "index_max_lines", "scan", "quantitie
 INDICE_POR_DEFECTO = "CLAUDE.md"
 TOPE_DEL_INDICE_POR_DEFECTO = 200
 HOSTS_POR_DEFECTO = ("claude-code",)
+CLAVE_DE_TICKETS = "tickets"
+PREFIJO_DE_TICKETS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -289,6 +291,24 @@ def hosts(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     return hosts_de(config)
+
+
+def tickets_de(config):
+    if CLAVE_DE_TICKETS not in config:
+        return None
+    seccion = config[CLAVE_DE_TICKETS]
+    if not isinstance(seccion, dict) or set(seccion) != {"prefix"}:
+        raise ConfigRota("tickets debe ser un objeto con una sola clave, prefix")
+    prefijo = seccion["prefix"]
+    if not isinstance(prefijo, str) or PREFIJO_DE_TICKETS_RE.fullmatch(prefijo) is None:
+        raise ConfigRota(f"tickets.prefix debe empezar por una letra y seguir con letras, números o guion bajo (hasta 32), no {prefijo!r}")
+    return prefijo
+
+
+def prefijo_de_tickets(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return tickets_de(config)
 
 
 def cargar(raiz):
