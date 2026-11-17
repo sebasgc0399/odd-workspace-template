@@ -40,6 +40,11 @@ La clave `hosts` también es opcional: dice en qué CLI se trabaja la instancia.
 
 La clave `tickets` también es opcional: el prefijo de los ids de los tickets cuando el usuario no usa un tracker. Preguntá si usa uno. Si no, proponé un prefijo corto (por ejemplo, las iniciales del proyecto) y ponelo dentro de `config`, como `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarlo.
 
+Dos claves más, opcionales, sobre qué hace el agente sin preguntar:
+
+- **`ask_before_commit`:** en la instancia, el agente commitea sin pedir aprobación (el primer commit del bootstrap, y los de las skills). Con `"ask_before_commit": true`, pide el sí antes de cada uno. Preguntala solo si el usuario quiere aprobar cada commit.
+- **`own` de cada repo:** `"repos": {"<repo>": {"own": true}}` marca un repo como del usuario, que nadie más trabaja. Preguntá si cada repo es suyo o del equipo. No va junto con `agent_readonly`.
+
 ## 3. La spec
 
 Escribila con la herramienta Write, en UTF-8 y **fuera de la instancia** (en el scratch de la sesión o en el temp del sistema), para que no termine en un commit:
@@ -65,12 +70,12 @@ Nunca pongas `plugin_root` en `local`: lo anota el script cuando crea `workspace
 1. Corré el ensayo, que no escribe nada:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --spec "<ruta de la spec>" --raiz "<raíz>" --ensayo
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --spec "<ruta de la spec>" --raiz "<raíz>" --ensayo --commitear
    ```
 
-2. Mostrá el plan tal cual sale: `crearía …`, `ya existe …` y lo que haría git.
-3. Pedí un sí explícito.
-4. Con el sí, corré lo mismo sin `--ensayo`.
+2. Mostrá el plan tal cual sale: `crearía …`, `ya existe …`, lo que haría git y la línea `commit:`.
+3. Pedí un sí explícito. Ese sí cubre también el primer commit.
+4. Con el sí, corré lo mismo sin `--ensayo` (con `--commitear`).
 
 Cómo leer la salida:
 
@@ -78,7 +83,8 @@ Cómo leer la salida:
   - Si el error es de la spec, corregí la spec y volvé al ensayo.
   - Si es de una config que ya existía, el arreglo es del usuario: decile qué falta.
 - **`no se tocó` en una línea de git** (hooks propios, un worktree enlazado, un `core.hooksPath` con otro valor): explicá en una línea qué significa. No lo cambies por tu cuenta.
-- **`al commitear, marcalo ejecutable: git add --chmod=+x …`**, **`falta en .gitignore: …`** y **`no se pudo borrar …`:** pasáselas al usuario. La última va antes de su primer commit.
+- **La línea `commit:`.** `commit: <hash> con N archivos (el hook, ejecutable)` es el primer commit hecho: solo los archivos que el script creó, sin lo ignorado, y nunca un push. Si dice `commit: no se hizo; …` (la config pide aprobar cada commit, hay cambios stageados ajenos, la raíz está dentro de otro repo) o `commit: falló (…)`, pasale la línea al usuario tal cual: trae lo que tiene que hacer, con el `chmod` del hook.
+- **`falta en .gitignore: …`** y **`no se pudo borrar …`:** pasáselas al usuario. La última va antes de commitear.
 - **`no se creó … ya existía, así que lo deriva de ahí el doctor`** (o `no se crearía …` en el ensayo): el TOML de Codex de un agente que ya tenía su `.md`. No es un error: lo genera el doctor del paso 5, desde ese `.md`, con su arreglo.
 
 ## 5. El doctor
@@ -92,5 +98,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ## Reglas
 
 - No edites a mano lo que generó el script ni un archivo que ya existía. Si algo no te cierra, decíselo al usuario.
-- El primer commit es del usuario: no hagas `git add` ni `git commit`.
+- El primer commit lo hace el script con `--commitear`, no vos: no corras `git add` ni `git commit` por tu cuenta. Con `"ask_before_commit": true` en la config, el script no commitea y el commit es del usuario.
 - `git init` y `core.hooksPath` los decide el script. No los corras por tu cuenta.

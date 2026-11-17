@@ -907,6 +907,65 @@ def test_tickets_mal_formado_es_rota_y_cargar_no_lo_ve():
                 raise AssertionError(f"prefijo_de_tickets() debe lanzar ConfigRota para {malo!r}")
 
 
+def con_clave(clave, valor):
+    config = config_valida()
+    config[clave] = valor
+    return config
+
+
+def test_sin_ask_before_commit_el_agente_commitea_sin_preguntar():
+    with Instancia() as i:
+        assert m().pide_aprobar_commits(i.raiz) is False
+    assert m().aprobacion_de_commits({}) is False
+
+
+def test_ask_before_commit_booleano_se_devuelve_tal_cual():
+    for valor in (True, False):
+        with Instancia(config=con_clave("ask_before_commit", valor)) as i:
+            assert m().pide_aprobar_commits(i.raiz) is valor, valor
+
+
+def test_ask_before_commit_que_no_es_booleano_es_rota_y_cargar_no_lo_ve():
+    for malo in ("true", 1, 0, None, [], {}):
+        with Instancia(config=con_clave("ask_before_commit", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().pide_aprobar_commits(i.raiz)
+            except m().ConfigRota as error:
+                assert str(error).startswith("ask_before_commit"), (malo, str(error))
+            else:
+                raise AssertionError(f"pide_aprobar_commits() debe lanzar ConfigRota para {malo!r}")
+
+
+def test_los_repos_propios_son_los_marcados_con_own_en_su_orden():
+    config = config_valida()
+    config["repos"] = {"db": {"own": True}, "web": {}, "app": {"own": False}, "api": {"own": True, "agent_readonly": False}}
+    assert m().propios_de(config) == ["db", "api"]
+    assert m().propios_de(config_valida()) == []
+    assert m().propios_de({}) == []
+
+
+def test_own_que_no_es_booleano_o_con_agent_readonly_es_rota_y_cargar_no_lo_ve():
+    for valores, fragmento in (({"own": "si"}, "repos.db.own debe ser true o false"), ({"own": 1}, "repos.db.own debe ser true o false"),
+                               ({"own": True, "agent_readonly": True}, "repos.db no puede ser own y agent_readonly")):
+        config = config_valida()
+        config["repos"] = {"db": valores}
+        try:
+            m().propios_de(config)
+        except m().ConfigRota as error:
+            assert fragmento in str(error), (valores, str(error))
+        else:
+            raise AssertionError(f"propios_de() debe lanzar ConfigRota para {valores!r}")
+        with Instancia(config=config) as i:
+            assert m().estado(i.raiz).tipo == "ok", valores
+            try:
+                m().repos_propios(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"repos_propios() debe lanzar ConfigRota para {valores!r}")
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

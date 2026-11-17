@@ -27,8 +27,9 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 |---|---|---|---|---|---|
 | T1 | S2 | `.gitattributes` del bootstrap y chequeo del doctor | inline | hecho | `b49732b` |
 | T2 | S9 | Plantilla del ticket compatible con ODD | inline | hecho | `6d34d60` |
-| T3 | S6 | Id consecutivo sin tracker | inline | hecho | el commit que suma L10 |
-| T4 | S3 | Autoridad según de quién es el repo | inline | pendiente | |
+| T3 | S6 | Id consecutivo sin tracker | inline | hecho | `5185e0d` |
+| T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | el commit que suma L13 |
+| T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | pendiente | |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | pendiente | |
 | T6 | S7 | Ticket activo y sesión del ticket | inline | pendiente | |
 | T7 | S8 | Memorias de los repos | inline | pendiente | |
@@ -67,3 +68,14 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Risk: none. Suma un comando y una clave opcional. La línea de uso de `ticket.py` cambia porque suma el comando nuevo, y su test lo fija.
 - **L11 (2026-11-17), dos precisiones a S3 y S4.** Las trajo otra sesión que leyó este documento, y el autor preguntó: «Que opinas de esta observacion si ya estaba abarcada». S4 suma que la propuesta explica sus términos (`rule_prefix` y el molde). S3 deja escrito como criterio que el primer commit marca el hook como ejecutable; ya estaba en la idea I10 del roadmap, pero no en el spec.
 - **L12 (2026-11-17), lo siguiente:** T4.
+- **L13 (2026-11-17), T4a hecho.** T4 se parte en dos commits: T4a es el script y la config, y T4b son las skills y la plantilla.
+  - `bootstrap.py --commitear` hace el primer commit (`chore: crea la instancia con odd-ws`) solo con lo que creó esa corrida, sin lo ignorado, con `git add --chmod=+x .githooks/pre-commit` y sin push.
+  - No commitea, y lo dice, en cuatro casos: con `ask_before_commit: true`, dentro de otro repo, sin repo, o con cambios stageados ajenos.
+  - Un commit que falla queda informado en `commit: falló (…)`, con exit 0, como los otros pasos de git. Con `--commitear` el informe ya no agrega el aviso del `chmod`, porque el commit lo marca.
+  - Las claves `ask_before_commit` y `repos.<repo>.own` se validan como `hosts`: `cargar` no las mira, y el bootstrap y el doctor sí. `own` no va con `agent_readonly`.
+  - Rojo: config_loader 86/91, bootstrap 158/167 y doctor 190/191.
+  - Verde: config_loader 91/91, bootstrap 167/167, bootstrap_e2e 14/14, bootstrap_cli 19/19, bootstrap_instalacion 13/13, ticket 34/34 y doctor 191/191. El e2e comprueba en una instancia nueva el hook en `100755`, todo lo generado menos `workspace.local.json`, y el árbol limpio.
+  - Una regresión atrapada por un test existente: el plazo de `_git` quedaba fijo en la firma, y el test que lo cambia en tiempo de ejecución falló. Ahora se lee en cada llamada.
+  - Un error de proceso: edité tests de T4a mientras corría el pre-commit de T3. Lo arreglé devolviendo los archivos a su versión del índice con `git show`, y el commit de T3 salió limpio.
+  - Risk: item 2. Cambia lo que el agente hace sin preguntar. Lleva verificador independiente, que corre después de T4b sobre T4 completo.
+- **L14 (2026-11-17), lo siguiente:** T4b.

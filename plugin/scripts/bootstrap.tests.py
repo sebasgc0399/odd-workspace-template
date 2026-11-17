@@ -858,11 +858,12 @@ def test_ensayo_con_config_invalida_sale_dos():
 def test_argumentos_invalidos_salen_dos_con_el_uso():
     with Escenario() as e:
         spec = str(e.archivo_spec())
-        casos = [[], ["--raiz", str(e.raiz)], ["--spec"], ["--spec", spec, "--raiz"], ["--spec", spec, "--inventada"], ["--spec", spec, "--spec", spec], ["--spec", spec, "--ensayo", "--ensayo"], ["suelto"]]
+        casos = [[], ["--raiz", str(e.raiz)], ["--spec"], ["--spec", spec, "--raiz"], ["--spec", spec, "--inventada"], ["--spec", spec, "--spec", spec], ["--spec", spec, "--ensayo", "--ensayo"], ["suelto"],
+                 ["--spec", spec, "--commitear", "--commitear"], ["--commitear"]]
         for argv in casos:
             codigo, salida, errores = correr(argv)
             assert codigo == 2, argv
-            assert "uso: bootstrap.py" in errores and salida == "", (argv, errores)
+            assert "uso: bootstrap.py" in errores and "[--commitear]" in errores and salida == "", (argv, errores)
         assert not e.raiz.exists()
 
 
@@ -1895,6 +1896,164 @@ def correr_con_git(e, raiz, *extra, generadores=None):
     alta = ("instalacion", generadores or instalacion_git())
     with generadores_temporales(alta):
         return correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz), *extra])
+
+
+IDENTIDAD_ENV = {"GIT_AUTHOR_NAME": "Prueba", "GIT_AUTHOR_EMAIL": "prueba@example.com",
+                 "GIT_COMMITTER_NAME": "Prueba", "GIT_COMMITTER_EMAIL": "prueba@example.com"}
+MENSAJE_DEL_COMMIT = "chore: crea la instancia con odd-ws"
+
+
+@contextlib.contextmanager
+def identidad(valores):
+    claves = (*IDENTIDAD_ENV, "EMAIL")
+    previo = {c: os.environ.get(c) for c in claves}
+    for clave in claves:
+        os.environ.pop(clave, None)
+    os.environ.update(valores)
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+
+
+def lineas_de_commit(salida):
+    return [linea for linea in salida.splitlines() if linea.startswith("commit: ")]
+
+
+def sin_head(raiz):
+    return git_aislado("rev-parse", "--verify", "-q", "HEAD", cwd=raiz)[0] != 0
+
+
+def test_commitear_hace_el_primer_commit_solo_con_lo_nuevo_y_sin_lo_ignorado():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        with identidad(IDENTIDAD_ENV):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        lineas = salida.splitlines()
+        commit = lineas_de_commit(salida)
+        assert len(commit) == 1 and re.fullmatch(r"commit: [0-9a-f]{7,} con 2 archivos", commit[0]), lineas
+        assert lineas.index(commit[0]) > lineas.index("core.hooksPath = .githooks: configurado (--local)")
+        assert lineas[-1].startswith("resumen:")
+        assert git_aislado("log", "--format=%s", cwd=e.raiz)[1] == MENSAJE_DEL_COMMIT
+        assert set(git_aislado("ls-files", cwd=e.raiz)[1].splitlines()) == {"workspace.config.json", ".gitignore"}
+        assert git_aislado("status", "--porcelain", cwd=e.raiz)[1] == ""
+
+
+def test_commitear_marca_el_hook_como_ejecutable():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        hook = lambda spec: [(".githooks/pre-commit", b"#!/bin/sh\nexit 0\n", 0o644), b().AccionDeGit(b().GIT_INIT, None),
+                             b().AccionDeGit(b().GIT_HOOKS, ".githooks")]
+        with identidad(IDENTIDAD_ENV):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear", generadores=hook)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        commit = lineas_de_commit(salida)
+        assert len(commit) == 1 and commit[0].endswith("con 3 archivos (el hook, ejecutable)"), commit
+        assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
+        assert "marcalo ejecutable" not in salida, salida
+        ensayo = correr_con_git(e, e.base / "otra", "--ensayo", "--commitear", generadores=hook)[1]
+        assert lineas_de_commit(ensayo) == ["commit: se haría con los archivos nuevos (el hook, ejecutable)"], ensayo
+        assert "marcalo ejecutable" not in ensayo, ensayo
+
+
+def test_commitear_en_el_ensayo_dice_que_lo_haria_y_no_escribe_nada():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        codigo, salida, errores = correr_con_git(e, e.raiz, "--ensayo", "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert lineas_de_commit(salida) == ["commit: se haría con los archivos nuevos"], salida
+        assert not e.raiz.exists()
+        sin_commitear = correr_con_git(e, e.raiz, "--ensayo")[1]
+        assert lineas_de_commit(sin_commitear) == [], sin_commitear
+
+
+def test_commitear_con_ask_before_commit_no_commitea_y_lo_dice():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        spec = e.spec()
+        spec["config"]["ask_before_commit"] = True
+        with generadores_temporales(("instalacion", instalacion_git())), identidad(IDENTIDAD_ENV):
+            for extra in (["--ensayo"], []):
+                codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(e.raiz), "--commitear", *extra])
+                assert codigo == 0 and errores == "", (extra, codigo, errores)
+                commit = lineas_de_commit(salida)
+                assert len(commit) == 1 and commit[0].startswith("commit: no se hizo; la config pide aprobar cada commit (ask_before_commit)"), commit
+                assert "git add --chmod=+x .githooks/pre-commit" in commit[0], commit
+        assert sin_head(e.raiz)
+        assert git_aislado("diff", "--cached", "--name-only", cwd=e.raiz)[1] == ""
+
+
+def test_commitear_con_cambios_ajenos_en_el_indice_no_los_mezcla():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        e.crear_raiz()
+        git_aislado("init", "-q", cwd=e.raiz)
+        (e.raiz / "ajeno.txt").write_bytes(b"x\n")
+        git_aislado("add", "ajeno.txt", cwd=e.raiz)
+        with identidad(IDENTIDAD_ENV):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        commit = lineas_de_commit(salida)
+        assert len(commit) == 1 and commit[0].startswith("commit: no se hizo; hay cambios stageados que no son del bootstrap"), commit
+        assert sin_head(e.raiz)
+        assert git_aislado("diff", "--cached", "--name-only", cwd=e.raiz)[1] == "ajeno.txt"
+
+
+def test_commitear_dentro_de_otro_repo_no_commitea_en_el():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        git_aislado("init", "-q", cwd=e.base)
+        with identidad(IDENTIDAD_ENV):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        commit = lineas_de_commit(salida)
+        assert len(commit) == 1 and commit[0].startswith("commit: no se hizo; la raíz está dentro del repo"), commit
+        assert sin_head(e.base)
+        assert git_aislado("diff", "--cached", "--name-only", cwd=e.base)[1] == ""
+
+
+def test_commitear_sin_identidad_de_git_falla_sin_perder_los_archivos():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        e.git_global.write_bytes(b"[user]\n\tuseConfigOnly = true\n")
+        with identidad({}):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        commit = lineas_de_commit(salida)
+        assert len(commit) == 1 and commit[0].startswith("commit: falló") and "commitealos vos" in commit[0], commit
+        assert (e.raiz / "workspace.config.json").is_file() and sin_head(e.raiz)
+
+
+def test_ask_before_commit_y_own_invalidos_rechazan_la_spec():
+    with Escenario() as e:
+        spec = e.spec()
+        spec["config"]["ask_before_commit"] = "si"
+        rechazada(e, spec, "ask_before_commit")
+        spec = e.spec()
+        spec["config"]["repos"]["repo-a"] = {"own": "si"}
+        rechazada(e, spec, "repos.repo-a.own")
+        spec = e.spec()
+        spec["config"]["repos"]["repo-a"] = {"own": True, "agent_readonly": True}
+        rechazada(e, spec, "own y agent_readonly")
 
 
 def test_git_init_en_una_raiz_fuera_de_todo_repo():

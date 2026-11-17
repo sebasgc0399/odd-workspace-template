@@ -806,9 +806,14 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - Los globs no se interpretan, así que el informe puede marcar de más una línea que falta.
   - El informe dice `falta en .gitignore: <línea>` por cada línea que falta.
   - Si no se puede leer (por ejemplo, porque es una carpeta), el informe lo dice y lista qué revisar a mano.
-- **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo]`.
+- **La CLI:** `bootstrap.py --spec <ruta> [--raiz <carpeta>] [--ensayo] [--commitear]`.
   - `--ensayo` muestra el plan (`crearía …`, `ya existe …` y lo que haría git, como `git init: se haría (la raíz no está en ningún repo)`) sin escribir nada. Solo ejecuta git de lectura.
-  - En Windows, debajo de un archivo creado con bit de ejecución, el informe agrega `al commitear, marcalo ejecutable: git add --chmod=+x <ruta>`, porque git ahí no registra el bit.
+  - En Windows, debajo de un archivo creado con bit de ejecución, el informe agrega `al commitear, marcalo ejecutable: git add --chmod=+x <ruta>`, porque git ahí no registra el bit. Con `--commitear` no lo agrega, porque el commit ya lo marca.
+  - **`--commitear` (I10):** después de escribir y de los pasos de git, hace el primer commit (`chore: crea la instancia con odd-ws`) solo con los archivos que creó esta corrida, sin los que ignora git (`git check-ignore`), con `git add --chmod=+x .githooks/pre-commit` y sin push. El commit corre el pre-commit de la instancia.
+    - **No commitea, y lo dice en la línea `commit: no se hizo; …`:** con `"ask_before_commit": true` en la config; si la raíz no es la raíz de un repo (está dentro de otro, o no hay repo); si hay cambios stageados que no son suyos (`git diff --cached --quiet`), para no mezclarlos.
+    - **Si el commit falla** (por ejemplo, sin identidad de git, o con un pre-commit que frena): `commit: falló (<última línea>)`, los archivos quedan en el índice y el exit sigue en 0, como los otros pasos de git.
+    - En el ensayo dice `commit: se haría con los archivos nuevos`, con `(el hook, ejecutable)` si el plan crea el hook.
+  - **Las claves `ask_before_commit` y `repos.<repo>.own`** se validan como `hosts`: `config_loader.pide_aprobar_commits` y `repos_propios` (o `aprobacion_de_commits` y `propios_de`, sin leer el disco); `cargar` no las mira, y las validan el bootstrap antes de escribir y el doctor en el ítem `config`. `own` no puede ir con `agent_readonly`: uno deja que el agente cree el worktree y el otro le prohíbe escribir con git.
   - Sale con 0 aunque haya archivos que ya existían, y con 2 ante una spec, una config o un plan inválidos, un error de aplicación (con el informe parcial de lo creado) o un error interno.
 - **Generadores.** Cada uno es un módulo con `CLAVES`, un `validar(spec)` opcional y `generar(spec)`, que se registra con `registrar_generador`.
   - Al importar `bootstrap`, solo se registra `config`.
@@ -819,7 +824,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
     - la CLI sale con 0;
     - el doctor da OK en sus ítems de instancia, que se llaman por su API para no depender de la máquina;
     - el pre-commit generado corre de verdad;
-    - el primer commit lo dispara, y un pre-commit que falla lo frena;
+    - el bootstrap hace el primer commit con `--commitear`, con todo lo generado menos `workspace.local.json`, el hook en `100755` y el árbol limpio, y un pre-commit que falla frena un commit;
   - **la segunda corrida:** todo «ya existía» y no cambia ningún byte;
   - **una instancia con solo la config y el local escritos a mano:** se completa, y esos dos archivos quedan iguales byte a byte;
   - **una anterior a T8 sin `rule_prefix`:** sale con 2 sin escribir nada, y se completa después de agregar el prefijo a mano.

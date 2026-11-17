@@ -117,7 +117,8 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
 - **El prefijo de los tickets.** Si no usas un tracker, la clave `tickets` fija el prefijo de los ids: `"tickets": {"prefix": "T"}`. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarte. El bootstrap te pregunta si usas un tracker.
-- **Termina con el doctor.** No hace `git add` ni `commit`: el primer commit es tuyo.
+- **Hace el primer commit.** Solo con los archivos que creó, con el hook ya marcado como ejecutable, y nunca hace push. Si prefieres aprobar cada commit, pon `"ask_before_commit": true` en `workspace.config.json`: entonces no commitea y te dice qué hacer.
+- **Termina con el doctor.**
 
 Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-bootstrap).
 

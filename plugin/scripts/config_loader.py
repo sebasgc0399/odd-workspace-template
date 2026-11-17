@@ -311,6 +311,43 @@ def prefijo_de_tickets(raiz):
     return tickets_de(config)
 
 
+def aprobacion_de_commits(config):
+    valor = config.get("ask_before_commit", False)
+    if not isinstance(valor, bool):
+        raise ConfigRota(f"ask_before_commit debe ser true o false, no {valor!r}")
+    return valor
+
+
+def pide_aprobar_commits(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return aprobacion_de_commits(config)
+
+
+def propios_de(config):
+    repos = config.get("repos") or {}
+    if not isinstance(repos, dict):
+        raise ConfigRota("repos debe ser un objeto con un repo por clave")
+    propios = []
+    for clave, valores in repos.items():
+        if not isinstance(valores, dict) or "own" not in valores:
+            continue
+        if not isinstance(valores["own"], bool):
+            raise ConfigRota(f"repos.{clave}.own debe ser true o false, no {valores['own']!r}")
+        if valores["own"] and valores.get("agent_readonly") is True:
+            raise ConfigRota(f"repos.{clave} no puede ser own y agent_readonly a la vez: own deja que el agente cree su worktree, "
+                             "y agent_readonly le prohíbe escribir con git")
+        if valores["own"]:
+            propios.append(clave)
+    return propios
+
+
+def repos_propios(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return propios_de(config)
+
+
 def cargar(raiz):
     raiz = Path(raiz)
     config = _leer_objeto(raiz / NOMBRE)

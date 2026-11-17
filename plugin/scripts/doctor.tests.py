@@ -980,6 +980,25 @@ def test_config_con_el_prefijo_de_tickets_mal_formado_es_falta_y_uno_valido_es_o
             assert estado == "OK" or "tickets.prefix" in r.detalle, r
 
 
+def test_config_con_ask_before_commit_u_own_mal_formados_es_falta_y_bien_formados_es_ok():
+    casos = (
+        (lambda c: c.update(ask_before_commit="si"), "FALTA", "ask_before_commit"),
+        (lambda c: c["repos"]["db"].update(own="si"), "FALTA", "repos.db.own"),
+        (lambda c: c["repos"]["db"].update(own=True, agent_readonly=True), "FALTA", "own y agent_readonly"),
+        (lambda c: (c.update(ask_before_commit=True), c["repos"]["db"].update(own=True)), "OK", ""),
+    )
+    for cambiar, estado, fragmento in casos:
+        with Escenario() as e:
+            repo = e.base / "db"
+            repo.mkdir()
+            raiz = instancia_con_repos(e, {"repos": {"db": {"path": str(repo)}}})
+            config = json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))
+            cambiar(config)
+            (raiz / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado and fragmento in r.detalle, (fragmento, r)
+
+
 def test_config_arreglar_sin_arreglo_automatico_sale_dos_y_no_toca_nada():
     with Escenario() as e:
         raiz = instancia_con_repos(e, {"repos": {"db": {}}})

@@ -13,7 +13,7 @@ from odd_ws import capas as convencion
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
-USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo]"
+USO = "uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear]"
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
@@ -31,9 +31,13 @@ RESERVADOS = frozenset(
 )
 INTENTOS_DE_TEMPORAL = 5
 PLAZO_DE_GIT = 60
+PLAZO_DEL_COMMIT = 600
 SEPARADORES = re.compile(r"[\\/]+")
 
-GIT_INIT, GIT_HOOKS = "init", "hooks_path"
+GIT_INIT, GIT_HOOKS, GIT_COMMIT = "init", "hooks_path", "commit"
+MENSAJE_DEL_COMMIT = "chore: crea la instancia con odd-ws"
+HOOK_DE_LA_INSTANCIA = ".githooks/pre-commit"
+CON_EL_HOOK = " (el hook, ejecutable)"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
@@ -43,7 +47,7 @@ AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente arreglo", d
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
-Opciones = namedtuple("Opciones", "spec raiz ensayo")
+Opciones = namedtuple("Opciones", "spec raiz ensayo commitear")
 
 GENERADORES = []
 
@@ -115,6 +119,8 @@ def _cargar_en_temporal(contenidos, prefijo):
             config_loader.conocimiento(copia)
             config_loader.hosts(copia)
             config_loader.prefijo_de_tickets(copia)
+            config_loader.pide_aprobar_commits(copia)
+            config_loader.repos_propios(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 
@@ -377,13 +383,14 @@ def planificar_archivos(raiz, archivos, generador="archivos"):
 EstadoGit = namedtuple("EstadoGit", "disponible toplevel ilegible detalle")
 
 
-def _git(argumentos):
+def _git(argumentos, plazo=None):
+    plazo = PLAZO_DE_GIT if plazo is None else plazo
     try:
-        resultado = subprocess.run(["git", *argumentos], capture_output=True, stdin=subprocess.DEVNULL, env=entorno_git(), timeout=PLAZO_DE_GIT)
+        resultado = subprocess.run(["git", *argumentos], capture_output=True, stdin=subprocess.DEVNULL, env=entorno_git(), timeout=plazo)
     except (FileNotFoundError, PermissionError):
         return None
     except subprocess.TimeoutExpired:
-        return 124, "", f"git no respondió en {PLAZO_DE_GIT} segundos"
+        return 124, "", f"git no respondió en {plazo} segundos"
     return resultado.returncode, resultado.stdout.decode("utf-8", "replace").strip(), resultado.stderr.decode("utf-8", "replace").strip()
 
 
@@ -515,6 +522,73 @@ def _aplicar_git(plan, raiz, referencia, resultados):
         resultados.git.append(_ejecutar_paso(paso, raiz) if paso.modo == "hacer" else paso.motivo)
 
 
+def _sin_commit(motivo):
+    return f"commit: no se hizo; {motivo}"
+
+
+def _decidir_commit(spec, plan, raiz):
+    if config_loader.aprobacion_de_commits(spec.get("config") or {}):
+        return "omitir", _sin_commit("la config pide aprobar cada commit (ask_before_commit): commitea el usuario, y al commitear "
+                                     f"marca el hook como ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})")
+    estado = _consultar_repo(raiz)
+    if not estado.disponible:
+        return "omitir", _sin_commit("git no está instalado")
+    if estado.ilegible:
+        return "omitir", _sin_commit("hay un repo git arriba de la raíz que git no pudo leer")
+    if estado.toplevel is None:
+        if any(paso.tipo == GIT_INIT and paso.modo == "hacer" for paso in getattr(plan, "pasos_git", ())):
+            return "hacer", None
+        return "omitir", _sin_commit("la raíz no está en un repo git")
+    if not _es_la_raiz(estado.toplevel, raiz):
+        return "omitir", _sin_commit(f"la raíz está dentro del repo {estado.toplevel}, que no es la instancia")
+    respuesta = _git(["-C", str(raiz), "diff", "--cached", "--quiet"])
+    if respuesta is None:
+        return "omitir", _sin_commit("git no está instalado")
+    if respuesta[0] == 1:
+        return "omitir", _sin_commit("hay cambios stageados que no son del bootstrap, y no se mezclan: commiteá vos los archivos nuevos, "
+                                     f"con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})")
+    if respuesta[0] != 0:
+        return "omitir", _sin_commit(f"no se pudo leer el índice ({respuesta[2] or respuesta[1]})")
+    return "hacer", None
+
+
+def paso_de_commit(spec, plan, raiz):
+    modo, motivo = _decidir_commit(spec, plan, raiz)
+    if modo == "hacer":
+        con_hook = any(a.ruta == HOOK_DE_LA_INSTANCIA and a.modo == CREAR for a in plan)
+        motivo = "commit: se haría con los archivos nuevos" + (CON_EL_HOOK if con_hook else "")
+    return PasoDeGit(GIT_COMMIT, None, modo, motivo)
+
+
+def commitear(spec, plan, resultados, raiz):
+    modo, motivo = _decidir_commit(spec, plan, raiz)
+    if modo != "hacer":
+        return motivo
+    nuevos = [r.ruta for r in resultados if r.estado == CREADO]
+    if not nuevos:
+        return "commit: no hace falta; no se creó ningún archivo"
+    respuesta = _git(["-C", str(raiz), "check-ignore", "--", *nuevos])
+    ignorados = set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
+    rutas = [ruta for ruta in nuevos if ruta not in ignorados]
+    con_hook = HOOK_DE_LA_INSTANCIA in rutas
+    pasos = [["add", "--", *rutas]]
+    if con_hook:
+        pasos.append(["add", "--chmod=+x", "--", HOOK_DE_LA_INSTANCIA])
+    pasos.append(["commit", "-q", "-m", MENSAJE_DEL_COMMIT])
+    for argumentos in pasos:
+        respuesta = _git(["-C", str(raiz), *argumentos], plazo=PLAZO_DEL_COMMIT)
+        if respuesta is None:
+            return _sin_commit("git no está instalado")
+        codigo, salida, error = respuesta
+        if codigo != 0:
+            detalle = (error or salida or f"código {codigo}").splitlines()[-1]
+            pendiente = f", con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})" if con_hook else ""
+            return f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}"
+    respuesta = _git(["-C", str(raiz), "rev-parse", "--short", "HEAD"])
+    corto = respuesta[1] if respuesta is not None and respuesta[0] == 0 else "?"
+    return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else "")
+
+
 def _confirmar(raiz, ruta, referencia):
     if os.path.normcase(os.path.realpath(raiz)) != os.path.normcase(referencia):
         raise ErrorDePlan(f"la raíz {raiz} apunta a otro lado que cuando se armó el plan")
@@ -618,7 +692,7 @@ def _motivo(error, destino):
     return "es una carpeta" if destino.is_dir() else (error.strerror or str(error))
 
 
-def informe(plan, resultados, raiz, ensayo, con_resumen=True):
+def informe(plan, resultados, raiz, ensayo, con_resumen=True, aviso_de_permisos=True):
     contenidos = {a.ruta: a.contenido for a in plan}
     fuentes = {a.ruta: a.fuente for a in plan}
     arreglos = {a.ruta: a.arreglo for a in plan}
@@ -637,7 +711,7 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
                                              existe="existe" if ensayo else "existía", comando=comando))
             continue
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
-        if EN_WINDOWS and not existe and ruta in ejecutables:
+        if aviso_de_permisos and EN_WINDOWS and not existe and ruta in ejecutables:
             lineas.append(f"al commitear, marcalo ejecutable: git add --chmod=+x {ruta}")
         if existe and ruta == convencion.GITIGNORE:
             destino = Path(raiz) / ruta
@@ -671,11 +745,15 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True):
 def _argumentos(argv):
     valores = {}
     ensayo = False
+    commitear_pedido = False
     i = 0
     while i < len(argv):
         argumento = argv[i]
         if argumento == "--ensayo" and not ensayo:
             ensayo = True
+            i += 1
+        elif argumento == "--commitear" and not commitear_pedido:
+            commitear_pedido = True
             i += 1
         elif argumento in ("--spec", "--raiz") and argumento not in valores and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             valores[argumento] = argv[i + 1]
@@ -684,7 +762,7 @@ def _argumentos(argv):
             return None
     if "--spec" not in valores:
         return None
-    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo)
+    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido)
 
 
 def resolver_raiz(texto, cwd):
@@ -721,9 +799,13 @@ def principal(argv):
         validar_spec(spec, raiz)
         plan = planificar(spec, raiz)
         if opciones.ensayo:
-            print("\n".join(informe(plan, None, raiz, True)))
+            if opciones.commitear:
+                plan.pasos_git = (*plan.pasos_git, paso_de_commit(spec, plan, raiz))
+            print("\n".join(informe(plan, None, raiz, True, aviso_de_permisos=not opciones.commitear)))
             return 0
         resultados = aplicar(plan, raiz)
+        if opciones.commitear:
+            resultados.git.append(commitear(spec, plan, resultados, raiz))
     except SpecInvalida as error:
         return _error(str(error))
     except ErrorDePlan as error:
@@ -734,7 +816,7 @@ def principal(argv):
         return _error(str(error))
     except Exception as error:
         return _error(f"error interno: {type(error).__name__}: {error}")
-    print("\n".join(informe(plan, resultados, raiz, False)))
+    print("\n".join(informe(plan, resultados, raiz, False, aviso_de_permisos=not opciones.commitear)))
     return 0
 
 

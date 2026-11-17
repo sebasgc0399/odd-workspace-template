@@ -16,6 +16,8 @@ CAPA = "capa-a"
 IDS_DE_INSTANCIA = ("plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin", f"writer-{CAPA}", "agentes-skills", "agentes-hooks")
 VARIABLES_DE_GIT_AISLADAS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
 IDENTIDAD = ("-c", "user.name=Prueba", "-c", "user.email=prueba@example.com", "-c", "commit.gpgsign=false")
+IDENTIDAD_ENV = {"GIT_AUTHOR_NAME": "Prueba", "GIT_AUTHOR_EMAIL": "prueba@example.com",
+                 "GIT_COMMITTER_NAME": "Prueba", "GIT_COMMITTER_EMAIL": "prueba@example.com"}
 DOCTOR = (
     "import json, sys\n"
     "sys.path.insert(0, %r)\n"
@@ -77,12 +79,12 @@ class Caja:
             "proyecto": {"nombre": "Proyecto Sintetico"},
         }
 
-    def cli(self, spec, *extra):
+    def cli(self, spec, *extra, entorno=None):
         ruta = self.base / "spec.json"
         ruta.write_text(json.dumps(spec), encoding="utf-8")
         resultado = subprocess.run(
             [sys.executable, "-W", "error", str(SCRIPT), "--spec", str(ruta), "--raiz", str(self.raiz), *extra],
-            capture_output=True, env=self.entorno, timeout=300,
+            capture_output=True, env={**self.entorno, **(entorno or {})}, timeout=300,
         )
         return (
             resultado.returncode,
@@ -134,17 +136,14 @@ class InstanciaNueva:
     def __init__(self):
         self.caja = Caja()
         self.spec = self.caja.spec()
-        self.cli = self.caja.cli(self.spec)
+        self.cli = self.caja.cli(self.spec, "--commitear", entorno=IDENTIDAD_ENV)
         self.doctor = self.caja.doctor() if self.cli[0] == 0 else None
         self.sh = localizar_sh()
         self.pre_commit = None
-        self.commit = None
         self.arbol_tras_el_commit = None
         if self.cli[0] == 0:
             if self.sh:
                 self.pre_commit = subprocess.run([self.sh, ".githooks/pre-commit"], cwd=self.caja.raiz, capture_output=True, env=self.caja.entorno, timeout=300)
-            self.caja.git(self.caja.raiz, "add", "-A")
-            self.commit = subprocess.run(["git", *IDENTIDAD, "commit", "-m", "primer commit de la instancia"], cwd=self.caja.raiz, capture_output=True, env=self.caja.entorno, timeout=300)
             self.arbol_tras_el_commit = self.caja.arbol()
 
 
@@ -200,16 +199,16 @@ def test_el_pre_commit_generado_sale_con_cero():
     assert SUITE_EN_VERDE in nueva.pre_commit.stdout + nueva.pre_commit.stderr, (nueva.pre_commit.stdout, nueva.pre_commit.stderr)
 
 
-def test_el_primer_commit_de_la_instancia_corre_el_pre_commit_y_sale_con_cero():
+def test_el_bootstrap_hace_el_primer_commit_con_el_hook_ejecutable_y_sin_lo_local():
     nueva = instancia_nueva()
-    assert nueva.commit is not None and nueva.commit.returncode == 0, (nueva.commit.stdout, nueva.commit.stderr)
-    assert SUITE_EN_VERDE in nueva.commit.stdout + nueva.commit.stderr, (nueva.commit.stdout, nueva.commit.stderr)
-    assert nueva.caja.git(nueva.caja.raiz, "log", "--format=%s") == "primer commit de la instancia"
+    commit = [linea for linea in nueva.cli[1].splitlines() if linea.startswith("commit: ")]
+    esperados = [ruta for ruta in archivos_esperados() if ruta != "workspace.local.json"]
+    assert len(commit) == 1 and commit[0].endswith(f"con {len(esperados)} archivos (el hook, ejecutable)"), (commit, nueva.cli)
+    assert nueva.caja.git(nueva.caja.raiz, "log", "--format=%s") == "chore: crea la instancia con odd-ws"
     rastreados = set(nueva.caja.git(nueva.caja.raiz, "ls-files").splitlines())
-    for ruta in archivos_esperados():
-        if ruta != "workspace.local.json":
-            assert ruta in rastreados, ruta
-    assert "workspace.local.json" not in rastreados
+    assert rastreados == set(esperados), sorted(rastreados ^ set(esperados))
+    assert nueva.caja.git(nueva.caja.raiz, "ls-files", "-s", ".githooks/pre-commit").startswith("100755 ")
+    assert nueva.caja.git(nueva.caja.raiz, "status", "--porcelain") == ""
 
 
 def test_el_pre_commit_corre_de_verdad_en_el_commit_y_lo_frena_si_falla():
