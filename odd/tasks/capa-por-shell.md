@@ -25,10 +25,16 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
 | A2 | S1 | Tests en rojo:<br>• fuera de un writer se bloquea cada forma de D2, en los dos dialectos;<br>• pasan un archivo del repo que no es de capa, el scratch, las lecturas y los borrados;<br>• un writer sigue frenado por `writer_guard` | inline | hecho (L9) |
 | A3 | S1, S3 | El cambio en verde, con los docs: `Doc/diseno.md` (el guard y su «No ve»), `Doc/hooks.md`, la fila X17 de `multi-host.md` y las notas de la próxima versión | inline | hecho (L10); las notas, con la entrega |
 | A4 | S4 | Diferencial: el guard viejo contra el nuevo sobre el corpus de comandos de los tests. Solo se admiten diferencias en escrituras de capa fuera de un writer, y la latencia se compara con la de A0 | inline | hecho (L11): 0 regresiones; +30 ms por comando |
-| A5 | S1, S4 | Verificador independiente (ítem 2), con sondas en un scratch aparte | delegado | pendiente |
-| B0 | S2, S3 | Investigación por host, con la doc y la versión instalada:<br>• Claude Code: `Stop` y `UserPromptSubmit`;<br>• Codex: `Stop` (L4);<br>• Pi: `agent_before_settle` en el padre, y si hay un evento de inicio de turno.<br>Sale una fila P6 en la tabla de capacidades de `multi-host.md` | inline; un explorador si pasa del presupuesto | pendiente |
-| B1 | S2 | Diseño:<br>• la foto al inicio del turno: qué se guarda y cuánto cuesta en un repo grande;<br>• cómo no culpar al agente de lo que cambió el usuario;<br>• qué hallazgos hacen seguir al agente;<br>• cómo no repetir lo que ya chequeó la edición;<br>• el tope de vueltas;<br>• la degradación en un host sin el evento | inline, con el usuario | pendiente |
-| B2 | S2, S3 | Las tareas de implementación salen de B1 | — | pendiente |
+| A5 | S1, S4 | Verificador independiente (ítem 2), con sondas en un scratch aparte | delegado | hecho: B1 y B2 corregidos en `634ce47` y cerrados en la revisión (L12-L14) |
+| B0 | S2, S3 | Investigación por host, con la doc y la versión instalada:<br>• Claude Code: `Stop` y `UserPromptSubmit`;<br>• Codex: `Stop` (L4);<br>• Pi: `agent_before_settle` en el padre, y si hay un evento de inicio de turno.<br>Salen las filas P11 (fin de turno del principal) y P12 (inicio de turno) en la tabla de capacidades de `multi-host.md`; P6 a P10 ya están ocupadas | delegado: un investigador, porque pasa del presupuesto | hecho (L15) |
+| B1 | S2 | Diseño:<br>• la foto al inicio del turno: qué se guarda y cuánto cuesta en un repo grande;<br>• cómo no culpar al agente de lo que cambió el usuario;<br>• qué hallazgos hacen seguir al agente;<br>• cómo no repetir lo que ya chequeó la edición;<br>• el tope de vueltas;<br>• la degradación en un host sin el evento | inline, con el usuario | hecho (L16) |
+| B2a | S2, S3 | El modelo neutral: `InicioTurno` y `FinTurno` en `eventos.py`, los puntos de evento y P11/P12 en `capacidades.py` (en los tres manifiestos, «no disponible» hasta B2c-B2e), con sus tests | delegado: writer W1, junto con B2b, por el respaldo de contexto de una sesión larga (L17) | hecho (L18) |
+| B2b | S2 | El script `revisar_turno.py`: la foto al inicio, la revisión al final contra la foto o HEAD, una vuelta por turno, la foto pendiente si el turno se corta. Con sus tests | delegado: W1 | hecho (L18) |
+| B2c | S2, S3 | Claude Code: `Stop` y `UserPromptSubmit` en el adaptador y en `hooks.json`, con sus tests | delegado: writer W2, después de W1, junto con B2d a B2f; los tests de paridad atan los tres hosts y no se pueden partir (L17) | pendiente |
+| B2d | S2, S3 | Codex: `Stop` y `UserPromptSubmit` (solo el hilo raíz) en el adaptador y en `hooks.codex.json`, con sus tests | delegado: W2 | pendiente |
+| B2e | S2, S3 | Pi: el settle del padre y `before_agent_start` en el shim, el adaptador y `hooks.pi.json`, y la regla del doctor sobre el settle; con sus tests de Python y TS | delegado: W2 | pendiente |
+| B2f | S3 | El doctor (cobertura y degradado) y los docs: `Doc/hooks.md`, `Doc/diseno.md` y las filas P11 y P12 de `multi-host.md`. La costura la cierra el padre, con la suite completa una vez | delegado: W2; la costura, inline | pendiente |
+| VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | pendiente |
 | H | S3, S4 | Prueba de humo en Claude Code, Codex y Pi, cada uno con su home aparte | inline; el usuario hace los logins | pendiente |
 | F1 | — | Seguimiento: los hooks ponen `dont_write_bytecode` y un plugin instalado compila sus módulos en cada corrida. Con caché, `guard_comandos` ahorra unos 60 ms (L11) | aparte | anotado |
 
@@ -182,3 +188,84 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
   - **El verde:** 77/77 y 121/121, con `writer_stop`, `plantilla_writer`, `doctor`, `capacidades`, `comun`, `codex` y `pi` también en verde.
   - **El diferencial repetido** contra `4761041`: 2852 cadenas y 8556 casos, sin regresiones. `writer_guard` y `destinos()` no cambian. Las 107 diferencias son el bloqueo nuevo y apuntan todas a un `.sql` de la capa.
   - **Los avisos A1, A2, A3 y A5** pasan al «No ve» y a «Fallas» en `Doc/diseno.md`. A4 y A6 quedan como están.
+  - **El commit:** `634ce47`.
+- **L14 (2026-11-16), la revisión limitada a B1 y B2: los dos cerrados.**
+  - **B1:** las sondas p05 a p08, p24, p45 y p46 bloquean ahora en Claude Code y en Codex, con el destino real.
+  - **B2:** f19, f20 y los Python que solo leen pasan, como en la base. Las escrituras reales a la capa siguen bloqueando: `os.rename` hacia la capa, `write_text` y `shutil.copy`.
+  - **Los invariantes se mantienen:** `destinos()` y la decisión del writer son iguales a `4761041` en las 139 sondas originales y en las 15 de la revisión. Frente a `a6c3e93`, solo cambia el conjunto de B1 y B2.
+  - **Scratch del verificador,** para borrar a mano: `%TEMP%\tmp.m00xdEbDdv`, además de `%TEMP%\tmp.PbMaPBroZX`.
+  - **La parte A queda cerrada.** El CI de `634ce47` está en verde en los tres sistemas.
+- **L15 (2026-11-16), B0: los eventos de turno por host.**
+  - **Cómo se investigó:** un investigador de solo lectura, con la doc oficial, el código de los upstream leído como dato y las versiones instaladas. El padre comprobó que P6 a P10 ya están ocupadas en `capacidades.py`.
+  - **Claude Code 2.1.319:**
+    - Fin de turno, `Stop`: solo en el principal (los subagentes disparan `SubagentStop`). Hace seguir al agente con `decision: block` y `reason`. Tiene un tope de 8 continuaciones seguidas, que se reinicia con cada herramienta. Si el hook se cae, el turno cierra igual.
+    - Inicio de turno, `UserPromptSubmit`: trae `prompt_id`. También corre con tareas programadas y con los avisos de subagentes en segundo plano.
+  - **Codex 0.144 (instalado):**
+    - Fin de turno, `Stop`: solo en el hilo raíz. Se usa `decision: block` por JSON con exit 0. El motivo entra como prompt dentro del mismo `turn_id`, y `stop_hook_active` queda en true el resto del turno. No tiene tope, y si el hook falla deja cerrar.
+    - Inicio de turno, `UserPromptSubmit` con `turn_id`: corre también dentro de los subagentes (con `agent_id`) y no corre en la continuación.
+  - **Pi 1.5.2 con gentle-shell 4.8.0:**
+    - Fin de turno, `agent_before_settle` en el padre. Hace seguir con `custom_message` y `continue: true`. No tiene tope ni timeout, un error falla abierto y un abort lo saltea. gentle-ai ya lo usa en el padre.
+    - Inicio de turno, `before_agent_start`, sin id de turno; la continuación no lo dispara.
+  - **El repo hoy:** no tiene ninguno de los dos eventos.
+    - `eventos.py` solo conoce `Herramienta`, `InicioSesion` y `FinSubagente`.
+    - Los adaptadores de Claude Code y Codex descartan `Stop` y `UserPromptSubmit`.
+    - `pi.leer` toma todo `agent_before_settle` como fin de subagente.
+    - El shim registra el settle solo en el hijo.
+  - **Archivos que toca la parte B:**
+    - `eventos.py`, `capacidades.py` y los tres adaptadores, con sus tests;
+    - `hooks.json`, `hooks.codex.json` y `hooks.pi.json`;
+    - `shim/pi.ts`;
+    - un script nuevo para la revisión de fin de turno;
+    - `doctor.py`;
+    - los docs.
+  - **Costo de la foto:** `git status --porcelain` tardó entre 145 y 225 ms por repo en esta máquina.
+  - **Scratch del investigador:** `scratchpad/codex-src/` y `scratchpad/cc-changelog.md`, dentro de la sesión.
+- **L16 (2026-11-16), B1: el diseño aprobado.**
+  - **Al empezar el turno:** se saca una foto de los archivos de capa que ya están modificados (`git status` de cada repo declarado y del taller), con su contenido, como las fotos del writer. Un subagente no saca foto.
+  - **Al terminar el turno:** se buscan los archivos de capa que cambiaron respecto de la foto, sin importar cómo se escribieron. Se les corren las reglas solo sobre las líneas nuevas del turno: contra la foto si el archivo estaba modificado, y contra HEAD si estaba limpio.
+  - **Si hay un bloqueo:** el agente sigue y lo corrige, una sola vez por turno, como `writer_stop`. Los avisos van en el mismo mensaje.
+  - **Si el turno se corta:** la foto no se reemplaza hasta que corre una revisión, así que el turno siguiente revisa todo lo pendiente.
+  - **Si el hook se cae:** el turno cierra igual, porque ningún CLI deja cerrar en falso. Se declara degradado en el manifiesto y en el doctor.
+  - **En Claude Code:** `decision: block`, como `writer_stop`.
+  - **El costo aceptado:** el revisor no distingue quién escribió el cambio. Si el usuario edita un archivo de capa durante el turno, el agente recibe una vuelta, con el mensaje «si este cambio no es tuyo, avísale al usuario y no lo toques». Cuesta unos 200 ms por repo y por mensaje del usuario.
+  - **La aprobación,** a la pregunta «¿Vamos con este diseño?», textual: «Vale me parece bien».
+- **L17 (2026-11-17), la ruta de B2.**
+  - **Primero, W1 (B2a y B2b):** el modelo neutral y el script, con P11 y P12 «no disponible» en los tres manifiestos. Así su suite queda en verde y se commitea sola.
+  - **Después, W2 (B2c a B2f):** los tres hosts, el doctor y los docs. Van juntos porque `capacidades.tests.py` cruza los manifiestos y los tres archivos de hooks, así que un writer por host no podría verificarse solo.
+  - **La razón para delegar:** el respaldo de contexto. Esta sesión ya hizo la parte A, su verificación y B0.
+  - **Los tests:** el pre-commit y el CI descubren las suites con `git ls-files -- '*.tests.py'`, así que una suite nueva corre en cuanto queda trackeada.
+- **L18 (2026-11-17), W1: B2a y B2b.**
+  - **El modelo neutral:** `InicioTurno` y `FinTurno`, los puntos `inicio_turno` y `fin_turno`, y P11 y P12 con sus requisitos:
+    - P11: `(FIN_TURNO, Seguir)`.
+    - P12: `(INICIO_TURNO, Permitir)`, porque una tupla vacía cumpliría con `all(())`.
+    - En los tres manifiestos, P11 y P12 quedan «no disponible».
+  - **`revisar_turno.py`:**
+    - **La foto:** va en `.claude/estado/turnos/<sesion>/`, con un `.foto` por archivo y un `manifiesto.json` escrito de una vez. Sale de `git status --porcelain -z -uall` en cada repo, en sus worktrees y en la raíz de la instancia, y se filtra con `clasificar`.
+    - **La revisión:** corre `verificar_archivo` y filtra los hallazgos preexistentes contra la foto.
+    - **El mensaje:** nombra la herramienta de edición de cada host y cierra con «si este cambio no es tuyo, avísale al usuario y no lo toques».
+  - **Los tests:** `revisar_turno.tests.py` tiene 19 tests, en rojo antes del código.
+    - Dos tests nuevos en `capacidades.tests.py`: ningún requisito vacío, y un punto que el adaptador no alcanza figura «no disponible».
+    - Un control fija P11 y P12 en «no disponible» hasta W2.
+  - **Mutación:** 18 mutantes, 17 detectados. El sobreviviente quita un atajo que no cambia el resultado.
+  - **La decisión que pidió el writer:** dos aserciones fijaban el manifiesto completo, en `claude_code.tests.py` y `pi.tests.py`, fuera de su superficie. Las ajustó el padre: son consecuencia directa de P11 y P12.
+  - **Las suites, corridas por el padre:**
+
+    | Suite | Resultado |
+    |---|---|
+    | `eventos` | 8/8 |
+    | `capacidades` | 35/35 |
+    | `revisar_turno` | 19/19 |
+    | `claude_code` | 37/37 |
+    | `codex` | 41/41 |
+    | `pi` | 62/62 |
+    | `doctor` | 182/182 |
+    | `writer_stop` | 57/57 |
+    | `verificar_capa` | 87/87 |
+
+  - **Pendiente para W2:**
+    - `EXPRESABLES` de `INICIO_TURNO` y `FIN_TURNO` en cada host;
+    - sacar el control de P11 y P12;
+    - sumar `revisar_turno` a `HOOKS` en `capacidades.tests.py`;
+    - las dos aserciones de los adaptadores;
+    - `Doc/diseno.md:131`, que dice «P1 a P10».
+  - **Scratch del writer,** para borrar a mano: `%TEMP%\tmp.EseIW9Eohu`.

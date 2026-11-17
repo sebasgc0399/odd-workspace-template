@@ -581,7 +581,7 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     estados = {clave: estado for clave, (estado, _) in m().MANIFIESTO.items()}
     assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
                        "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.SOPORTADO, "P9": C.SOPORTADO,
-                       "P10": C.DEGRADADO}, estados
+                       "P10": C.DEGRADADO, "P11": C.NO_DISPONIBLE, "P12": C.NO_DISPONIBLE}, estados
     for clave in ("P5", "P9"):
         nota = m().MANIFIESTO[clave][1]
         assert "gentle-shell real (F2g)" in nota, (clave, nota)

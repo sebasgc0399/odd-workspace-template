@@ -60,6 +60,20 @@ def test_inicio_y_fin_llevan_sus_campos():
     assert (vacio.agente, vacio.transcript, vacio.ultimo_mensaje, vacio.ya_reintentado) == (None, None, None, False)
 
 
+def test_inicio_y_fin_de_turno_llevan_sus_campos():
+    i = m().InicioTurno(sesion="s1", cwd="/w", turno="t1", agente="Explore", id_agente="a1")
+    assert [c.name for c in dataclasses.fields(i)] == ["sesion", "cwd", "turno", "agente", "id_agente"]
+    assert (i.sesion, i.cwd, i.turno, i.agente, i.id_agente) == ("s1", "/w", "t1", "Explore", "a1")
+    vacio = m().InicioTurno()
+    assert (vacio.sesion, vacio.cwd, vacio.turno, vacio.agente, vacio.id_agente) == (None, None, None, None, None)
+    f = m().FinTurno(sesion="s1", cwd="/w", turno="t1", continuado=True, ultimo_mensaje="listo")
+    assert [c.name for c in dataclasses.fields(f)] == ["sesion", "cwd", "turno", "continuado", "ultimo_mensaje"]
+    assert (f.sesion, f.cwd, f.turno, f.continuado, f.ultimo_mensaje) == ("s1", "/w", "t1", True, "listo")
+    vacio = m().FinTurno()
+    assert (vacio.sesion, vacio.cwd, vacio.turno, vacio.continuado, vacio.ultimo_mensaje) == (None, None, None, False, None)
+    assert m().InicioTurno(sesion="s1") != m().FinTurno(sesion="s1")
+
+
 def test_las_decisiones_llevan_su_motivo_o_su_texto():
     assert m().Permitir() == m().Permitir()
     assert m().Bloquear("no").motivo == "no"
@@ -71,7 +85,7 @@ def test_las_decisiones_llevan_su_motivo_o_su_texto():
 
 def test_todo_es_inmutable():
     casos = [(herramienta(), "fase"), (m().InicioSesion(), "origen"), (m().FinSubagente(), "agente"),
-             (m().Bloquear("x"), "motivo"), (m().Preguntar("x"), "motivo"), (m().Contexto("x"), "texto"),
+             (m().InicioTurno(), "sesion"), (m().FinTurno(), "continuado"), (m().Bloquear("x"), "motivo"), (m().Preguntar("x"), "motivo"), (m().Contexto("x"), "texto"),
              (m().Seguir("x"), "motivo")]
     for objeto, campo in casos:
         try:
@@ -84,7 +98,9 @@ def test_todo_es_inmutable():
 def test_el_nucleo_no_habla_el_idioma_de_ningun_host():
     texto = (AQUI / "eventos.py").read_text(encoding="utf-8")
     for palabra in ("hook_event_name", "tool_name", "tool_input", "PreToolUse", "PostToolUse", "SessionStart",
-                    "SubagentStop", "Bash", "PowerShell", "Edit", "Write", "Read", "agent_type", "Claude"):
+                    "SubagentStop", "Bash", "PowerShell", "Edit", "Write", "Read", "agent_type", "Claude", "Stop",
+                    "UserPromptSubmit", "stop_hook_active", "turn_id", "prompt_id", "agent_before_settle",
+                    "before_agent_start", "Codex"):
         assert palabra not in texto, palabra
 
 

@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from odd_ws import transcripcion
-from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, POST, PRE, SOPORTADO
+from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
 from odd_ws.hosts import base, leer_hooks, manejadores, tokens_de
@@ -34,6 +34,10 @@ MANIFIESTO = {
     "P8": (SOPORTADO, "skills del plugin con el namespace /odd-ws:"),
     "P9": (SOPORTADO, "marketplace y CLAUDE_PLUGIN_ROOT"),
     "P10": (SOPORTADO, "CLAUDE.md que se apilan por carpeta"),
+    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee Stop, así que la revisión de fin de turno "
+                           "(revisar_turno) no corre"),
+    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee UserPromptSubmit, así que no se saca la foto "
+                           "del inicio del turno"),
 }
 FASES = {"PreToolUse": "pre", "PostToolUse": "post"}
 NOMBRES = {fase: nombre for nombre, fase in FASES.items()}

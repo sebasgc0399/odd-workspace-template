@@ -50,6 +50,24 @@ class FinSubagente:
 
 
 @dataclass(frozen=True)
+class InicioTurno:
+    sesion: object = None
+    cwd: object = None
+    turno: object = None
+    agente: object = None
+    id_agente: object = None
+
+
+@dataclass(frozen=True)
+class FinTurno:
+    sesion: object = None
+    cwd: object = None
+    turno: object = None
+    continuado: bool = False
+    ultimo_mensaje: object = None
+
+
+@dataclass(frozen=True)
 class Permitir:
     pass
 

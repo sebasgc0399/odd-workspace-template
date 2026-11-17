@@ -1,4 +1,4 @@
-from odd_ws.eventos import Bloquear, Contexto, Preguntar, Seguir
+from odd_ws.eventos import Bloquear, Contexto, Permitir, Preguntar, Seguir
 
 SOPORTADO = "soportado"
 DEGRADADO = "degradado"
@@ -9,7 +9,9 @@ PRE = "pre"
 POST = "post"
 INICIO = "inicio"
 FIN_SUBAGENTE = "fin_subagente"
-PUNTOS_DE_EVENTO = (PRE, POST, INICIO, FIN_SUBAGENTE)
+INICIO_TURNO = "inicio_turno"
+FIN_TURNO = "fin_turno"
+PUNTOS_DE_EVENTO = (PRE, POST, INICIO, FIN_SUBAGENTE, INICIO_TURNO, FIN_TURNO)
 
 CAPACIDADES = {
     "P1": "contexto al iniciar la sesión",
@@ -22,6 +24,8 @@ CAPACIDADES = {
     "P8": "skills del plugin",
     "P9": "distribución del plugin",
     "P10": "instrucciones por carpeta",
+    "P11": "compuerta de fin de turno del principal",
+    "P12": "inicio de turno",
 }
 
 REQUISITOS = {
@@ -30,4 +34,6 @@ REQUISITOS = {
     "P3": ((PRE, Bloquear), (PRE, Preguntar)),
     "P4": ((POST, Bloquear), (POST, Contexto)),
     "P5": ((FIN_SUBAGENTE, Seguir),),
+    "P11": ((FIN_TURNO, Seguir),),
+    "P12": ((INICIO_TURNO, Permitir),),
 }

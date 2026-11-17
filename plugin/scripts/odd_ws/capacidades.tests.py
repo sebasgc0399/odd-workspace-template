@@ -58,6 +58,8 @@ def eventos_por_punto():
         C.POST: E.Herramienta(fase="post", tipo="edicion", herramienta="Edit", rutas=("/w/a.txt",)),
         C.INICIO: E.InicioSesion(origen="startup"),
         C.FIN_SUBAGENTE: E.FinSubagente(agente="writer-x"),
+        C.INICIO_TURNO: E.InicioTurno(sesion="s1"),
+        C.FIN_TURNO: E.FinTurno(sesion="s1"),
     }
 
 
@@ -74,9 +76,10 @@ def test_los_adaptadores_son_claude_code_codex_y_pi_en_ese_orden():
     assert [nombre for nombre, _ in adaptadores()] == ["claude_code", "codex", "pi"]
 
 
-def test_los_puntos_de_evento_son_los_cuatro_del_modelo():
+def test_los_puntos_de_evento_son_los_seis_del_modelo():
     C = cap()
-    assert C.PUNTOS_DE_EVENTO == (C.PRE, C.POST, C.INICIO, C.FIN_SUBAGENTE)
+    assert C.PUNTOS_DE_EVENTO == (C.PRE, C.POST, C.INICIO, C.FIN_SUBAGENTE, C.INICIO_TURNO, C.FIN_TURNO)
+    assert len(set(C.PUNTOS_DE_EVENTO)) == len(C.PUNTOS_DE_EVENTO)
     assert set(eventos_por_punto()) == set(C.PUNTOS_DE_EVENTO)
 
 
@@ -123,9 +126,9 @@ def test_emite_nombra_cada_tipo_de_decision_que_el_hook_construye():
         assert construidas == declaradas, "%s construye %s y EMITE declara %s" % (hook, sorted(construidas), sorted(declaradas))
 
 
-def test_el_manifiesto_de_cada_adaptador_declara_los_diez_puntos():
+def test_el_manifiesto_de_cada_adaptador_declara_los_doce_puntos():
     C = cap()
-    assert list(C.CAPACIDADES) == ["P%d" % n for n in range(1, 11)]
+    assert list(C.CAPACIDADES) == ["P%d" % n for n in range(1, 13)]
     for nombre, adaptador in adaptadores():
         assert list(adaptador.MANIFIESTO) == list(C.CAPACIDADES), nombre
         for clave, (estado, nota) in adaptador.MANIFIESTO.items():
@@ -217,6 +220,30 @@ def test_soportado_implica_que_el_adaptador_expresa_lo_que_pide_sin_degradarlo()
                 assert nota.strip(), "%s: %s es %s y su nota no explica por qué" % (nombre, clave, estado)
 
 
+def test_ningun_requisito_se_cumple_sin_pedir_nada():
+    C, E = cap(), ev()
+    for clave, requisitos in C.REQUISITOS.items():
+        assert requisitos, "%s no pide nada, así que cualquier adaptador lo podría declarar soportado" % clave
+        for punto, tipo in requisitos:
+            assert punto in C.PUNTOS_DE_EVENTO, (clave, punto)
+            assert tipo in {E.Permitir} | {getattr(E, nombre) for nombre in DECISIONES_DE_HOOK}, (clave, tipo)
+    assert C.REQUISITOS["P11"] == ((C.FIN_TURNO, E.Seguir),), C.REQUISITOS["P11"]
+    assert C.REQUISITOS["P12"] == ((C.INICIO_TURNO, E.Permitir),), (
+        "el inicio de turno solo necesita que el evento llegue: el adaptador lo declara con Permitir en EXPRESABLES")
+    assert (C.CAPACIDADES["P11"], C.CAPACIDADES["P12"]) == ("compuerta de fin de turno del principal", "inicio de turno")
+
+
+def test_un_punto_que_el_adaptador_no_alcanza_figura_no_disponible():
+    C = cap()
+    for nombre, adaptador in adaptadores():
+        for clave, requisitos in C.REQUISITOS.items():
+            alcanza = any(punto in adaptador.EXPRESABLES for punto, _ in requisitos)
+            estado = adaptador.MANIFIESTO[clave][0]
+            if not alcanza:
+                assert estado == C.NO_DISPONIBLE, "%s: %s figura %s y el adaptador no alcanza %s" % (
+                    nombre, clave, estado, [punto for punto, _ in requisitos])
+
+
 def test_cada_adaptador_dice_si_su_cli_precarga_skills():
     for nombre, adaptador in adaptadores():
         assert isinstance(getattr(adaptador, "PRECARGA_SKILLS", None), bool), (
@@ -241,8 +268,15 @@ def test_un_requisito_degradado_no_puede_figurar_como_soportado():
     assert codex.MANIFIESTO["P5"][0] == C.SOPORTADO, "y writer_stop corre en Codex con la bitácora (F1b)"
     claude = importlib.import_module("odd_ws.hosts.claude_code")
     for clave, requisitos in C.REQUISITOS.items():
+        if clave in ("P11", "P12"):
+            continue
         assert all(nativo(claude, punto, tipo) for punto, tipo in requisitos), clave
         assert claude.MANIFIESTO[clave][0] == C.SOPORTADO, clave
+    for nombre, adaptador in adaptadores():
+        for clave in ("P11", "P12"):
+            assert not all(nativo(adaptador, punto, tipo) for punto, tipo in C.REQUISITOS[clave]), (
+                "%s: %s ya se expresa; su fila del MANIFIESTO tiene que dejar de ser no disponible" % (nombre, clave))
+            assert adaptador.MANIFIESTO[clave][0] == C.NO_DISPONIBLE, (nombre, clave, adaptador.MANIFIESTO[clave])
     pi = importlib.import_module("odd_ws.hosts.pi")
     assert not nativo(pi, C.PRE, E.Preguntar) and pi.MANIFIESTO["P3"][0] == C.DEGRADADO, pi.MANIFIESTO["P3"]
     assert all(nativo(pi, punto, tipo) for punto, tipo in C.REQUISITOS["P5"]), "P5 se expresa en Pi"

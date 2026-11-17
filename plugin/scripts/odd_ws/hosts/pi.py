@@ -89,6 +89,10 @@ MANIFIESTO = {
     "P10": (DEGRADADO, "Pi lee un archivo de instrucciones por carpeta, desde el cwd hasta la raíz y solo al arrancar: el primero "
                        "que encuentra de AGENTS.override.md, AGENTS.md y CLAUDE.md, así que un AGENTS.md tapa el CLAUDE.md de su "
                        "carpeta, y los de las subcarpetas que se tocan después no se cargan; no se genera nada"),
+    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: el shim todavía no corre nada en el agent_before_settle del "
+                           "padre, así que la revisión de fin de turno (revisar_turno) no corre"),
+    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: el shim todavía no lee before_agent_start, así que no se saca "
+                           "la foto del inicio del turno"),
 }
 TEXTOS = {
     "{{host:arranque-writer}}": (

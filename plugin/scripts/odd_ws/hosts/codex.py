@@ -41,6 +41,10 @@ MANIFIESTO = {
                        "instancia declara codex en hosts y el archivo no existe, sin ningún AGENTS.md; se lee desde la raíz "
                        "hasta el cwd, solo al arrancar y con un tope de 32 KiB, y .codex/ carga solo con el proyecto en "
                        "confianza"),
+    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee Stop del hilo raíz, así que la revisión de fin "
+                           "de turno (revisar_turno) no corre"),
+    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee UserPromptSubmit del hilo raíz, así que no se "
+                           "saca la foto del inicio del turno"),
 }
 TEXTOS = {
     "{{host:arranque-writer}}": (

@@ -578,8 +578,8 @@ def test_el_puerto_de_memorias_se_declara_soportado_sin_tocar_el_manifiesto():
     capacidades = importlib.import_module("odd_ws.capacidades")
     estado, nota = m().MEMORIAS
     assert estado == capacidades.SOPORTADO and nota.strip(), m().MEMORIAS
-    assert list(m().MANIFIESTO) == ["P%d" % n for n in range(1, 11)]
-    assert all(estado == capacidades.SOPORTADO for estado, _ in m().MANIFIESTO.values())
+    assert list(m().MANIFIESTO) == list(capacidades.CAPACIDADES)
+    assert all(estado == capacidades.SOPORTADO for clave, (estado, _) in m().MANIFIESTO.items() if clave not in ("P11", "P12"))
 
 
 def main():
