@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-17, con la `0.8.0`.
+Actualizado: 2026-11-17, con la `0.8.0` y seis ideas del libro de Gentleman y del video de RDD.
 
 ## Cómo se mueve
 
@@ -33,8 +33,12 @@ Cada idea lleva su fuente (del autor, un video o un proyecto, con su enlace), la
 
 | # | Fecha | Fuente | La idea | Qué se recicla | Estado |
 |---|---|---|---|---|---|
-
-Todavía no hay ninguna.
+| I1 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 21, y el [video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | El commit vuelve a comprobar el recibo: si lo que va al commit no es lo que se revisó, se pregunta. | El recibo atado al contenido y la compuerta que lo vuelve a derivar al entregar. `recibo.py` ya guarda el hash del diff revisado, y `guard_comandos` ve el `git commit` y compararía, sin poner hooks en los repos de código. | nueva |
+| I2 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 21 | Que la falla de un hook quede a la vista: se anota en `.claude/estado` y el doctor o la sesión siguiente la muestra. | «Una falla de la infraestructura nunca se vuelve una respuesta». Hoy `revisar_turno` y `verificar_capa` fallan abiertos sin dejar rastro. | nueva |
+| I3 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 21 | Un test por cada cosa que la revisión no ve. | Los contratos honestos fijados con tests de alcance: cada punto de «No ve» de la capa por shell tendría un test que confirma que no lo ve, para que cerrar un hueco sea un cambio a propósito. | nueva |
+| I4 | 2026-11-17 | [Video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | Un banco reproducible de flujos adversariales por CLI. | El banco de más de 60 flujos de RDD, clasificados en in-band, out-of-band y callejón sin salida: vuelve automática la prueba de humo manual de los tres CLI. | nueva |
+| I5 | 2026-11-17 | [Video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | Un interruptor por hook en `workspace.config.json`. | El kill switch de RDD: apagar `revisar_turno`, que suma unos 400 ms por prompt, sin desinstalar el plugin. | nueva |
+| I6 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 20 | Clasificar las memorias en hechos, decisiones y comportamientos. | La regla del capítulo, en la que los hechos van a la búsqueda, las decisiones a la memoria y los comportamientos a las skills, aplicada en `cerrar memorias` para elegir el destino de cada una. | nueva |
 
 ## Seguimientos
 
