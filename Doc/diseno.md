@@ -824,7 +824,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
   - **una instancia con solo la config y el local escritos a mano:** se completa, y esos dos archivos quedan iguales byte a byte;
   - **una anterior a T8 sin `rule_prefix`:** sale con 2 sin escribir nada, y se completa después de agregar el prefijo a mano.
   - **Config** (`bootstrap.py`): `workspace.config.json`, `workspace.local.json` y `.gitignore`, en UTF-8, LF y sin BOM. `workspace.local.json` se crea con el `plugin_root` del plugin que está corriendo; si ya existía, lo cubre `--arreglar plugin-root` del doctor.
-  - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.claude/settings.json` con `enabledPlugins` y el mismo archivo en `tickets/_plantilla/.claude/settings.json` (T9: Claude Code lee `settings.json` solo de la carpeta donde arranca la sesión), y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks` e `instancia-plugin` del doctor.
+  - **Instalación** (`bootstrap_instalacion.py`, sin claves): `.githooks/pre-commit` desde `plantillas/pre-commit`, con 0755; `.gitattributes` con `.githooks/* text eol=lf`, para que el hook quede en LF aunque Git convierta los saltos de línea (`core.autocrlf=true` viene por defecto en Git para Windows, y con CRLF `sh` falla); `.claude/settings.json` con `enabledPlugins` y el mismo archivo en `tickets/_plantilla/.claude/settings.json` (T9: Claude Code lee `settings.json` solo de la carpeta donde arranca la sesión), y las acciones `git init` y `core.hooksPath = .githooks`. Lo generado pasa los ítems `plugin-root`, `instancia-hooks`, `instancia-eol` e `instancia-plugin` del doctor.
   - **Agentes y skills** (`bootstrap_agentes.py`). Por cada capa con un nombre válido, genera:
     - `writer-<capa>`, con `plantilla_writer.generar`, cuya salida no cambió;
     - `revisor-<capa>`, desde `plantillas/revisor.md`, con el mismo mecanismo de versión, huella y bloques `<!-- instancia:... -->`, que ahora es `plantilla_writer.armar` y recibe la plantilla. El revisor es de solo lectura y reporta con severidad y `ruta:línea`;
@@ -967,6 +967,9 @@ Primitivas para el módulo de una capa SQL; la superficie la fija `odd_ws.PUBLIC
       - Si no tiene valor, `--arreglar` lo configura.
       - Si tiene otro valor, es FALTA sin arreglo.
       - Si la raíz no es la raíz de un repo git, es NO APLICA.
+    - **`instancia-eol`:** `git check-attr eol` da `lf` para `.githooks/pre-commit`, así que el hook sigue en LF aunque Git convierta los saltos de línea. Vale la línea que genera el bootstrap o una regla más amplia, como `* text=auto eol=lf`.
+      - Si no, es AVISO, y `--arreglar` agrega `.githooks/* text eol=lf` al `.gitattributes` (lo crea si falta) sin tocar el resto.
+      - Si la raíz no es la raíz de un repo git, o si no hay `.githooks/pre-commit`, es NO APLICA.
     - **`instancia-plugin`:** `.claude/settings.json` habilita `odd-ws@odd-workspace-template` en `enabledPlugins`.
       - Si no, es AVISO, sin arreglo, porque `settings.json` es del usuario. Sale aunque el plugin esté habilitado a nivel de usuario.
       - Un JSON roto es FALTA.

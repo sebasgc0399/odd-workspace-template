@@ -13,7 +13,7 @@ AQUI = Path(__file__).resolve().parent
 PLUGIN = AQUI.parent
 SCRIPT = AQUI / "bootstrap.py"
 CAPA = "capa-a"
-IDS_DE_INSTANCIA = ("plugin-root", "config", "instancia-hooks", "instancia-plugin", f"writer-{CAPA}", "agentes-skills", "agentes-hooks")
+IDS_DE_INSTANCIA = ("plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin", f"writer-{CAPA}", "agentes-skills", "agentes-hooks")
 VARIABLES_DE_GIT_AISLADAS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
 IDENTIDAD = ("-c", "user.name=Prueba", "-c", "user.email=prueba@example.com", "-c", "commit.gpgsign=false")
 DOCTOR = (
@@ -163,7 +163,7 @@ def archivos_esperados():
         f".claude/agents/writer-{CAPA}.md", f".claude/agents/revisor-{CAPA}.md", f".claude/skills/capa-{CAPA}/SKILL.md", ".claude/agents/revisor-diseno.md", ".claude/skills/criterios/SKILL.md",
         ".claude/reglas/matriz.csv", ".claude/reglas/evidencia.md", f".claude/reglas/verificar_{CAPA}.py", f".claude/reglas/verificar_{CAPA}.tests.py",
         "CLAUDE.md", "tickets/_plantilla/CLAUDE.md",
-        ".githooks/pre-commit", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json",
+        ".githooks/pre-commit", ".gitattributes", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json",
     ]
 
 
@@ -177,6 +177,12 @@ def test_una_instancia_nueva_sale_con_cero_y_crea_todo():
         assert f"creado {ruta}" in lineas, (ruta, lineas)
     assert "git init: repo creado" in lineas and "core.hooksPath = .githooks: configurado (--local)" in lineas, lineas
     assert nueva.caja.git(nueva.caja.raiz, "config", "--local", "--get", "core.hooksPath") == ".githooks"
+
+
+def test_el_hook_de_la_instancia_nueva_queda_en_lf_aunque_git_convierta_los_saltos():
+    nueva = instancia_nueva()
+    atributos = nueva.caja.git(nueva.caja.raiz, "check-attr", "text", "eol", "--", ".githooks/pre-commit")
+    assert atributos.splitlines() == [".githooks/pre-commit: text: set", ".githooks/pre-commit: eol: lf"], atributos
 
 
 def test_el_doctor_da_ok_en_los_items_de_la_instancia_nueva():

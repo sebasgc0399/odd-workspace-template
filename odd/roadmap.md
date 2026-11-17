@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I14 y R4 al frente de la cola.
+Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I16 y R4 en curso.
 
 ## Cómo se mueve
 
@@ -17,7 +17,7 @@ Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I14 y R4 al frente de la
 
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
-| R4 | La experiencia de uso, vista en un ciclo real que va de la instalación al cierre de un ticket: el bootstrap en una sola propuesta (I8), el hook en LF (I9), la autoridad según de quién es el repo (I10), el siguiente paso al cerrar el bootstrap (I11), el id del ticket sin tracker (I12), la sesión del ticket en VS Code (I7), el ticket activo que vuelve solo (I13) y las memorias de los repos (I14). Se siguen sumando hallazgos hasta cerrar el análisis, y sale como `0.9.0`. | [Ideas](#ideas), I7 a I14 | siguiente, en análisis |
+| R4 | La experiencia de uso, vista en un ciclo real que va de la instalación al cierre de un ticket: el bootstrap en una sola propuesta (I8), el hook en LF (I9), la autoridad según de quién es el repo (I10), el siguiente paso al cerrar el bootstrap (I11), el id del ticket sin tracker (I12), la sesión del ticket en VS Code (I7), el ticket activo que vuelve solo (I13), las memorias de los repos (I14), el ticket como documento de ODD (I15) y el arranque en frío de las reglas (I16). Se siguen sumando hallazgos en el trayecto, y sale como `0.9.0`. | [experiencia-de-uso](tasks/experiencia-de-uso.md); [Ideas](#ideas), I7 a I16 | en curso |
 | R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | en cola |
 | R3 | Soporte para OpenCode (F3), Gemini CLI (F4) y Copilot CLI (F5), a partir del estudio de align-cli guardado en engram (`odd-ws/estudio-align-cli`). | [multi-host](tasks/multi-host.md), F3 a F5 | en cola |
 
@@ -48,6 +48,8 @@ Cada idea lleva su fuente (del autor, un video o un proyecto, con su enlace), la
 | I12 | 2026-11-17 | Del autor, al abrir el primer ticket sin tracker | Sin tracker, `abrir` propone el siguiente id consecutivo con un prefijo fijado en el bootstrap (`T-1`, `T-2`…). | `abrir` da por hecho que el id sale de un tracker, y quien trabaja solo tuvo que inventar la convención en ese momento. | en la cola (R4) |
 | I13 | 2026-11-17 | Del autor, al trabajar un ticket desde la sesión de la raíz | El ticket activo vuelve solo: `abrir` lo anota en `.claude/estado/` y, si la sesión corre en la raíz, el hook de inicio inyecta su `CLAUDE.md` al arrancar y después de cada `/compact`. | Desde la raíz, Claude Code carga el `CLAUDE.md` del ticket solo cuando lee un archivo de su carpeta, y no lo vuelve a cargar después de un `/compact`. El hook de inicio ya corre en `startup`, `resume`, `compact` y `clear` y puede agregar contexto (P1), pero hoy solo lo usa `verificar_capa`. El `settings.json` del ticket solo lleva `enabledPlugins`, igual que el de la raíz, así que los hooks y las skills ya funcionan desde ahí. | en la cola (R4) |
 | I14 | 2026-11-17 | Del autor, al guardar memorias desde la instancia | `cerrar memorias` también lee las memorias de los repos de la config, y el bootstrap lo deja configurado. | engram y la memoria en archivos de Claude Code separan las memorias por proyecto: las sesiones del repo guardan bajo el proyecto del repo, y las de la instancia bajo el de la instancia. Hoy `cerrar memorias` lee solo las de la instancia (`memorias.py` y el paso M2 de `cerrar`), así que la historia que ya tenía el repo no llega a la matriz. | en la cola (R4) |
+| I15 | 2026-11-17 | Del autor, al cruzar el ODD de gentle-ai con el ticket | Una plantilla del ticket compatible con ODD: `## Specs` y `## Tareas` opcionales para las tareas grandes, la Bitácora como Log con el pedido textual en L1 y la clave del espejo en engram. La regla «el ticket es el documento de la feature» sube de lugar en el `CLAUDE.md`, o la recuerda `abrir`. | El agente planteó «el ticket o `odd/tasks/<feature>.md`» como un conflicto abierto y propuso escribir la regla, que ya estaba en la línea 115 de 139 del `CLAUDE.md` de la instancia. La plantilla del ticket no tiene dónde guardar los S#, los T# ni el commit de cada tarea. | en la cola (R4) |
+| I16 | 2026-11-17 | Del autor, al ver los revisores de capa vacíos el primer día | El arranque en frío de las reglas: sembrar las capas con lo que el repo ya sabe (su `CLAUDE.md`, sus gotchas, sus docs), junto con las memorias de I14. | El primer día la skill de cada capa y la matriz están vacías, así que los revisores de capa no tienen contra qué medir aunque el repo ya tenga reglas escritas. Hoy `paquetes` copia paquetes aparte y `cerrar memorias` solo gradúa memorias. | en la cola (R4) |
 
 ## Seguimientos
 

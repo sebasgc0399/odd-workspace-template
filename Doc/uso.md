@@ -232,6 +232,7 @@ Cómo se escribe un paquete, qué revisa el doctor y por qué funciona así: [Pa
 | `.claude/skills/` | `capa-<capa>/SKILL.md` (las convenciones de cada capa) y `criterios/SKILL.md` |
 | `.claude/reglas/` | `matriz.csv` (solo el encabezado), `evidencia.md`, `verificar_<capa>.py` (vacío) y `verificar_<capa>.tests.py` |
 | `.githooks/pre-commit` | Corre las pruebas de las reglas de cada capa (`reglas.py --test`) |
+| `.gitattributes` | Deja `.githooks/*` en LF, aunque Git convierta los saltos de línea (en Windows, `core.autocrlf` viene activado) |
 | `.claude/settings.json` | El `enabledPlugins` de la raíz |
 | `.gitignore`, `git init` y `core.hooksPath` | Para que el pre-commit corra desde el primer commit |
 | `.codex/` | Solo si `hosts` declara `codex`: un `agents/<agente>.toml` por agente, derivado de su `.md` en `.claude/agents` (que es donde se edita), y `config.toml` para que Codex lea los `CLAUDE.md`. Codex los carga solo si el proyecto tiene su confianza. En una instancia que ya existía, el TOML de un agente que ya tenía su `.md` no lo crea el bootstrap: lo genera el doctor (`--arreglar codex-agentes`) |

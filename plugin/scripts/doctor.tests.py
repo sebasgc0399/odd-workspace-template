@@ -875,7 +875,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-plugin")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -925,7 +925,7 @@ def test_los_items_de_antes_conservan_su_orden_y_los_nuevos_van_tras_plugin_root
         raiz = instancia_sana(e)
         ids = [r.id for r in d().diagnosticar(Falso(e.base, cwd=raiz))]
         assert [i for i in ids if i not in NUEVOS] == ANTES_EN_INSTANCIA, ids
-        assert ids[ids.index("plugin-root") + 1:ids.index("plugin-root") + 4] == list(NUEVOS), ids
+        assert ids[ids.index("plugin-root") + 1:ids.index("plugin-root") + 1 + len(NUEVOS)] == list(NUEVOS), ids
 
 
 def test_config_con_la_ruta_del_repo_que_existe_es_ok():
@@ -1096,6 +1096,53 @@ def test_instancia_hooks_con_otro_valor_es_falta_sin_arreglo_y_no_lo_pisa():
         codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
         assert codigo == 2 and "no tiene arreglo automático" in salida, salida
         assert hooks_path(raiz) == "otros-hooks"
+
+
+def test_instancia_eol_no_aplica_si_la_raiz_no_esta_en_un_repo_git():
+    with Escenario() as e:
+        raiz = e.instancia()
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-eol"]
+        assert r.estado == "NO APLICA" and r.arreglo is None and r.comando is None, r
+
+
+def test_instancia_eol_no_aplica_sin_pre_commit():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks=".githooks", precommit=False)
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-eol"]
+        assert r.estado == "NO APLICA" and ".githooks/pre-commit" in r.detalle and r.arreglo is None, r
+
+
+def test_instancia_eol_con_la_linea_del_bootstrap_es_ok():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks=".githooks")
+        (raiz / ".gitattributes").write_bytes(b".githooks/* text eol=lf\n")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-eol"]
+        assert r.estado == "OK" and r.arreglo is None and r.comando is None, r
+
+
+def test_instancia_eol_reconoce_una_regla_mas_amplia_que_ya_deja_el_hook_en_lf():
+    with Escenario() as e:
+        raiz = instancia_git(e, hooks=".githooks")
+        (raiz / ".gitattributes").write_bytes(b"* text=auto eol=lf\n")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["instancia-eol"]
+        assert r.estado == "OK", r
+
+
+def test_instancia_eol_sin_la_regla_es_aviso_y_arreglar_la_agrega_sin_tocar_lo_demas():
+    for previo in (None, b"*.png binary", b"*.png binary\r\n"):
+        with Escenario() as e:
+            raiz = instancia_git(e, hooks=".githooks")
+            if previo is not None:
+                (raiz / ".gitattributes").write_bytes(previo)
+            ctx = Falso(e.base, cwd=raiz, git_real=True)
+            r = por_id(ctx)["instancia-eol"]
+            assert r.estado == "AVISO" and "CRLF" in r.detalle and r.arreglo is not None and r.comando is None, (previo, r)
+            codigo, salida = correr(["--arreglar", "instancia-eol"], ctx)
+            assert codigo == 0 and "instancia-eol: OK" in salida, (previo, salida)
+            esperado = previo or b""
+            if esperado and not esperado.endswith(b"\n"):
+                esperado += b"\n"
+            assert (raiz / ".gitattributes").read_bytes() == esperado + b".githooks/* text eol=lf\n", previo
 
 
 def test_instancia_hooks_apuntando_bien_pero_sin_pre_commit_es_falta_sin_arreglo():

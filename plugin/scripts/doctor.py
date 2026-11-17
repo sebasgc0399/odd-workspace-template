@@ -74,6 +74,8 @@ PLUGIN = "odd-ws"
 CLAVE_PLUGIN = f"{PLUGIN}@{MARKETPLACE}"
 HOOKS_PATH = ".githooks"
 PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
+GITATTRIBUTES = ".gitattributes"
+LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
                 "y reiniciá Claude Code.")
 AYUDA_HOOKS_HOST = ("Cada hook lleva el --host de su archivo (los de hooks.json pueden no llevarlo: es claude-code). Corregí el "
@@ -240,7 +242,7 @@ def chequear_instancia(ctx):
     raiz = raiz_de_instancia(ctx)
     if raiz is None:
         return []
-    resultados = [chequear_config(raiz), chequear_hooks_de_instancia(ctx, raiz)]
+    resultados = [chequear_config(raiz), chequear_hooks_de_instancia(ctx, raiz), chequear_eol(ctx, raiz)]
     return resultados + [chequear_plugin_habilitado(raiz)] if declara_claude_code(raiz) else resultados
 
 
@@ -285,6 +287,30 @@ def chequear_hooks_de_instancia(ctx, raiz):
     if hay_pre_commit:
         return resultado(id, FALTA, detalle, arreglo)
     return resultado(id, FALTA, f"{detalle}, y además falta {PRE_COMMIT}", arreglo, AYUDA_PRE_COMMIT)
+
+
+def chequear_eol(ctx, raiz):
+    id = "instancia-eol"
+    repo = raiz_del_repo_de(ctx, raiz)
+    if repo is None:
+        return resultado(id, NO_APLICA, "la raíz de la instancia no está en un repo git")
+    if config_loader.canonica(repo) != config_loader.canonica(raiz):
+        return resultado(id, NO_APLICA, f"la instancia está dentro del repo {repo} y no es la raíz de uno: el doctor no toca su {GITATTRIBUTES}")
+    if not (raiz / PRE_COMMIT).is_file():
+        return resultado(id, NO_APLICA, f"no hay {PRE_COMMIT}")
+    codigo, salida = ctx.ejecutar(["git", "-C", str(raiz), "check-attr", "eol", "--", PRE_COMMIT])
+    if codigo == 0 and primera_linea(salida).endswith(": eol: lf"):
+        return resultado(id, OK, f"{PRE_COMMIT} queda en LF aunque Git convierta los saltos de línea")
+
+    def arreglo():
+        ruta = raiz / GITATTRIBUTES
+        previo = ruta.read_bytes() if ruta.is_file() else b""
+        separador = b"\n" if previo and not previo.endswith(b"\n") else b""
+        ruta.write_bytes(previo + separador + (LINEA_EOL + "\n").encode("utf-8"))
+        return f"{GITATTRIBUTES} (+ {LINEA_EOL})"
+
+    return resultado(id, AVISO, f"{PRE_COMMIT} no tiene eol=lf en {GITATTRIBUTES}: si Git convierte los saltos de línea "
+                                "(core.autocrlf), el hook queda en CRLF y sh falla", arreglo=arreglo)
 
 
 def chequear_plugin_habilitado(raiz):

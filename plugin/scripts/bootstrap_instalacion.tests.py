@@ -64,9 +64,10 @@ def test_genera_el_pre_commit_de_la_plantilla_y_el_settings_del_plugin():
     with Escenario() as e:
         acciones = g().generar(e.spec())
         archivos = [a for a in acciones if isinstance(a, tuple) and not isinstance(a, b().AccionDeGit)]
-        assert [a[0] for a in archivos] == [".githooks/pre-commit", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json"]
-        pre_commit, settings, _ = archivos
+        assert [a[0] for a in archivos] == [".githooks/pre-commit", ".gitattributes", ".claude/settings.json", "tickets/_plantilla/.claude/settings.json"]
+        pre_commit, atributos, settings, _ = archivos
         assert pre_commit[1] == PLANTILLA.read_bytes() and pre_commit[2] == 0o755
+        assert atributos[1] == b".githooks/* text eol=lf\n" and len(atributos) == 2, atributos
         assert len(settings) == 2
         assert json.loads(settings[1].decode("utf-8")) == {"enabledPlugins": {d().CLAVE_PLUGIN: True}}
         assert settings[1] == b().serializar({"enabledPlugins": {d().CLAVE_PLUGIN: True}})
@@ -189,7 +190,7 @@ def test_el_doctor_da_ok_sobre_una_instancia_generada():
         ctx = Contexto(cwd=e.raiz)
         ctx.entorno = {}
         resultados = {r.id: r for r in [doctor.chequear_plugin_root(ctx), *doctor.chequear_instancia(ctx)]}
-        assert set(resultados) == {"plugin-root", "config", "instancia-hooks", "instancia-plugin"}, sorted(resultados)
+        assert set(resultados) == {"plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin"}, sorted(resultados)
         for id, r in resultados.items():
             assert r.estado == doctor.OK, (id, r.estado, r.detalle)
 

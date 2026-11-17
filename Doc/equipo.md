@@ -11,7 +11,7 @@ Esta guía es para un equipo que ya tiene su instancia. Para crearla, empieza po
 | `workspace.config.json`: los repos, las capas y los CLI | `workspace.local.json`: la ruta de cada repo y `plugin_root`. El bootstrap lo pone en `.gitignore` |
 | `.claude/reglas/`: `matriz.csv`, `evidencia.md` y `verificar_<capa>.py` con su prueba, y los paquetes de reglas con su lock (`paquetes/` y `paquetes.json`) | `.claude/estado/`: el estado de las sesiones, también en `.gitignore` |
 | `.claude/skills/` (`capa-<capa>` y `criterios`) y `.claude/agents/` | `core.hooksPath`: es config de git, y `git clone` no la copia |
-| `.githooks/pre-commit` | La instalación del plugin: Claude Code la registra para la carpeta donde la hiciste |
+| `.githooks/pre-commit` y `.gitattributes`, que lo deja en LF | La instalación del plugin: Claude Code la registra para la carpeta donde la hiciste |
 | `.claude/settings.json`, con el plugin habilitado | Las memorias de cada uno, y el registro de las que ya viste en `/odd-ws:cerrar memorias` |
 | `CLAUDE.md` y `tickets/` | |
 

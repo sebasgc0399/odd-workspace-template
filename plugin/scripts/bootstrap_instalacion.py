@@ -4,7 +4,7 @@ sys.dont_write_bytecode = True
 
 from pathlib import Path
 
-from doctor import CLAVE_PLUGIN, HOOKS_PATH, PRE_COMMIT, SETTINGS
+from doctor import CLAVE_PLUGIN, GITATTRIBUTES, HOOKS_PATH, LINEA_EOL, PRE_COMMIT, SETTINGS
 from odd_ws import capas
 
 CLAVES = ()
@@ -19,6 +19,7 @@ def generar(spec):
     settings = serializar({"enabledPlugins": {CLAVE_PLUGIN: True}})
     return [
         (PRE_COMMIT, (PLANTILLAS / PLANTILLA_PRE_COMMIT).read_bytes(), PERMISOS_DEL_PRE_COMMIT),
+        (GITATTRIBUTES, (LINEA_EOL + "\n").encode("utf-8")),
         (SETTINGS, settings),
         (capas.TICKET_SETTINGS, settings),
         AccionDeGit(GIT_INIT, None),
