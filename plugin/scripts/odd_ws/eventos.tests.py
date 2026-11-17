@@ -66,11 +66,12 @@ def test_inicio_y_fin_de_turno_llevan_sus_campos():
     assert (i.sesion, i.cwd, i.turno, i.agente, i.id_agente) == ("s1", "/w", "t1", "Explore", "a1")
     vacio = m().InicioTurno()
     assert (vacio.sesion, vacio.cwd, vacio.turno, vacio.agente, vacio.id_agente) == (None, None, None, None, None)
-    f = m().FinTurno(sesion="s1", cwd="/w", turno="t1", continuado=True, ultimo_mensaje="listo")
-    assert [c.name for c in dataclasses.fields(f)] == ["sesion", "cwd", "turno", "continuado", "ultimo_mensaje"]
-    assert (f.sesion, f.cwd, f.turno, f.continuado, f.ultimo_mensaje) == ("s1", "/w", "t1", True, "listo")
+    f = m().FinTurno(sesion="s1", cwd="/w", turno="t1", continuado=True, ultimo_mensaje="listo", segundo_plano=True)
+    assert [c.name for c in dataclasses.fields(f)] == ["sesion", "cwd", "turno", "continuado", "ultimo_mensaje", "segundo_plano"]
+    assert (f.sesion, f.cwd, f.turno, f.continuado, f.ultimo_mensaje, f.segundo_plano) == ("s1", "/w", "t1", True, "listo", True)
     vacio = m().FinTurno()
-    assert (vacio.sesion, vacio.cwd, vacio.turno, vacio.continuado, vacio.ultimo_mensaje) == (None, None, None, False, None)
+    assert (vacio.sesion, vacio.cwd, vacio.turno, vacio.continuado, vacio.ultimo_mensaje, vacio.segundo_plano) == (
+        None, None, None, False, None, False)
     assert m().InicioTurno(sesion="s1") != m().FinTurno(sesion="s1")
 
 

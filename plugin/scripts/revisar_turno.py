@@ -4,6 +4,7 @@ sys.dont_write_bytecode = True
 
 import json
 import os
+import re
 import shutil
 import time
 import uuid
@@ -19,7 +20,11 @@ from odd_ws.eventos import FinTurno, InicioTurno, Permitir, Seguir
 EMITE = {FIN_TURNO: (Seguir,)}
 TURNOS = convencion.ESTADO + "/turnos"
 MANIFIESTO = "manifiesto.json"
-RENOMBRES = (b"R", b"C")
+RENOMBRE = b"2"
+CAMPOS_ANTES_DE_LA_RUTA = {b"1": 8, RENOMBRE: 9, b"u": 10, b"?": 1}
+CABEZA = b"# branch.oid "
+MARCAS_DEL_WRITER = (".foto", ".nuevo")
+COMMIT_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 NO_ES_TUYO = "si este cambio no es tuyo, avísale al usuario y no lo toques"
 EDICION = "{{host:edicion}}"
 EDICION_POR_DEFECTO = "la herramienta de edición"
@@ -50,29 +55,52 @@ def _arriba(carpeta, limite):
     return arriba or None
 
 
-def _sucios(carpeta, limite):
-    arriba = _arriba(carpeta, limite)
-    if arriba is None:
-        return []
-    r = _cierre()._git(carpeta, "--no-optional-locks", "status", "--porcelain", "-z", "-uall", "--", ".", limite=limite)
+def _absoluta(arriba, relativa):
+    try:
+        return os.path.normpath(os.path.join(arriba, os.fsdecode(relativa)))
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def _estado(carpeta, arriba, limite):
+    r = _cierre()._git(carpeta, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--no-ahead-behind", "-z", "-uall",
+                       "--", ".", limite=limite)
     if r.returncode != 0:
-        return []
-    rutas, campos, i = [], r.stdout.split(b"\0"), 0
+        return [], None
+    rutas, cabeza, campos, i = [], None, r.stdout.split(b"\0"), 0
     while i < len(campos):
         registro = campos[i]
         i += 1
-        if len(registro) < 4:
+        if registro.startswith(CABEZA):
+            oid = registro[len(CABEZA):].decode("ascii", "replace")
+            cabeza = oid if COMMIT_RE.fullmatch(oid) else None
             continue
-        if registro[:1] in RENOMBRES or registro[1:2] in RENOMBRES:
+        antes = CAMPOS_ANTES_DE_LA_RUTA.get(registro[:1])
+        if antes is None:
+            continue
+        if registro[:1] == RENOMBRE:
             i += 1
-        relativa = registro[3:]
-        if relativa.endswith(b"/"):
+        trozos = registro.split(b" ", antes)
+        if len(trozos) <= antes or not trozos[antes] or trozos[antes].endswith(b"/"):
             continue
-        try:
-            rutas.append(os.path.normpath(os.path.join(arriba, os.fsdecode(relativa))))
-        except (UnicodeDecodeError, ValueError):
-            continue
-    return rutas
+        ruta = _absoluta(arriba, trozos[antes])
+        if ruta is not None:
+            rutas.append(ruta)
+    return rutas, cabeza
+
+
+def _avanzo(carpeta, viejo, nuevo, limite):
+    if not (isinstance(viejo, str) and COMMIT_RE.fullmatch(viejo)) or nuevo is None or nuevo == viejo:
+        return False
+    return _cierre()._git(carpeta, "merge-base", "--is-ancestor", viejo, nuevo, limite=limite).returncode == 0
+
+
+def _commiteados(carpeta, arriba, viejo, nuevo, limite):
+    r = _cierre()._git(carpeta, "--no-optional-locks", "diff", "--name-only", "--no-relative", "-z", viejo, nuevo, "--", ".",
+                       limite=limite)
+    if r.returncode != 0:
+        return []
+    return [ruta for ruta in (_absoluta(arriba, relativa) for relativa in r.stdout.split(b"\0") if relativa) if ruta is not None]
 
 
 def _raices(config):
@@ -82,19 +110,28 @@ def _raices(config):
     return raices + [config["raiz"]]
 
 
-def archivos_de_capa_sucios(config, limite):
-    vistos, archivos = set(), []
+def _candidatos(config, cabezas, limite):
+    vistos, candidatos, actuales = set(), [], {}
     for carpeta in _raices(config):
-        if not os.path.isdir(carpeta):
+        arriba = _arriba(carpeta, limite) if os.path.isdir(carpeta) else None
+        if arriba is None:
             continue
-        for ruta in _sucios(carpeta, limite):
+        rutas, nuevo = _estado(carpeta, arriba, limite)
+        id_carpeta = config_loader.canonica(carpeta)
+        actuales[id_carpeta] = nuevo
+        viejo = cabezas.get(id_carpeta)
+        if _avanzo(carpeta, viejo, nuevo, limite):
+            rutas += _commiteados(carpeta, arriba, viejo, nuevo, limite)
+        else:
+            viejo = None
+        for ruta in rutas:
             clave = config_loader.canonica(ruta)
             if clave in vistos or not os.path.isfile(ruta):
                 continue
             vistos.add(clave)
             if config_loader.clasificar(ruta, config) is not None:
-                archivos.append(ruta)
-    return archivos
+                candidatos.append((ruta, viejo))
+    return candidatos, actuales
 
 
 def _leer(ruta):
@@ -121,7 +158,7 @@ def _entrada(ruta, destino, tope):
     return {"ruta": ruta, "foto": nombre}
 
 
-def _sacar_foto(raiz, sesion, turno, archivos):
+def _sacar_foto(raiz, sesion, turno, archivos, cabezas):
     carpeta = carpeta_del_turno(raiz, sesion)
     padre = os.path.dirname(carpeta)
     os.makedirs(padre, exist_ok=True)
@@ -131,7 +168,7 @@ def _sacar_foto(raiz, sesion, turno, archivos):
         tope = _verificar_capa().TOPE_BYTES
         entradas = [entrada for entrada in (_entrada(ruta, temporal, tope) for ruta in archivos) if entrada is not None]
         datos = {"sesion": sesion, "turno": turno if isinstance(turno, str) else None,
-                 "momento": time.strftime("%Y-%m-%dT%H:%M:%S"), "archivos": entradas}
+                 "momento": time.strftime("%Y-%m-%dT%H:%M:%S"), "cabezas": cabezas, "archivos": entradas}
         with open(os.path.join(temporal, MANIFIESTO), "w", encoding="utf-8") as f:
             json.dump(datos, f, ensure_ascii=False, indent=2)
         os.rename(temporal, carpeta)
@@ -158,7 +195,8 @@ def _inicio(evento, raiz, limite):
     config = _config(evento, raiz)
     if config is None or os.path.isdir(carpeta_del_turno(config["raiz"], evento.sesion)):
         return
-    _sacar_foto(config["raiz"], evento.sesion, evento.turno, archivos_de_capa_sucios(config, limite))
+    candidatos, cabezas = _candidatos(config, {}, limite)
+    _sacar_foto(config["raiz"], evento.sesion, evento.turno, [ruta for ruta, _ in candidatos], cabezas)
 
 
 def _del_turno(hallazgos, anterior, ruta, verificar):
@@ -174,9 +212,9 @@ def _del_turno(hallazgos, anterior, ruta, verificar):
 def _chequear(archivos, config, limite):
     verificar, describir = _verificar_capa(), _cierre()._describir
     bloqueos, avisos = [], []
-    for ruta, anterior in archivos:
+    for ruta, anterior, viejo in archivos:
         try:
-            resultado = verificar.verificar_archivo(ruta, config, limite, aislar_la_capa=True)
+            resultado = verificar.verificar_archivo(ruta, config, limite, aislar_la_capa=True, contra=viejo)
             if resultado is None:
                 continue
             hallazgos = resultado[1] if anterior is None else _del_turno(resultado[1], anterior, ruta, verificar)
@@ -193,28 +231,31 @@ def _en_manos_de_un_writer(raiz, sesion):
     try:
         for nombre in os.listdir(carpeta):
             if nombre.endswith(".fotos"):
-                claves.update(f[:-len(".foto")] for f in os.listdir(os.path.join(carpeta, nombre)) if f.endswith(".foto"))
+                marcas = os.listdir(os.path.join(carpeta, nombre))
+                claves.update(os.path.splitext(f)[0] for f in marcas if f.endswith(MARCAS_DEL_WRITER))
     except OSError:
         pass
     return claves
 
 
-def _cambiados(config, carpeta, limite):
+def _cambiados(config, carpeta, limite, segundo_plano):
     with open(os.path.join(carpeta, MANIFIESTO), encoding="utf-8") as f:
         manifiesto = json.load(f)
     sin_foto = {clave_foto(entrada["ruta"]) for entrada in manifiesto["archivos"] if not entrada.get("foto")}
-    ocupados = _en_manos_de_un_writer(config["raiz"], os.path.basename(carpeta))
+    cabezas = manifiesto.get("cabezas")
+    candidatos, _ = _candidatos(config, cabezas if isinstance(cabezas, dict) else {}, limite)
+    ocupados = _en_manos_de_un_writer(config["raiz"], os.path.basename(carpeta)) if segundo_plano else set()
     cambiados = []
-    for ruta in archivos_de_capa_sucios(config, limite):
+    for ruta, viejo in candidatos:
         if ocupados and {clave_foto(ruta), clave_foto(os.path.realpath(ruta))} & ocupados:
             continue
         base, foto = _cierre()._base_del_archivo(carpeta, ruta)
         if base == "foto":
             anterior = _leer(foto)
             if anterior is not None and anterior != _leer(ruta):
-                cambiados.append((ruta, anterior))
+                cambiados.append((ruta, anterior, viejo))
         elif clave_foto(ruta) not in sin_foto:
-            cambiados.append((ruta, None))
+            cambiados.append((ruta, None, viejo))
     return cambiados
 
 
@@ -231,8 +272,8 @@ def _razon(bloqueos, avisos, host):
     return "\n".join(partes)
 
 
-def _revisar(config, carpeta, limite, host):
-    bloqueos, avisos = _chequear(_cambiados(config, carpeta, limite), config, limite)
+def _revisar(config, carpeta, limite, host, segundo_plano):
+    bloqueos, avisos = _chequear(_cambiados(config, carpeta, limite, segundo_plano), config, limite)
     return Seguir(_razon(bloqueos, avisos, host)) if bloqueos else Permitir()
 
 
@@ -246,7 +287,7 @@ def _fin(evento, raiz, limite, host):
     decision = Permitir()
     try:
         if not evento.continuado:
-            decision = _revisar(config, carpeta, limite, host)
+            decision = _revisar(config, carpeta, limite, host, evento.segundo_plano is True)
     finally:
         if not isinstance(decision, Seguir):
             shutil.rmtree(carpeta, ignore_errors=True)

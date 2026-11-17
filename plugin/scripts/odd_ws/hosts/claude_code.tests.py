@@ -157,6 +157,17 @@ def test_stop_es_el_fin_del_turno_del_principal_con_su_continuacion():
     assert m().leer({"hook_event_name": "Stop"}) == ev().FinTurno()
 
 
+def test_stop_con_trabajo_en_segundo_plano():
+    tarea = {"id": "task-001", "type": "subagent", "status": "running", "description": "writer", "agent_type": "writer-sql"}
+    for valor in ([tarea], [tarea, dict(tarea, id="task-002")], {"task-001": tarea}):
+        assert m().leer(turno("Stop", background_tasks=valor)).segundo_plano is True, valor
+    for valor in ([], {}, None, "", "task-001", 1, True):
+        assert m().leer(turno("Stop", background_tasks=valor)).segundo_plano is False, valor
+    assert m().leer(turno("Stop")).segundo_plano is False, "sin el campo, como en una versión vieja"
+    con_crons = turno("Stop", background_tasks=[], session_crons=[{"id": "cron-001", "schedule": "0 9 * * 1-5"}])
+    assert m().leer(con_crons).segundo_plano is False, "una tarea programada no escribe mientras el turno cierra"
+
+
 def test_user_prompt_submit_es_el_inicio_del_turno_con_su_prompt_id():
     E = ev()
     assert m().leer(turno("UserPromptSubmit", prompt="hola", prompt_id="p1")) == E.InicioTurno(sesion="s1", cwd="/w", turno="p1")

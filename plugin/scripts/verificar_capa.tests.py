@@ -641,6 +641,25 @@ def test_verificar_archivo_devuelve_hallazgos_ya_filtrados():
         assert M.verificar_archivo(ruta, config) is None
 
 
+def test_verificar_archivo_contra_otro_commit_ve_lo_commiteado_despues():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        escribir(w.web, "Core/A/B.cs", "uno\nx = MALO BLOQ;\n")
+        commitear(w.web)
+        viejo = git(w.web, "rev-parse", "HEAD")
+        ruta = escribir(w.web, "Core/A/B.cs", "uno\nx = MALO BLOQ;\ny = MALO BLOQ;\n")
+        nuevo = escribir(w.web, "Core/A/N.cs", "z = MALO BLOQ;\n")
+        commitear(w.web, "despues")
+        escribir(w.web, "Core/A/B.cs", "uno\nx = MALO BLOQ;\ny = MALO BLOQ;\nlimpia\n")
+        config = w.config()
+        assert M.verificar_archivo(ruta, config)[1] == [], "contra HEAD, lo commiteado ya no es nuevo"
+        assert M.verificar_archivo(ruta, config, contra=None) == M.verificar_archivo(ruta, config)
+        assert [h["linea"] for h in M.verificar_archivo(ruta, config, contra=viejo)[1]] == [3]
+        w.modulo("web", STUB_CTX)
+        c = json.loads(M.verificar_archivo(nuevo, config, contra=viejo)[1][0]["mensaje"].split("CTX ", 1)[1])
+        assert c["es_nuevo"] is True and c["agregadas"] == [[1, "z = MALO BLOQ;"]], c
+
+
 def test_post_tool_use_usa_la_funcion_publica_sin_cambiar_la_salida():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)

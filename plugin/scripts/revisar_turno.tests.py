@@ -206,6 +206,24 @@ def test_la_foto_guarda_solo_los_archivos_de_capa_sucios_con_su_contenido():
         assert manifiesto(inst)["turno"] == "t1"
 
 
+def test_un_archivo_en_conflicto_entra_en_la_foto():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        git(repo, "checkout", "-q", "-b", "otra")
+        agregar(repo / "db" / "a.sql", "otra\n")
+        git(repo, "commit", "-qam", "otra")
+        git(repo, "checkout", "-q", "main")
+        agregar(repo / "db" / "a.sql", "main\n")
+        git(repo, "commit", "-qam", "main")
+        try:
+            git(repo, "merge", "-q", "otra")
+        except RuntimeError:
+            pass
+        assert git(repo, "status", "--porcelain").startswith("UU "), git(repo, "status", "--porcelain")
+        assert inicio(inst) == Permitir()
+        assert fotografiados(inst) == [canonica(repo / "db" / "a.sql")], fotografiados(inst)
+
+
 def test_una_foto_pendiente_no_se_pisa():
     with temporal() as base:
         repo, inst = escenario(base)
@@ -257,6 +275,16 @@ def test_un_archivo_de_capa_escrito_por_cualquier_via_con_un_bloqueo_hace_seguir
         assert "apply_patch" in motivo(fin(inst, host="codex"))
 
 
+def fotos_del_writer(inst, sesion="s1", agente="writer-sql"):
+    carpeta = Path(inst) / convencion.ESTADO_WRITERS / sesion / (agente + ".fotos")
+    carpeta.mkdir(parents=True, exist_ok=True)
+    return carpeta
+
+
+def marcar(carpeta, ruta, extension):
+    (carpeta / (R.clave_foto(str(ruta)) + extension)).write_bytes(b"")
+
+
 def test_un_archivo_con_un_writer_en_curso_queda_para_su_compuerta():
     with temporal() as base:
         repo, inst = escenario(base)
@@ -264,15 +292,124 @@ def test_un_archivo_con_un_writer_en_curso_queda_para_su_compuerta():
         a, b = repo / "db" / "a.sql", repo / "db" / "b.sql"
         agregar(a, "x MALO BLOQ\n")
         agregar(b, "z MALO BLOQ\n")
-        fotos = inst / ".claude" / "estado" / "writers" / "s1" / "writer-sql.fotos"
-        fotos.mkdir(parents=True)
-        (fotos / (R.clave_foto(str(a)) + ".foto")).write_bytes(b"")
-        texto = motivo(fin(inst))
+        marcar(fotos_del_writer(inst), a, ".foto")
+        texto = motivo(fin(inst, segundo_plano=True))
         assert nombra(texto, b) and not nombra(texto, a), texto
-        otra = inst / ".claude" / "estado" / "writers" / "s2" / "writer-sql.fotos"
-        otra.mkdir(parents=True)
-        (otra / (R.clave_foto(str(b)) + ".foto")).write_bytes(b"")
-        assert nombra(motivo(fin(inst)), b), "la foto de un writer de otra sesión no saca el archivo"
+        marcar(fotos_del_writer(inst, sesion="s2"), b, ".foto")
+        assert nombra(motivo(fin(inst, segundo_plano=True)), b), "la foto de un writer de otra sesión no saca el archivo"
+
+
+def test_un_archivo_nuevo_de_un_writer_en_curso_queda_para_su_compuerta():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        assert inicio(inst) == Permitir()
+        b = repo / "db" / "b.sql"
+        agregar(b, "z MALO BLOQ\n")
+        nuevo = escribir(repo, "db/n.sql", "x MALO BLOQ\n")
+        marcar(fotos_del_writer(inst), nuevo, ".nuevo")
+        texto = motivo(fin(inst, segundo_plano=True))
+        assert nombra(texto, b) and not nombra(texto, nuevo), "writer_guard marca con .nuevo lo que el writer crea: %s" % texto
+
+
+def test_la_foto_de_un_writer_solo_cuenta_si_el_host_avisa_trabajo_en_segundo_plano():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        assert inicio(inst) == Permitir()
+        a = repo / "db" / "a.sql"
+        agregar(a, "x MALO BLOQ\n")
+        nuevo = escribir(repo, "db/n.sql", "y MALO BLOQ\n")
+        fotos = fotos_del_writer(inst)
+        marcar(fotos, a, ".foto")
+        marcar(fotos, nuevo, ".nuevo")
+        _, terminar, _ = _turno_por_host("claude-code", inst)
+        texto = _motivo_de_la_salida("claude-code", R.correr(terminar, raiz=str(inst), plazo=60, host="claude-code"))
+        assert nombra(texto, a) and nombra(texto, nuevo), "sin trabajo en segundo plano, un writer caído no esconde nada: %s" % texto
+        assert foto(inst).is_dir()
+        en_curso = dict(terminar, background_tasks=[{"id": "task-001", "type": "subagent", "status": "running",
+                                                     "description": "writer", "agent_type": "writer-sql"}])
+        assert R.correr(en_curso, raiz=str(inst), plazo=60, host="claude-code") == SILENCIO, (
+            "con trabajo en segundo plano, los dos quedan para writer_stop")
+
+
+def test_un_commit_durante_el_turno_no_saca_los_cambios_de_la_revision():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        assert inicio(inst) == Permitir()
+        a = repo / "db" / "a.sql"
+        agregar(a, "x MALO BLOQ\n")
+        escribir(repo, "README.md", "hola\nz MALO BLOQ\n")
+        git(repo, "commit", "-qam", "x")
+        nuevo = escribir(repo, "db/n.sql", "n MALO BLOQ\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "y")
+        assert git(repo, "status", "--porcelain") == ""
+        texto = motivo(fin(inst))
+        assert nombra(texto, a) and "línea 3" in texto, texto
+        assert nombra(texto, nuevo) and "línea 1" in texto, texto
+        assert "README" not in texto, texto
+
+
+def test_lo_commiteado_en_el_turno_se_sigue_viendo_si_el_archivo_se_vuelve_a_editar():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        b = escribir(repo, "db/b.sql", "tres\nantes\n")
+        assert inicio(inst) == Permitir()
+        a = repo / "db" / "a.sql"
+        agregar(a, "x MALO BLOQ\n")
+        agregar(b, "y MALO BLOQ\n")
+        git(repo, "commit", "-qam", "x")
+        agregar(a, "limpia\n")
+        agregar(b, "limpia\n")
+        texto = motivo(fin(inst))
+        assert nombra(texto, a) and nombra(texto, b), texto
+        assert texto.count("línea 3") == 2 and "línea 4" not in texto, texto
+
+
+def test_una_foto_sin_cabezas_de_la_version_anterior_se_revisa_como_antes():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        assert inicio(inst) == Permitir()
+        datos = manifiesto(inst)
+        assert "cabezas" in datos, datos
+        del datos["cabezas"]
+        (foto(inst) / "manifiesto.json").write_text(json.dumps(datos), encoding="utf-8")
+        agregar(repo / "db" / "a.sql", "x MALO BLOQ\n")
+        git(repo, "commit", "-qam", "x")
+        b = repo / "db" / "b.sql"
+        agregar(b, "y MALO BLOQ\n")
+        texto = motivo(fin(inst))
+        assert nombra(texto, b) and not nombra(texto, repo / "db" / "a.sql"), texto
+
+
+def test_una_linea_mala_de_antes_del_turno_no_se_marca_despues_de_un_commit():
+    with temporal() as base:
+        repo, inst = escenario(base, {"db/a.sql": "uno\nviejo MALO BLOQ\n", "db/b.sql": "tres\n", "README.md": "hola\n"})
+        b = escribir(repo, "db/b.sql", "tres\nsucia MALO BLOQ\n")
+        escribir(repo, "db/c.sql", "c MALO BLOQ\n")
+        assert inicio(inst) == Permitir()
+        agregar(repo / "db" / "a.sql", "limpia\n")
+        agregar(b, "limpia\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "x")
+        assert fin(inst) == Permitir()
+        assert not foto(inst).exists()
+
+
+def test_un_checkout_a_otra_rama_durante_el_turno_no_marca_lo_que_ya_tenia_esa_rama():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        git(repo, "checkout", "-q", "-b", "otra")
+        agregar(repo / "db" / "a.sql", "de otra MALO BLOQ\n")
+        escribir(repo, "db/o.sql", "o MALO BLOQ\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "otra")
+        git(repo, "checkout", "-q", "main")
+        agregar(repo / "db" / "b.sql", "en main\n")
+        git(repo, "commit", "-qam", "main")
+        assert inicio(inst) == Permitir()
+        git(repo, "checkout", "-q", "otra")
+        assert fin(inst) == Permitir()
+        assert not foto(inst).exists()
 
 
 def test_una_linea_mala_que_ya_estaba_en_un_archivo_sucio_no_se_vuelve_a_marcar():

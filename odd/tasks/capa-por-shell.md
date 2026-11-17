@@ -34,7 +34,7 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
 | B2d | S2, S3 | Codex: `Stop` y `UserPromptSubmit` (solo el hilo raíz) en el adaptador y en `hooks.codex.json`, con sus tests | delegado: W2 | hecho (L19) |
 | B2e | S2, S3 | Pi: el settle del padre y `before_agent_start` en el shim, el adaptador y `hooks.pi.json`, y la regla del doctor sobre el settle; con sus tests de Python y TS | delegado: W2 | hecho (L19) |
 | B2f | S3 | El doctor (cobertura y degradado) y los docs: `Doc/hooks.md`, `Doc/diseno.md` y las filas P11 y P12 de `multi-host.md`. La costura la cierra el padre, con la suite completa una vez | delegado: W2; la costura, inline | hecho (L19); la costura, en el pre-commit |
-| VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | pendiente |
+| VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | encontró B1, B2 y B3 (L20); corrección en curso (L21) |
 | H | S3, S4 | Prueba de humo en Claude Code, Codex y Pi, cada uno con su home aparte | inline; el usuario hace los logins | pendiente |
 | F1 | — | Seguimiento: los hooks ponen `dont_write_bytecode` y un plugin instalado compila sus módulos en cada corrida. Con caché, `guard_comandos` ahorra unos 60 ms (L11) | aparte | anotado |
 
@@ -317,3 +317,66 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
     - cada mensaje del usuario lanza ahora un proceso Python en los tres hosts, que sin instancia sale enseguida;
     - registrar `agent_before_settle` en el padre lleva a Pi a su camino de cierre por frontera, el mismo que ya usa gentle-ai en gentle-shell.
   - **Scratch de W2,** para borrar a mano: `%TEMP%\tmp.Q9obgKEw14` y `%TEMP%\tmp.kzTQUXKgG2`.
+  - **El commit:** `87dc63d`. Su pre-commit corrió todas las suites como costura, y el CI quedó en verde en los tres sistemas.
+- **L20 (2026-11-17), VB: el verificador independiente sobre `634ce47..87dc63d`.**
+  - **Cumplen:** S3, S4 en esta etapa, la foto al inicio, una vuelta por turno, la foto pendiente si el turno se corta, el fallo que deja pasar, `decision: block` en Claude Code, el costo de las ediciones del usuario y la división padre/hijo de Pi.
+  - **Los invariantes se mantienen:**
+    - `writer_stop`, `guard_comandos`, `writer_guard` y `verificar_capa` dan lo mismo que en la base en 44 cargas sobre los tres hosts.
+    - El doctor da los mismos veredictos y solo cambian las cuentas de hooks.
+    - Pasan las 46 suites (2060/2060) y TypeScript (85/85).
+  - **Costo, p50:**
+
+    | Medición | p50 |
+    |---|---|
+    | Inicio de turno con 2 repos | 401 ms |
+    | Fin de turno sin cambios | 455 ms |
+    | Fin de turno con un archivo cambiado | 669 ms |
+    | Sin instancia | unos 200 ms |
+
+  - **No cumple S2: B3.** Un `git commit` durante el turno saca los cambios de `git status`, y la revisión, que solo mira archivos sucios contra el HEAD actual, no los ve. Es realista, porque los agentes de ODD commitean por unidad.
+  - **No cumple L19:**
+    - **B1:** un archivo nuevo de un writer en segundo plano no queda fuera. `writer_guard` lo marca con `<clave>.nuevo`, y la exclusión solo lee `.foto`.
+    - **B2:** las fotos de un writer que se cayó sin `SubagentStop` esconden sus archivos por el resto de la sesión.
+  - **Avisos:**
+    - A1: en Pi, el writer hijo tiene su propia sesión, así que el padre revisa también sus archivos.
+    - A2: si el `Stop` de otro plugin bloquea después del nuestro, la foto ya se borró y la continuación no se revisa.
+    - A3: el doctor no nota que falten `Stop` o `UserPromptSubmit` en `hooks.json`; es el patrón previo.
+    - A4: un hook de inicio cortado deja un `.tmp` hasta la poda.
+    - A5: los hallazgos sin línea se mantienen en un archivo que ya estaba sucio.
+    - A6: una regla lenta no respeta `--plazo`; es el patrón previo.
+  - **Scratch del verificador,** para borrar a mano: `%TEMP%\tmp.tzvym9RYow`.
+- **L21 (2026-11-17), el lote de corrección de B1, B2 y B3** (writer W3, por el respaldo de contexto).
+  - **B1:** la exclusión cuenta también las marcas `.nuevo`.
+  - **B2:** la foto de un writer se respeta solo si el host avisa que hay trabajo en segundo plano (`background_tasks` del `Stop` de Claude Code, un campo nuevo de `FinTurno`). Sin ese aviso no se excluye nada, así que un writer caído no esconde archivos. Codex y Pi no lo mandan, y ahí rige el costo aceptado de L16.
+  - **B3:** la foto guarda el HEAD de cada repo. Al final, si el HEAD nuevo desciende del viejo, también se revisan los archivos de capa de `viejo..nuevo`: contra la foto si estaban sucios y contra el HEAD viejo si no.
+  - **Al «No ve»:**
+    - un checkout, un reset o un amend durante el turno, porque el HEAD nuevo ya no desciende del viejo;
+    - un pull durante el turno, que se revisa como propio;
+    - A2, un `Stop` de otro plugin que bloquea después del nuestro.
+  - **El resultado de W3:**
+    - **B1:** `MARCAS_DEL_WRITER` lee `.foto` y `.nuevo`.
+    - **B2:** `FinTurno.segundo_plano` sale de `background_tasks`. La doc de hooks de Claude Code lo describe como un arreglo de tareas en curso (`id`, `type`, `status`…), vacío si no corre nada. Sin ese aviso no se excluye nada.
+    - **B3:**
+      - El HEAD sale del mismo `git status`, ahora `--porcelain=v2 --branch` (`# branch.oid`), sin un `rev-parse` aparte. Ahorra unos 85 ms por llamada, y el parser nuevo se probó con un diferencial sobre 6 estados de repo.
+      - La foto guarda `cabezas`. Si el HEAD avanzó sobre el viejo, los archivos de `viejo..nuevo` se revisan con `verificar_archivo(..., contra=viejo)`.
+      - El sha se valida antes de pasarlo a git.
+  - **Fuera de la superficie de W3:** `verificar_capa.verificar_archivo` y `armar_ctx` necesitaban el parámetro opcional `contra` (por defecto `HEAD`, así que no cambia nada para `writer_stop` ni para PostToolUse). W3 dejó el parche; el padre lo leyó entero y lo aplicó. Trae su test: `test_verificar_archivo_contra_otro_commit_ve_lo_commiteado_despues`.
+  - **Rojo antes del código:** `revisar_turno` dio 24/28 con un test por blocker, `eventos` 7/8, `claude_code` 40/41 y `verificar_capa` 87/88.
+  - **Verde, corrido por el padre:**
+
+    | Suite | Resultado |
+    |---|---|
+    | `revisar_turno` | 30/30 |
+    | `verificar_capa` | 88/88 |
+    | `eventos` | 8/8 |
+    | `capacidades` | 37/37 |
+    | `claude_code` | 41/41 |
+    | `codex` | 44/44 |
+    | `pi` | 66/66 |
+    | `writer_stop` | 57/57 |
+
+  - **Diferencial de comportamiento contra `87dc63d`:** 4 escenarios, también con versiones mezcladas entre el inicio y el fin, y 0 diferencias.
+  - **Mutación:** 7 mutantes, 7 detectados.
+  - **Latencia:** igual que antes, unos 100 ms en proceso.
+  - **Riesgo:** ítem 2, porque cambia una compuerta, e ítem 3, porque un helper compartido suma un parámetro opcional con su default intacto.
+  - **Scratch de W3,** para borrar a mano: `%TEMP%\tmp.e2WAKyqHde`.

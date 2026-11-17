@@ -127,8 +127,10 @@ def leer(payload, pre_por_defecto=False):
             ultimo_mensaje=payload.get("last_assistant_message"), ya_reintentado=payload.get("stop_hook_active") is True,
         )
     if nombre == "Stop":
+        tareas = payload.get("background_tasks")
         return FinTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), continuado=payload.get("stop_hook_active") is True,
-                        ultimo_mensaje=payload.get("last_assistant_message"))
+                        ultimo_mensaje=payload.get("last_assistant_message"),
+                        segundo_plano=isinstance(tareas, (list, dict)) and len(tareas) > 0)
     if nombre == "UserPromptSubmit":
         return InicioTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), turno=payload.get("prompt_id"),
                            id_agente=payload.get("agent_id"))

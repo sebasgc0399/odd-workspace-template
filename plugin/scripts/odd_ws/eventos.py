@@ -65,6 +65,7 @@ class FinTurno:
     turno: object = None
     continuado: bool = False
     ultimo_mensaje: object = None
+    segundo_plano: bool = False
 
 
 @dataclass(frozen=True)

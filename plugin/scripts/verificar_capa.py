@@ -105,7 +105,7 @@ def _contenido(contraparte):
     return decodificar(r.stdout) if r.returncode == 0 else None
 
 
-def armar_ctx(ruta, capa, origen, config):
+def armar_ctx(ruta, capa, origen, config, contra=None):
     ruta = os.path.abspath(ruta)
     if not os.path.isfile(ruta) or os.path.getsize(ruta) > TOPE_BYTES:
         return None
@@ -123,7 +123,8 @@ def armar_ctx(ruta, capa, origen, config):
     base_cfg = config["layers"][capa].get("workshop_baseline") if taller else None
     contraparte = _contraparte(ruta, base_cfg, config) if base_cfg else None
     sin_trackear = _git(raiz, "ls-files", "--error-unmatch", "--", rel_git).returncode != 0
-    es_nuevo = sin_trackear or _git(raiz, "cat-file", "-e", "HEAD:" + rel_git).returncode != 0
+    revision = contra or "HEAD"
+    es_nuevo = sin_trackear or _git(raiz, "cat-file", "-e", revision + ":" + rel_git).returncode != 0
     base = _contenido(contraparte) if es_nuevo and contraparte else None
     if base is not None:
         es_nuevo = False
@@ -133,7 +134,7 @@ def armar_ctx(ruta, capa, origen, config):
         agregadas = lineas(texto)
         hunks = [{"agregadas": agregadas, "quitadas": []}] if agregadas else []
     else:
-        d = _git(raiz, "diff", "-U0", "--no-color", "--no-ext-diff", "HEAD", "--", rel_git)
+        d = _git(raiz, "diff", "-U0", "--no-color", "--no-ext-diff", revision, "--", rel_git)
         if d.returncode != 0:
             return None
         hunks = _hunks_del_diff(d.stdout.decode("utf-8", errors="replace"))
@@ -196,12 +197,12 @@ def es_hallazgo(h):
     return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
 
 
-def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False):
+def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False, contra=None):
     global _LIMITE
     previo = _LIMITE
     _LIMITE = limite
     try:
-        return _verificar_archivo(ruta, config, aislar_la_capa)
+        return _verificar_archivo(ruta, config, aislar_la_capa, contra)
     finally:
         _LIMITE = previo
 
@@ -236,7 +237,7 @@ def _hallazgos_del_paquete(paquete, ctx, raiz):
         return []
 
 
-def _verificar_archivo(ruta, config, aislar_la_capa):
+def _verificar_archivo(ruta, config, aislar_la_capa, contra):
     info = config_loader.clasificar(ruta, config)
     if info is None:
         return None
@@ -246,7 +247,7 @@ def _verificar_archivo(ruta, config, aislar_la_capa):
     de_paquetes = _paquetes_de(config, capa)
     if not propio and not de_paquetes:
         return None
-    ctx = armar_ctx(ruta, capa, origen, config)
+    ctx = armar_ctx(ruta, capa, origen, config, contra)
     if ctx is None:
         return None
     if not de_paquetes:
