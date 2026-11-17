@@ -1809,6 +1809,19 @@ def test_capa_el_principal_no_escribe_un_archivo_de_capa_por_la_shell():
             ("New-Item db/a.sql -Value x", "PowerShell"),
             ("[IO.File]::WriteAllText('" + absoluta + "','x')", "PowerShell"),
             ("@'\nselect 1\n'@ | Set-Content db/a.sql", "PowerShell"),
+            ("Set-Content -Encoding UTF8 -Path db/a.sql -Value $s", "PowerShell"),
+            ("$sql | Set-Content -Encoding UTF8 -Path db/a.sql", "PowerShell"),
+            ("Set-Content -Value x -Path db/a.sql", "PowerShell"),
+            ("Set-Content -LiteralPath db/a.sql -Value x", "PowerShell"),
+            ("Set-Content -Path:db/a.sql -Value x", "PowerShell"),
+            ("Add-Content -Value $x -Path db/a.sql", "PowerShell"),
+            ("'x' | Out-File -Encoding utf8 db/a.sql", "PowerShell"),
+            ("Out-File -Width 200 -FilePath db/a.sql", "PowerShell"),
+            ("New-Item -ItemType File -Path db/x.sql -Value 'x'", "PowerShell"),
+            ("New-Item -Path db -Name c.sql -Value x", "PowerShell"),
+            ("python3 -c \"import shutil; shutil.copy('/otra/p.sql','db/a.sql')\"", "Bash"),
+            ("python3 -c \"from pathlib import Path; Path('db/a.sql').write_text('x')\"", "Bash"),
+            ("python3 -c \"p='db/a.sql'; open(p,'w').write('x')\"", "Bash"),
         ]
         if NT:
             casos += [("Set-Content db\\a.sql x", "PowerShell"), ("cmd /c \"echo x > db\\a.sql\"", "PowerShell")]
@@ -1835,6 +1848,10 @@ def test_capa_el_principal_si_puede_lo_que_no_deja_contenido_nuevo_en_la_capa():
             ("Get-Content db/a.sql", "PowerShell"),
             ("Remove-Item db/a.sql", "PowerShell"),
             ("Clear-Content db/a.sql", "PowerShell"),
+            ("python3 -c \"s=open('db/a.sql').read(); open('/otra/x.txt','w').write(s)\"", "Bash"),
+            ("python3 -c \"import os; os.rename('db/a.sql','db/a.txt')\"", "Bash"),
+            ("python3 - <<'EOF'\nfrom pathlib import Path\nrep=[p.read_text() for p in Path('db').glob('*.sql')]\n"
+             "Path('reporte.txt').write_text(str(len(rep)))\nEOF", "Bash"),
         ]
         frenados = [(comando, salida) for comando, herramienta in casos
                     for salida in [por_la_shell(comando, inst, repo, herramienta)] if salida != (0, "", b"")]

@@ -99,6 +99,13 @@ PY_ESCRIBE = re.compile(
     r"""mode\s*=\s*['"][rwabxt+]*[wax+][rwabxt+]*['"]|write_text|write_bytes|\.write\s*\(|shutil\.|"""
     r"""os\.(remove|rename|replace|unlink|rmdir|removedirs|makedirs|mkdir)|\.unlink\s*\(|\.rename\s*\(|\.rmdir\s*\(|\.touch\s*\(""")
 PY_SIN_CONTENIDO = re.compile(r"shutil\.rmtree|os\.(?:remove|unlink|rmdir|removedirs|makedirs|mkdir)\b|\.unlink\s*\(|\.rmdir\s*\(|\.touch\s*\(")
+PY_LLAMADA = re.compile(r"\b(os\.(?:rename|replace)|shutil\.(?:copy\w*|move)|open|write_text|write_bytes|rename|replace)\s*\(")
+PY_MODO_ESCRIBE = re.compile(r"""^\s*(?:mode\s*=\s*)?(['"])[rwabxt+]*[wax+][rwabxt+]*\1\s*$""")
+PY_LITERAL = re.compile(r"""^\s*[rRuU]?(['"])((?:\\.|(?!\1).)*)\1\s*$""", re.DOTALL)
+PY_RECEPTOR = re.compile(r"""\bPath\s*\(\s*[rRuU]?(['"])((?:\\.|(?!\1).)*)\1\s*\)\s*\.$""")
+PS_RUTA = {"path", "literalpath", "lp", "pspath", "filepath"}
+PS_INTERRUPTORES = {"force", "nonewline", "passthru", "append", "noclobber", "whatif", "confirm", "asbytestream", "verbose", "debug",
+                    "usetransaction"}
 PY_PROCESO = re.compile(r"subprocess|os\.system|os\.popen|\bPopen\b|check_call|check_output|os\.exec|os\.spawn")
 PY_GIT = re.compile(r"\bgit(?:\.exe)?\b")
 PYTHON_RE = re.compile(r"python[0-9.]*|py|pythonw")
@@ -549,9 +556,41 @@ def _recoger_destino(fuentes, destino, cwd, renombra=False):
     _protegida(destino, cwd)
 
 
-def _recoger_escritura(cmd, objetivos, cwd):
+def _destino_de_cmdlet(cmd, rest):
+    ruta, nombre, posicionales, i = None, None, [], 0
+    while i < len(rest):
+        t = rest[i]
+        if len(t) > 1 and t[0] == "-" and not t[1].isdigit():
+            parametro, dos_puntos, pegado = t[1:].partition(":")
+            parametro = parametro.lower()
+            if parametro in PS_INTERRUPTORES:
+                i += 1
+                continue
+            valor = pegado if dos_puntos else (rest[i + 1] if i + 1 < len(rest) else None)
+            i += 1 if dos_puntos else 2
+            if parametro in PS_RUTA:
+                ruta = valor
+            elif parametro == "name":
+                nombre = valor
+            continue
+        posicionales.append(t)
+        i += 1
+    destino = ruta if ruta is not None else (posicionales[0] if posicionales else None)
+    if nombre and cmd in ("new-item", "ni"):
+        return destino.rstrip("\\/") + "/" + nombre if destino else nombre
+    return destino
+
+
+def _recoger_escritura(cmd, objetivos, cwd, rest=()):
     if cmd in PRIMER_POSICIONAL:
-        objetivos = objetivos[:1]
+        for objetivo in objetivos[:1]:
+            _con_operacion("posicional", _protegida, objetivo, cwd)
+        destino = _destino_de_cmdlet(cmd, list(rest))
+        if cmd not in SIN_CONTENIDO and destino and not destino.startswith("&"):
+            r = _ruta_recogida(destino, cwd)
+            if r is not None:
+                _anotar_escritura(r)
+        return
     if cmd in MUEVEN and len(objetivos) >= 2:
         for fuente in objetivos[:-1]:
             _con_operacion("borrado", _protegida, fuente, cwd)
@@ -810,10 +849,85 @@ def _python_codigo_escribe(codigo, cwd):
             return "git %s" % escritura[0]
     if PY_ESCRIBE.search(codigo):
         operacion = "contenido" if PY_ESCRIBE.search(PY_SIN_CONTENIDO.sub("", codigo)) else "borrado"
+        if _ESCRITURAS is not None and operacion == "contenido":
+            precisos = _py_destinos(codigo)
+            if precisos is not None:
+                operacion = "python"
+                for destino in precisos:
+                    r = _ruta_recogida(destino, cwd)
+                    if r is not None:
+                        _anotar_escritura(r)
         for m in PY_COMILLADO.finditer(codigo):
             if (_COLECTOR is None or re.search(r"[\\/.]", m.group(2))) and _con_operacion(operacion, _protegida, m.group(2), cwd):
                 return m.group(2)
     return None
+
+
+def _argumentos_py(codigo, desde):
+    args, actual, profundidad, comilla, i = [], [], 0, None, desde
+    while i < len(codigo):
+        c = codigo[i]
+        if comilla:
+            actual.append(c)
+            if c == "\\" and i + 1 < len(codigo):
+                actual.append(codigo[i + 1])
+                i += 2
+                continue
+            if c == comilla:
+                comilla = None
+        elif c in "'\"":
+            comilla = c
+            actual.append(c)
+        elif c in "([{":
+            profundidad += 1
+            actual.append(c)
+        elif c in ")]}":
+            if profundidad == 0:
+                args.append("".join(actual))
+                return args
+            profundidad -= 1
+            actual.append(c)
+        elif c == "," and profundidad == 0:
+            args.append("".join(actual))
+            actual = []
+        else:
+            actual.append(c)
+        i += 1
+    return None
+
+
+def _literal_py(texto):
+    m = PY_LITERAL.match(texto)
+    return m.group(2) if m else None
+
+
+def _py_destinos(codigo):
+    destinos = []
+    for m in PY_LLAMADA.finditer(codigo):
+        nombre = m.group(1)
+        args = _argumentos_py(codigo, m.end())
+        if args is None:
+            return None
+        previo = codigo[:m.start()]
+        metodo = previo.endswith(".")
+        receptor = PY_RECEPTOR.search(previo) if metodo else None
+        if nombre == "open":
+            if not any(PY_MODO_ESCRIBE.match(a) for a in (args if metodo else args[1:])):
+                continue
+            literal = (receptor.group(2) if receptor else None) if metodo else _literal_py(args[0])
+        elif nombre in ("write_text", "write_bytes", "rename", "replace"):
+            if not metodo or (nombre == "replace" and receptor is None):
+                continue
+            if nombre in ("write_text", "write_bytes"):
+                literal = receptor.group(2) if receptor else None
+            else:
+                literal = _literal_py(args[0]) if receptor and args else None
+        else:
+            literal = _literal_py(args[1]) if len(args) >= 2 else None
+        if literal is None:
+            return None
+        destinos.append(literal)
+    return destinos
 
 
 def _objetivos(rest, opciones_script, quitar_script):
@@ -854,7 +968,7 @@ def _escribe(cmd, rest, cwd, texto=None):
     if cmd in ESCRIBEN_TODO:
         objetivos = _posicionales(rest)
         if _COLECTOR is not None:
-            _recoger_escritura(cmd, objetivos, cwd)
+            _recoger_escritura(cmd, objetivos, cwd, rest)
             return None
         return next((t for t in objetivos if _protegida(t, cwd)), None)
     if cmd in COPIAN:

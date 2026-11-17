@@ -529,9 +529,26 @@ Corre en `PreToolUse` de `Bash` y `PowerShell` (`--plazo 8`, timeout 10) para la
 - **Escrituras de capa** (X17 parte 2, `odd/tasks/capa-por-shell.md`): en todo agente que no es writer, bloquea (exit 2) un comando que deja contenido nuevo en un archivo de capa, para que ese contenido pase por la herramienta de edición, el primer toque y las reglas. En un writer decide `writer_guard`, con su zona más ancha.
   - **Qué cuenta:** escribir, copiar y el destino de un movimiento, también hacia una carpeta, y el nombre nuevo de `Rename-Item`, que queda junto al archivo. No cuentan borrar, vaciar (`truncate`, `Clear-Content`), `touch` ni el origen de un movimiento, porque no agregan líneas y Claude Code no tiene herramienta para borrar.
   - **Cómo decide:** con el parser de `writer_guard`. Su función `escrituras()` devuelve los destinos que reciben contenido; `destinos()` no cambia. Después, `config_loader.clasificar` dice si cada destino es de una capa, sea de un repo declarado o del taller.
-  - **El orden:** va después de la Capa 1 y antes de la Capa 2, así que una escritura de capa bloquea aunque el mismo comando pregunte. Con la config rota no puede clasificar, y deja pasar.
+    - **PowerShell:** en `Set-Content`, `Add-Content`, `Out-File` y `New-Item`, la ruta sale de `-Path`, `-LiteralPath`, `-FilePath`, `-PSPath` o `-LP` (también con `:`). Si no aparece ninguna, sale del primer posicional que no es valor de otra opción. En `New-Item`, se une con `-Name`.
+    - **Python:** el destino sale de cada llamada que escribe:
+      - `open` con un modo de escritura, también como método de un `Path('…')`;
+      - `Path('…').write_text` y `write_bytes`;
+      - `Path('…').rename` y `replace`;
+      - el segundo argumento de `shutil.copy*`, `shutil.move`, `os.rename` y `os.replace`.
+
+      Un archivo que solo se lee no cuenta. Si alguna de esas llamadas no tiene una ruta literal, por ejemplo una variable, se cuentan todas las cadenas con `/` o `.` del código, como antes: es el lado conservador.
+  - **El orden:** va después de la Capa 1 y antes de la Capa 2, así que una escritura de capa bloquea aunque el mismo comando pregunte. Con la config rota no puede clasificar, y deja pasar. Una excepción o el plazo vencido siguen la regla de «Fallas»: sin repos marcados callan, y con alguno preguntan.
   - **El mensaje** manda a Edit o Write (`apply_patch` en Codex; `edit` o `write` en Pi), y a `git mv` para mover un archivo que ya está en git.
-  - **No ve:** una ruta en una variable, un `[IO.File]` con una ruta compuesta, un script (`python gen.py`), las escrituras de git (`git checkout -- <archivo>`, `git apply`), `xcopy` y `robocopy` hacia una carpeta, y los lotes de `xargs` y `find -exec`. Esos casos los cubrirá la revisión al final del turno (R1b del roadmap).
+  - **No ve:**
+    - una ruta en una variable, un `[IO.File]` con una ruta compuesta y un script (`python gen.py`);
+    - las escrituras de git (`git checkout -- <archivo>`, `git apply`);
+    - `xcopy` y `robocopy` hacia una carpeta, y los lotes de `xargs` y `find -exec`;
+    - una carpeta destino que todavía no existe (`mkdir -p db/nueva && cp p.sql db/nueva`): se decide con la carpeta tal como está cuando corre el hook;
+    - la copia recursiva de una carpeta (`cp -r`, `Copy-Item -Recurse`);
+    - un comando con más de 100 destinos, porque el parser deja de juntarlos;
+    - herramientas que el writer tampoco ve: `rsync`, `ln -s`, `curl -o`, `wget -O`, `Invoke-WebRequest -OutFile`, `Tee-Object -FilePath`, `tar -C`, `unzip -d`, `patch`, `awk -i inplace`, `cp --target-directory=` y `mv -t`.
+
+    Esos casos los cubrirá la revisión al final del turno (R1b del roadmap).
 - **Fallas:** sin repos marcados, una excepción o el plazo vencido callan (la Capa 1 falla abierta). Con algún repo marcado, preguntan con el motivo (R-5: un guard que lanza sale con 1, y eso es permitir); el plazo también corta el análisis de las menciones, que crece lineal con el comando (un script en línea de 1000 líneas tarda alrededor de un segundo). **Con la config rota, excepción a P3 (L49):** la Capa 1 sigue, y la Capa 2 pregunta ante todo git que no sea de lectura, en cualquier repo, con el error de la config en el motivo; una config que revienta al leerla cuenta como rota.
 
 ### Triaje (`triaje.py`, L43)

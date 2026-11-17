@@ -2126,6 +2126,13 @@ def test_escrituras_deja_solo_lo_que_recibe_contenido_nuevo():
         ("[IO.File]::WriteAllText('" + SQL + "','x')", "PowerShell", [SQL]),
         ("[IO.File]::Move('" + otro + "','" + SQL + "')", "PowerShell", [SQL]),
         ("[IO.File]::Delete('" + SQL + "')", "PowerShell", []),
+        ("Set-Content -Encoding UTF8 -Path " + SQL + " -Value $s", "PowerShell", [SQL]),
+        ("Out-File -Width 200 -FilePath " + SQL, "PowerShell", [SQL]),
+        ("New-Item -Path " + fw(DB / "Current") + " -Name esq.Proc_Z.sql -Value x", "PowerShell", [nuevo]),
+        ("python3 -c \"s=open('" + SQL + "').read(); open('/otra/x.txt','w').write(s)\"", None, ["/otra/x.txt"]),
+        ("python3 -c \"import os; os.rename('" + otro + "','" + SQL + "')\"", None, [SQL]),
+        ("python3 -c \"import os; os.rename('" + SQL + "','/otra/x.txt')\"", None, ["/otra/x.txt"]),
+        ("python3 -c \"p='" + SQL + "'; open(p,'w').write('x')\"", None, [SQL]),
     ]
     for comando, herramienta, esperado in casos:
         hallado = G.escrituras(comando, None, herramienta)
@@ -2133,6 +2140,8 @@ def test_escrituras_deja_solo_lo_que_recibe_contenido_nuevo():
     esperar(fallos, _mismas(G.destinos("rm " + SQL), [SQL]), "destinos sigue devolviendo los borrados")
     esperar(fallos, _mismas(G.destinos("mv " + otro + " " + SQL), [otro, SQL]), "destinos sigue devolviendo el origen y el destino")
     esperar(fallos, G.escrituras("") == [] and G.escrituras(None) == [], "vacío o None")
+    esperar(fallos, G.destinos("Set-Content -Encoding UTF8 -Path " + SQL, None, "PowerShell") == ["UTF8"],
+            "destinos sigue tomando el primer posicional de Set-Content")
     comprobar(fallos)
 
 

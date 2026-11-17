@@ -155,3 +155,30 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
     - Con `PYTHONPYCACHEPREFIX` vacío se compila también la biblioteca estándar, y todo sube a unos 480 ms.
   - **La decisión:** se aceptan los +30 ms sin prefiltro, porque un prefiltro que no lea igual que el parser abriría un hueco nuevo en un guard.
   - **Seguimiento F1:** los hooks nunca guardan bytecode. Con caché, `guard_comandos` baja de 271 a 213 ms, unos 60 ms, más de lo que suma este cambio. Va al roadmap.
+- **L12 (2026-11-16), A5: el verificador independiente sobre `a6c3e93`.** Corrió 139 sondas propias contra la base, en copias hechas con `git archive`. El CI de `a6c3e93` está en verde en los tres sistemas.
+  - **Cumplen:** S0, S3 y S4, y D1, D3 y D4.
+    - `destinos()` y la decisión del writer no cambian en ninguna sonda.
+    - La latencia se reproduce: +29 a +37 ms.
+    - Codex y Pi bloquean, y Pi también con `bash_background`, `monitor` y `powershell`.
+    - Una escritura de capa bloquea aunque la Capa 2 pregunte.
+  - **No cumple S1: B1.** En PowerShell, una opción con valor antes de la ruta esconde el destino:
+    - `Set-Content -Encoding UTF8 -Path db/a.sql`, `Out-File -Width 200 -FilePath …` y `New-Item -Path db -Name c.sql` dan exit 0;
+    - es lo que pasó en la grabación de X17, con Codex en Windows;
+    - la causa: en modo colector, `PRIMER_POSICIONAL` toma el primer posicional, y `_posicionales` deja el valor de cada opción.
+  - **D2 a medias: B2,** un falso positivo causado por el cambio. Un Python que solo lee un archivo de capa bloquea, igual que `os.rename('db/a.sql', 'db/a.txt')`. La causa: si `PY_ESCRIBE` encuentra algo en el código, toda cadena con `/` o `.` cuenta como destino.
+  - **Avisos:**
+    - A1: con más de 100 destinos, el colector se llena y deja pasar.
+    - A2: una carpeta destino se decide con `isdir` cuando corre el hook, y la copia recursiva de una carpeta no se ve.
+    - A3: herramientas que el writer tampoco ve en la base (`rsync`, `curl -o`, `Invoke-WebRequest -OutFile`, `Tee-Object -FilePath`…).
+    - A4: `\\?\C:\…` no se clasifica; fuera de dominio.
+    - A5: una excepción o el plazo siguen la regla general de «Fallas».
+    - A6: un `New-Item` vacío bloquea.
+  - **Scratch del verificador,** para borrar a mano: `%TEMP%\tmp.PbMaPBroZX`.
+- **L13 (2026-11-16), la corrección de B1 y B2,** en un solo lote.
+  - **El rojo:** 13 casos nuevos en `guard_comandos.tests.py` y 8 en `writer_guard.tests.py`. Dieron 75/77 y 120/121: 9 formas de PowerShell que no bloqueaban y 3 falsos positivos de Python.
+  - **El arreglo,** solo en el camino de `escrituras()`. `destinos()` sigue tomando el mismo primer posicional, y hay un test que lo fija.
+    - `_destino_de_cmdlet` lee `-Path`, `-LiteralPath`, `-FilePath`, `-PSPath` y `-LP`, también con `:`. Salta los valores de las otras opciones y los interruptores conocidos, y en `New-Item` une `-Path` con `-Name`.
+    - `_py_destinos` lee el destino de cada llamada que escribe. Si alguna no tiene una ruta literal, cae al comportamiento conservador de antes.
+  - **El verde:** 77/77 y 121/121, con `writer_stop`, `plantilla_writer`, `doctor`, `capacidades`, `comun`, `codex` y `pi` también en verde.
+  - **El diferencial repetido** contra `4761041`: 2852 cadenas y 8556 casos, sin regresiones. `writer_guard` y `destinos()` no cambian. Las 107 diferencias son el bloqueo nuevo y apuntan todas a un `.sql` de la capa.
+  - **Los avisos A1, A2, A3 y A5** pasan al «No ve» y a «Fallas» en `Doc/diseno.md`. A4 y A6 quedan como están.
