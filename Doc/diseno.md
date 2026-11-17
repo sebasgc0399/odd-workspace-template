@@ -840,7 +840,7 @@ Genera una instancia desde una spec, que arma la skill `/odd-ws:bootstrap` con u
     - Por cada capa, un stub `verificar_<capa>.py` (`REGLAS = ()`, y `verificar(ctx)` devuelve `[]`) y su suite, que cumple el contrato P1 y pasa `reglas.py --test <capa>`.
     - `validar` exige el `rule_prefix` de cada capa.
   - **Textos** (`bootstrap_textos.py`, clave `proyecto.nombre`):
-    - un `CLAUDE.md` liviano (137 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket, las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets, qué ajusta del ODD de gentle-ai si también se usa (el ticket en vez de `odd/tasks/`, la autoridad de commit y la revisión propia) y las skills del plugin;
+    - un `CLAUDE.md` liviano (unas 140 líneas, por debajo del tope de 200), solo con metodología genérica: cómo se apilan los contextos, el ciclo del ticket (su paso 3 ya dice que, con gentle-ai, el ticket es el documento de ODD), las reglas de los repos del equipo, la perilla de profundidad, las tres preguntas ante un efecto externo, el alcance mínimo, el conocimiento, los tickets, qué ajusta del ODD de gentle-ai si también se usa (el ticket en vez de `odd/tasks/`, la autoridad de commit y la revisión propia) y las skills del plugin;
     - la plantilla del ticket en `tickets/_plantilla/CLAUDE.md`, con los dos relojes (Estado y Conocimiento), alcance y no-goals, Paso 0, bitácora y candidatos a graduar. No lleva tracker.
 
 ### Tickets (`ticket.py`, T9)
@@ -863,6 +863,8 @@ Es el ritual de apertura de un ticket: que el trabajo arranque con el alcance en
   - Antes busca el id con el glob `tickets/**/<id>-*/CLAUDE.md`. Con una carpeta, el ticket ya existe y se pregunta si se retoma; con más de una, las lista y pregunta, sin elegir nunca (el límite de los ids con guion de «Tickets»).
   - Exit 1 (conflicto, id o slug inválido, plantilla ausente) manda a corregir o a `/odd-ws:bootstrap`; exit 2 (sin instancia o config rota), a `/odd-ws:doctor`.
 - **El ticket** se llena desde el pedido: Objetivo (con su `Fuente:`), criterios, alcance y no-goals. Cada «X o Y» del pedido queda como pregunta por fijar con el líder antes de codear, y nada se asume.
+  - **Un ticket grande** (no cabe en una sesión, espera algo externo o trae entregas separadas) suma `## Specs`, con cada S# citando el pedido tal cual, y `## Tareas`, con la ruta y el commit de cada una. Así el ticket hace de documento de feature del ODD de gentle-ai, y no hacen falta dos documentos para la misma unidad de trabajo: no se crea `odd/tasks/`, la bitácora hace de Log y el espejo en engram va en `odd/<id>/tasks`. En un ticket chico, esas dos secciones se quitan.
+  - La primera entrada de la bitácora lleva el pedido tal cual.
 - **Los docs de dominio** se mapean por el índice de `knowledge` (`docs` e `index`), sin leerlos todos, con la razón de cada uno.
 - **Los candidatos de los tickets hermanos** se buscan en sus secciones «Candidatos a graduar» y se listan en «Contexto técnico» con su ticket de origen. No se copian a la sección propia, porque siguen siendo del ticket que los anotó y `graduado` exige esa sección vacía.
 - **El worktree:** pregunta si va en un worktree o en el árbol principal y da el comando exacto (`git -C <repo> worktree add --no-track …` o `git -C <repo> switch --no-track -c …`). Con `--no-track`, una base remota no queda como upstream de la rama nueva. Los comandos en los repos del equipo los corre el usuario.

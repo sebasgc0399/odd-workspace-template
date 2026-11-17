@@ -20,6 +20,8 @@ SECCIONES_DEL_TICKET = (
     "## Objetivo",
     "## Criterios de aceptación",
     "## Alcance y no-goals",
+    "## Specs",
+    "## Tareas",
     "## Decisiones",
     "## Gotchas",
     "## Bitácora",
@@ -208,8 +210,26 @@ def test_la_raiz_dice_que_ajusta_del_odd_de_gentle_ai():
     texto = textos()["CLAUDE.md"]
     seccion = " ".join(texto.split("## Si también usas gentle-ai")[1].split("\n## ")[0].split())
     assert "odd/tasks/" in seccion and "su carpeta" in seccion
+    assert "## Specs" in seccion and "## Tareas" in seccion and "odd/<id>/tasks" in seccion, seccion
     assert "autorizan puntualmente" in seccion
     assert "/odd-ws:revisar" in seccion and "RDD" in seccion
+
+
+def test_el_ciclo_dice_temprano_que_el_ticket_es_el_documento_de_odd():
+    texto = textos()["CLAUDE.md"]
+    paso = " ".join(texto.split("3. **Planear con ODD.**")[1].split("\n4. ")[0].split())
+    assert "odd/tasks/" in paso and "Si también usas gentle-ai" in paso, paso
+    assert texto.index("3. **Planear con ODD.**") < texto.index("## Si también usas gentle-ai")
+
+
+def test_las_secciones_de_odd_del_ticket_dicen_cuando_se_usan_y_como():
+    texto = textos()["tickets/_plantilla/CLAUDE.md"]
+    specs = texto.split("## Specs")[1].split("\n## ")[0]
+    tareas = texto.split("## Tareas")[1].split("\n## ")[0]
+    bitacora = texto.split("## Bitácora")[1].split("\n## ")[0]
+    assert "grande" in specs and "tal cual" in specs and "S1" in specs, specs
+    assert "grande" in tareas and "| ID | Specs |" in tareas and "| Commit |" in tareas, tareas
+    assert "tal cual" in bitacora and "Log" in bitacora, bitacora
 
 
 def test_el_indice_declara_la_carpeta_de_tickets_con_el_glob_recursivo():

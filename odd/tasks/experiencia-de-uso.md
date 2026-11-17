@@ -25,8 +25,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
-| T1 | S2 | `.gitattributes` del bootstrap y chequeo del doctor | inline | hecho | el commit que suma este documento |
-| T2 | S9 | Plantilla del ticket compatible con ODD | inline | pendiente | |
+| T1 | S2 | `.gitattributes` del bootstrap y chequeo del doctor | inline | hecho | `b49732b` |
+| T2 | S9 | Plantilla del ticket compatible con ODD | inline | hecho | el commit que suma L8 |
 | T3 | S6 | Id consecutivo sin tracker | inline | pendiente | |
 | T4 | S3 | Autoridad según de quién es el repo | inline | pendiente | |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | pendiente | |
@@ -53,3 +53,10 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Docs: `Doc/diseno.md`, `Doc/uso.md`, `Doc/equipo.md` y la skill del doctor.
   - Risk: none. Suma un archivo generado y un chequeo AVISO, y los e2e corren el `pre-commit` y el primer commit de una instancia nueva.
 - **L7 (2026-11-17), lo siguiente:** T2.
+- **L8 (2026-11-17), T2 hecho.** La plantilla del ticket suma `## Specs` y `## Tareas`, que solo se usan en un ticket grande; en uno chico, `abrir` las quita. La Bitácora hace de Log, con el pedido tal cual en su primera entrada. El `CLAUDE.md` de la instancia dice en el paso 3 del ciclo que, con gentle-ai, el ticket es el documento de ODD, en vez de decirlo recién en la línea 115, y fija el espejo en engram en `odd/<id>/tasks`.
+  - Rojo: bootstrap_textos 21/25.
+  - Verde: bootstrap_textos 25/25, ticket 28/28, bootstrap 158/158 y bootstrap_e2e 14/14.
+  - Docs: `Doc/diseno.md` («Abrir» y el largo del `CLAUDE.md`), `Doc/uso.md` y la skill `abrir`.
+  - Para T9: una instancia que ya existe conserva su plantilla vieja, porque el bootstrap no pisa archivos. El CHANGELOG tiene que decir cómo traer la nueva.
+  - Risk: none. Suma secciones a dos plantillas y no cambia ninguna instancia existente.
+- **L9 (2026-11-17), lo siguiente:** T3.

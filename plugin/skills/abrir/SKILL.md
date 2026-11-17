@@ -115,8 +115,10 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 ## 8. Mostrar, escribir y cerrar
 
 1. **Mostrá todo lo que se va a escribir**, junto, antes de tocar el archivo: la cabecera, el Objetivo, los criterios, el Alcance con sus preguntas por fijar, y el Contexto técnico con los repos y capas afectados (si el pedido los dice; si no, quedan como pregunta), los docs de dominio, los candidatos hermanos, el worktree y el Paso 0. Marcá lo que quedó pendiente.
+   - **Si el ticket es grande** (no cabe en una sesión, espera algo externo o trae entregas separadas), sumá sus `## Specs`, con cada S# citando el pedido tal cual, y sus `## Tareas`. Con gentle-ai, ese ticket es el documento de ODD: no se crea `odd/tasks/`, y el espejo en engram va en `odd/<id>/tasks`.
+   - **Si es chico**, decí que vas a quitar esas dos secciones.
 2. **Pedí el sí.** Sin sí, no se escribe nada. Si el usuario corrige algo, ajustá y volvé a mostrar.
-3. **Con el sí**, editá `<ticket>/CLAUDE.md` con Edit, sección por sección, sin tocar las demás (Decisiones, Gotchas, Candidatos a graduar y Cierre quedan como los trae la plantilla). Agregá una primera entrada de bitácora: `<fecha> — ticket abierto desde <fuente>; preguntas por fijar: <n>`.
+3. **Con el sí**, editá `<ticket>/CLAUDE.md` con Edit, sección por sección, sin tocar las demás (Decisiones, Gotchas, Candidatos a graduar y Cierre quedan como los trae la plantilla). En un ticket chico, quitá `## Specs` y `## Tareas`. La primera entrada de la bitácora lleva el pedido tal cual, porque la bitácora hace de Log: `<fecha> — el pedido, tal cual: «<…>»; abierto desde <fuente>; preguntas por fijar: <n>`.
 4. **Decí qué quedó escrito** y qué sigue:
    - cómo abrir la sesión del ticket: desde su carpeta, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama» (dale el comando con las rutas reales). Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
    - las preguntas por fijar con el líder, que van primero;

@@ -27,7 +27,8 @@ editar fuera de la carpeta del ticket.
    el pedido trae un «X **o** Y», pina con quien lo pide qué casos entran desde el arranque.
 3. **Planear con ODD.** Explorar → Implementar → Revisar, anunciando la etapa en una línea. La exploración
    se delega cuando es grande por volumen de lectura. Un recurso compartido o un cambio que cruza capas se
-   acuerda con su dueño ANTES de implementar.
+   acuerda con su dueño ANTES de implementar. Con gentle-ai, el documento de ODD es el `CLAUDE.md` del
+   ticket y no se crea `odd/tasks/` (ver «Si también usas gentle-ai»).
 4. **Paso 0 de diseño, antes de escribir código.** Para cada dato o pieza nueva, anota en el ticket cuál
    es el hermano vigente (lo que ya resuelve algo parecido) y quién consume el dato. Lo nuevo calca las
    convenciones de sus hermanos; lo existente que difiere no se toca de paso. Las reglas de cada capa
@@ -117,7 +118,8 @@ queda el índice.
 Su ODD sigue siendo el método (tamaño de la tarea, test-first, cuándo delegar), con tres ajustes aquí:
 
 - **El trabajo de un ticket se anota en su carpeta:** su `CLAUDE.md` cumple el papel del documento de
-  feature, así que no se crea `odd/tasks/` para un ticket.
+  feature, así que no se crea `odd/tasks/` para un ticket. Un ticket grande usa sus secciones `## Specs`
+  y `## Tareas`, la Bitácora hace de Log, y el espejo en engram va en `odd/<id>/tasks`.
 - **En los repos del equipo, los commits siguen la autoridad de «Repos del equipo»:** se autorizan
   puntualmente, no por unidad de trabajo como pide el ODD global.
 - **La revisión es `/odd-ws:revisar`.** El RDD nativo va apagado (`/odd-ws:doctor` lo avisa): su revisor

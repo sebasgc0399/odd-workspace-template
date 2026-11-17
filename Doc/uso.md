@@ -133,6 +133,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **Le pasas el pedido:** el ítem del tracker (si Claude tiene una herramienta MCP para leerlo) o el texto pegado.
 - **La carpeta.** Propone el id y el slug, y con tu sí crea la carpeta desde la plantilla (`ticket.py`, con ensayo antes).
 - **El `CLAUDE.md` del ticket.** Lo llena con el objetivo, los criterios, el alcance, las preguntas por fijar con el líder, los docs de dominio que toca y los candidatos a graduar de tickets hermanos. Te lo muestra antes de escribirlo.
+- **Si el ticket es grande**, suma sus Specs (tu pedido tal cual, numerado) y sus Tareas. Si usas el ODD de gentle-ai, ese ticket es su documento de feature: no se crea otro en `odd/tasks/`.
 - **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú.
 - **Al final** te dice cómo abrir la sesión del ticket con `--add-dir`.
 

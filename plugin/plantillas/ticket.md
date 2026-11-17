@@ -36,6 +36,23 @@
 - Dependencias o bloqueos: <…>
 - Paso 0 de diseño: <hermano vigente y consumidor de cada dato nuevo, antes de escribir código>
 
+## Specs
+
+Solo para un ticket grande: el que no cabe en una sesión, espera algo externo o trae entregas separadas.
+En uno chico, `/odd-ws:abrir` quita esta sección y la de Tareas. Cada S# cita el pedido tal cual,
+numerado y sin resumirlo; lo que no sale de una cita va marcado como supuesto.
+
+- S1: «<el pedido, tal cual>»
+
+## Tareas
+
+Solo para un ticket grande. Una línea por tarea, con sus S#, su ruta (en la sesión o con un writer) y
+el commit que la contiene.
+
+| ID | Specs | Qué | Ruta | Estado | Commit |
+|---|---|---|---|---|---|
+| T1 | S1 | <qué> | en la sesión | pendiente | |
+
 ## Decisiones
 
 - <fecha> — <decisión tomada> — <por qué>
@@ -46,6 +63,10 @@
 
 ## Bitácora
 
+Hace de Log de ODD: la primera entrada lleva el pedido tal cual, y después van las correcciones, las
+decisiones y lo que sigue.
+
+- <fecha> — el pedido, tal cual: «<…>»
 - <fecha> — <qué se hizo, qué sigue>
 
 ## Candidatos a graduar
