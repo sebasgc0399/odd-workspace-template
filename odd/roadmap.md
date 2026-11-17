@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I8 y R4.
+Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I12 y R4.
 
 ## Cómo se mueve
 
@@ -18,7 +18,7 @@ Actualizado: 2026-11-17, con la `0.8.0`, las ideas I1 a I8 y R4.
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
 | R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | siguiente |
-| R4 | La experiencia del primer uso: el bootstrap en una sola propuesta, con la detección por script (I8), y la sesión del ticket en VS Code (I7). | [Ideas](#ideas), I7 e I8 | en cola |
+| R4 | La experiencia del primer uso, de la instalación al primer ticket: el bootstrap en una sola propuesta (I8), el hook en LF (I9), la autoridad según de quién es el repo (I10), el siguiente paso al cerrar el bootstrap (I11), el id del ticket sin tracker (I12) y la sesión del ticket en VS Code (I7). | [Ideas](#ideas), I7 a I12 | en cola |
 | R3 | Soporte para OpenCode (F3), Gemini CLI (F4) y Copilot CLI (F5), a partir del estudio de align-cli guardado en engram (`odd-ws/estudio-align-cli`). | [multi-host](tasks/multi-host.md), F3 a F5 | en cola |
 
 ## Esperando
@@ -41,7 +41,11 @@ Cada idea lleva su fuente (del autor, un video o un proyecto, con su enlace), la
 | I5 | 2026-11-17 | [Video de RDD](https://www.youtube.com/watch?v=t_HEm1om2Ek) | Un interruptor por hook en `workspace.config.json`. | El kill switch de RDD: apagar `revisar_turno`, que suma unos 400 ms por prompt, sin desinstalar el plugin. | nueva |
 | I6 | 2026-11-17 | [Libro de Gentleman](https://the-amazing-gentleman-programming-book.vercel.app/en), cap. 20 | Clasificar las memorias en hechos, decisiones y comportamientos. | La regla del capítulo, en la que los hechos van a la búsqueda, las decisiones a la memoria y los comportamientos a las skills, aplicada en `cerrar memorias` para elegir el destino de cada una. | nueva |
 | I7 | 2026-11-17 | Del autor, al abrir una instancia desde la extensión de VS Code | En VS Code, la sesión de un ticket se abre con la carpeta del ticket como directorio principal. | Claude Code lee el `.claude/settings.json` compartido solo del directorio principal, y la extensión toma como principal la primera carpeta del `.code-workspace`: no está documentado, pero `/status` lo mostró el 2026-11-17. odd-ws solo documenta `claude --add-dir`. Primer paso: probar si `/cd <ticket>` recarga el plugin; si no lo hace, `abrir` genera un `.code-workspace` por ticket, con el ticket primero y los repos después. | en la cola (R4) |
-| I8 | 2026-11-17 | Del autor, al correr `/odd-ws:bootstrap` en una instancia nueva | El bootstrap en una sola parada: una propuesta completa junto con el ensayo, y un sí la aplica. | Hoy la entrevista hace una pregunta por paso, y en una instancia nueva fueron seis paradas, todas con «sí». Se recicla: `bootstrap.py --proponer`, que lee el `.code-workspace` y cuenta las extensiones con `git ls-files`; el criterio de capas en la skill, una por tecnología y con su costo real según `revisar`; un resumen agrupado del ensayo; y el cierre con el primer commit listo para copiar y el siguiente paso. | en la cola (R4) |
+| I8 | 2026-11-17 | Del autor, al correr `/odd-ws:bootstrap` en una instancia nueva | El bootstrap en una sola parada: una propuesta completa junto con el ensayo, y un sí la aplica. | Hoy la entrevista hace una pregunta por paso, y en una instancia nueva fueron seis paradas, todas con «sí». Se recicla: `bootstrap.py --proponer`, que lee el `.code-workspace`, cuenta las extensiones con `git ls-files` y propone `knowledge.docs` si el repo tiene una carpeta de docs; el criterio de capas en la skill, una por tecnología y con su costo real según `revisar`; y un resumen agrupado del ensayo. | en la cola (R4) |
+| I9 | 2026-11-17 | Del autor, en el primer commit de una instancia nueva | El bootstrap crea un `.gitattributes` que deja `.githooks/*` en LF, y el doctor lo revisa en las instancias que ya existen. | Git para Windows trae `core.autocrlf=true`: al volver a clonar la instancia, el `pre-commit` quedaría en CRLF y `sh` falla. El repo de odd-ws ya se protege con `* text=auto eol=lf`, pero la instancia no. | en la cola (R4) |
+| I10 | 2026-11-17 | Del autor, en el bootstrap y al abrir el primer ticket | La autoridad depende de quién es el repo: en la instancia, y en un repo de código marcado como propio, el agente commitea y crea el worktree sin pedir cada paso. Un interruptor en `workspace.config.json` vuelve a pedir aprobación. | Hoy el bootstrap prohíbe el primer commit («El primer commit es del usuario»), mientras `cerrar` ya commitea en la instancia, y `abrir` trata todo repo como del equipo y le pasa los comandos del worktree al usuario. Límites: `git add` solo por ruta explícita, nunca push, y en los repos del equipo solo lectura. Con el bootstrap commiteando desaparecen el chmod y el `git add` archivo por archivo. | en la cola (R4) |
+| I11 | 2026-11-17 | Del autor, al terminar el bootstrap | El bootstrap cierra con el siguiente paso concreto: abrir el primer ticket con `/odd-ws:abrir`. | Arrancar con la matriz vacía es lo normal, porque las reglas nacen al cerrar tickets. Sin ese paso, el agente improvisó «cargá las reglas» a mano. Se mencionan los atajos `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`. | en la cola (R4) |
+| I12 | 2026-11-17 | Del autor, al abrir el primer ticket sin tracker | Sin tracker, `abrir` propone el siguiente id consecutivo con un prefijo fijado en el bootstrap (`T-1`, `T-2`…). | `abrir` da por hecho que el id sale de un tracker, y quien trabaja solo tuvo que inventar la convención en ese momento. | en la cola (R4) |
 
 ## Seguimientos
 
