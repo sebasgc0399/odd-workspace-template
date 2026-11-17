@@ -164,7 +164,7 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
    git reset -q -- ':/<ruta>'
    ```
 
-4. Mostrá el `status` otra vez, con lo stageado a la izquierda, y **pedí el sí para el commit**. Con el sí, un mensaje convencional:
+4. Mostrá el `status` otra vez, con lo stageado a la izquierda, y **commiteá sin volver a preguntar**: el sí del paso 4 ya cubrió el commit, y en la raíz de la instancia el agente commitea sin pedir aprobación. Solo si `workspace.config.json` dice `"ask_before_commit": true`, pedí el sí antes. Nunca hagas push. Un mensaje convencional:
 
    ```bash
    git commit -m "chore(<id>): cierre e hidratación"
@@ -266,7 +266,7 @@ Después pedí un sí explícito. Si el usuario aprueba solo algunos, descarta o
 
 ### M5. El commit
 
-Como en el paso 9: el `status`, el `git add` explícito y anclado con `:/` de lo que tocó este modo (la matriz, los destinos y `evidencia.md`), y el sí. El registro local está fuera del repo y no entra.
+Como en el paso 9: el `status`, el `git add` explícito y anclado con `:/` de lo que tocó este modo (la matriz, los destinos y `evidencia.md`), y el commit sin volver a preguntar, salvo con `"ask_before_commit": true`. El registro local está fuera del repo y no entra.
 
 ```bash
 git commit -m "chore(reglas): gradúa memorias del proyecto"

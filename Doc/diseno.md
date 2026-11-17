@@ -877,6 +877,7 @@ Es el ritual de apertura de un ticket: que el trabajo arranque con el alcance en
 - **Los docs de dominio** se mapean por el índice de `knowledge` (`docs` e `index`), sin leerlos todos, con la razón de cada uno.
 - **Los candidatos de los tickets hermanos** se buscan en sus secciones «Candidatos a graduar» y se listan en «Contexto técnico» con su ticket de origen. No se copian a la sección propia, porque siguen siendo del ticket que los anotó y `graduado` exige esa sección vacía.
 - **El worktree:** pregunta si va en un worktree o en el árbol principal y da el comando exacto (`git -C <repo> worktree add --no-track …` o `git -C <repo> switch --no-track -c …`). Con `--no-track`, una base remota no queda como upstream de la rama nueva. Los comandos en los repos del equipo los corre el usuario.
+  - **Un repo con `"own": true`** (I10) es del usuario: la skill corre ella misma el `fetch` y el `worktree add`, y muestra lo que salió. Solo el worktree, nunca un `switch` en el árbol principal, que además frena el guard de comandos; y ni ahí commitea ni hace push.
 - **El Paso 0** (hermano vigente y consumidor de cada dato nuevo) se recuerda y queda escrito en el ticket antes de cualquier código; si todavía no se sabe, queda pendiente.
 - **Mostrar antes de escribir:** el contenido del ticket se muestra junto y se escribe solo con el sí. Cierra con los pasos que siguen: `/odd-ws:revisar` antes de cada commit y `/odd-ws:cerrar` al terminar.
 
@@ -922,7 +923,7 @@ Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: 
   - Estado no se toca, salvo que cambie la entrega;
   - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado».
 - **Después de editar los docs**, corre `conocimiento.py`.
-- **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado, un `git add` explícito anclado con `:/` (nunca `-A`) y el sí. El worktree lo desarma el usuario, y la rama no se borra.
+- **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado y un `git add` explícito anclado con `:/` (nunca `-A`). No pide un segundo sí, porque el de la propuesta ya lo cubre (I10); con `"ask_before_commit": true`, sí lo pide. Nunca hace push. El worktree lo desarma el usuario, y la rama no se borra.
 - **Las memorias sin triar:** al final, una línea con cuántas quedan, sin triarlas (ver «Memorias»).
 - **Fuera de la T9:**
   - el chequeo mecánico de «graduado ⇒ candidatos vacíos», que la skill pide en prosa;

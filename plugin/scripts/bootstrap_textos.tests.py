@@ -206,6 +206,14 @@ def test_la_raiz_dice_como_sumar_los_repos_a_la_sesion_del_ticket():
     assert "«Worktree y rama»" in contexto
 
 
+def test_la_raiz_dice_quien_commitea_en_la_instancia_y_que_hace_el_agente_en_un_repo_propio():
+    texto = textos()["CLAUDE.md"]
+    seccion = " ".join(texto.split("## Repos del equipo")[1].split("\n## ")[0].split())
+    assert "sin preguntar" in seccion and '"ask_before_commit": true' in seccion and "nunca push" in seccion, seccion
+    assert '"own": true' in seccion and "worktree" in seccion, seccion
+    assert "autorizan puntualmente" in seccion, seccion
+
+
 def test_la_raiz_dice_que_ajusta_del_odd_de_gentle_ai():
     texto = textos()["CLAUDE.md"]
     seccion = " ".join(texto.split("## Si también usas gentle-ai")[1].split("\n## ")[0].split())

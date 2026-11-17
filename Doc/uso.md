@@ -136,7 +136,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **La carpeta.** Propone el id y el slug, y con tu sí crea la carpeta desde la plantilla (`ticket.py`, con ensayo antes). Sin tracker, el id es el siguiente consecutivo del prefijo de `tickets` (`ticket.py --siguiente`), contando también los tickets archivados, así que nunca repite un número.
 - **El `CLAUDE.md` del ticket.** Lo llena con el objetivo, los criterios, el alcance, las preguntas por fijar con el líder, los docs de dominio que toca y los candidatos a graduar de tickets hermanos. Te lo muestra antes de escribirlo.
 - **Si el ticket es grande**, suma sus Specs (tu pedido tal cual, numerado) y sus Tareas. Si usas el ODD de gentle-ai, ese ticket es su documento de feature: no se crea otro en `odd/tasks/`.
-- **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú.
+- **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú. En un repo marcado como tuyo (`"own": true` en `workspace.config.json`), corre él mismo el `fetch` y crea el worktree; no commitea ni hace push ahí.
 - **Al final** te dice cómo abrir la sesión del ticket con `--add-dir`.
 
 ### `/odd-ws:revisar`
@@ -155,7 +155,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **El triaje de los aprendizajes.** Lee el ticket y decide qué pasa con cada aprendizaje: lo general sube a los docs de dominio, al `CLAUDE.md` de la raíz o a una fila de la matriz; lo de un solo ticket se queda en su carpeta.
 - **Antes de escribir** te muestra la propuesta completa y espera tu sí.
 - **El modo sombra.** Si hay un caso sin puntuar, frena y te manda primero a `/odd-ws:eval-reviewers`.
-- **Al final** te guía para desarmar el worktree y deja el commit de cierre (`chore(<id>): cierre e hidratación`), con un segundo sí.
+- **Al final** te guía para desarmar el worktree y hace el commit de cierre (`chore(<id>): cierre e hidratación`) sin volver a preguntar, porque tu sí a la propuesta ya lo cubría. Con `"ask_before_commit": true` en la config, te pide un segundo sí antes del commit. Nunca hace push.
 - **Las memorias sin triar.** Cierra con una línea: «N memorias sin triar: `/odd-ws:cerrar memorias`». No las tría ni frena el cierre.
 
 #### El modo `memorias`

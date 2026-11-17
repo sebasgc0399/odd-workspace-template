@@ -43,7 +43,7 @@ La clave `tickets` también es opcional: el prefijo de los ids de los tickets cu
 Dos claves más, opcionales, sobre qué hace el agente sin preguntar:
 
 - **`ask_before_commit`:** en la instancia, el agente commitea sin pedir aprobación (el primer commit del bootstrap, y los de las skills). Con `"ask_before_commit": true`, pide el sí antes de cada uno. Preguntala solo si el usuario quiere aprobar cada commit.
-- **`own` de cada repo:** `"repos": {"<repo>": {"own": true}}` marca un repo como del usuario, que nadie más trabaja. Preguntá si cada repo es suyo o del equipo. No va junto con `agent_readonly`.
+- **`own` de cada repo:** `"repos": {"<repo>": {"own": true}}` marca un repo como del usuario, que nadie más trabaja: con ella, `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. Preguntá si cada repo es suyo o del equipo. No va junto con `agent_readonly`.
 
 ## 3. La spec
 

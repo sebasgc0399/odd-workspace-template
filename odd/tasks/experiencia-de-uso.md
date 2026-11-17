@@ -28,8 +28,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T1 | S2 | `.gitattributes` del bootstrap y chequeo del doctor | inline | hecho | `b49732b` |
 | T2 | S9 | Plantilla del ticket compatible con ODD | inline | hecho | `6d34d60` |
 | T3 | S6 | Id consecutivo sin tracker | inline | hecho | `5185e0d` |
-| T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | el commit que suma L13 |
-| T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | pendiente | |
+| T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | `9798504` |
+| T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | hecho | el commit que suma L15 |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | pendiente | |
 | T6 | S7 | Ticket activo y sesión del ticket | inline | pendiente | |
 | T7 | S8 | Memorias de los repos | inline | pendiente | |
@@ -79,3 +79,12 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Un error de proceso: edité tests de T4a mientras corría el pre-commit de T3. Lo arreglé devolviendo los archivos a su versión del índice con `git show`, y el commit de T3 salió limpio.
   - Risk: item 2. Cambia lo que el agente hace sin preguntar. Lleva verificador independiente, que corre después de T4b sobre T4 completo.
 - **L14 (2026-11-17), lo siguiente:** T4b.
+- **L15 (2026-11-17), T4b hecho.**
+  - `cerrar` ya no pide un segundo sí antes del commit, porque el sí de la propuesta lo cubre. Vale para el commit de cierre y para el del modo `memorias`. Con `ask_before_commit: true` lo pide, y nunca hace push.
+  - `abrir`, en un repo con `"own": true`, corre él mismo el `fetch` y el `worktree add`. Solo el worktree, porque el guard de comandos ya frena `switch` y `checkout` en el árbol del usuario. Ni ahí commitea ni hace push.
+  - El `CLAUDE.md` de la instancia dice las dos cosas en «Autoridad de commit».
+  - Rojo: bootstrap_textos 25/26.
+  - Verde: bootstrap_textos 26/26 y bootstrap_e2e 14/14. El `CLAUDE.md` queda en 144 líneas.
+  - Docs: `Doc/uso.md`, `Doc/diseno.md` y las skills `abrir`, `cerrar` y `bootstrap`.
+  - Risk: item 2, igual que T4a. Sigue el verificador independiente sobre T4 completo, con `5185e0d` como base.
+- **L16 (2026-11-17), lo siguiente:** el verificador de T4 y después T5.

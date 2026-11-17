@@ -48,10 +48,13 @@ editar fuera de la carpeta del ticket.
 El código vive en los repos declarados en `workspace.config.json`; sus rutas en esta máquina, en
 `workspace.local.json` (ignorado por git).
 
-- **Autoridad de commit, asimétrica a propósito.** Un «commitea» abierto da libertad en esta raíz
-  (repo propio, reversible). **Nunca se extiende a los repos del equipo:** ahí cada commit y cada push se
-  autorizan puntualmente, aunque se haya dicho antes en la sesión. El default es que los commitea el
+- **Autoridad de commit, asimétrica a propósito.** En esta raíz (repo propio, reversible) el agente
+  commitea sin preguntar, con `git add` por ruta explícita y nunca push, salvo que la config diga
+  `"ask_before_commit": true`. **Nunca se extiende a los repos del equipo:** ahí cada commit y cada push
+  se autorizan puntualmente, aunque se haya dicho antes en la sesión. El default es que los commitea el
   usuario a mano. El merge a la rama principal lo autoriza un líder.
+- **Un repo con `"own": true`** en la config es del usuario: ahí el agente corre el `fetch` y crea el
+  worktree del ticket. Sus commits y sus push siguen siendo puntuales.
 - **`push` siempre con destino explícito** (`git push -u origin <rama-del-ticket>`, nunca a secas).
   Verificar la rama no alcanza: hay que verificar el upstream.
 - **`git fetch` antes de afirmar nada sobre el código** del repo.

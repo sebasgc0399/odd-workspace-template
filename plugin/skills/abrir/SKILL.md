@@ -12,7 +12,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 
 1. **Nada se escribe antes del sí.** La carpeta se crea con el sí del paso 2, y el contenido del ticket se escribe con el sí del paso 8. Mostrar primero, escribir después.
 2. **Nada se asume.** Si algo del pedido no está claro, queda como pregunta en el ticket. En particular, todo «X o Y» del pedido es una pregunta por fijar con el líder antes de codear, no una elección tuya.
-3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. Lo único que escribe es la carpeta del ticket.
+3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. Lo único que escribe es la carpeta del ticket. La excepción es un repo con `"own": true` en `workspace.config.json`, que es del usuario: ahí la skill corre ella misma el `fetch` y crea el worktree (paso 6). Ni ahí commitea ni hace push.
 4. **No hay contrato con el tracker.** Si esta sesión tiene una herramienta (MCP) del tracker del usuario, se usa para leer el pedido; si no, el usuario lo pega.
 5. **Cuando el glob de un id encuentra más de una carpeta, las listás y preguntás.** Nunca elegís una vos. Con ids que llevan guion, la carpeta de `AB-CD-x` también aparece en el glob del id `AB`.
 
@@ -102,6 +102,8 @@ Preguntale al usuario si el trabajo va en un **worktree** o en el **árbol princ
   ```
 
 La ruta de `<repo>` sale de `workspace.local.json` (`repos.<repo>.path`). Proponé la rama (por ejemplo, `feat/<id>-<slug>`), y preguntá por la `<base>`: la rama de integración del repo. Si el `origin` puede estar atrasado, proponé el `git fetch` de ese repo, que corre el usuario porque habla con el remoto. Si la rama ya existe, el comando falla y no pisa nada: se elige otro nombre o se retoma esa rama.
+
+**En un repo con `"own": true`**, no le pases los comandos: con su respuesta, corré vos `git -C <repo> fetch` y después el `worktree add`, y mostrá lo que salió. Solo el worktree: el árbol principal sigue siendo del usuario, porque cambiar su rama puede pisar trabajo sin commitear (el guard de comandos también lo frena). Si el comando falla, mostrá el error y no lo reintentes con otra forma.
 
 La respuesta va a «Contexto técnico», en `Worktree y rama:`: la ruta y la rama, o «árbol principal» y la rama.
 
