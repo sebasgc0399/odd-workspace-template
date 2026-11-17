@@ -31,8 +31,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | `9798504` |
 | T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | hecho | `c82376e` |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | `fd45a3c` |
-| T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | el commit que suma L21 |
-| T7 | S8 | Memorias de los repos | inline | pendiente | |
+| T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | `2dac068` |
+| T7 | S8 | Memorias de los repos | inline | hecho | el commit que suma L23 |
 | T8 | S10 | Estudio del arranque en frío | inline, solo lectura | pendiente | |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
@@ -141,3 +141,15 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Docs: `Doc/diseno.md` («Primer toque» y «Tickets»), `Doc/uso.md` y las skills `abrir` y `cerrar`.
   - Risk: none. La inyección solo lee un archivo de la instancia y la valida (bajo `tickets/`, sin `..`, con su `CLAUDE.md`); sin marca, el inicio sigue callado, como fija el test de la config sana.
 - **L22 (2026-11-17), lo siguiente:** T7.
+- **L23 (2026-11-17), T7 hecho.**
+  - `memorias.py --repo <nombre>` lee la memoria del proyecto de un repo de la config.
+    - Su carpeta sale de la ruta del repo, sin el `CLAUDE_CODE_PROJECT_DIR_NAME` de la sesión, que nombra a la instancia.
+    - Usa el registro local del proyecto del repo.
+    - Solo cuenta como `graduada` lo que la matriz cita como `memoria:<repo>.<slug>`. El validador de la matriz ya aceptaba el punto.
+    - No va junto con `--memorias`.
+  - `cerrar memorias` corre `memorias.py` por cada repo y repite `mem_current_project` en engram con la ruta de cada repo.
+  - Un cuidado: sumar `"repo": null` a la cobertura de siempre rompía dos tests que fijan el JSON exacto. Por eso la clave aparece solo con `--repo`, y la salida de siempre no cambia.
+  - Rojo: memorias 34/38. Verde: memorias 38/38 y matriz 60/60.
+  - Docs: `Doc/diseno.md` («Memorias»), `Doc/uso.md` y la skill `cerrar`, con `<repo>` sumado a los sustitutos del test que valida sus comandos.
+  - Risk: none. Es una opción nueva de solo lectura, y la salida sin ella es la misma.
+- **L24 (2026-11-17), lo siguiente:** T8, el estudio del arranque en frío, que vuelve al autor antes de implementarse.

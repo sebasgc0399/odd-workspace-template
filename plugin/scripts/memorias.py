@@ -18,7 +18,7 @@ from odd_ws.capacidades import SOPORTADO
 from odd_ws.comun import raiz_de_instancia
 from odd_ws.hosts import NOMBRES, adaptador
 from odd_ws.hosts.base import SinMemorias
-from odd_ws.hosts.claude_code import nombre_de_proyecto, raiz_del_proyecto
+from odd_ws.hosts.claude_code import NOMBRE_PROPIO, nombre_de_proyecto, raiz_del_proyecto
 
 INDICE = "MEMORY.md"
 POR_DEFECTO = ("feedback",)
@@ -284,7 +284,7 @@ def estado_de(memoria, entrada):
     return next(estado for estado in PRECEDENCIA if aplica[estado])
 
 
-def analizar(directorio, citas, avisos_de_la_matriz, tipos, host, registradas=None):
+def analizar(directorio, citas, avisos_de_la_matriz, tipos, host, registradas=None, repo=None):
     archivos = enumerar(directorio.ruta)
     memorias, excluidas = [], {OPCIONAL: 0, **{tipo: 0 for tipo in NUNCA}, OTROS: 0}
     for archivo in archivos:
@@ -297,14 +297,30 @@ def analizar(directorio, citas, avisos_de_la_matriz, tipos, host, registradas=No
         registro["estado"] = estado_de(registro, (registradas or {}).get(registro["slug"]))
         memorias.append(registro)
     cobertura = {"estado": "completa", "total": len(archivos), "directorio": str(directorio.ruta), "origen": directorio.origen,
-                 "fuente": directorio.fuente, "detalle": directorio.detalle}
+                 "fuente": directorio.fuente, "detalle": directorio.detalle, **({"repo": repo} if repo else {})}
     return {"host": host, "cobertura": cobertura, "tipos": list(tipos), "memorias": memorias, "excluidas": excluidas,
             "avisos": revisar_indice(directorio.ruta, archivos, {registro["archivo"] for registro in memorias}) + avisos_de_la_matriz}
 
 
-def no_disponible(host, nota, tipos):
-    return {"host": host, "cobertura": {"estado": "no disponible", "motivo": nota}, "tipos": list(tipos), "memorias": None,
-            "excluidas": None, "avisos": []}
+def no_disponible(host, nota, tipos, repo=None):
+    return {"host": host, "cobertura": {"estado": "no disponible", "motivo": nota, **({"repo": repo} if repo else {})}, "tipos": list(tipos),
+            "memorias": None, "excluidas": None, "avisos": []}
+
+
+def ruta_del_repo(raiz, nombre):
+    try:
+        repos = config_loader.cargar(raiz)["repos"]
+    except config_loader.ConfigRota as error:
+        raise ErrorDeEntorno("%s roto: %s" % (config_loader.NOMBRE, error))
+    if nombre not in repos:
+        conocidos = ", ".join(sorted(repos)) or "no declara ninguno"
+        raise ErrorDeEntorno("el repo %r no está en %s (los repos son: %s)" % (nombre, config_loader.NOMBRE, conocidos))
+    return Path(repos[nombre]["path"])
+
+
+def citas_del_repo(citas, nombre):
+    prefijo = nombre + "."
+    return {slug[len(prefijo):]: filas for slug, filas in citas.items() if slug.startswith(prefijo)}
 
 
 def _celdas(registro):
@@ -364,7 +380,11 @@ def construir_parser():
                                 description="Lista las memorias del proyecto como candidatas a graduar a la matriz. "
                                             "Solo escribe con --registrar, y solo en el registro local.",
                                 epilog="Estados, del que más pesa al que menos: %s." % ", ".join(PRECEDENCIA))
-    p.add_argument("--memorias", metavar="DIR", help="directorio de memoria (por defecto, el que resuelve el host)")
+    fuente = p.add_mutually_exclusive_group()
+    fuente.add_argument("--memorias", metavar="DIR", help="directorio de memoria (por defecto, el que resuelve el host)")
+    fuente.add_argument("--repo", metavar="NOMBRE",
+                        help="lee las memorias del proyecto de ese repo de la config, en vez de las de la instancia; "
+                             "en la matriz, su origen es memoria:<repo>.<slug>")
     p.add_argument("--raiz", help="raíz de la instancia (por defecto, la de la sesión)")
     p.add_argument("--host", choices=sorted(NOMBRES), default=HOST_POR_DEFECTO, help="CLI cuya memoria se lee (por defecto, claude-code)")
     p.add_argument("--con-project", action="store_true", help="suma las memorias de tipo project; user y reference nunca entran")
@@ -397,16 +417,20 @@ def main(argv=None, entorno=None):
             if opcion:
                 raise ErrorDeEntorno("en %s la memoria de Claude Code está %s (%s): %s vale con --host claude-code"
                                      % (args.host, estado, nota, opcion))
-            informe = no_disponible(args.host, nota, tipos)
+            informe = no_disponible(args.host, nota, tipos, args.repo)
         else:
             raiz = _raiz(args, entorno)
-            directorio = _directorio(elegido, args, entorno, raiz)
+            fuente = ruta_del_repo(raiz, args.repo) if args.repo else raiz
+            entorno_de_la_fuente = {k: v for k, v in entorno.items() if k != NOMBRE_PROPIO} if args.repo else entorno
+            directorio = _directorio(elegido, args, entorno_de_la_fuente, fuente)
             citas, avisos = graduaciones(raiz)
-            ruta = ruta_del_registro(entorno, raiz, args.registro)
+            if args.repo:
+                citas = citas_del_repo(citas, args.repo)
+            ruta = ruta_del_registro(entorno, fuente, args.registro)
             registradas = leer_registro(ruta)
             if args.registrar:
                 registradas = registrar(ruta, registradas, directorio, args.registrar, args.como, date.today().isoformat())
-            informe = analizar(directorio, citas, avisos, tipos, args.host, registradas)
+            informe = analizar(directorio, citas, avisos, tipos, args.host, registradas, args.repo)
             registro_local = None if registradas is None else (ruta, len(registradas))
     except (ErrorDeEntorno, SinMemorias) as exc:
         print("memorias: %s" % exc, file=sys.stderr)

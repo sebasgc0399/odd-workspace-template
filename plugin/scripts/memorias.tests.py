@@ -36,7 +36,7 @@ CASA_IMPOSIBLE = str(Path(__file__).resolve() / "casa")
 FECHA_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 SKILL_CERRAR = AQUI.parent / "skills" / "cerrar" / "SKILL.md"
 MARCADOR_RE = re.compile(r"<[^<>\s]+>")
-SUSTITUTOS = {"<dir>": "/home/u/memoria", "<slug>": "a"}
+SUSTITUTOS = {"<dir>": "/home/u/memoria", "<slug>": "a", "<repo>": "app"}
 OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 CODIGO_RE = re.compile(r"`([^`\n]+)`")
 RUTA_JSON_RE = re.compile(r"([a-z_]+)\.([a-z_]+)")
@@ -804,6 +804,75 @@ def test_un_cuerpo_que_cambia_sin_tocar_modified_sigue_vista_porque_solo_se_comp
         assert estados(raiz, carpeta, registro) == {"a": "vista"}, "el límite documentado: sin otro modified no vuelve"
         escribir(carpeta / "a.md", memoria(modificada="2026-11-20T08:00:00Z"))
         assert estados(raiz, carpeta, registro) == {"a": "cambiada"}
+
+
+def cc():
+    import odd_ws.hosts.claude_code as modulo
+    return modulo
+
+
+def instancia_con_repo(base, filas=(), repo="app"):
+    raiz = Path(base) / "instancia"
+    ruta = Path(base) / "repos" / repo
+    ruta.mkdir(parents=True)
+    escribir(raiz / "workspace.config.json", json.dumps({"schema_version": 1, "repos": {repo: {}}, "layers": CAPAS}))
+    escribir(raiz / "workspace.local.json", json.dumps({"repos": {repo: {"path": str(ruta)}}}))
+    escribir(raiz / MATRIZ, matriz_csv(filas))
+    return raiz, ruta
+
+
+def memorias_del_proyecto(config, ruta, archivos):
+    carpeta = Path(config) / "projects" / cc().nombre_de_proyecto(cc().raiz_del_proyecto(ruta)) / "memory"
+    return memorias(carpeta.parent, archivos, nombre="memory")
+
+
+def test_repo_lee_las_memorias_del_proyecto_del_repo_y_cita_con_su_prefijo():
+    with temporal() as base:
+        raiz, repo = instancia_con_repo(base, [fila("SQL-01", "memoria:app.regla-uno")])
+        config = base / "config"
+        carpeta = memorias_del_proyecto(config, repo, {"regla-uno.md": memoria(), "regla-dos.md": memoria()})
+        memorias_del_proyecto(config, raiz, {"de-la-instancia.md": memoria()})
+        entorno = {"CLAUDE_CONFIG_DIR": str(config), "CLAUDE_CODE_PROJECT_DIR_NAME": "otro-nombre"}
+        datos = json_de("--raiz", str(raiz), "--repo", "app", entorno=entorno)
+        assert {s: r["estado"] for s, r in por_slug(datos).items()} == {"regla-uno": "graduada", "regla-dos": "nueva"}, datos
+        assert por_slug(datos)["regla-uno"]["filas"] == ["SQL-01"]
+        assert datos["cobertura"]["directorio"] == str(carpeta) and datos["cobertura"]["repo"] == "app", datos["cobertura"]
+        assert "repo" not in json_de("--raiz", str(raiz), "--memorias", str(carpeta))["cobertura"], "sin --repo, el JSON no cambia"
+
+
+def test_repo_no_confunde_una_cita_de_la_instancia_con_una_del_repo():
+    with temporal() as base:
+        raiz, repo = instancia_con_repo(base, [fila("SQL-01", "memoria:regla-uno"), fila("SQL-02", "memoria:otro.regla-uno")])
+        config = base / "config"
+        memorias_del_proyecto(config, repo, {"regla-uno.md": memoria()})
+        datos = json_de("--raiz", str(raiz), "--repo", "app", entorno={"CLAUDE_CONFIG_DIR": str(config)})
+        assert por_slug(datos)["regla-uno"]["estado"] == "nueva" and por_slug(datos)["regla-uno"]["filas"] == [], datos
+        instancia_sola = memorias(base, {"regla-uno.md": memoria()}, nombre="memoria-instancia")
+        assert por_slug(json_de("--raiz", str(raiz), "--memorias", str(instancia_sola)))["regla-uno"]["filas"] == ["SQL-01"]
+
+
+def test_repo_registra_lo_visto_en_el_registro_de_su_proyecto():
+    with temporal() as base:
+        raiz, repo = instancia_con_repo(base)
+        config = base / "config"
+        memorias_del_proyecto(config, repo, {"regla-dos.md": memoria()})
+        casa = base / "casa"
+        entorno = {"CLAUDE_CONFIG_DIR": str(config), "HOME": str(casa), "USERPROFILE": str(casa)}
+        codigo, salida, error = correr("--raiz", str(raiz), "--repo", "app", "--registrar", "regla-dos", "--como", "vista", entorno=entorno)
+        assert codigo == 0, (codigo, salida, error)
+        registros = casa / ".odd-ws" / "memorias"
+        assert (registros / (cc().nombre_de_proyecto(cc().raiz_del_proyecto(repo)) + ".json")).is_file()
+        assert not (registros / (cc().nombre_de_proyecto(cc().raiz_del_proyecto(raiz)) + ".json")).exists()
+        assert por_slug(json_de("--raiz", str(raiz), "--repo", "app", entorno=entorno))["regla-dos"]["estado"] == "vista"
+
+
+def test_repo_desconocido_o_junto_a_memorias_sale_con_dos():
+    with temporal() as base:
+        raiz, _ = instancia_con_repo(base)
+        codigo, salida, error = correr("--raiz", str(raiz), "--repo", "web")
+        assert codigo == 2 and "web" in error and "app" in error and salida == "", (codigo, error)
+        codigo, _, error = correr("--raiz", str(raiz), "--repo", "app", "--memorias", str(base))
+        assert codigo == 2 and "--repo" in error, error
 
 
 def main():

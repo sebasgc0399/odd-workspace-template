@@ -184,7 +184,7 @@ El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, 
 
 ## Modo memorias
 
-`/odd-ws:cerrar memorias` gradúa a la matriz las reglas que ya están en las memorias del proyecto. Tiene dos fuentes: la memoria en archivos de Claude Code, que lee `memorias.py`, y engram, opcional, que consultás vos.
+`/odd-ws:cerrar memorias` gradúa a la matriz las reglas que ya están en las memorias del proyecto. Tiene dos fuentes: la memoria en archivos de Claude Code, que lee `memorias.py`, y engram, opcional, que consultás vos. Las dos se miran para la instancia y para cada repo de la config, porque lo que se guardó trabajando dentro de un repo vive en el proyecto de ese repo.
 
 ### Qué reusa del cierre y qué salta
 
@@ -219,6 +219,13 @@ python3 "<S>/memorias.py" --json --memorias "<dir>"
 - **En Codex,** `--host codex` en lugar de `--memorias`. Sale con 0 y `cobertura.estado` `no disponible`: decilo en una línea («memoria en archivos: no disponible en Codex») y seguí con engram (M2).
 - **Si sale con 2,** mostrá el motivo, que va por stderr, y frená el modo. Nunca digas «no hay memorias»: el script no pudo mirar.
 - **Por defecto entran solo las `feedback`.** Las `project` se cuentan en `excluidas.project`, y entran solo si el usuario las pide, con `--con-project`.
+- **Los repos de la config también tienen memorias.** Lo que se guardó trabajando dentro de un repo vive en el proyecto de ese repo, no en el de la instancia. Corré también, por cada repo de `workspace.config.json`:
+
+  ```bash
+  python3 "<S>/memorias.py" --json --repo <repo>
+  ```
+
+  Su cobertura dice de qué repo son. Lo que gradúes de ahí lleva el origen `memoria:<repo>.<slug>`, para no chocar con una memoria de la instancia del mismo nombre, y si registrás una como vista o descartada, va con el mismo `--repo`.
 - **Cada memoria del JSON** trae `slug`, `tipo`, `descripcion`, `estado` y `filas` (los IDs de la matriz que la citan). Los candidatos salen de las `nueva` y las `cambiada`. Las `graduada`, `vista` y `descartada` no se vuelven a proponer, y una `ilegible` se nombra con su `motivo`, sin proponerla. Los `avisos` (huérfanas, links rotos, filas de la matriz con errores) se muestran tal cual.
 
 ### M2. engram, opcional
@@ -227,6 +234,7 @@ Lo consultás vos, no el script.
 
 - **Buscá las herramientas antes de darlas por ausentes.** En Claude Code, las `mem_*` pueden llegar diferidas: buscalas con ToolSearch (por ejemplo, `mem_search`). Solo si después de buscarlas no aparecen: «engram: no disponible», y seguí.
 - **Primero, `mem_current_project`,** con la raíz de la instancia como `cwd` (o `directory`) si su schema lo acepta. Si la `path` que devuelve no es la de la instancia, o el proyecto sale ambiguo (con `available_projects` o con la fuente `ambiguous`) o vacío, decilo y omití engram. No adivines el proyecto.
+- **Los repos de la config tienen su propio proyecto en engram.** Repetí `mem_current_project` con la ruta de cada repo como `cwd`, con la misma regla: si la `path` que devuelve no es la del repo, o sale ambiguo o vacío, omitilo. Lo que se gradúe de ahí sigue con el origen `memoria:engram-<sync_id>`, porque el `sync_id` ya es único.
 - **Después, `mem_search`** con ese `project`, `scope: "project"` y `limit: 20`. Nunca `scope: "personal"` ni `all_projects`. Hacé una consulta por capa de la instancia y por tema (una convención, un error que se repitió). Para leer una observación entera, `mem_get_observation`.
 - **Una observación que describe a una persona** (su perfil, su rol, sus preferencias) cuenta como `user` y no entra.
 - **La cobertura es parcial, y se declara así:** «engram: parcial; N consultas, K llegaron al tope 20/20, puede haber más». Nunca «no hay más»: `mem_search` no tiene cursor.
