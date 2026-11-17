@@ -52,7 +52,7 @@ Mostrá, **antes de escribir nada**, todo lo que este cierre va a escribir, ya c
 1. **Los aprendizajes:** una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Para cada fila de la matriz mostrá todos sus campos (paso 5).
 2. **Los dos relojes** del `CLAUDE.md` del ticket (paso 6): el valor y la fecha exactos de `Conocimiento`, y `Estado`, sin cambio o con su valor nuevo y por qué.
 3. **La entrada de la bitácora** (paso 6), con su texto: lo graduado y a dónde, lo pendiente, lo de motor y la foto de la entrega por repo, que mirás antes con git de solo lectura.
-4. **El commit de cierre** (paso 9): los archivos que irían al `git add` y el mensaje.
+4. **El commit de cierre** (paso 9): los archivos que irían al `git add` y el mensaje. Marcá los que ya venían modificados antes del cierre: entran enteros, con los cambios que no son de este cierre.
 
 Después pedí un sí explícito. Sin sí, no se escribe nada. Si el usuario corrige un destino o cualquier otra línea, ajustá la propuesta y volvé a mostrarla.
 
@@ -158,7 +158,7 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
    git add -- ':/<ruta>' ':/<ruta>' …
    ```
 
-3. **Lo ajeno se saca del índice** y se avisa: lo que aparezca stageado que el cierre no tocó (un ticket de otro, un archivo del ambiente local). Si un archivo ya venía modificado antes del cierre, entra entero: avisalo.
+3. **Lo ajeno se saca del índice** y se avisa: lo que aparezca stageado que el cierre no tocó (un ticket de otro, un archivo del ambiente local). Si un archivo ya venía modificado antes del cierre, entra entero: eso tiene que haber estado en la propuesta del paso 4, para que el sí lo cubra. Si aparece recién acá, sacalo del índice y avisalo.
 
    ```bash
    git reset -q -- ':/<ruta>'
@@ -196,7 +196,7 @@ El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, 
 | 5. Promover | Se reusa: la fila con el script, la regla en su destino, la evidencia y los dos chequeos de `matriz.py`. |
 | 6 y 7. Los relojes y el worktree | Se saltan: no hay ticket. |
 | 8. El conocimiento | Se salta: este modo no edita los docs de `knowledge.docs`. |
-| 9. El commit | Se reusa, con su sí y el mensaje de M5. |
+| 9. El commit | Se reusa, sin un segundo sí salvo con `"ask_before_commit": true`, y con el mensaje de M5. |
 | 10. Las memorias sin triar | Se salta: es este modo. |
 
 ### Reglas duras del modo

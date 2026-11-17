@@ -566,30 +566,33 @@ def paso_de_commit(spec, plan, raiz):
 def commitear(spec, plan, resultados, raiz):
     modo, motivo = _decidir_commit(spec, plan, raiz)
     if modo != "hacer":
-        return motivo
+        return motivo, False
     nuevos = [r.ruta for r in resultados if r.estado == CREADO]
     if not nuevos:
-        return "commit: no hace falta; no se creó ningún archivo"
+        return "commit: no hace falta; no se creó ningún archivo", False
+    literal = ["-C", str(raiz), "--literal-pathspecs"]
     respuesta = _git(["-C", str(raiz), "check-ignore", "--", *nuevos])
     ignorados = set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
     rutas = [ruta for ruta in nuevos if ruta not in ignorados]
+    if not rutas:
+        return "commit: no hace falta; lo que se creó lo ignora git", False
     con_hook = HOOK_DE_LA_INSTANCIA in rutas
     pasos = [["add", "--", *rutas]]
     if con_hook:
         pasos.append(["add", "--chmod=+x", "--", HOOK_DE_LA_INSTANCIA])
     pasos.append(["commit", "-q", "-m", MENSAJE_DEL_COMMIT])
     for argumentos in pasos:
-        respuesta = _git(["-C", str(raiz), *argumentos], plazo=PLAZO_DEL_COMMIT)
+        respuesta = _git([*literal, *argumentos], plazo=PLAZO_DEL_COMMIT)
         if respuesta is None:
-            return _sin_commit("git no está instalado")
+            return _sin_commit("git no está instalado"), False
         codigo, salida, error = respuesta
         if codigo != 0:
             detalle = (error or salida or f"código {codigo}").splitlines()[-1]
             pendiente = f", con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})" if con_hook else ""
-            return f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}"
+            return f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", False
     respuesta = _git(["-C", str(raiz), "rev-parse", "--short", "HEAD"])
     corto = respuesta[1] if respuesta is not None and respuesta[0] == 0 else "?"
-    return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else "")
+    return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else ""), True
 
 
 def _nombre_corto(carpeta):
@@ -874,13 +877,18 @@ def principal(argv):
         validar_spec(spec, raiz)
         plan = planificar(spec, raiz)
         if opciones.ensayo:
+            commitearia = False
             if opciones.commitear:
-                plan.pasos_git = (*plan.pasos_git, paso_de_commit(spec, plan, raiz))
-            print("\n".join(informe(plan, None, raiz, True, aviso_de_permisos=not opciones.commitear)))
+                paso = paso_de_commit(spec, plan, raiz)
+                plan.pasos_git = (*plan.pasos_git, paso)
+                commitearia = paso.modo == "hacer"
+            print("\n".join(informe(plan, None, raiz, True, aviso_de_permisos=not commitearia)))
             return 0
         resultados = aplicar(plan, raiz)
+        commiteado = False
         if opciones.commitear:
-            resultados.git.append(commitear(spec, plan, resultados, raiz))
+            linea, commiteado = commitear(spec, plan, resultados, raiz)
+            resultados.git.append(linea)
     except SpecInvalida as error:
         return _error(str(error))
     except ErrorDePlan as error:
@@ -891,7 +899,7 @@ def principal(argv):
         return _error(str(error))
     except Exception as error:
         return _error(f"error interno: {type(error).__name__}: {error}")
-    print("\n".join(informe(plan, resultados, raiz, False, aviso_de_permisos=not opciones.commitear)))
+    print("\n".join(informe(plan, resultados, raiz, False, aviso_de_permisos=not commiteado)))
     return 0
 
 

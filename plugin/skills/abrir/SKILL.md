@@ -103,7 +103,7 @@ Preguntale al usuario si el trabajo va en un **worktree** o en el **árbol princ
 
 La ruta de `<repo>` sale de `workspace.local.json` (`repos.<repo>.path`). Proponé la rama (por ejemplo, `feat/<id>-<slug>`), y preguntá por la `<base>`: la rama de integración del repo. Si el `origin` puede estar atrasado, proponé el `git fetch` de ese repo, que corre el usuario porque habla con el remoto. Si la rama ya existe, el comando falla y no pisa nada: se elige otro nombre o se retoma esa rama.
 
-**En un repo con `"own": true`**, no le pases los comandos: con su respuesta, corré vos `git -C <repo> fetch` y después el `worktree add`, y mostrá lo que salió. Solo el worktree: el árbol principal sigue siendo del usuario, porque cambiar su rama puede pisar trabajo sin commitear (el guard de comandos también lo frena). Si el comando falla, mostrá el error y no lo reintentes con otra forma.
+**En un repo con `"own": true`**, si el usuario eligió un worktree, no le pases los comandos: corré vos `git -C <repo> fetch` y después el `worktree add`, y mostrá lo que salió. Si eligió el árbol principal, pasale el `switch` como en cualquier repo, y que lo corra él: cambiar la rama de su árbol puede pisar trabajo sin commitear. Esta regla es de la skill: el guard de comandos solo protege los repos con `agent_readonly`, y un repo `own` no puede llevarlo. Si un comando falla, mostrá el error y no lo reintentes con otra forma.
 
 La respuesta va a «Contexto técnico», en `Worktree y rama:`: la ruta y la rama, o «árbol principal» y la rama.
 

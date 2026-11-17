@@ -30,7 +30,7 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T3 | S6 | Id consecutivo sin tracker | inline | hecho | `5185e0d` |
 | T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | `9798504` |
 | T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | hecho | `c82376e` |
-| T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | el commit que suma L17 |
+| T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | `fd45a3c` |
 | T6 | S7 | Ticket activo y sesión del ticket | inline | pendiente | |
 | T7 | S8 | Memorias de los repos | inline | pendiente | |
 | T8 | S10 | Estudio del arranque en frío | inline, solo lectura | pendiente | |
@@ -101,3 +101,26 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Docs: `Doc/uso.md`, `Doc/diseno.md` y el README.
   - Risk: none. Es un comando nuevo de solo lectura y texto de una skill; la línea de uso suma una forma, y su test la fija.
 - **L18 (2026-11-17), lo siguiente:** el veredicto del verificador de T4 y después T6.
+- **L19 (2026-11-17), el verificador de T4 y su lote de corrección.**
+  - **Lo que da por cumplido de S3:**
+    - el commit sin preguntar en la instancia, con el hook en `100755` y sin `workspace.local.json`;
+    - nunca push;
+    - el interruptor `ask_before_commit`;
+    - los repos del equipo de solo lectura, con las decisiones del guard idénticas a la base en 11 comandos y 5 configs;
+    - el diferencial sin `--commitear`, idéntico salvo la línea de uso.
+  - **Tres blockers, corregidos en un solo lote:**
+    - **B1.** Con `--commitear`, en Windows se perdía el aviso del `chmod` también cuando el commit no se hacía. Ahora el aviso solo se calla si el commit se hizo, o si el ensayo dice que se haría.
+    - **B2.** En un clon de la instancia, el bootstrap solo recrea `workspace.local.json`, que git ignora, y daba un `commit: falló` falso. Ahora dice `commit: no hace falta; lo que se creó lo ignora git`.
+    - **B3.** Una afirmación falsa mía: escribí que el guard frena `switch` en un repo `own`, pero el guard solo protege los repos con `agent_readonly`. La regla es de la skill, y `abrir` y `Doc/diseno.md` lo dicen así.
+  - **Avisos corregidos en el mismo lote:**
+    - A1: el `git add` va con `--literal-pathspecs`. `check-ignore` no lo acepta, y ya toma rutas literales.
+    - A4: la fila del modo `memorias` en `cerrar`.
+    - A5: lo que ya venía modificado se marca en la propuesta del paso 4, y si aparece recién en el paso 9 se saca del índice.
+    - A6: en un repo `own`, si el usuario elige el árbol principal, el `switch` lo corre él.
+  - **Quedan como seguimiento:**
+    - A2: en un worktree enlazado, el commit corre sin el pre-commit.
+    - A3: al reintentar después de un commit fallido, el mensaje habla de cambios ajenos que en realidad son los suyos.
+    - A7: el plazo de 600 s del commit, si un `gpgsign` o un hook lento lo traban.
+  - **Rojo:** bootstrap 174/177. **Verde:** bootstrap 177/177, bootstrap_e2e 14/14 y bootstrap_cli 19/19.
+  - **El scratch del verificador** (`tmp.0edGdN41al` en el temp del sistema) lo borra el autor a mano.
+- **L20 (2026-11-17), lo siguiente:** la re-verificación limitada a B1, B2 y B3, y después T6.

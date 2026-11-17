@@ -2130,6 +2130,81 @@ def test_commitear_sin_identidad_de_git_falla_sin_perder_los_archivos():
         assert (e.raiz / "workspace.config.json").is_file() and sin_head(e.raiz)
 
 
+def generador_con_hook(spec):
+    return [(".githooks/pre-commit", b"#!/bin/sh\nexit 0\n", 0o755), b().AccionDeGit(b().GIT_INIT, None), b().AccionDeGit(b().GIT_HOOKS, ".githooks")]
+
+
+@contextlib.contextmanager
+def como_en_windows():
+    anterior = b().EN_WINDOWS
+    b().EN_WINDOWS = True
+    try:
+        yield
+    finally:
+        b().EN_WINDOWS = anterior
+
+
+AVISO_DEL_CHMOD = "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
+
+
+def test_commitear_que_no_commitea_conserva_el_aviso_del_chmod_en_windows():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        git_aislado("init", "-q", cwd=e.base)
+        with como_en_windows(), identidad(IDENTIDAD_ENV):
+            for extra in (["--ensayo"], []):
+                codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear", *extra, generadores=generador_con_hook)
+                assert codigo == 0 and errores == "", (extra, codigo, errores)
+                assert lineas_de_commit(salida)[0].startswith("commit: no se hizo; la raíz está dentro del repo"), salida
+                assert AVISO_DEL_CHMOD in salida.splitlines(), (extra, salida)
+
+
+def test_commitear_que_commitea_no_repite_el_aviso_del_chmod_en_windows():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        with como_en_windows(), identidad(IDENTIDAD_ENV):
+            for raiz, extra in ((e.base / "ensayada", ["--ensayo"]), (e.raiz, [])):
+                codigo, salida, errores = correr_con_git(e, raiz, "--commitear", *extra, generadores=generador_con_hook)
+                assert codigo == 0 and errores == "", (extra, codigo, errores)
+                assert "marcalo ejecutable" not in salida, (extra, salida)
+        assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
+
+
+def test_commitear_sin_nada_para_versionar_no_inventa_un_fallo():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        with identidad(IDENTIDAD_ENV):
+            assert correr_con_git(e, e.raiz, "--commitear")[0] == 0
+            (e.raiz / "workspace.local.json").unlink()
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert lineas_de_commit(salida) == ["commit: no hace falta; lo que se creó lo ignora git"], salida
+        assert git_aislado("rev-list", "--count", "HEAD", cwd=e.raiz)[1] == "1"
+        assert git_aislado("diff", "--cached", "--name-only", cwd=e.raiz)[1] == ""
+
+
+def test_commitear_toma_las_rutas_tal_cual_y_no_como_comodines():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        raro = lambda spec: [("x[y].txt", b"nuevo\n"), b().AccionDeGit(b().GIT_INIT, None), b().AccionDeGit(b().GIT_HOOKS, ".githooks")]
+        e.crear_raiz()
+        (e.raiz / "xy.txt").write_bytes(b"del usuario\n")
+        with identidad(IDENTIDAD_ENV):
+            codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear", generadores=raro)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert lineas_de_commit(salida) and lineas_de_commit(salida)[0].endswith("con 3 archivos"), salida
+        assert set(git_aislado("ls-files", cwd=e.raiz)[1].splitlines()) == {"workspace.config.json", ".gitignore", "x[y].txt"}
+        assert "?? xy.txt" in git_aislado("status", "--porcelain", cwd=e.raiz)[1]
+
+
 def test_ask_before_commit_y_own_invalidos_rechazan_la_spec():
     with Escenario() as e:
         spec = e.spec()
