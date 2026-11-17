@@ -18,6 +18,9 @@ Cada spec cita al autor tal cual. La definición de cada mejora es la fila de su
 - **S8. Las memorias de los repos (I14).** Entra por S1. `cerrar memorias` también lee las memorias de los repos de la config, en archivos y en engram.
 - **S9. El ticket como documento de ODD (I15).** «Encontre un problema que es muy cierto sobre ODD de gentle-ia y odd-ws» y «Vale me parece bien». La plantilla del ticket suma `## Specs` y `## Tareas` opcionales para las tareas grandes, la Bitácora hace de Log con el pedido textual en L1, y se fija la clave del espejo en engram. La regla «el ticket es el documento de la feature» sube de lugar en el `CLAUDE.md`, o la recuerda `abrir`.
 - **S10. El arranque en frío de las reglas (I16).** Entra por S1. Supuesto: primero un estudio acotado decide cómo sembrar las capas con lo que el repo ya sabe (su `CLAUDE.md`, sus gotchas, sus docs), porque la idea todavía no tiene mecanismo; el estudio vuelve al autor antes de implementar. Resuelto con «si» a la opción C (L25): un ticket de siembra que sugiere el cierre del bootstrap, sin código nuevo.
+- **S11. Las rondas de una revisión (I19).** «Si quieres observa como va actualmente a ver que mas observas» y, sobre las tres fricciones de `revisar`, «Me parece bien analizadas 3 fricciones se van agregar en esta version? esas 3?». Una segunda revisión del mismo día y modo no pisa la primera: va en `revision/<fecha>-<modo>-<n>/`, y `recibo.py` la reconoce como la más nueva.
+- **S12. Las extensiones de código sin capa (I18).** Las mismas citas que S11. El bootstrap propone cubrir los scripts del mismo lenguaje (por ejemplo, `.mjs` en una capa `ts`), y el doctor avisa cuando un repo tiene extensiones de código que ninguna capa cubre, porque esos archivos llevan el triaje a modo `completo`.
+- **S13. La base de la revisión de una unidad (I20).** Las mismas citas que S11. Cuando el ticket ya tiene un recibo válido, la base por defecto del triaje es el commit que ese recibo cubrió, y no el merge-base con `origin/HEAD`, para no volver a revisar unidades ya revisadas. Cambia qué se revisa por defecto: lleva verificador independiente.
 
 ## Tareas
 
@@ -33,7 +36,10 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | `fd45a3c` |
 | T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | `2dac068` |
 | T7 | S8 | Memorias de los repos | inline | hecho | `19d0f21` |
-| T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | el commit que suma L25 |
+| T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | `69f0b2c` |
+| T10 | S11 | Las rondas de una revisión | inline | hecho | el commit que suma L29 |
+| T11 | S12 | Las extensiones de código sin capa | inline | pendiente | |
+| T12 | S13 | La base de la revisión de una unidad | inline, con verificador | pendiente | |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
 ## Log
@@ -165,3 +171,20 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Sin tests, porque son textos de una skill y docs: se revisaron leyéndolos.
   - Risk: none.
 - **L26 (2026-11-17), lo siguiente:** T9, la entrega de la `0.9.0`.
+- **L27 (2026-11-17), tres fricciones de `revisar` vistas en SM-1, que entran a la versión.**
+  - **I18.** T7 y T7b dieron modo `completo`, con 3 corridas cada vez, por scripts `.mjs` y un `package.json` que ninguna capa cubre. El triaje cuenta «sin capa» como señal positiva, y sin biblioteca de señales no puede contar los consumidores.
+  - **I19.** La segunda revisión del mismo día y modo iba a pisar la primera, y el agente movió la primera a mano a `ronda-1/`. Además de nombrar la carpeta, `recibo.py` la lee (`CARPETA_RE`).
+  - **I20.** Con el merge-base con `origin/HEAD` como base, el triaje contó 83 archivos en vez de los 21 de la unidad, y el agente pasó la base a mano.
+  - **Descartado:** el `__pycache__` que apareció era de una skill del repo (`gotchas-search/reindex.py`), no de odd-ws.
+  - La entrega (T9) se corre al final, para seguir observando SM-1 hasta su `cerrar`.
+- **L28 (2026-11-17), lo siguiente:** T10.
+- **L29 (2026-11-17), T10 hecho.**
+  - `recibo.py --write --ronda <n>` escribe en `revision/<fecha>-<modo>-<n>/`; la ronda 1 queda sin sufijo, como siempre.
+  - `CARPETA_RE` acepta el sufijo desde el 2.
+  - `--check` sobre el ticket elige por fecha, después por modo y después por ronda, esta última comparada como número: la 10 le gana a la 2.
+  - `--ronda` con `--check` es un error de uso.
+  - La skill `revisar` usa la siguiente carpeta libre en vez de pisar o mover la anterior.
+  - Rojo: recibo 56/58. Verde: recibo 58/58 y triaje 78/78 (`triaje.py` importa `recibo`, pero no usa la carpeta).
+  - Docs: `Doc/diseno.md`, `Doc/uso.md` y la skill `revisar`.
+  - Risk: none. Es una opción nueva, y sin ella la carpeta y la elección del recibo son las de siempre.
+- **L30 (2026-11-17), lo siguiente:** T11.

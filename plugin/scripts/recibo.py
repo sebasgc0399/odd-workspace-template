@@ -16,7 +16,8 @@ VERSION = 1
 TIMEOUT_GIT = 120
 MODOS = ("0", "rapido", "completo")
 FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)")
+CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
+RONDA_RE = re.compile(r"[1-9][0-9]*")
 ESTADOS = ("limpio", "con-hallazgos", "pendiente")
 AUSENTE = hashlib.sha256(b"<ausente>").hexdigest()
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
@@ -214,7 +215,8 @@ def _avisar_si_pisa(destino, datos):
 
 def escribir_recibo(args):
     datos = armar_recibo(args)
-    carpeta = os.path.join(args.ticket, "revision", "%s-%s" % (args.fecha, args.modo))
+    sufijo = "-%d" % args.ronda if args.ronda and args.ronda > 1 else ""
+    carpeta = os.path.join(args.ticket, "revision", "%s-%s%s" % (args.fecha, args.modo, sufijo))
     os.makedirs(carpeta, exist_ok=True)
     destino = os.path.join(carpeta, "recibo.json")
     _avisar_si_pisa(destino, datos)
@@ -232,7 +234,7 @@ def _recibos_del_ticket(revision, modo=None):
         m = CARPETA_RE.fullmatch(d)
         candidato = os.path.join(revision, d, "recibo.json")
         if m and (modo is None or m.group(2) == modo) and os.path.isfile(candidato):
-            hallados.append((m.group(1), m.group(2), candidato))
+            hallados.append((m.group(1), m.group(2), int(m.group(3) or 1), candidato))
     return hallados
 
 
@@ -262,9 +264,9 @@ def ubicar_recibo(ruta, modo=None):
         revision = os.path.join(ruta, "revision")
         if os.path.isdir(revision):
             _avisar_carpetas_viejas(revision)
-            candidatas = sorted(_recibos_del_ticket(revision, modo), key=lambda c: (c[0], MODOS.index(c[1])))
+            candidatas = sorted(_recibos_del_ticket(revision, modo), key=lambda c: (c[0], MODOS.index(c[1]), c[2]))
             if candidatas:
-                return candidatas[-1][2]
+                return candidatas[-1][3]
     raise ErrorUso("no hay un recibo.json en %s" % ruta)
 
 
@@ -328,10 +330,16 @@ def _fecha(texto):
     return texto
 
 
+def _ronda(texto):
+    if not RONDA_RE.fullmatch(texto):
+        raise argparse.ArgumentTypeError("la ronda tiene que ser un entero desde 1, sin ceros a la izquierda, no %r" % texto)
+    return int(texto)
+
+
 def _parser():
     p = argparse.ArgumentParser(prog="recibo.py", description="Recibo de la revision atado al diff.")
     modo = p.add_mutually_exclusive_group(required=True)
-    modo.add_argument("--write", action="store_true", help="escribe <ticket>/revision/<fecha>-<modo>/recibo.json")
+    modo.add_argument("--write", action="store_true", help="escribe <ticket>/revision/<fecha>-<modo>[-<ronda>]/recibo.json")
     modo.add_argument("--check", metavar="RUTA", help="recalcula y compara: recibo.json, carpeta de la revision o del ticket")
     p.add_argument("--ticket", help="carpeta del ticket (con --write)")
     p.add_argument("--repo", action="append", metavar="RUTA[#BASE]", help="repo o worktree; base por defecto: merge-base con la rama de origin/HEAD")
@@ -342,6 +350,8 @@ def _parser():
     p.add_argument("--verificacion", action="append", help="'<comando>: <resultado>'; repetible")
     p.add_argument("--estado", choices=ESTADOS, default="pendiente")
     p.add_argument("--fecha", default=None, type=_fecha, help="AAAA-MM-DD valido (por defecto, hoy)")
+    p.add_argument("--ronda", default=None, type=_ronda,
+                   help="con --write: la ronda de una revision del mismo dia y modo; desde la 2, la carpeta lleva -<ronda>")
     return p
 
 
@@ -349,6 +359,8 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         if args.check:
+            if args.ronda is not None:
+                raise ErrorUso("--ronda es de --write: --check toma la ronda mas alta, o la de --recibo")
             return chequear_recibo(args.check, args.modo, args.recibo)
         if args.recibo:
             raise ErrorUso("--recibo es de --check: --write escribe el recibo en revision/<fecha>-<modo>/")

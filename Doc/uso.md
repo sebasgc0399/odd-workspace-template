@@ -149,7 +149,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
   - `rapido`: todas las señales en negativo;
   - `completo`: alguna señal positiva, o un cambio que va a un líder.
 - **El costo.** Anuncia cuántas corridas cuesta y espera tu sí. En `completo`, `revisor-diseno` corre 3 veces, más el `revisor-<capa>` de cada capa tocada.
-- **Lo que deja** en `tickets/<id>-<slug>/revision/<fecha>-<modo>/`: los diffs de entrada, los reportes, `consolidado.md` y `recibo.json`.
+- **Lo que deja** en `tickets/<id>-<slug>/revision/<fecha>-<modo>/`: los diffs de entrada, los reportes, `consolidado.md` y `recibo.json`. Una segunda ronda del mismo día y modo va en `<fecha>-<modo>-2`, sin pisar la primera.
 - **No commitea.**
 
 ### `/odd-ws:cerrar`

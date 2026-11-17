@@ -800,6 +800,58 @@ def test_cli_como_proceso_utf8_y_codigos():
         assert "ñandú".encode("utf-8") in r.stderr, r.stderr
 
 
+def base_de_ronda(ticket, repo):
+    return ["--write", "--ticket", str(ticket), "--repo", str(repo), "--archivo", str(repo / "a.sql"), "--fecha", "2026-10-21",
+            "--modo", "completo"]
+
+
+def test_write_con_ronda_va_a_su_carpeta_y_no_pisa_la_primera():
+    with temporal() as t:
+        repo, _ = repo_con_principal(t, ARCHIVOS)
+        ticket = Path(t) / "T-14-r"
+        ticket.mkdir()
+        assert correr(base_de_ronda(ticket, repo) + ["--estado", "con-hallazgos"])[0] == 0
+        primera = ticket / "revision" / "2026-10-21-completo" / "recibo.json"
+        antes = primera.read_bytes()
+        codigo, salida, error = correr(base_de_ronda(ticket, repo) + ["--ronda", "2", "--estado", "limpio"])
+        assert codigo == 0, error
+        segunda = ticket / "revision" / "2026-10-21-completo-2" / "recibo.json"
+        assert segunda.is_file() and primera.read_bytes() == antes
+        assert "2026-10-21-completo-2" in salida.replace("\\", "/"), salida
+        assert json.loads(segunda.read_text(encoding="utf-8"))["repos"][0]["estado"] == "limpio"
+        codigo, salida, _ = correr(["--check", str(ticket)])
+        assert codigo == 0 and "2026-10-21-completo-2" in salida.replace("\\", "/"), "la ronda más alta es la más reciente"
+        codigo, salida, _ = correr(["--check", str(ticket), "--modo", "completo"])
+        assert codigo == 0 and "2026-10-21-completo-2" in salida.replace("\\", "/"), salida
+        assert correr(["--check", str(ticket), "--modo", "rapido", "--recibo", str(segunda)])[0] == 2, "la carpeta con ronda dice su modo"
+        diez = ticket / "revision" / "2026-10-21-completo-10"
+        diez.mkdir()
+        (diez / "recibo.json").write_bytes(segunda.read_bytes())
+        assert "2026-10-21-completo-10" in correr(["--check", str(ticket)])[1].replace("\\", "/"), "la ronda se compara como número"
+
+
+def test_write_con_ronda_uno_es_la_carpeta_de_siempre():
+    with temporal() as t:
+        repo, _ = repo_con_principal(t, ARCHIVOS)
+        ticket = Path(t) / "T-15-r"
+        ticket.mkdir()
+        assert correr(base_de_ronda(ticket, repo) + ["--ronda", "1"])[0] == 0
+        assert (ticket / "revision" / "2026-10-21-completo" / "recibo.json").is_file()
+        assert not (ticket / "revision" / "2026-10-21-completo-1").exists()
+
+
+def test_ronda_invalida_o_con_check_es_error_de_uso():
+    with temporal() as t:
+        repo, _ = repo_con_principal(t, ARCHIVOS)
+        ticket = Path(t) / "T-16-r"
+        ticket.mkdir()
+        for malo in ("0", "-1", "x", "1.5", "02"):
+            codigo, _, error = correr(base_de_ronda(ticket, repo) + ["--ronda", malo])
+            assert codigo == 2, (malo, error)
+        assert not (ticket / "revision").exists()
+        assert correr(["--check", str(ticket), "--ronda", "2"])[0] == 2
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

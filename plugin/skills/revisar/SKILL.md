@@ -63,7 +63,9 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 
 ## 3. La entrada de los revisores
 
-Con el sí, y con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión, creá `<ticket>/revision/<fecha>-<modo>/entrada/` y guardá ahí un diff por repo, `<repo>.diff`, solo con los archivos del ticket:
+**La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. **Si ya existe** (otra ronda del mismo día y modo, por ejemplo la re-revisión después de una corrección), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, y en todo lo que sigue `<fecha>-<modo>` quiere decir esa carpeta con su número. El recibo de esa ronda se escribe con `--ronda <n>`.
+
+Con el sí, creá `<ticket>/revision/<fecha>-<modo>/entrada/` y guardá ahí un diff por repo, `<repo>.diff`, solo con los archivos del ticket:
 
 ```bash
 git -C <repo> diff --no-color <base> -- <archivo> [<archivo>…] > "<entrada>/<repo>.diff"
@@ -143,13 +145,14 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 2. **Escribí el recibo** al cerrar la revisión. Lleva la lista **explícita** de los archivos revisados por repo, nunca el working tree entero: `--archivo` es obligatorio y, con más de un `--repo`, cada uno es una ruta absoluta.
 
    ```bash
-   python3 "<S>/recibo.py" --write --ticket "<ticket>" --repo <repo>#<base> [--repo …] --archivo <ruta absoluta> [--archivo …] --modo <0|rapido|completo> --fecha <AAAA-MM-DD> --reviewer <agente> [--reviewer …] --verificacion "<comando>: <resultado>" [--verificacion …] --estado <limpio|con-hallazgos|pendiente>
+   python3 "<S>/recibo.py" --write --ticket "<ticket>" --repo <repo>#<base> [--repo …] --archivo <ruta absoluta> [--archivo …] --modo <0|rapido|completo> --fecha <AAAA-MM-DD> [--ronda <n>] --reviewer <agente> [--reviewer …] --verificacion "<comando>: <resultado>" [--verificacion …] --estado <limpio|con-hallazgos|pendiente>
    ```
 
    - `--fecha` es la misma de la carpeta de la revisión: sin ella toma el día de hoy, y puede no coincidir.
+   - `--ronda <n>` va solo desde la segunda ronda del mismo día y modo, con el número de su carpeta. `--check` toma la ronda más alta, o la de `--recibo`.
    - `<base>` es la base completa del triaje, para que el recibo cubra el mismo diff que se revisó.
    - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente`, volvé a escribirlo con `con-hallazgos`. `--verificacion` anota lo que se corrió de verdad y su resultado.
-   - Escribe `revision/<fecha>-<modo>/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
+   - Escribe `revision/<fecha>-<modo>[-<n>]/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
    - Si el recibo ya existía, se pisa entero: pasá todos los `--repo` en una sola llamada.
 3. **Antes de decir «listo» o «listo para commit», corré `--check`:**
 

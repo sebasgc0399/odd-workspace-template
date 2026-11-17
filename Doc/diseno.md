@@ -898,6 +898,7 @@ Orquesta la revisión de un cambio de un ticket antes del commit, con los agente
 - **Antes de lanzar nada**, anuncia el modo, las señales, las capas y el costo en corridas (`0`, `1 + capas` o `3 + capas`), y espera el sí. Lo espera aunque la haya invocado el modelo.
 - **Nunca corre dos revisiones a la vez** ni hace un bucle automático de corrección.
 - **La entrada** va en `<ticket>/revision/<fecha>-<modo>/entrada/`, con un diff por repo. Un archivo sin trackear entra con `--no-index`, nunca con `git add -N`.
+- **Las rondas (I19):** una segunda revisión del mismo día y modo, por ejemplo la re-revisión después de una corrección, va en `<fecha>-<modo>-2` (o el siguiente número libre), y su recibo se escribe con `recibo.py --write --ronda <n>`. Antes pisaba la primera, y un agente tuvo que moverla a mano. `CARPETA_RE` acepta el sufijo desde el 2 (`-1` no es un nombre válido), y `--check` sobre el ticket toma, entre los recibos, el de la fecha más nueva, después el modo más fuerte y después la ronda más alta, comparada como número.
 - **`completo`** son tres corridas de diseño, con el orden de los archivos distinto en cada una, más una corrida por capa. Todas usan el mismo modelo, sin IDs fijos.
 - **El rescate** se hace con `rescatar.py`. Una corrida cortada se informa y no se reintenta en silencio.
 - **La consolidación** la hace el orquestador, en prosa (`consolidado.md`):
