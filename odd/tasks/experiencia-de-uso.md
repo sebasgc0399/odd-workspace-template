@@ -38,8 +38,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T7 | S8 | Memorias de los repos | inline | hecho | `19d0f21` |
 | T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | `69f0b2c` |
 | T10 | S11 | Las rondas de una revisión | inline | hecho | `c5735a5` |
-| T11 | S12 | Las extensiones de código sin capa | inline | hecho | el commit que suma L31 |
-| T12 | S13 | La base de la revisión de una unidad | inline, con verificador | pendiente | |
+| T11 | S12 | Las extensiones de código sin capa | inline | hecho | `87c64b3` |
+| T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho, verificador pendiente | el commit que suma L33 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
 ## Log
@@ -200,3 +200,18 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
     - I21 hace efectiva la perilla `mold_source`. Es la premisa de los tres tipos de proyecto: D2 la deja como una etiqueta que nada consume.
     - I22 trata las reglas que cambian con el tiempo: cuál reemplaza a cuál, y la recalibración contra el código actual.
 - **L32 (2026-11-17), lo siguiente:** T12, con verificador.
+- **L33 (2026-11-17), T12 hecho por un writer.** Se delegó por el respaldo de contexto: la conversación del parent ya venía muy cargada.
+  - **`recibo.py --sellar <ruta>`** anota en cada entrada del recibo `"sellado": <HEAD>`. Antes comprueba tres cosas, y si alguna falla sale con 1 sin tocar el recibo:
+    - el recibo sigue valiendo;
+    - lo revisado está commiteado;
+    - `HEAD` no trae cambios fuera de lo revisado desde la base del recibo.
+  - **`triaje.py --ticket <carpeta>`** elige la base de cada `--repo` sin `#base` en este orden: la explícita; el sello más nuevo, si es ancestro de `HEAD` y más nuevo que el merge-base; si no, el merge-base. La salida dice el origen: `base_origen` y `base_recibo` en el JSON, y la línea `repo` en el texto. Sin `--ticket`, la salida no cambia.
+  - **La skill `revisar`** pasa `--ticket` al triaje y sella después de cada commit de una unidad revisada, también uno viejo que nadie selló.
+  - **Decisiones del writer más allá del brief, aceptadas:**
+    - el tercer chequeo del sello, sin el cual sellar después del commit de otra unidad la escondería de la revisión siguiente;
+    - que el sello sea más nuevo que el merge-base, para no meter en el diff cambios publicados por otros.
+  - Rojo: recibo 58/64 y triaje 79/87. Verde: recibo 65/65 y triaje 88/88, confirmados por el parent; doctor 195/195, bootstrap_textos 26/26 y memorias 38/38.
+  - Diferencial contra `87c64b3`: 15 de 15 casos iguales en stdout, stderr y exit code.
+  - El writer deja su scratch para que lo borre el autor: `tmp.mbpQqFpjm7` en el temp del sistema.
+  - Risk: item 3. Cambia qué se revisa por defecto cuando se pasa `--ticket`, que la skill pasa siempre. Lleva el verificador independiente.
+- **L34 (2026-11-17), lo siguiente:** el verificador de T12, y el análisis de lo nuevo en la sesión de SM-1.

@@ -19,6 +19,7 @@ FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 RONDA_RE = re.compile(r"[1-9][0-9]*")
 ESTADOS = ("limpio", "con-hallazgos", "pendiente")
+AJENAS_A_SELLAR = ("ticket", "repo", "archivo", "modo", "recibo", "reviewer", "verificacion", "estado", "fecha", "ronda")
 AUSENTE = hashlib.sha256(b"<ausente>").hexdigest()
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 OPCIONES_DIFF = (
@@ -213,6 +214,12 @@ def _avisar_si_pisa(destino, datos):
               % (destino.replace("\\", "/"), ", ".join(perdidos)), file=sys.stderr)
 
 
+def _guardar(destino, datos):
+    with open(destino, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(datos, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
 def escribir_recibo(args):
     datos = armar_recibo(args)
     sufijo = "-%d" % args.ronda if args.ronda and args.ronda > 1 else ""
@@ -220,9 +227,7 @@ def escribir_recibo(args):
     os.makedirs(carpeta, exist_ok=True)
     destino = os.path.join(carpeta, "recibo.json")
     _avisar_si_pisa(destino, datos)
-    with open(destino, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    _guardar(destino, datos)
     print("recibo escrito: %s (%d repo(s), %d archivo(s))" % (
         destino.replace("\\", "/"), len(datos["repos"]), sum(len(r["archivos"]) for r in datos["repos"])))
     return 0
@@ -320,6 +325,53 @@ def chequear_recibo(ruta, modo=None, recibo=None):
     return 0
 
 
+def sin_commitear(raiz, head, archivos):
+    return [rel for rel in archivos if diff_de_ruta(raiz, head, rel, permitir_ausente=True)]
+
+
+def fuera_de_lo_revisado(raiz, base, head, archivos):
+    r = git(raiz, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", base, head)
+    if r.returncode != 0:
+        raise ErrorEntorno("git diff fallo en %s: %s" % (raiz, r.stderr.decode("utf-8", errors="replace")))
+    revisados = set(archivos)
+    return sorted(p for p in r.stdout.decode("utf-8", errors="replace").split("\0") if p and p not in revisados)
+
+
+def _informar_sin_sello(archivo, motivo, malos, arreglo):
+    print("recibo NO se sella (%s): %s" % (archivo.replace("\\", "/"), motivo))
+    for ruta, archivos in malos:
+        print("  repo %s: %s" % (ruta, ", ".join(archivos)))
+    print(arreglo)
+    return 1
+
+
+def sellar_recibo(ruta):
+    archivo = ubicar_recibo(ruta)
+    datos = cargar_recibo(archivo)
+    for entrada in datos["repos"]:
+        if not os.path.isdir(entrada["ruta"]):
+            raise ErrorEntorno("el repo del recibo ya no existe: %s" % entrada["ruta"])
+    divergentes = [(e["ruta"], d) for e in datos["repos"] for d in [divergencias(e)] if d]
+    if divergentes:
+        return _informar_sin_sello(archivo, "cambio el diff revisado", divergentes,
+                                   "revisa la divergencia y escribe un recibo nuevo con --write")
+    heads = [resolver_base(e["ruta"], "HEAD") for e in datos["repos"]]
+    sucios = [(e["ruta"], s) for e, head in zip(datos["repos"], heads) for s in [sin_commitear(e["ruta"], head, e["archivos"])] if s]
+    if sucios:
+        return _informar_sin_sello(archivo, "hay archivos revisados sin commitear", sucios,
+                                   "commitea primero lo revisado y vuelve a sellar")
+    ajenos = [(e["ruta"], f) for e, head in zip(datos["repos"], heads)
+              for f in [fuera_de_lo_revisado(e["ruta"], e["base"], head, e["archivos"])] if f]
+    if ajenos:
+        return _informar_sin_sello(archivo, "HEAD trae cambios fuera de lo revisado", ajenos,
+                                   "sella justo despues del commit de lo revisado; lo demas va en una revision nueva")
+    for entrada, head in zip(datos["repos"], heads):
+        entrada["sellado"] = head
+    _guardar(archivo, datos)
+    print("recibo sellado: %s (%s en %d repo(s))" % (archivo.replace("\\", "/"), ", ".join(h[:10] for h in heads), len(heads)))
+    return 0
+
+
 def _fecha(texto):
     if not FECHA_RE.fullmatch(texto):
         raise argparse.ArgumentTypeError("la fecha tiene que ser AAAA-MM-DD, no %r" % texto)
@@ -341,6 +393,8 @@ def _parser():
     modo = p.add_mutually_exclusive_group(required=True)
     modo.add_argument("--write", action="store_true", help="escribe <ticket>/revision/<fecha>-<modo>[-<ronda>]/recibo.json")
     modo.add_argument("--check", metavar="RUTA", help="recalcula y compara: recibo.json, carpeta de la revision o del ticket")
+    modo.add_argument("--sellar", metavar="RUTA",
+                      help="con lo revisado ya commiteado, anota el HEAD de cada repo en el recibo (recibo.json, carpeta de la revision o del ticket)")
     p.add_argument("--ticket", help="carpeta del ticket (con --write)")
     p.add_argument("--repo", action="append", metavar="RUTA[#BASE]", help="repo o worktree; base por defecto: merge-base con la rama de origin/HEAD")
     p.add_argument("--archivo", action="append", help="archivo revisado (absoluto, o relativo con un unico --repo); repetible")
@@ -348,7 +402,7 @@ def _parser():
     p.add_argument("--recibo", metavar="RUTA", help="con --check: chequea ese recibo.json (o su carpeta) en vez del mas reciente del ticket")
     p.add_argument("--reviewer", action="append", help="reviewer corrido; repetible")
     p.add_argument("--verificacion", action="append", help="'<comando>: <resultado>'; repetible")
-    p.add_argument("--estado", choices=ESTADOS, default="pendiente")
+    p.add_argument("--estado", choices=ESTADOS, default=None)
     p.add_argument("--fecha", default=None, type=_fecha, help="AAAA-MM-DD valido (por defecto, hoy)")
     p.add_argument("--ronda", default=None, type=_ronda,
                    help="con --write: la ronda de una revision del mismo dia y modo; desde la 2, la carpeta lleva -<ronda>")
@@ -358,6 +412,11 @@ def _parser():
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
+        if args.sellar:
+            sobran = ["--" + o for o in AJENAS_A_SELLAR if getattr(args, o) is not None]
+            if sobran:
+                raise ErrorUso("--sellar solo toma la ruta del recibo, de su carpeta o del ticket: sobra %s" % ", ".join(sobran))
+            return sellar_recibo(args.sellar)
         if args.check:
             if args.ronda is not None:
                 raise ErrorUso("--ronda es de --write: --check toma la ronda mas alta, o la de --recibo")
@@ -369,6 +428,7 @@ def main(argv=None):
         if not args.modo:
             raise ErrorUso("--write necesita --modo (0, rapido o completo)")
         args.fecha = args.fecha or datetime.date.today().isoformat()
+        args.estado = args.estado or "pendiente"
         return escribir_recibo(args)
     except (ErrorUso, ErrorEntorno) as exc:
         print("recibo: %s" % exc, file=sys.stderr)

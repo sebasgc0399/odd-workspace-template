@@ -144,13 +144,14 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 
 ### `/odd-ws:revisar`
 
-- **El triaje.** Corre `triaje.py` sobre el diff contra la base, que es el merge-base con `origin/HEAD` o la que le pases con `--repo RUTA#BASE`. Propone un modo:
+- **El triaje.** Corre `triaje.py --ticket` sobre el diff contra la base. La base es, en este orden: la que le pases con `--repo RUTA#BASE`; el último commit sellado del ticket; o el merge-base con `origin/HEAD`. La salida dice cuál usó. Propone un modo:
   - `sin-cambios`: no hay nada que revisar;
   - `0`: solo docs o notas, con lectura estructural y sin revisores;
   - `rapido`: todas las señales en negativo;
   - `completo`: alguna señal positiva, o un cambio que va a un líder.
 - **El costo.** Anuncia cuántas corridas cuesta y espera tu sí. En `completo`, `revisor-diseno` corre 3 veces, más el `revisor-<capa>` de cada capa tocada.
 - **Lo que deja** en `tickets/<id>-<slug>/revision/<fecha>-<modo>/`: los diffs de entrada, los reportes, `consolidado.md` y `recibo.json`. Una segunda ronda del mismo día y modo va en `<fecha>-<modo>-2`, sin pisar la primera.
+- **El sello.** Cuando commiteas una unidad revisada, la skill corre `recibo.py --sellar` sobre el ticket, que anota en el recibo el commit donde quedó lo revisado. Así la revisión de la unidad siguiente parte de ese commit y no vuelve a revisar lo que ya revisó: sin sello, en un ticket real el triaje contó 83 archivos en vez de los 21 de la unidad nueva. No sella si cambió lo revisado, si falta commitearlo o si `HEAD` ya trae otra cosa, como un commit de otra unidad; por eso conviene sellar justo después del commit.
 - **No commitea.**
 
 ### `/odd-ws:cerrar`

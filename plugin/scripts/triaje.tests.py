@@ -915,6 +915,189 @@ def test_cli_clon_cambia_los_repos_donde_se_cuenta():
         assert datos["senales"]["consumidores"]["nivel"] == "invalida" and list(datos["origin_head"]) == [str(w.web)]
 
 
+# ---------------------------------------------------------------- la base sellada de un ticket (I20)
+
+TICKET = "tickets/T-1-x"
+SQL_NUEVO = "src/ventas/Proc_Nuevo.sql"
+NUEVO = GAMMA.replace("Proc_Gamma", "Proc_Nuevo")
+
+
+def recibo_main(argv):
+    salida = io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(salida):
+        codigo = M.recibo.main(argv)
+    assert codigo == 0, (argv, salida.getvalue())
+
+
+def sellar(w, repo, rutas, fecha="2026-11-17", sellar_en=None, base=None):
+    ticket = w.raiz / TICKET
+    ticket.mkdir(parents=True, exist_ok=True)
+    argv = ["--write", "--ticket", str(ticket), "--repo", "%s#%s" % (repo, base) if base else str(repo), "--modo", "rapido",
+            "--fecha", fecha]
+    for rel in rutas:
+        argv += ["--archivo", str(repo / rel)]
+    recibo_main(argv)
+    head = commitear(repo, {})
+    recibo_main(["--sellar", str(sellar_en or ticket)])
+    return ticket, head
+
+
+def con_ticket(w, repos, ticket):
+    return M.analizar([(str(r), b) for r, b in repos], taller=[], raiz=str(w.raiz), ticket=str(ticket))
+
+
+def rutas(repo):
+    return [a["ruta"] for a in repo["archivos"]]
+
+
+def test_ticket_con_una_unidad_sellada_triaja_solo_la_unidad_nueva():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3"), SQL_NUEVO: NUEVO})
+        ticket, sello = sellar(w, w.db, [SQL_ALFA, SQL_NUEVO])
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        sin = w.analizar()
+        assert sin["repos"][0]["base"] == merge_base and rutas(sin["repos"][0]) == [SQL_ALFA, SQL_GAMMA, SQL_NUEVO]
+        assert "base_origen" not in sin["repos"][0] and "base_recibo" not in sin["repos"][0], sin["repos"][0]
+        r = con_ticket(w, [(w.db, None)], ticket)
+        repo = r["repos"][0]
+        assert repo["base"] == sello and rutas(repo) == [SQL_GAMMA], repo
+        assert repo["base_origen"] == "sellada" and repo["base_recibo"] == "revision/2026-11-17-rapido", repo
+        assert list(repo) == ["ruta", "base", "base_origen", "base_recibo", "archivos"], list(repo)
+        args = ["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(ticket)]
+        codigo, salida, error = correr(args)
+        assert codigo == 0 and error == "", error
+        assert "repo %s (base %s, sellada en revision/2026-11-17-rapido): 1 archivo(s)" % (repo["ruta"], sello[:10]) in salida, salida
+        codigo, salida, error = correr(args + ["--json"])
+        assert codigo == 0, error
+        assert json.loads(salida)["repos"][0] == repo
+        codigo, salida, _ = correr(["--repo", str(w.db), "--raiz", str(w.raiz)])
+        assert "repo %s (base %s): 3 archivo(s)" % (repo["ruta"], merge_base[:10]) in salida, salida
+
+
+def test_ticket_la_base_explicita_gana_al_sello():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, _ = sellar(w, w.db, [SQL_ALFA])
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, merge_base)], ticket)["repos"][0]
+        assert repo["base"] == merge_base and repo["base_origen"] == "explicita" and repo["base_recibo"] is None, repo
+        assert rutas(repo) == [SQL_ALFA, SQL_GAMMA]
+        codigo, salida, _ = correr(["--repo", "%s#%s" % (w.db, merge_base), "--raiz", str(w.raiz), "--ticket", str(ticket)])
+        assert codigo == 0 and "(base %s, explícita): 2 archivo(s)" % merge_base[:10] in salida, salida
+
+
+def test_ticket_un_sello_que_no_es_ancestro_de_head_o_que_no_existe_usa_el_merge_base():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, sello = sellar(w, w.db, [SQL_ALFA])
+        git(w.db, "checkout", "-q", "-b", "otra", merge_base)
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == merge_base and repo["base_origen"] == "merge-base" and repo["base_recibo"] is None, repo
+        assert rutas(repo) == [SQL_GAMMA]
+        codigo, salida, _ = correr(["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(ticket)])
+        assert "(base %s, merge-base con origin/HEAD): 1 archivo(s)" % merge_base[:10] in salida, salida
+        git(w.db, "checkout", "-q", "-")
+        archivo = ticket / "revision" / "2026-11-17-rapido" / "recibo.json"
+        datos = json.loads(archivo.read_text(encoding="utf-8"))
+        for falso in ("f" * 40, "HEAD", "--output=x", sello[:10], 7):
+            datos["repos"][0]["sellado"] = falso
+            archivo.write_text(json.dumps(datos), encoding="utf-8")
+            repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+            assert repo["base"] == merge_base and repo["base_origen"] == "merge-base", (falso, repo)
+
+
+def test_ticket_un_sello_ya_integrado_en_origin_head_usa_el_merge_base():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, _ = sellar(w, w.db, [SQL_ALFA])
+        integrado = commitear(w.db, {SQL_NUEVO: NUEVO})
+        publicar(w.db, integrado)
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == integrado and repo["base_origen"] == "merge-base" and rutas(repo) == [SQL_GAMMA], repo
+
+
+def test_ticket_con_la_rama_de_origin_head_mezclada_despues_del_sello_usa_el_merge_base():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, _ = sellar(w, w.db, [SQL_ALFA])
+        git(w.db, "checkout", "-q", "--detach", merge_base)
+        principal = commitear(w.db, {SQL_NUEVO: NUEVO})
+        publicar(w.db, principal)
+        git(w.db, "checkout", "-q", "-")
+        git(w.db, "merge", "-q", "--no-edit", "origin/main")
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == principal and repo["base_origen"] == "merge-base", repo
+        assert rutas(repo) == [SQL_ALFA, SQL_GAMMA], "lo que trajo origin/HEAD no entra al triaje: %s" % rutas(repo)
+
+
+def test_ticket_con_varios_sellos_gana_el_commit_mas_nuevo_y_no_la_carpeta():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, primero = sellar(w, w.db, [SQL_ALFA], fecha="2026-11-18")
+        escribir(w.db, {SQL_NUEVO: NUEVO})
+        _, segundo = sellar(w, w.db, [SQL_NUEVO], fecha="2026-11-17", sellar_en=w.raiz / TICKET / "revision" / "2026-11-17-rapido",
+                            base=primero)
+        recibos = {p.parent.name: json.loads(p.read_text(encoding="utf-8"))["repos"][0]["sellado"]
+                   for p in (w.raiz / TICKET / "revision").glob("*/recibo.json")}
+        assert recibos == {"2026-11-18-rapido": primero, "2026-11-17-rapido": segundo}, recibos
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == segundo and repo["base_recibo"] == "revision/2026-11-17-rapido" and rutas(repo) == [SQL_GAMMA], repo
+
+
+def test_ticket_el_sello_de_otro_repo_no_cuenta():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.web, {CS_SVC: "class Servicio { int y; }\n"})
+        ticket, sello = sellar(w, w.web, [CS_SVC])
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        db, web = con_ticket(w, [(w.db, None), (w.web, None)], ticket)["repos"]
+        assert db["base"] == merge_base and db["base_origen"] == "merge-base" and rutas(db) == [SQL_ALFA], db
+        assert web["base"] == sello and web["base_origen"] == "sellada" and rutas(web) == [], web
+
+
+def test_ticket_sin_recibos_sellados_usa_el_merge_base_y_lo_dice():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == merge_base and repo["base_origen"] == "merge-base" and repo["base_recibo"] is None, repo
+        recibo_main(["--write", "--ticket", str(ticket), "--repo", str(w.db), "--archivo", str(w.db / SQL_ALFA),
+                     "--modo", "rapido", "--fecha", "2026-11-17"])
+        commitear(w.db, {})
+        escribir(w.raiz, {TICKET + "/revision/2026-11-18-rapido/recibo.json": "{roto"})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == merge_base and repo["base_origen"] == "merge-base", "un recibo sin sellar o roto no mueve la base"
+
+
+def test_ticket_con_sello_no_necesita_origin_head():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, sello = sellar(w, w.db, [SQL_ALFA])
+        git(w.db, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        repo = con_ticket(w, [(w.db, None)], ticket)["repos"][0]
+        assert repo["base"] == sello and repo["base_origen"] == "sellada" and rutas(repo) == [SQL_GAMMA], repo
+        codigo, _, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz)])
+        assert codigo == 2 and "set-head" in error, "sin --ticket, sigue pidiendo origin/HEAD"
+
+
+def test_ticket_que_no_existe_es_error_de_uso():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        codigo, salida, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(w.raiz / "tickets" / "no-existe")])
+        assert codigo == 2 and salida == "" and "la carpeta del ticket no existe" in error and "no-existe" in error, (codigo, salida, error)
+
+
 PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 

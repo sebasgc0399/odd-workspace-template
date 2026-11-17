@@ -25,6 +25,7 @@ SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 LENGUAJES = {".sql": tsql}
 COTA = "solo en los repos declarados en workspace.config.json"
 CAMPOS_MARCADOR = ("id", "patron", "ejemplo", "fuente", "ancla", "descripcion")
+SHA_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 SIN_HALLAZGOS = {
     "efecto": "sin marcadores de efecto en el archivo entero (base y actual)",
     "dinero": "sin hallazgos en las líneas agregadas ni quitadas",
@@ -218,9 +219,56 @@ def _nuevo_cambio(ruta, abs_, estado, capa, origen, taller=False):
             "nuevo": estado in ("A", "?"), "ilegible": False}
 
 
-def recolectar_repo(ruta, base_arg, config):
+def sellos_del_ticket(ticket, top):
+    revision = os.path.join(ticket, "revision")
+    if not os.path.isdir(revision):
+        return []
+    clave, sellos = recibo._clave_ruta(top), []
+    for fecha, modo, ronda, archivo in recibo._recibos_del_ticket(revision):
+        try:
+            datos = recibo.cargar_recibo(archivo)
+        except recibo.ErrorUso:
+            continue
+        for e in datos["repos"]:
+            sello = e.get("sellado")
+            if (isinstance(sello, str) and SHA_RE.fullmatch(sello) and isinstance(e["ruta"], str)
+                    and recibo._clave_ruta(e["ruta"]) == clave):
+                carpeta = os.path.basename(os.path.dirname(archivo))
+                sellos.append((sello, (fecha, recibo.MODOS.index(modo), ronda), "revision/" + carpeta))
+    return sellos
+
+
+def _es_ancestro(top, commit, de):
+    return _git(top, "merge-base", "--is-ancestor", commit, de).returncode == 0
+
+
+def sello_mas_nuevo(ticket, top):
+    vivos = [s for s in sellos_del_ticket(ticket, top) if _es_ancestro(top, s[0], "HEAD")]
+    cuentas = {}
+    for sello, _, _ in vivos:
+        if sello not in cuentas:
+            cuentas[sello] = int(_git_ok(top, "rev-list", "--count", sello).stdout.decode("ascii").strip())
+    return max(vivos, key=lambda s: (cuentas[s[0]], s[1])) if vivos else None
+
+
+def elegir_base(top, base_arg, ticket):
+    if base_arg or ticket is None:
+        return recibo.resolver_base(top, base_arg), ("explicita" if base_arg else "merge-base"), None
+    sello = sello_mas_nuevo(ticket, top)
+    if sello is None:
+        return recibo.resolver_base(top), "merge-base", None
+    try:
+        defecto = recibo.resolver_base(top)
+    except recibo.ErrorEntorno:
+        defecto = None
+    if defecto and not _es_ancestro(top, defecto, sello[0]):
+        return defecto, "merge-base", None
+    return sello[0], "sellada", sello[2]
+
+
+def recolectar_repo(ruta, base_arg, config, ticket=None):
     top = recibo.raiz_del_repo(ruta)
-    base = recibo.resolver_base(top, base_arg)
+    base, origen, sellada_en = elegir_base(top, base_arg, ticket)
     salida = _git_ok(top, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base).stdout.split(b"\0")
     estados = {}
     for i in range(0, len(salida) - 1, 2):
@@ -256,7 +304,7 @@ def recolectar_repo(ruta, base_arg, config):
         elif c["estado"] == "D":
             c["quitadas"] = lineas_de(c["base_texto"])
         cambios.append(c)
-    return {"ruta": top, "base": base, "cambios": cambios}
+    return {"ruta": top, "base": base, "base_origen": origen, "base_recibo": sellada_en, "cambios": cambios}
 
 
 def recolectar_taller(ruta, config):
@@ -415,10 +463,21 @@ def _cargar_config(raiz):
         raise ErrorEntorno("la configuración de %s está rota: %s" % (raiz, exc))
 
 
-def analizar(repos, taller=(), raiz=None, clones=None):
+def _repo_de_salida(r, con_origen):
+    salida = {"ruta": r["ruta"], "base": r["base"]}
+    if con_origen:
+        salida.update(base_origen=r["base_origen"], base_recibo=r["base_recibo"])
+    salida["archivos"] = [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
+                          for c in r["cambios"]]
+    return salida
+
+
+def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
     raiz, config = _cargar_config(raiz)
+    if ticket is not None and not os.path.isdir(ticket):
+        raise ErrorUso("la carpeta del ticket no existe: %s" % ticket)
     instancia = cargar_senales(raiz)
-    recolectados = [recolectar_repo(ruta, base, config) for ruta, base in repos]
+    recolectados = [recolectar_repo(ruta, base, config, ticket) for ruta, base in repos]
     bases = {comun: r["base"] for r in recolectados for comun in [_repo_comun(r["ruta"])] if comun}
     clones_ = Clones(clones if clones is not None else [repo["path"] for repo in config["repos"].values()], bases)
     del_taller = [recolectar_taller(t, config) for t in taller]
@@ -445,9 +504,7 @@ def analizar(repos, taller=(), raiz=None, clones=None):
     return {
         "raiz": raiz,
         "origin_head": clones_.hashes(),
-        "repos": [{"ruta": r["ruta"], "base": r["base"],
-                   "archivos": [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
-                                for c in r["cambios"]]} for r in recolectados],
+        "repos": [_repo_de_salida(r, ticket is not None) for r in recolectados],
         "taller": [{"ruta": Path(c["abs"]).as_posix(), "capa": c["capa"], "origen": c["origen"], "contraparte": c["contraparte"]}
                    for c in del_taller],
         "senales": senales, "modo": modo, "motivos": motivos, "no_detectable": no_detectable,
@@ -515,6 +572,14 @@ def _evaluar_senales(senales, activos, instancia, clones):
 
 # ---------------------------------------------------------------- salida
 
+def _origen_de_la_base(repo):
+    if "base_origen" not in repo:
+        return ""
+    if repo["base_origen"] == "sellada":
+        return ", sellada en %s" % repo["base_recibo"]
+    return ", explícita" if repo["base_origen"] == "explicita" else ", merge-base con origin/HEAD"
+
+
 def formatear(r):
     salida = ["triaje — modo: %s" % r["modo"].upper()]
     salida += ["  " + m for m in r["motivos"]]
@@ -523,7 +588,8 @@ def formatear(r):
     for clon, h in r["origin_head"].items():
         salida.append("  %s: %s" % (clon, h or "SIN origin/HEAD"))
     for repo in r["repos"]:
-        salida.append("repo %s (base %s): %d archivo(s)" % (repo["ruta"], repo["base"][:10], len(repo["archivos"])))
+        salida.append("repo %s (base %s%s): %d archivo(s)" % (repo["ruta"], repo["base"][:10], _origen_de_la_base(repo),
+                                                             len(repo["archivos"])))
         for a in repo["archivos"]:
             salida.append("  %s %s [%s]" % (a["estado"], a["ruta"], a["capa"] or "sin capa"))
     for t in r["taller"]:
@@ -542,7 +608,9 @@ def formatear(r):
 def _parser():
     p = argparse.ArgumentParser(prog="triaje.py", description="Triaje por riesgo sobre el diff: propone el modo de la revisión.")
     p.add_argument("--repo", action="append", default=[], metavar="RUTA[#BASE]",
-                   help="repo o worktree; base por defecto: merge-base con la rama de origin/HEAD")
+                   help="repo o worktree; base por defecto: la sellada del --ticket, o el merge-base con la rama de origin/HEAD")
+    p.add_argument("--ticket", metavar="CARPETA",
+                   help="carpeta del ticket: un --repo sin #BASE parte del commit más nuevo que sellaron sus recibos (recibo.py --sellar)")
     p.add_argument("--taller", action="append", default=[], metavar="ARCHIVO", help="archivo del taller del ticket")
     p.add_argument("--clon", action="append", default=None, metavar="RUTA",
                    help="repo donde contar consumidores en la rama de origin/HEAD (por defecto, los repos del config)")
@@ -557,7 +625,8 @@ def main(argv=None):
         print("triaje: falta --repo o --taller", file=sys.stderr)
         return 2
     try:
-        r = analizar([recibo._partir_repo(t) for t in args.repo], taller=args.taller, raiz=args.raiz, clones=args.clon)
+        r = analizar([recibo._partir_repo(t) for t in args.repo], taller=args.taller, raiz=args.raiz, clones=args.clon,
+                     ticket=args.ticket)
     except (ErrorUso, ErrorEntorno, recibo.ErrorUso, recibo.ErrorEntorno) as exc:
         print("triaje: %s" % exc, file=sys.stderr)
         return 2

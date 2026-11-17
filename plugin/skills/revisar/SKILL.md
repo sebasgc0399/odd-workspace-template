@@ -30,7 +30,12 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
   - la ruta de cada repo sale de `workspace.local.json` (`repos.<repo>.path`);
   - el worktree y la rama del ticket están en su `CLAUDE.md`, en «Worktree y rama». Si el ticket trabaja en un worktree, ese es el `--repo`, no el árbol principal;
   - si no está claro qué repos toca el cambio, preguntá.
-- **La base** de cada repo es el merge-base con `origin/HEAD`, y es la misma que usan el triaje y el recibo. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario, porque habla con el remoto. Si un repo no tiene `origin/HEAD`, los scripts salen con 2 y piden `git remote set-head origin -a` o la base explícita con `--repo <ruta>#<base>`. Un repo sin ningún remoto, con la base explícita, cuenta sus consumidores en esa base; con remoto y sin `origin/HEAD`, la señal de consumidores queda inválida.
+- **La base** de cada repo es la misma que usan el triaje y el recibo, y sale en este orden:
+  1. la explícita, si pasás `--repo <ruta>#<base>`;
+  2. con `--ticket`, el commit más nuevo que sellaron los recibos del ticket (`recibo.py --sellar`, después del commit de una unidad revisada), si es ancestro de `HEAD` y más nuevo que el merge-base con `origin/HEAD`;
+  3. si no, el merge-base con `origin/HEAD`.
+
+  Así una unidad ya revisada y commiteada no se vuelve a revisar. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario, porque habla con el remoto. Si un repo no tiene `origin/HEAD`, los scripts salen con 2 y piden `git remote set-head origin -a` o la base explícita con `--repo <ruta>#<base>`. Un repo sin ningún remoto, con la base explícita, cuenta sus consumidores en esa base; con remoto y sin `origin/HEAD`, la señal de consumidores queda inválida.
 - **Los archivos del ticket.** El triaje lista todo lo que cambió contra la base. Si entre esos archivos hay algunos que no son del ticket (por ejemplo, archivos del ambiente local que están modificados a propósito), separalos con el usuario: no entran a la entrada ni al recibo.
 
 ## 2. El triaje y el sí
@@ -38,10 +43,12 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 1. Corré el triaje, que solo lee:
 
    ```bash
-   python3 "<S>/triaje.py" --repo <repo o worktree>[#<base>] [--repo …] [--taller <archivo del taller del ticket>] [--clon <repo>] [--raiz <raíz de la instancia>] [--json]
+   python3 "<S>/triaje.py" --ticket "<ticket>" --repo <repo o worktree>[#<base>] [--repo …] [--taller <archivo del taller del ticket>] [--clon <repo>] [--raiz <raíz de la instancia>] [--json]
    ```
 
    - Se corre desde la carpeta de la instancia o con `--raiz`. Con `--json` salen los hashes completos de la base, que se usan en el recibo.
+   - Pasá siempre `--ticket`: un `--repo` sin `#<base>` parte del último commit sellado del ticket. La línea `repo … (base …, <origen>)` dice de dónde salió (`sellada en revision/…`, `merge-base con origin/HEAD` o `explícita`), y en `--json` van `base_origen` y `base_recibo`. Mostrala junto al modo.
+   - Si el ticket tiene una unidad revisada que el usuario ya commiteó y nadie selló, sellala antes del triaje (ver «Después de la revisión»). Si `--sellar` sale con 1, seguí: el triaje usa el sello anterior o el merge-base.
    - Sale con 0, o con 2 si falta un `--repo` o un `--taller`, o si hay un error de uso o de entorno (por ejemplo, un repo sin `origin/HEAD`): mostrá el mensaje tal cual y corregilo.
 2. **El modo lo propone el triaje y no se elige a ojo.** Las señales solo escalan:
 
@@ -169,6 +176,17 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 ## Después de la revisión
 
 - El commit es del usuario. Esta skill no commitea nada, y en los repos del equipo nunca se commitea sin una autorización puntual.
+- **Después del commit de una unidad revisada, sellá su recibo**, antes de cualquier otro commit, y mostrá su línea:
+
+  ```bash
+  python3 "<S>/recibo.py" --sellar "<ticket>"
+  ```
+
+  - Por qué: anota en el recibo el commit que guarda lo revisado, y el triaje de la unidad siguiente parte de ese commit en vez del merge-base. Sin sello, vuelve a contar lo ya revisado (en un ticket real, 83 archivos en vez de los 21 de la unidad nueva).
+  - Sella el recibo más reciente del ticket; para otro, pasá su carpeta. Sellar de nuevo sin mover `HEAD` no cambia nada.
+  - **Exit 0:** `recibo sellado: <recibo> (<commit> en <n> repo(s))`.
+  - **Exit 1:** no sella y no toca el recibo: cambió el diff revisado, hay archivos revisados sin commitear («commitea primero lo revisado»), o `HEAD` trae cambios fuera de lo revisado (por ejemplo, un commit de otra unidad). Mostrá el motivo; no lo fuerces, porque un sello sobre lo no revisado lo dejaría fuera del triaje siguiente.
+  - **Exit 2:** error de uso o de entorno. Mostrá el mensaje.
 - Si el modo fue `completo` y el cambio va a un líder, y el usuario quiere dejar la revisión como caso del modo sombra, `/odd-ws:eval-reviewers`. Ahí se congela, se puntúa y se ratifica; esta skill no toca ninguna de esas etapas.
 
 ## Scripts
@@ -177,4 +195,4 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 |---|---|---|
 | `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
 | `rescatar.py` | reporte, prompt y lecturas de cada corrida desde el `.jsonl` del subagente | 0 ok · 1 corrida sin reporte · 2 error |
-| `recibo.py` | `--write` escribe el recibo; `--check` lo compara con el diff actual | 0 escrito o vale · 1 el diff cambió · 2 error de uso o de entorno |
+| `recibo.py` | `--write` escribe el recibo; `--check` lo compara con el diff actual; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió o no se puede sellar · 2 error de uso o de entorno |

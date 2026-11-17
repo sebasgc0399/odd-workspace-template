@@ -852,6 +852,138 @@ def test_ronda_invalida_o_con_check_es_error_de_uso():
         assert correr(["--check", str(ticket), "--ronda", "2"])[0] == 2
 
 
+def test_sellar_despues_del_commit_anota_el_head_y_el_recibo_sigue_valiendo():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        antes = json.loads(recibo.read_text(encoding="utf-8"))
+        head = commitear(repo, {})
+        indice_antes = indice(repo)
+        codigo, salida, error = correr(["--sellar", str(recibo)])
+        assert codigo == 0 and error == "", (salida, error)
+        assert salida == "recibo sellado: %s (%s en 1 repo(s))\n" % (str(recibo).replace("\\", "/"), head[:10]), salida
+        crudo = recibo.read_bytes()
+        esperado = dict(antes, repos=[dict(antes["repos"][0], sellado=head)])
+        assert crudo == (json.dumps(esperado, ensure_ascii=False, indent=2) + "\n").encode("utf-8"), crudo
+        assert indice(repo) == indice_antes
+        codigo, salida, _ = correr(["--check", str(recibo)])
+        assert codigo == 0 and "vale" in salida, salida
+        assert correr(["--sellar", str(recibo)])[0] == 0
+        assert recibo.read_bytes() == crudo, "sellar de nuevo sin mover HEAD no cambia nada"
+
+
+def test_sellar_con_lo_revisado_sin_commitear_no_toca_el_recibo():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        crudo = recibo.read_bytes()
+        codigo, salida, error = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and error == "", (codigo, salida, error)
+        assert "commitea primero lo revisado" in salida and "a.sql" in salida and "nuevo.sql" in salida, salida
+        assert recibo.read_bytes() == crudo
+        _git(repo, "add", "a.sql")
+        _git(repo, "commit", "-q", "-m", "solo a")
+        codigo, salida, _ = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and "nuevo.sql" in salida and "a.sql" not in salida.replace("nuevo.sql", ""), salida
+        escribir(repo, {".git/info/exclude": "nuevo.sql\n"})
+        codigo, salida, _ = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and "nuevo.sql" in salida, "ignorado por git no es commiteado: %s" % salida
+        escribir(repo, {".git/info/exclude": ""})
+        _git(repo, "add", "nuevo.sql")
+        codigo, salida, _ = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and "nuevo.sql" in salida, "stageado no es commiteado: %s" % salida
+        assert recibo.read_bytes() == crudo
+        _git(repo, "commit", "-q", "-m", "nuevo")
+        assert correr(["--sellar", str(recibo)])[0] == 0
+
+
+def test_sellar_con_el_diff_divergido_no_toca_el_recibo():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        commitear(repo, {})
+        escribir(repo, {"nuevo.sql": "m\n"})
+        crudo = recibo.read_bytes()
+        codigo, salida, error = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and error == "", (codigo, salida, error)
+        assert "cambio el diff revisado" in salida and "nuevo.sql" in salida and "a.sql" not in salida.replace("nuevo.sql", ""), salida
+        assert recibo.read_bytes() == crudo
+        commitear(repo, {})
+        codigo, salida, _ = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and "cambio el diff revisado" in salida, "commitear lo que divergio no lo vuelve revisado: %s" % salida
+        assert recibo.read_bytes() == crudo
+
+
+def test_sellar_con_un_commit_fuera_de_lo_revisado_no_toca_el_recibo():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        commitear(repo, {})
+        commitear(repo, {"c.txt": "ajeno sin revisar\n"})
+        crudo = recibo.read_bytes()
+        codigo, salida, error = correr(["--sellar", str(recibo)])
+        assert codigo == 1 and error == "", (codigo, salida, error)
+        assert "HEAD trae cambios fuera de lo revisado" in salida and "c.txt" in salida, salida
+        assert "a.sql" not in salida.replace("nuevo.sql", "").split("\n", 1)[1], salida
+        assert recibo.read_bytes() == crudo
+        commitear(repo, {"c.txt": ARCHIVOS["c.txt"]})
+        assert correr(["--sellar", str(recibo)])[0] == 0, "un cambio que se deshace no queda fuera de lo revisado"
+
+
+def test_sellar_la_carpeta_del_ticket_sella_el_recibo_mas_reciente():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        segunda = ticket / "revision" / "2026-10-21-rapido-2" / "recibo.json"
+        segunda.parent.mkdir()
+        segunda.write_bytes(recibo.read_bytes())
+        primera = recibo.read_bytes()
+        head = commitear(repo, {})
+        codigo, salida, error = correr(["--sellar", str(ticket)])
+        assert codigo == 0, (salida, error)
+        assert "2026-10-21-rapido-2/recibo.json" in salida.replace("\\", "/"), salida
+        assert recibo.read_bytes() == primera, "solo sella el mas reciente"
+        assert json.loads(segunda.read_text(encoding="utf-8"))["repos"][0]["sellado"] == head
+        codigo, salida, _ = correr(["--sellar", str(recibo.parent)])
+        assert codigo == 0 and "2026-10-21-rapido/recibo.json" in salida.replace("\\", "/"), salida
+        assert json.loads(recibo.read_text(encoding="utf-8"))["repos"][0]["sellado"] == head
+
+
+def test_sellar_dos_repos_es_todo_o_nada_y_cada_uno_con_su_head():
+    with temporal() as t:
+        r1, _ = repo_con_principal(t, ARCHIVOS, "uno")
+        r2, _ = repo_con_principal(t, ARCHIVOS, "dos")
+        escribir(r1, {"a.sql": "x\n"})
+        escribir(r2, {"b.cs": "class B { int x; }\n"})
+        ticket = Path(t) / "T-17-s"
+        ticket.mkdir()
+        assert correr(args_write(ticket, [r1, r2], [r1 / "a.sql", r2 / "b.cs"], ["--fecha", "2026-10-21"]))[0] == 0
+        recibo = ticket / "revision" / "2026-10-21-rapido" / "recibo.json"
+        crudo = recibo.read_bytes()
+        h1 = commitear(r1, {})
+        codigo, salida, _ = correr(["--sellar", str(ticket)])
+        assert codigo == 1 and "b.cs" in salida and str(r2).replace("\\", "/") in salida.replace("\\", "/"), salida
+        assert recibo.read_bytes() == crudo, "si un repo no se puede sellar, no se sella ninguno"
+        h2 = commitear(r2, {})
+        codigo, salida, error = correr(["--sellar", str(ticket)])
+        assert codigo == 0, (salida, error)
+        assert "(%s, %s en 2 repo(s))" % (h1[:10], h2[:10]) in salida, salida
+        assert [r["sellado"] for r in json.loads(recibo.read_text(encoding="utf-8"))["repos"]] == [h1, h2]
+
+
+def test_sellar_con_opciones_que_no_son_suyas_es_error_de_uso():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        commitear(repo, {})
+        crudo = recibo.read_bytes()
+        for extra in (["--ticket", str(ticket)], ["--repo", str(repo)], ["--archivo", "a.sql"], ["--modo", "rapido"],
+                      ["--recibo", str(recibo)], ["--reviewer", "r"], ["--verificacion", "v: ok"], ["--estado", "limpio"],
+                      ["--fecha", "2026-10-21"], ["--ronda", "2"]):
+            codigo, salida, error = correr(["--sellar", str(recibo)] + extra)
+            assert codigo == 2 and salida == "" and extra[0] in error, (extra, codigo, salida, error)
+        for otra in (["--check", str(recibo)], ["--write"]):
+            codigo, salida, _ = correr(["--sellar", str(recibo)] + otra)
+            assert codigo == 2 and salida == "", (otra, codigo, salida)
+        assert recibo.read_bytes() == crudo
+        codigo, salida, error = correr(["--sellar", str(Path(t) / "no-existe")])
+        assert codigo == 2 and salida == "" and "no-existe" in error, error
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
