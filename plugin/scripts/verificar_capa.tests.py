@@ -1018,6 +1018,52 @@ def test_inicio_con_la_config_sana_calla_en_startup_y_resume_y_no_deja_marcas():
         assert w.correr(inicio("startup"))[1], "control positivo: rota avisa"
 
 
+def inicio_en(source, cwd, sesion="s1"):
+    return {"hook_event_name": "SessionStart", "source": source, "session_id": sesion, "cwd": str(cwd)}
+
+
+def marcar_activo(raiz, relativa):
+    escribir(raiz, ".claude/estado/ticket-activo", relativa + "\n")
+
+
+TICKET_ACTIVO = "# T-7 — algo\n\n## Objetivo\n\nhacer algo concreto\n"
+
+
+def test_inicio_en_la_raiz_inyecta_el_ticket_activo_en_cada_origen():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", TICKET_ACTIVO)
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        for source in ("startup", "resume", "compact", "clear"):
+            codigo, out, err = w.correr(inicio_en(source, w.raiz))
+            assert codigo == 0 and err == b"", (source, codigo, err)
+            texto = aviso_de(out)
+            assert "tickets/T-7-algo" in texto and "## Objetivo" in texto and "hacer algo concreto" in texto, (source, texto)
+        assert w.marcas() == []
+
+
+def test_inicio_fuera_de_la_raiz_sin_cwd_o_sin_ticket_activo_valido_calla():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", TICKET_ACTIVO)
+        assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b""), "sin marca"
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        assert w.correr(inicio_en("startup", w.raiz / "tickets" / "T-7-algo")) == (0, "", b""), "dentro del ticket ya carga solo"
+        assert w.correr(inicio("startup")) == (0, "", b""), "sin cwd"
+        for malo in ("tickets/T-9-no-existe", "../afuera", "tickets/../../afuera", "/abs", "workspace.config.json", "tickets", ""):
+            marcar_activo(w.raiz, malo)
+            assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b""), malo
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        assert "hacer algo concreto" in aviso_de(w.correr(inicio_en("startup", w.raiz))[1]), "control positivo"
+
+
+def test_el_ticket_activo_largo_se_recorta_y_dice_donde_sigue():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", "# T-7\n" + "linea larga del ticket\n" * 2000)
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        assert len(texto) <= M.TOPE_DEL_TICKET + 500, len(texto)
+        assert texto.rstrip().endswith("tickets/T-7-algo/CLAUDE.md"), texto[-200:]
+
+
 def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando():
     with Mundo() as w:
         escribir(w.raiz, "workspace.config.json", "{rota")

@@ -9,7 +9,10 @@ from odd_ws import capas
 from odd_ws.comun import id_valido, raiz_de_instancia
 
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
-       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]")
+       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
+       "     ticket.py --activar <id> [--raiz <carpeta>]\n"
+       "     ticket.py --desactivar <id> [--raiz <carpeta>]")
+MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar"}
 SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasá el prefijo (ticket.py --siguiente <prefijo>) "
                f"o fijalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -54,20 +57,36 @@ def _es_el_destino(raiz, relativa, destino):
         return False
 
 
-def conflictos(raiz, id, slug):
+def carpetas_del_id(raiz, id):
     base = Path(raiz) / capas.TICKETS
     plantilla = Path(raiz) / capas.TICKET_PLANTILLA_DIR
-    destino = carpeta_del_ticket(id, slug)
     prefijo = f"{id}-".casefold()
     hallados = []
     for actual, carpetas, _ in _recorrer(base):
         if actual == plantilla.parent and plantilla.name in carpetas:
             carpetas.remove(plantilla.name)
         for nombre in carpetas:
-            relativa = (actual / nombre).relative_to(raiz).as_posix()
-            if nombre.casefold().startswith(prefijo) and not _es_el_destino(raiz, relativa, destino):
-                hallados.append(relativa)
+            if nombre.casefold().startswith(prefijo):
+                hallados.append((actual / nombre).relative_to(raiz).as_posix())
     return sorted(hallados)
+
+
+def conflictos(raiz, id, slug):
+    destino = carpeta_del_ticket(id, slug)
+    return [relativa for relativa in carpetas_del_id(raiz, id) if not _es_el_destino(raiz, relativa, destino)]
+
+
+def ticket_activo(raiz):
+    try:
+        return (Path(raiz) / capas.TICKET_ACTIVO).read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def marcar_activo(raiz, relativa):
+    ruta = Path(raiz) / capas.TICKET_ACTIVO
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes((relativa + "\n").encode("utf-8"))
 
 
 def siguiente(raiz, prefijo):
@@ -119,15 +138,15 @@ def _argumentos(argv):
     posicionales = []
     raiz = None
     ensayo = False
-    pide_siguiente = False
+    modo = None
     i = 0
     while i < len(argv):
         argumento = argv[i]
         if argumento == "--ensayo" and not ensayo:
             ensayo = True
             i += 1
-        elif argumento == "--siguiente" and not pide_siguiente:
-            pide_siguiente = True
+        elif argumento in MODOS and modo is None:
+            modo = MODOS[argumento]
             i += 1
         elif argumento == "--raiz" and raiz is None and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             raiz = argv[i + 1]
@@ -137,10 +156,14 @@ def _argumentos(argv):
         else:
             posicionales.append(argumento)
             i += 1
-    if pide_siguiente:
+    if modo == "siguiente":
         if ensayo or len(posicionales) > 1:
             return None
         return "siguiente", (posicionales[0] if posicionales else None), raiz
+    if modo is not None:
+        if ensayo or len(posicionales) != 1:
+            return None
+        return modo, posicionales[0], raiz
     if len(posicionales) != 2:
         return None
     return "crear", posicionales[0], posicionales[1], raiz, ensayo
@@ -187,6 +210,38 @@ def _siguiente(prefijo, texto_de_raiz):
     return 0
 
 
+def _marcar(modo, id, texto_de_raiz):
+    try:
+        raiz = _raiz(texto_de_raiz)
+        if not id_valido(id):
+            raise Rechazo(f"el id {id!r} no es válido: usá letras, números, guion y guion bajo (hasta 128 caracteres)")
+        if modo == "activar":
+            carpetas = carpetas_del_id(raiz, id)
+            if not carpetas:
+                raise Rechazo(f"el id {id} no tiene carpeta en {capas.TICKETS}/")
+            if len(carpetas) > 1:
+                raise Rechazo(f"el id {id} tiene varias carpetas: {', '.join(carpetas)}; activá la que corresponde a mano o renombrá las otras")
+            marcar_activo(raiz, carpetas[0])
+            print(f"ticket activo: {carpetas[0]}")
+            return 0
+        actual = ticket_activo(raiz)
+        if actual is not None and not Path(actual).name.casefold().startswith(f"{id}-".casefold()):
+            print(f"ticket activo: {actual} (no es el {id})")
+            return 0
+        try:
+            (raiz / capas.TICKET_ACTIVO).unlink()
+        except FileNotFoundError:
+            pass
+        print("sin ticket activo")
+    except ErrorDeEntorno as error:
+        return _error(str(error), 2)
+    except Rechazo as error:
+        return _error(str(error), 1)
+    except Exception as error:
+        return _error(f"error interno: {type(error).__name__}: {error}", 2)
+    return 0
+
+
 def principal(argv):
     for flujo in (sys.stdout, sys.stderr):
         if hasattr(flujo, "reconfigure"):
@@ -197,6 +252,8 @@ def principal(argv):
         return 2
     if argumentos[0] == "siguiente":
         return _siguiente(*argumentos[1:])
+    if argumentos[0] in ("activar", "desactivar"):
+        return _marcar(*argumentos)
     _, id, slug, texto_de_raiz, ensayo = argumentos
     plan = []
     raiz = None
@@ -209,6 +266,7 @@ def principal(argv):
             lineas = bootstrap.informe(plan, None, raiz, True)
         else:
             lineas = bootstrap.informe(plan, bootstrap.aplicar(plan, raiz), raiz, False)
+            marcar_activo(raiz, carpeta_del_ticket(id, slug))
     except ErrorDeEntorno as error:
         return _error(str(error), 2)
     except (Rechazo, bootstrap.ErrorDePlan) as error:

@@ -27,7 +27,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 
 1. **Buscá si el id ya tiene carpeta.** El glob es recursivo, porque un ticket archivado puede estar en una subcarpeta, y la herramienta Glob lista archivos, no carpetas: usá `tickets/**/<id>-*/CLAUDE.md`.
    - **Ninguna:** seguí.
-   - **Una:** el ticket ya existe. Mostrá la ruta y preguntá si querés retomarlo; esta skill no vuelve a llenar un ticket que ya tiene contenido.
+   - **Una:** el ticket ya existe. Mostrá la ruta y preguntá si querés retomarlo; esta skill no vuelve a llenar un ticket que ya tiene contenido. Si lo retoma, marcalo como el ticket activo: `python3 "<S>/ticket.py" --activar <id>`.
    - **Más de una:** listalas todas y preguntá cuál es. No elijas.
 2. **Proponé el slug:** kebab-case, en minúsculas, derivado del título (por ejemplo, `lector-de-codigo`). Los ids válidos llevan letras, números, guion y guion bajo.
 3. **Ensayo:** no escribe nada. Mostrá su salida tal cual.
@@ -105,6 +105,8 @@ La ruta de `<repo>` sale de `workspace.local.json` (`repos.<repo>.path`). Propon
 
 **En un repo con `"own": true`**, si el usuario eligió un worktree, no le pases los comandos: corré vos `git -C <repo> fetch` y después el `worktree add`, y mostrá lo que salió. Si eligió el árbol principal, pasale el `switch` como en cualquier repo, y que lo corra él: cambiar la rama de su árbol puede pisar trabajo sin commitear. Esta regla es de la skill: el guard de comandos solo protege los repos con `agent_readonly`, y un repo `own` no puede llevarlo. Si un comando falla, mostrá el error y no lo reintentes con otra forma.
 
+**Si la raíz tiene un `.code-workspace`** (el usuario trabaja desde VS Code), sumá el worktree como carpeta, después de la raíz, con Edit y sin tocar el resto, y avisá que VS Code lo toma al recargar la ventana. Así la sesión de la raíz puede editarlo sin pedir permiso.
+
 La respuesta va a «Contexto técnico», en `Worktree y rama:`: la ruta y la rama, o «árbol principal» y la rama.
 
 ## 7. El Paso 0 de diseño
@@ -123,7 +125,9 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 2. **Pedí el sí.** Sin sí, no se escribe nada. Si el usuario corrige algo, ajustá y volvé a mostrar.
 3. **Con el sí**, editá `<ticket>/CLAUDE.md` con Edit, sección por sección, sin tocar las demás (Decisiones, Gotchas, Candidatos a graduar y Cierre quedan como los trae la plantilla). En un ticket chico, quitá `## Specs` y `## Tareas`. La primera entrada de la bitácora lleva el pedido tal cual, porque la bitácora hace de Log: `<fecha> — el pedido, tal cual: «<…>»; abierto desde <fuente>; preguntas por fijar: <n>`.
 4. **Decí qué quedó escrito** y qué sigue:
-   - cómo abrir la sesión del ticket: desde su carpeta, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama» (dale el comando con las rutas reales). Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
+   - las dos formas de trabajar el ticket, con las rutas reales:
+     - **desde su carpeta**, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
+     - **desde la raíz**, que es lo cómodo en VS Code: `ticket.py` ya lo dejó como ticket activo, así que su `CLAUDE.md` se inyecta al arrancar y después de cada `/compact`;
    - las preguntas por fijar con el líder, que van primero;
    - el Paso 0, antes de cualquier código;
    - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder;
@@ -134,4 +138,6 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 | Script | Para qué | Salidas |
 |---|---|---|
 | `ticket.py` | crea `tickets/<id>-<slug>/` desde la plantilla sin pisar nada; `--ensayo` solo muestra | 0 ok · 1 pedido rechazado (conflicto, id o slug inválido, plantilla ausente) · 2 error de uso o de entorno |
+| `ticket.py --activar <id>` | marca como activo el ticket de ese id, que la sesión de la raíz recibe al arrancar y tras cada `/compact`; crear un ticket ya lo marca | 0 `ticket activo: <carpeta>` · 1 sin carpeta, con varias o id inválido · 2 error de uso o de entorno |
+| `ticket.py --desactivar <id>` | quita la marca si es de ese ticket | 0 `sin ticket activo` o `ticket activo: <carpeta> (no es el <id>)` · 2 error de uso o de entorno |
 | `ticket.py --siguiente [<prefijo>]` | propone el siguiente id consecutivo, con el prefijo de `tickets.prefix` o el que se le pasa; no escribe nada | 0 `siguiente: <id>` · 1 sin prefijo o prefijo inválido · 2 error de uso, sin instancia o config rota |

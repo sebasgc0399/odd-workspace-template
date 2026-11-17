@@ -172,6 +172,8 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
 
    Si el pre-commit de la instancia falla, mostrá su salida: no lo saltees con `--no-verify`.
 
+5. **Si el ticket quedó cerrado**, sacale la marca de ticket activo, que solo se quita si es la suya: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ticket.py" --desactivar <id>`.
+
 ## 10. Las memorias sin triar
 
 Un aviso de una línea, que no tría ni frena el cierre. Corré `memorias.py` como en el paso M1 del «Modo memorias», contá las memorias en `nueva` y `cambiada` y avisá «N memorias sin triar (<origen>): `/odd-ws:cerrar memorias`», con el `cobertura.origen` del JSON (`pasada` o `derivada`); por ejemplo, «0 memorias sin triar (derivada): `/odd-ws:cerrar memorias`». Si el script sale con 2, o la cobertura sale `no disponible` (Codex), decilo en esa línea, con el motivo, y seguí.

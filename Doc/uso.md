@@ -43,6 +43,7 @@ Se desarrolla en Windows, y las suites corren también en Linux y macOS (ver [D�
 - **`--scope project` es obligatorio.** Sin él, `claude plugin install` instala a nivel usuario, y los hooks del plugin correrían en todos tus proyectos (P2 de [`Doc/diseno.md`](diseno.md#4-diseño-del-plugin-p1p6)). En `/plugin install`, dentro de una sesión, elige la opción de instalar para todos los colaboradores del repositorio.
 - **Cada ticket lleva su propio `.claude/settings.json`,** porque Claude Code lee ese archivo solo de la carpeta donde arranca la sesión. El bootstrap pone el `enabledPlugins` en la raíz y en la plantilla, y `/odd-ws:abrir` lo copia a cada ticket.
 - **La sesión de un ticket se abre desde su carpeta, con cada repo de código agregado:** `claude --add-dir <ruta>`, una vez por cada repo o worktree de «Worktree y rama» en el `CLAUDE.md` del ticket. Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket.
+- **O se trabaja desde la raíz**, que es lo cómodo en VS Code. La extensión usa la primera carpeta del `.code-workspace` como directorio principal y las demás como directorios adicionales, así que la raíz va primero y los repos o worktrees después. El ticket activo (el último que abriste, o el de `ticket.py --activar <id>`) se inyecta al arrancar la sesión y después de cada `/compact`.
 
 ## Usarlo desde Codex
 
@@ -137,7 +138,8 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **El `CLAUDE.md` del ticket.** Lo llena con el objetivo, los criterios, el alcance, las preguntas por fijar con el líder, los docs de dominio que toca y los candidatos a graduar de tickets hermanos. Te lo muestra antes de escribirlo.
 - **Si el ticket es grande**, suma sus Specs (tu pedido tal cual, numerado) y sus Tareas. Si usas el ODD de gentle-ai, ese ticket es su documento de feature: no se crea otro en `odd/tasks/`.
 - **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú. En un repo marcado como tuyo (`"own": true` en `workspace.config.json`), corre él mismo el `fetch` y crea el worktree; no commitea ni hace push ahí.
-- **Al final** te dice cómo abrir la sesión del ticket con `--add-dir`.
+- **El ticket activo.** El ticket que abre queda como activo, y si retomas uno, lo marca con `ticket.py --activar <id>`. Si trabajas desde la raíz, su `CLAUDE.md` se inyecta al arrancar y después de cada `/compact`. Si la raíz tiene un `.code-workspace`, le suma el worktree como carpeta.
+- **Al final** te dice las dos formas de trabajar el ticket: desde su carpeta con `--add-dir`, o desde la raíz.
 
 ### `/odd-ws:revisar`
 

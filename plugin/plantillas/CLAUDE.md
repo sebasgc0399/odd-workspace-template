@@ -18,6 +18,10 @@ Si el ticket toca repos de código, abre su sesión con esos repos agregados: `c
 una vez por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o
 editar fuera de la carpeta del ticket.
 
+También se puede trabajar desde la raíz, que es lo cómodo en VS Code: el **ticket activo** (el último
+que abriste, o el que marcaste con `ticket.py --activar <id>`) se inyecta al arrancar y después de cada
+`/compact`. Sus repos o su worktree van como carpetas del `.code-workspace`, después de la raíz.
+
 ## Ciclo de un ticket
 
 1. **Abrir** con `/odd-ws:abrir`: crea `{{tickets}}/<id>-<slug>/` desde la plantilla

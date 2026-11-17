@@ -26,6 +26,7 @@ WRITER_RE = re.compile(r"writer-[a-z0-9][a-z0-9-]*")
 CARPETA_VERDAD = "revision"
 CARPETA_OCULTA = "oculto"
 ESTADO = ".claude/estado"
+TICKET_ACTIVO = ESTADO + "/ticket-activo"
 GITIGNORE = ".gitignore"
 TICKETS = "tickets"
 INDICE = "CLAUDE.md"

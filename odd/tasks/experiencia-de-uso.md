@@ -31,7 +31,7 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T4a | S3 | Las claves `ask_before_commit` y `own`, y el primer commit del bootstrap con el hook ejecutable | inline | hecho | `9798504` |
 | T4b | S3 | `cerrar` commitea sin preguntar, `abrir` crea el worktree en un repo propio, y el `CLAUDE.md` de la instancia lo dice | inline | hecho | `c82376e` |
 | T5 | S4, S5 | Bootstrap en una parada y su cierre | inline | hecho | `fd45a3c` |
-| T6 | S7 | Ticket activo y sesión del ticket | inline | pendiente | |
+| T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | el commit que suma L21 |
 | T7 | S8 | Memorias de los repos | inline | pendiente | |
 | T8 | S10 | Estudio del arranque en frío | inline, solo lectura | pendiente | |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
@@ -124,3 +124,20 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - **Rojo:** bootstrap 174/177. **Verde:** bootstrap 177/177, bootstrap_e2e 14/14 y bootstrap_cli 19/19.
   - **El scratch del verificador** (`tmp.0edGdN41al` en el temp del sistema) lo borra el autor a mano.
 - **L20 (2026-11-17), lo siguiente:** la re-verificación limitada a B1, B2 y B3, y después T6.
+- **L21 (2026-11-17), T4 cerrado y T6 hecho.**
+  - **La re-verificación de `8f908a4` da los tres blockers corregidos**, y el CI está en verde.
+    - B1: el aviso del `chmod` sigue en los cinco casos sin commit y falta solo cuando el commit se hace.
+    - B2: el clon dice `no hace falta`.
+    - B3: los textos ya no afirman que el guard frena el `switch`.
+    - Aviso nuevo, como seguimiento: el ensayo no aplica el filtro de `check-ignore`, así que en un clon dice `se haría` donde la corrida real dice `no hace falta`. Es inofensivo, porque ahí no se crea el hook.
+    - El autor borra a mano su scratch: `tmp.HRwVyUeq7p` en el temp del sistema.
+  - **T6:**
+    - `ticket.py` marca como activo el ticket que crea (no en el ensayo) en `.claude/estado/ticket-activo`, con `--activar <id>` y `--desactivar <id>` para cambiarlo y quitarlo.
+    - `verificar_capa` inyecta en `SessionStart` (`startup`, `resume`, `compact` y `clear`) el `CLAUDE.md` del ticket activo, solo si la sesión corre en la raíz, recortado a 12000 caracteres. Llega a los tres CLI por los adaptadores que ya existían.
+    - `abrir` marca el ticket que se retoma, suma el worktree al `.code-workspace` si la raíz tiene uno, y cierra con las dos formas de trabajar el ticket. `cerrar` quita la marca.
+    - La plantilla del `CLAUDE.md` explica cómo se trabaja desde la raíz.
+  - Rojo: ticket 31/38 y verificar_capa 88/91.
+  - Verde: ticket 38/38, verificar_capa 91/91, bootstrap_textos 26/26, bootstrap_e2e 14/14, y los adaptadores y las capacidades. El `CLAUDE.md` queda en 148 líneas.
+  - Docs: `Doc/diseno.md` («Primer toque» y «Tickets»), `Doc/uso.md` y las skills `abrir` y `cerrar`.
+  - Risk: none. La inyección solo lee un archivo de la instancia y la valida (bajo `tickets/`, sin `..`, con su `CLAUDE.md`); sin marca, el inicio sigue callado, como fija el test de la config sana.
+- **L22 (2026-11-17), lo siguiente:** T7.

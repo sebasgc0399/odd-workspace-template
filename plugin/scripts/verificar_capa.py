@@ -26,6 +26,7 @@ DIAS_PODA = 7
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 ORIGENES_DEL_AVISO = ("startup", "resume")
 TOPE_DEL_MOTIVO = 200
+TOPE_DEL_TICKET = 12000
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 _LIMITE = None
@@ -472,19 +473,46 @@ def _primer_toque_de_una(evento, config):
     return Bloquear(_texto_primer_toque(capa, config["raiz"], encabezado, bloque))
 
 
+def _ticket_activo(evento, config):
+    raiz = config["raiz"]
+    if not evento.cwd or config_loader.canonica(evento.cwd) != config_loader.canonica(raiz):
+        return None
+    try:
+        with open(os.path.join(raiz, convencion.TICKET_ACTIVO), encoding="utf-8") as archivo:
+            relativa = archivo.read().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    partes = relativa.split("/")
+    if len(partes) < 2 or partes[0] != convencion.TICKETS or any(p in ("", ".", "..") for p in partes) or "\\" in relativa or ":" in relativa:
+        return None
+    ruta = os.path.join(raiz, *partes, "CLAUDE.md")
+    tickets = os.path.realpath(os.path.join(raiz, convencion.TICKETS))
+    if not os.path.isfile(ruta) or not os.path.realpath(ruta).startswith(tickets + os.sep):
+        return None
+    try:
+        with open(ruta, encoding="utf-8", errors="replace") as archivo:
+            texto = archivo.read()
+    except OSError:
+        return None
+    destino = relativa + "/CLAUDE.md"
+    if len(texto) > TOPE_DEL_TICKET:
+        texto = texto[:TOPE_DEL_TICKET].rstrip() + "\n\n[...] el resto sigue en " + destino
+    return Contexto("odd-ws: el ticket activo de esta instancia es %s. La sesión corre en la raíz, así que Claude Code no carga "
+                    "su CLAUDE.md solo; este es su contenido, de %s:\n\n%s" % (relativa, destino, texto))
+
+
 def _session_start(evento, config):
     sesion = evento.sesion
-    if evento.origen not in ("compact", "clear") or not id_valido(sesion):
-        return Permitir()
-    carpeta = os.path.join(_marcas_dir(config["raiz"]), sesion)
-    if os.path.isdir(carpeta):
-        for nombre in os.listdir(carpeta):
-            if nombre.startswith("principal."):
-                try:
-                    os.remove(os.path.join(carpeta, nombre))
-                except OSError:
-                    pass
-    return Permitir()
+    if evento.origen in ("compact", "clear") and id_valido(sesion):
+        carpeta = os.path.join(_marcas_dir(config["raiz"]), sesion)
+        if os.path.isdir(carpeta):
+            for nombre in os.listdir(carpeta):
+                if nombre.startswith("principal."):
+                    try:
+                        os.remove(os.path.join(carpeta, nombre))
+                    except OSError:
+                        pass
+    return _ticket_activo(evento, config) or Permitir()
 
 
 def _post_tool_use_o_read(evento, config):

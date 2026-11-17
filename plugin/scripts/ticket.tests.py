@@ -31,7 +31,9 @@ CLAUDE_MD = "# plantilla personalizada\r\ncon CRLF y ñ\r\n".encode("utf-8")
 SETTINGS = b'{"enabledPlugins": {"otro@sitio": true}}'
 GUIA = b"\x00guia binaria\xff\r\n"
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
-       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n")
+       "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
+       "     ticket.py --activar <id> [--raiz <carpeta>]\n"
+       "     ticket.py --desactivar <id> [--raiz <carpeta>]\n")
 PLANTILLA = {
     "tickets/_plantilla/CLAUDE.md": CLAUDE_MD,
     "tickets/_plantilla/.claude/settings.json": SETTINGS,
@@ -129,7 +131,9 @@ def test_crea_el_ticket_copiando_toda_la_plantilla_byte_a_byte():
         despues = arbol(e.base)
         nuevas = {k for k in despues if k not in antes}
         assert nuevas == {"instancia/tickets/12-mi-ticket"} | {f"instancia/tickets/12-mi-ticket/{r}" for r in CREADOS} | {
-            "instancia/tickets/12-mi-ticket/.claude", "instancia/tickets/12-mi-ticket/notas"}, nuevas
+            "instancia/tickets/12-mi-ticket/.claude", "instancia/tickets/12-mi-ticket/notas",
+            "instancia/.claude", "instancia/.claude/estado", "instancia/.claude/estado/ticket-activo"}, nuevas
+        assert despues["instancia/.claude/estado/ticket-activo"] == b"tickets/12-mi-ticket\n"
         assert all(despues[k] == v for k, v in antes.items()), "cambió algo que ya existía"
         assert not (e.raiz / ".git").exists() and not list(destino.rglob("*.tmp"))
 
@@ -310,6 +314,8 @@ def test_los_argumentos_mal_formados_dan_la_linea_de_uso_y_dos():
             [], ["12"], ["12", "a", "b"], ["12", "a", "--raiz"], ["12", "a", "--raiz", ""], ["12", "a", "--raiz", "--ensayo"],
             ["12", "a", "--ensayo", "--ensayo"], ["12", "a", "--raiz", "x", "--raiz", "y"], ["12", "a", "--otra"], ["--ensayo"],
             ["--siguiente", "a", "b"], ["--siguiente", "--ensayo"], ["--siguiente", "--siguiente"], ["--siguiente", "a", "--raiz"],
+            ["--activar"], ["--activar", "12", "13"], ["--activar", "12", "--ensayo"], ["--activar", "12", "--siguiente"],
+            ["--desactivar"], ["--desactivar", "12", "13"], ["12", "a", "--activar"],
         ]
         for argv in casos:
             rechazado(e, 2, USO.strip(), *argv)
@@ -471,6 +477,54 @@ def test_siguiente_con_un_prefijo_invalido_se_rechaza_con_uno():
     with Escenario() as e:
         for malo in ("S-M", "9A", "x" * 33):
             rechazado(e, 1, "prefijo", "--siguiente", malo, "--raiz", str(e.raiz))
+
+
+def activo(e):
+    ruta = e.raiz / ".claude" / "estado" / "ticket-activo"
+    return ruta.read_text(encoding="utf-8") if ruta.is_file() else None
+
+
+def test_crear_un_ticket_lo_deja_como_activo_y_el_ensayo_no():
+    with Escenario() as e:
+        assert e.correr("12", "mi-ticket", "--raiz", str(e.raiz), "--ensayo")[0] == 0
+        assert activo(e) is None
+        assert e.correr("12", "mi-ticket", "--raiz", str(e.raiz))[0] == 0
+        assert activo(e) == "tickets/12-mi-ticket\n"
+        assert e.correr("13", "otro", "--raiz", str(e.raiz))[0] == 0
+        assert activo(e) == "tickets/13-otro\n"
+
+
+def test_activar_cambia_el_ticket_activo_a_uno_que_ya_existe_tambien_archivado():
+    with Escenario() as e:
+        for id, slug in (("12", "uno"), ("13", "dos")):
+            assert e.correr(id, slug, "--raiz", str(e.raiz))[0] == 0
+        assert e.correr("--activar", "12", "--raiz", str(e.raiz)) == (0, "ticket activo: tickets/12-uno\n", "")
+        assert activo(e) == "tickets/12-uno\n"
+        (e.raiz / "tickets" / "archivo" / "14-viejo").mkdir(parents=True)
+        assert e.correr("--activar", "14", "--raiz", str(e.raiz)) == (0, "ticket activo: tickets/archivo/14-viejo\n", "")
+        assert activo(e) == "tickets/archivo/14-viejo\n"
+
+
+def test_activar_sin_carpeta_o_con_varias_se_rechaza_con_uno_y_no_cambia_nada():
+    with Escenario() as e:
+        assert e.correr("12", "uno", "--raiz", str(e.raiz))[0] == 0
+        rechazado(e, 1, "99", "--activar", "99", "--raiz", str(e.raiz))
+        (e.raiz / "tickets" / "12-otra").mkdir()
+        errores = rechazado(e, 1, "tickets/12-otra", "--activar", "12", "--raiz", str(e.raiz))
+        assert "tickets/12-uno" in errores, errores
+        rechazado(e, 1, "no es válido", "--activar", "1 2", "--raiz", str(e.raiz))
+        assert activo(e) == "tickets/12-uno\n"
+
+
+def test_desactivar_quita_la_marca_solo_si_es_de_ese_ticket():
+    with Escenario() as e:
+        for id, slug in (("12", "uno"), ("13", "dos")):
+            assert e.correr(id, slug, "--raiz", str(e.raiz))[0] == 0
+        assert e.correr("--desactivar", "12", "--raiz", str(e.raiz)) == (0, "ticket activo: tickets/13-dos (no es el 12)\n", "")
+        assert activo(e) == "tickets/13-dos\n"
+        assert e.correr("--desactivar", "13", "--raiz", str(e.raiz)) == (0, "sin ticket activo\n", "")
+        assert activo(e) is None
+        assert e.correr("--desactivar", "13", "--raiz", str(e.raiz)) == (0, "sin ticket activo\n", "")
 
 
 def test_siguiente_con_los_tickets_de_la_config_rotos_sale_con_dos():
