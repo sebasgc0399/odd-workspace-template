@@ -2,6 +2,43 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.8.0
+
+**Las reglas de la capa corren aunque el agente escriba por la shell.**
+
+### Lo que cambia para ti
+
+- **El guard de comandos frena la escritura de un archivo de capa por la shell.** Funciona en los tres CLI, fuera de un writer. Si un comando deja contenido nuevo en un archivo de capa, se bloquea antes de correr: una redirección, `Set-Content`, `Out-File`, `cp`, `sed -i`, `python -c`… El mensaje manda a la herramienta de edición, para que el contenido pase por el primer toque y las reglas.
+  - Siguen pasando borrar, vaciar y sacar un archivo de la capa.
+  - Para renombrar un archivo que ya está en git, usa `git mv`.
+- **Al terminar cada turno, se revisa lo que cambió.** Los archivos de capa que cambiaron durante el turno del agente principal pasan por las reglas, sin importar cómo se escribieron: con un script, con git o con una ruta en una variable.
+  - Solo cuentan las líneas nuevas del turno, y también entra lo que se commiteó en el turno.
+  - Con un bloqueo, el agente sigue una vez para corregirlo.
+  - La revisión no sabe quién escribió el cambio. Si editas un archivo de capa mientras el agente trabaja, el agente recibe la vuelta con el pedido de avisarte y no tocarlo.
+- **En Codex, confía los dos hooks nuevos.** Al abrir Codex, `/hooks` pide confiar `UserPromptSubmit` y `Stop` de odd-ws. Sin eso, la revisión del fin del turno no corre. El ítem `codex-hooks` del doctor lo avisa.
+- **Cada mensaje cuesta un poco más.**
+  - El inicio y el fin del turno lanzan un proceso de Python cada uno: unos 400 ms con dos repos, y unos 200 ms fuera de una instancia.
+  - Cada comando de shell suma unos 30 ms en el guard.
+- **No tienes que regenerar nada.** Los hooks vienen con el plugin.
+
+### Detalle técnico
+
+- **`writer_guard.escrituras()`** usa el mismo parser que `destinos()`, que no cambia, y devuelve solo los destinos que reciben contenido.
+  - En PowerShell lee `-Path`, `-LiteralPath`, `-FilePath`, `-PSPath` o `-LP`, y en `New-Item` también `-Name`.
+  - En Python toma el destino de cada llamada que escribe.
+  - `guard_comandos` la combina con `config_loader.clasificar`, después de la capa 1 y antes de la capa 2. Un diferencial de 8556 casos contra la 0.7.0 no dio regresiones.
+- **`revisar_turno.py`** es el hook nuevo de inicio y fin de turno: eventos `InicioTurno` y `FinTurno`, y capacidades P11 (`degradado`: si el hook falla, el turno cierra igual) y P12 (`soportado`).
+  - La foto vive en `.claude/estado/turnos/<sesión>/` y sale de `git status --porcelain=v2 --branch`, que da también el HEAD de cada repo.
+  - Si el HEAD avanzó durante el turno, lo commiteado se mide contra el commit viejo con `verificar_archivo(contra=...)`, un parámetro opcional que por defecto es `HEAD`.
+- **Por host:**
+  - **Claude Code:** `UserPromptSubmit` y `Stop`, con `decision: block`.
+  - **Codex:** los mismos eventos, por JSON con exit 0. Un `UserPromptSubmit` de un subagente no saca foto.
+  - **Pi:** `before_agent_start` y `agent_before_settle` del padre. Cada grupo de `hooks.pi.json` nombra su agente (`writer` o `principal`), y el shim los compara exactos.
+- **Un writer en curso** queda fuera de la revisión solo si el host avisa que hay trabajo en segundo plano (`background_tasks` de Claude Code). Esos archivos los revisa `writer_stop`.
+- **El doctor** cuenta los hooks nuevos, pide la confianza de los dos handlers en Codex y, en Pi, revisa la cobertura por agente.
+- **Lo que no se ve:** lo que el guard y la revisión no alcanzan está en el «No ve» de `Doc/diseno.md`.
+- **Las verificaciones:** las dos partes tuvieron un verificador independiente y una prueba de humo en vivo en los tres CLI (`odd/tasks/capa-por-shell.md`, L12-L14 y L20-L23).
+
 ## 0.7.0
 
 **Paquetes de reglas importables desde git, y una guía para trabajar en equipo.**

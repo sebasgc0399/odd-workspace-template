@@ -34,8 +34,8 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
 | B2d | S2, S3 | Codex: `Stop` y `UserPromptSubmit` (solo el hilo raíz) en el adaptador y en `hooks.codex.json`, con sus tests | delegado: W2 | hecho (L19) |
 | B2e | S2, S3 | Pi: el settle del padre y `before_agent_start` en el shim, el adaptador y `hooks.pi.json`, y la regla del doctor sobre el settle; con sus tests de Python y TS | delegado: W2 | hecho (L19) |
 | B2f | S3 | El doctor (cobertura y degradado) y los docs: `Doc/hooks.md`, `Doc/diseno.md` y las filas P11 y P12 de `multi-host.md`. La costura la cierra el padre, con la suite completa una vez | delegado: W2; la costura, inline | hecho (L19); la costura, en el pre-commit |
-| VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | encontró B1, B2 y B3 (L20); corrección en curso (L21) |
-| H | S3, S4 | Prueba de humo en Claude Code, Codex y Pi, cada uno con su home aparte | inline; el usuario hace los logins | pendiente |
+| VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | hecho: B1, B2 y B3 corregidos en `20916a4` y cerrados en la revisión (L20-L22) |
+| H | S3, S4 | Prueba de humo en Claude Code, Codex y Pi, cada uno con su home aparte | inline; el usuario hace los logins | hecho: A y B en vivo en los tres CLI (L23) |
 | F1 | — | Seguimiento: los hooks ponen `dont_write_bytecode` y un plugin instalado compila sus módulos en cada corrida. Con caché, `guard_comandos` ahorra unos 60 ms (L11) | aparte | anotado |
 
 ## Log
@@ -380,3 +380,47 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
   - **Latencia:** igual que antes, unos 100 ms en proceso.
   - **Riesgo:** ítem 2, porque cambia una compuerta, e ítem 3, porque un helper compartido suma un parámetro opcional con su default intacto.
   - **Scratch de W3,** para borrar a mano: `%TEMP%\tmp.e2WAKyqHde`.
+  - **El commit:** `20916a4`, con el CI en verde en los tres sistemas.
+- **L22 (2026-11-17), la revisión limitada a B1, B2 y B3: los tres cerrados.** El verificador corrió de nuevo sus reproducciones en `20916a4` y en `87dc63d`.
+  - **B1:** con `background_tasks` no vacío, el archivo nuevo del writer queda fuera; en la base se marcaba.
+  - **B2:** sin el aviso, el archivo del writer caído se marca en los tres turnos siguientes; en la base se callaba. Con el aviso, una foto vieja sigue escondiéndolo, como dice el «No ve».
+  - **B3:** ahora se marcan:
+    - un commit durante el turno;
+    - un commit de un archivo que ya estaba sucio, sin volver a marcar su línea vieja;
+    - un commit seguido de otra edición;
+    - dos commits con un archivo nuevo;
+    - un `checkout -b` y un checkout a una rama que desciende.
+
+    Siguen callados un amend (está en el «No ve») y un `stash`, que cuenta como revertido. En la base todos se callaban.
+  - **Los invariantes se mantienen:**
+    - los demás hooks dan lo mismo que en `634ce47` en las 44 cargas;
+    - los tests de `verificar_capa` y `writer_stop` de `634ce47` pasan sobre `20916a4`, así que el default de `contra` no cambia nada;
+    - el parser v2 lista los mismos archivos que el de `87dc63d` en los 83 casos de prueba.
+  - **Scratch del verificador,** para borrar a mano: `%TEMP%\tmp.d46PXvclaD` y `%TEMP%\tmp.tzvym9RYow`.
+  - **La parte B queda verificada.** Falta H, la prueba de humo.
+- **L23 (2026-11-17), H: la prueba de humo en los tres CLI.**
+  - **El montaje:**
+    - En `D:\dev-cache\humo-capa-por-shell`: un repo `app` y una instancia hecha con el bootstrap de la rama, con `hosts` en los tres CLI y la capa `sql`.
+    - En `verificar_sql.py`, una regla de prueba que bloquea la palabra `PROHIBIDO`.
+    - El doctor dio 0 FALTA. Antes de confiar en ellos, marcó en Codex los dos handlers nuevos que faltaba confiar.
+  - **Claude Code 2.1.319,** con `--plugin-dir` de la rama:
+    - **A:** `guard-comandos` bloqueó el `Set-Content` hacia `a.sql`.
+    - **B:** un script de Python escribió `b.sql`, y el guard no lo vio. Al terminar el turno, `revisar-turno` hizo seguir una vez nombrando `b.sql línea 1 [HU-01]`, y el turno cerró. Claude Code muestra la vuelta como «Stop hook error».
+  - **Codex 0.144,** con su home aislado, el plugin vuelto a instalar desde la rama y los handlers `UserPromptSubmit` y `Stop` confiados en `/hooks`:
+    - **A:** bloqueó el `Set-Content` hacia `c.sql`, mandando a `apply_patch`.
+    - **B:** `script_d.py` escribió `d.sql`. El `Stop` bloqueó con el mensaje y siguió una vez.
+    - En la vuelta, `apply_patch` falló por el sandbox no-admin de Windows entre las raíces escribibles. Es una limitación del host. Codex no buscó otra vía por la shell.
+  - **Pi 1.5.2 con gentle-shell 4.8.0,** con odd-ws instalado desde el clon de la rama:
+    - **A:** bloqueó el `Set-Content` hacia `e.sql`.
+    - **B:** el modelo se negó dos veces a crear el script, porque lo vio como una forma de esquivar el guard. Entonces el usuario escribió `f.sql` desde afuera mientras el turno seguía abierto. Al cerrar, `[odd-ws] revisar-turno…` nombró `f.sql línea 1`, y Pi respondió «Ese cambio no lo hice yo; no lo voy a tocar».
+    - Con eso se probó también el costo aceptado de L16, el mensaje para un cambio ajeno.
+  - **Las diferencias entre CLI** vienen del modelo, de cómo muestra cada host el bloqueo y del sandbox. odd-ws decide lo mismo en los tres.
+  - **Lo que quedó de la prueba:**
+    - `D:\dev-cache\humo-capa-por-shell`, con `b.sql`, `d.sql` y `f.sql` sin trackear y `inst\script_d.py`;
+    - `%TEMP%\append_b_sql.py`;
+    - el home de Codex y el de Pi apuntan a la rama.
+- **L24 (2026-11-17), la entrega `0.8.0`.** A la pregunta «¿Preparo la entrega como `0.8.0`?», textual: «Si».
+  - La versión sube en los tres manifiestos y en el README.
+  - La sección `## 0.8.0` del CHANGELOG lleva el aviso de confiar los dos hooks nuevos en Codex.
+  - En el roadmap, R1 y R1b pasan a «Hecho» y R2 queda como siguiente.
+  - La etiqueta `odd-ws--v0.8.0` y el push a `main` esperan la autorización del usuario.

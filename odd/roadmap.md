@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-16, después de la `0.7.0`.
+Actualizado: 2026-11-17, con la `0.8.0`.
 
 ## Cómo se mueve
 
@@ -17,9 +17,7 @@ Actualizado: 2026-11-16, después de la `0.7.0`.
 
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
-| R1 | Escribir un archivo de capa por la shell, fuera de un writer, se salta el chequeo de capa en cualquier CLI. Dentro de un writer ya lo frena `writer_guard`. Primera capa: bloquear el comando antes de que corra. | [capa-por-shell](tasks/capa-por-shell.md), parte A | en curso |
-| R1b | Segunda capa de R1: al final del turno, los archivos de capa que cambiaron pasan por las reglas, sin importar cómo se escribieron. Es a R1 lo que `writer_stop` es a `writer_guard`. | [capa-por-shell](tasks/capa-por-shell.md), parte B | en cola |
-| R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | en cola |
+| R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI. | [multi-host](tasks/multi-host.md), X14 a X16 | siguiente |
 | R3 | Soporte para OpenCode (F3), Gemini CLI (F4) y Copilot CLI (F5), a partir del estudio de align-cli guardado en engram (`odd-ws/estudio-align-cli`). | [multi-host](tasks/multi-host.md), F3 a F5 | en cola |
 
 ## Esperando
@@ -49,10 +47,11 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 | [multi-host](tasks/multi-host.md) | X1, X3 a X8, X12 y X13 |
 | [paquetes-de-reglas](tasks/paquetes-de-reglas.md) | A4 a A8, los avisos del verificador de T1 |
 | [uso-en-equipo](tasks/uso-en-equipo.md) | F1 y F2 |
-| [capa-por-shell](tasks/capa-por-shell.md) | F1, la caché de bytecode de los hooks |
+| [capa-por-shell](tasks/capa-por-shell.md) | F1, la caché de bytecode de los hooks; los avisos A1 a A6 del verificador de la parte B (L20) |
 
 ## Hecho
 
 | Versión | Qué |
 |---|---|
+| `0.8.0` | Las reglas de la capa corren aunque el agente escriba por la shell: el guard frena la escritura de capa por la shell (R1) y el fin del turno revisa lo que cambió (R1b) ([capa-por-shell](tasks/capa-por-shell.md)) |
 | `0.7.0` | Paquetes de reglas importables desde git ([paquetes-de-reglas](tasks/paquetes-de-reglas.md)) y la guía de uso en equipo ([uso-en-equipo](tasks/uso-en-equipo.md)) |
