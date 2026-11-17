@@ -81,6 +81,13 @@ def fin(**extra):
     return payload
 
 
+def turno(nombre, **extra):
+    payload = {"hook_event_name": nombre, "session_id": "s1", "turn_id": "t1", "cwd": CWD, "model": "gpt-x",
+               "permission_mode": "default", "transcript_path": None}
+    payload.update(extra)
+    return payload
+
+
 def negado(motivo):
     return 0, json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": motivo}}), b""
@@ -205,11 +212,46 @@ def test_subagent_stop_con_y_sin_reintento():
         assert m().leer(fin(stop_hook_active=casi)).ya_reintentado is False, casi
 
 
+def test_stop_del_hilo_raiz_es_el_fin_del_turno_con_su_continuacion():
+    E = ev()
+    esperado = E.FinTurno(sesion="s1", cwd=CWD, turno="t1", continuado=False, ultimo_mensaje="Listo.")
+    assert m().leer(turno("Stop", stop_hook_active=False, last_assistant_message="Listo.")) == esperado
+    assert m().leer(turno("Stop", stop_hook_active=True, last_assistant_message="Listo.")) == E.FinTurno(
+        **dict(vars(esperado), continuado=True)), "stop_hook_active queda en true el resto del turno"
+    for casi in ("true", 1, [True], None):
+        assert m().leer(turno("Stop", stop_hook_active=casi)).continuado is False, casi
+    assert m().leer({"hook_event_name": "Stop"}) == E.FinTurno()
+
+
+def test_user_prompt_submit_es_el_inicio_del_turno_y_dentro_de_un_subagente_lleva_su_identidad():
+    E = ev()
+    assert m().leer(turno("UserPromptSubmit", prompt="hola")) == E.InicioTurno(sesion="s1", cwd=CWD, turno="t1")
+    assert m().leer(turno("UserPromptSubmit", prompt="hola", agent_id=None, agent_type=None)) == E.InicioTurno(
+        sesion="s1", cwd=CWD, turno="t1")
+    assert m().leer(turno("UserPromptSubmit", prompt="hola", agent_id="a1", agent_type="explorer")) == E.InicioTurno(
+        sesion="s1", cwd=CWD, turno="t1", agente="explorer", id_agente="a1")
+    assert m().leer({"hook_event_name": "UserPromptSubmit"}) == E.InicioTurno()
+
+
+def test_responder_al_terminar_el_turno_continua_por_json_con_exit_0_y_al_empezar_calla():
+    E = ev()
+    al_terminar = m().leer(turno("Stop"))
+    assert m().responder(al_terminar, E.Seguir("todavía no")) == (0, '{"decision": "block", "reason": "todav\\u00eda no"}', b"")
+    assert m().responder(al_terminar, E.Seguir("x\ud800")) == m().responder(m().leer(fin()), E.Seguir("x\ud800")), (
+        "la misma forma que la compuerta del writer en SubagentStop")
+    json_estricto(m().responder(al_terminar, E.Seguir("x\udfff"))[1])
+    for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x")):
+        assert m().responder(al_terminar, decision) == SILENCIO, decision
+    for al_empezar in (m().leer(turno("UserPromptSubmit")), m().leer(turno("UserPromptSubmit", agent_id="a1"))):
+        for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x"), E.Seguir("x")):
+            assert m().responder(al_empezar, decision) == SILENCIO, decision
+
+
 def test_lo_que_no_es_un_evento_y_el_nombre_ausente():
     payload = pre("Bash", {"command": "ls"})
     for no_es in (None, 5, "texto", [], [payload]):
         assert m().leer(no_es) is None, no_es
-    for nombre in ("Stop", "UserPromptSubmit", "PermissionRequest", "", None, 5, "pretooluse"):
+    for nombre in ("PermissionRequest", "SubagentStart", "stop", "", None, 5, "pretooluse"):
         assert m().leer(dict(payload, hook_event_name=nombre)) is None, nombre
     sin = {k: v for k, v in payload.items() if k != "hook_event_name"}
     assert m().leer(sin) is None
@@ -230,7 +272,7 @@ def test_cargar_y_atender_son_los_compartidos():
     payload = pre("Bash", {"command": "ls"})
     assert m().atender(json.dumps(payload).encode("utf-8"), nucleo) == negado("no")
     assert vistos == [m().leer(payload)]
-    assert m().atender({"hook_event_name": "Stop"}, nucleo) == SILENCIO and len(vistos) == 1
+    assert m().atender({"hook_event_name": "PermissionRequest"}, nucleo) == SILENCIO and len(vistos) == 1
     sin = {k: v for k, v in payload.items() if k != "hook_event_name"}
     assert m().atender(sin, nucleo) == SILENCIO
     assert m().atender(sin, nucleo, pre_por_defecto=True) == negado("no")
@@ -277,7 +319,8 @@ def test_en_codex_nada_sale_con_exit_2_ni_por_stderr():
     E = ev()
     eventos = (m().leer(pre("Bash", {"command": "ls"})), m().leer(de_parche(parche("*** Add File: a.py", "+x"))),
                m().leer(post("apply_patch", {"command": parche("*** Add File: a.py", "+x")})), m().leer(inicio("startup")),
-               m().leer(fin()))
+               m().leer(fin()), m().leer(turno("Stop")), m().leer(turno("UserPromptSubmit")))
+    assert all(e is not None for e in eventos), eventos
     for e in eventos:
         for decision in (E.Permitir(), E.Bloquear("x ñ"), E.Preguntar("x ñ"), E.Contexto("x ñ"), E.Seguir("x ñ"),
                          E.Bloquear("x\ud800"), E.Contexto("x\ud800"), E.Seguir("x\udfff")):
@@ -445,7 +488,8 @@ def test_las_claves_de_confianza_son_las_de_codex_para_cada_handler_de_hooks_cod
     datos = json.loads((PLUGIN / "hooks" / "hooks.codex.json").read_text(encoding="utf-8"))
     prefijo = "odd-ws@odd-workspace-template:hooks/hooks.codex.json:"
     assert m().claves_de_confianza(datos, "odd-ws@odd-workspace-template") == [prefijo + clave for clave in (
-        "session_start:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0", "subagent_stop:0:0")]
+        "session_start:0:0", "user_prompt_submit:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0",
+        "subagent_stop:0:0", "stop:0:0")]
     dos = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "a"}, {"type": "command", "command": "b"}]}],
                      "UserPromptSubmit": [{"hooks": []}, {"hooks": [{"type": "command", "command": "c"}]}]}}
     assert m().claves_de_confianza(dos, "p@m") == ["p@m:hooks/hooks.codex.json:pre_tool_use:0:0", "p@m:hooks/hooks.codex.json:pre_tool_use:0:1",
@@ -459,7 +503,7 @@ def test_el_archivo_de_hooks_es_el_que_declara_el_manifiesto_de_codex():
     assert (PLUGIN / m().ARCHIVO_DE_HOOKS).is_file()
 
 
-PROPIOS = 12
+PROPIOS = 16
 
 
 class Ctx:
@@ -507,8 +551,16 @@ def test_los_hooks_registrados_salen_del_plugin_y_de_cada_config_toml_de_codex()
         propios = list(m().hooks_registrados(ctx, None))
         assert len(propios) == PROPIOS and all(propio for _, _, propio in propios), propios
         argumentos = ["${PLUGIN_ROOT}/scripts/writer_stop.py", "--plazo", "50", "--host", "codex"]
-        assert propios[-2:] == [("hooks/hooks.codex.json SubagentStop[0][0]", ["python3", *argumentos], True),
-                                ("hooks/hooks.codex.json SubagentStop[0][0] (commandWindows)", ["python", *argumentos], True)], propios
+        assert propios[-4:-2] == [("hooks/hooks.codex.json SubagentStop[0][0]", ["python3", *argumentos], True),
+                                  ("hooks/hooks.codex.json SubagentStop[0][0] (commandWindows)", ["python", *argumentos], True)], propios
+        del_turno = [(origen, tokens) for origen, tokens, _ in propios if "revisar_turno" in tokens[1]]
+        assert del_turno == [
+            ("hooks/hooks.codex.json UserPromptSubmit[0][0]", ["python3", "${PLUGIN_ROOT}/scripts/revisar_turno.py", "--plazo", "8", "--host", "codex"]),
+            ("hooks/hooks.codex.json UserPromptSubmit[0][0] (commandWindows)",
+             ["python", "${PLUGIN_ROOT}/scripts/revisar_turno.py", "--plazo", "8", "--host", "codex"]),
+            ("hooks/hooks.codex.json Stop[0][0]", ["python3", "${PLUGIN_ROOT}/scripts/revisar_turno.py", "--plazo", "50", "--host", "codex"]),
+            ("hooks/hooks.codex.json Stop[0][0] (commandWindows)",
+             ["python", "${PLUGIN_ROOT}/scripts/revisar_turno.py", "--plazo", "50", "--host", "codex"])], del_turno
         usuario = base / "home" / ".codex" / "config.toml"
         usuario.parent.mkdir(parents=True)
         usuario.write_text('[hooks.state."x"]\ntrusted_hash = "h"\n\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n'

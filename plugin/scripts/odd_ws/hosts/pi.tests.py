@@ -406,13 +406,53 @@ def test_agent_before_settle_es_el_fin_del_subagente_con_lo_que_trae_odd_ws():
     for casi in ("true", 1, [True], None, False):
         assert visto(cierre(continued=casi)).ya_reintentado is False, casi
     assert visto({"type": "agent_before_settle"}) == E.FinSubagente()
+    for hijo in (True, None, "false", 0, [False]):
+        assert visto(cierre(child=hijo)) == esperado, "solo child false es el padre: %r" % (hijo,)
+
+
+def fin_del_padre(**cambios):
+    datos = {"child": False, "lastAssistantMessage": "Listo.", "continued": False}
+    datos.update(cambios)
+    return payload("agent_before_settle", oddWs=datos)
+
+
+def test_el_cierre_del_padre_es_el_fin_del_turno_con_su_continuacion():
+    E = ev()
+    esperado = E.FinTurno(sesion="s1", cwd=CWD, continuado=False, ultimo_mensaje="Listo.")
+    assert visto(fin_del_padre()) == esperado
+    assert visto(fin_del_padre(continued=True)) == E.FinTurno(**dict(vars(esperado), continuado=True))
+    for casi in ("true", 1, [True], None, False):
+        assert visto(fin_del_padre(continued=casi)).continuado is False, casi
+    assert visto(fin_del_padre(agent="writer-x", agentId="a1")) == esperado, "el padre no es un subagente aunque traiga un nombre"
+    assert visto({"type": "agent_before_settle", "oddWs": {"child": False}}) == E.FinTurno()
+
+
+def test_before_agent_start_es_el_inicio_del_turno():
+    E = ev()
+    sin_identidad = {clave: valor for clave, valor in payload("before_agent_start").items() if clave != "oddWs"}
+    assert visto(sin_identidad) == E.InicioTurno(sesion="s1", cwd=CWD)
+    assert visto(payload("before_agent_start")) == E.InicioTurno(sesion="s1", cwd=CWD)
+    assert visto(payload("before_agent_start", oddWs=odd_ws(agent="writer-x", agentId="hija"))) == E.InicioTurno(
+        sesion="s1", cwd=CWD, agente="writer-x", id_agente="hija"), "si un hijo lo mandara, lleva su identidad y no saca foto"
+    assert visto({"type": "before_agent_start"}) == E.InicioTurno()
+
+
+def test_responder_al_terminar_el_turno_es_la_accion_seguir_y_al_empezar_calla():
+    E = ev()
+    assert atendido(fin_del_padre(), E.Seguir("todavía no"))[0] == accion("seguir", "todavía no")
+    assert atendido(fin_del_padre(), E.Seguir("x\ud800"))[0] == atendido(cierre(), E.Seguir("x\ud800"))[0], (
+        "la misma forma que la compuerta del writer en el hijo")
+    for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x")):
+        assert atendido(fin_del_padre(), decision)[0] == SILENCIO, decision
+    for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x"), E.Seguir("x")):
+        assert atendido(payload("before_agent_start"), decision)[0] == SILENCIO, decision
 
 
 def test_lo_que_no_es_un_evento_calla_sin_correr_el_nucleo():
     bash = llamada("bash", {"command": "ls"})
     for no_es in (None, 5, "texto", [], [bash]):
         assert atendido(no_es) == (SILENCIO, None), no_es
-    for tipo in ("tool_execution_start", "before_agent_start", "agent_settled", "subagent_run", "session_shutdown",
+    for tipo in ("tool_execution_start", "agent_start", "agent_settled", "subagent_run", "session_shutdown",
                  "PreToolUse", "TOOL_CALL", "", None, 5):
         assert atendido(dict(bash, type=tipo), ev().Bloquear("no")) == (SILENCIO, None), tipo
     sin = {clave: valor for clave, valor in bash.items() if clave != "type"}
@@ -565,7 +605,7 @@ def test_los_archivos_y_los_comandos_del_writer_salen_de_la_bitacora():
 def test_las_degradaciones_estan_declaradas_y_preguntar_solo_se_degrada_sin_pantalla():
     E, C = ev(), cap()
     assert m().EXPRESABLES == {C.PRE: (E.Bloquear, E.Preguntar), C.POST: (E.Bloquear, E.Contexto), C.INICIO: (E.Contexto,),
-                               C.FIN_SUBAGENTE: (E.Seguir,)}
+                               C.FIN_SUBAGENTE: (E.Seguir,), C.INICIO_TURNO: (E.Permitir,), C.FIN_TURNO: (E.Seguir,)}
     assert m().DEGRADACIONES == {C.PRE: {E.Preguntar: E.Bloquear}}
     estado, nota = m().MANIFIESTO["P3"]
     assert estado == C.DEGRADADO and "hasUI" in nota and "ctx.ui.confirm" in nota and "Git Bash" in nota, nota
@@ -581,7 +621,7 @@ def test_el_manifiesto_dice_lo_que_falta_y_la_tarea_que_lo_trae():
     estados = {clave: estado for clave, (estado, _) in m().MANIFIESTO.items()}
     assert estados == {"P1": C.SOPORTADO, "P2": C.SOPORTADO, "P3": C.DEGRADADO, "P4": C.SOPORTADO, "P5": C.DEGRADADO,
                        "P6": C.DEGRADADO, "P7": C.DEGRADADO, "P8": C.SOPORTADO, "P9": C.SOPORTADO,
-                       "P10": C.DEGRADADO, "P11": C.NO_DISPONIBLE, "P12": C.NO_DISPONIBLE}, estados
+                       "P10": C.DEGRADADO, "P11": C.DEGRADADO, "P12": C.SOPORTADO}, estados
     for clave in ("P5", "P9"):
         nota = m().MANIFIESTO[clave][1]
         assert "gentle-shell real (F2g)" in nota, (clave, nota)
@@ -900,6 +940,7 @@ def test_sin_agent_before_settle_la_version_es_falta_y_cita_el_changelog():
     nucleo = nucleo_del_doctor()
     assert m().VERSION_DE_LA_COMPUERTA == (0, 87, 0)
     assert "Added actionable `turn_end` and `agent_before_settle` extension boundaries" in m().SIN_COMPUERTA, m().SIN_COMPUERTA
+    assert "revisión del fin del turno" in m().SIN_COMPUERTA, "sin agent_before_settle tampoco corre revisar_turno en el padre"
     with temporal() as base:
         for salida, estado in (("0.86.9\n", nucleo.FALTA), ("0.87.0\n", nucleo.AVISO), ("1.5.0\n", nucleo.OK)):
             version, instalado = m().version(contexto_del_doctor(base, respuestas={("pi", "--version"): (0, salida)}), nucleo)
@@ -923,17 +964,55 @@ def test_revisar_lista_acepta_el_hooks_pi_json_del_plugin_y_nombra_lo_que_no_cum
         ruta.write_text(json.dumps(dict(original, writer="^otro$")), encoding="utf-8")
         assert [clave for clave, _ in m().revisar_lista(ruta)] == ["writer"]
         ruta.write_text(json.dumps(dict(original, hooks=dict(original["hooks"], agent_before_settle=[]))), encoding="utf-8")
-        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["cobertura agent_before_settle - writer_stop.py"]
+        assert [clave for clave, _ in m().revisar_lista(ruta)] == ["cobertura agent_before_settle writer writer_stop.py",
+                                                                   "cobertura agent_before_settle principal revisar_turno.py"]
         assert [clave for clave, _ in m().revisar_lista(base / "no-existe.json")] == ["forma"]
         enorme = json.dumps(original).replace('"timeout": 60', '"timeout": 1' + "0" * 400, 1)
         ruta.write_text(enorme, encoding="utf-8")
         assert [clave for clave, _ in m().revisar_lista(ruta)] == ["forma"], enorme[-200:]
 
 
+def test_revisar_lista_sabe_en_que_agente_corre_cada_grupo_del_inicio_y_del_cierre():
+    original = json.loads((PLUGIN / "hooks" / "hooks.pi.json").read_text(encoding="utf-8"))
+
+    def con(cambiar):
+        datos = json.loads(json.dumps(original))
+        cambiar(datos)
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+        return m().revisar_lista(ruta)
+
+    with temporal() as base:
+        ruta = base / "hooks.pi.json"
+        sin_revision = con(lambda d: d["hooks"]["agent_before_settle"].pop(1))
+        assert [clave for clave, _ in sin_revision] == ["cobertura agent_before_settle principal revisar_turno.py"], sin_revision
+        assert "agent_before_settle del principal no corre revisar_turno.py" in sin_revision[0][1], sin_revision
+        assert [clave for clave, _ in con(lambda d: d["hooks"].pop("before_agent_start"))] == [
+            "cobertura before_agent_start principal revisar_turno.py"]
+        assert [clave for clave, _ in con(lambda d: d["hooks"]["before_agent_start"][0].update(agente="writer"))] == [
+            "muerto before_agent_start 0", "cobertura before_agent_start principal revisar_turno.py"], "el hijo no corre el inicio"
+        assert [clave for clave, _ in con(lambda d: d["hooks"]["agent_before_settle"][1].update(agente="otro"))] == [
+            "muerto agent_before_settle 1", "cobertura agent_before_settle principal revisar_turno.py"]
+        muerto = con(lambda d: d["hooks"]["tool_call"][0].update(agente="principal"))
+        assert [clave for clave, _ in muerto] == ["muerto tool_call 0", "cobertura tool_call edit verificar_capa.py",
+                                                  "cobertura tool_call write verificar_capa.py"], muerto
+        assert "agente" in muerto[0][1] and "no corre nunca" in muerto[0][1], muerto
+        assert [clave for clave, _ in con(lambda d: d["hooks"]["session_start"][0].update(agente="principal"))] == [
+            "muerto session_start 0", "cobertura session_start - verificar_capa.py"]
+        for raro in ("", 7, None, ["writer"]):
+            forma = con(lambda d: d["hooks"]["agent_before_settle"][0].update(agente=raro))
+            assert [clave for clave, _ in forma] == ["forma"] and "agente" in forma[0][1], (raro, forma)
+        sin_agente = con(lambda d: d["hooks"]["agent_before_settle"][0].pop("agente"))
+        assert [clave for clave, _ in sin_agente] == ["muerto agent_before_settle 0", "cobertura agent_before_settle writer writer_stop.py"], (
+            "un cierre sin agente no corre ni en el padre ni en el hijo, así que nunca corre en los dos: %r" % sin_agente)
+        assert "no tiene agente" in sin_agente[0][1], sin_agente
+
+
 HOOKS_DE_PI = [("session_start[0][0]", "verificar_capa", "8"), ("session_compact[0][0]", "verificar_capa", "8"),
+               ("before_agent_start[0][0]", "revisar_turno", "8"),
                ("tool_call[0][0]", "verificar_capa", "8"), ("tool_call[1][0]", "writer_guard", "8"),
                ("tool_call[2][0]", "guard_comandos", "8"), ("tool_result[0][0]", "verificar_capa", "25"),
-               ("tool_result[1][0]", "verificar_capa", "8"), ("agent_before_settle[0][0]", "writer_stop", "50")]
+               ("tool_result[1][0]", "verificar_capa", "8"), ("agent_before_settle[0][0]", "writer_stop", "50"),
+               ("agent_before_settle[1][0]", "revisar_turno", "50")]
 
 
 def test_hooks_registrados_lee_hooks_pi_json_con_el_python_que_lanza_el_shim_en_cada_sistema():

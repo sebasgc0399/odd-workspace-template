@@ -187,12 +187,27 @@ def _chequear(archivos, config, limite):
     return bloqueos, avisos
 
 
+def _en_manos_de_un_writer(raiz, sesion):
+    carpeta = os.path.join(raiz, convencion.ESTADO_WRITERS, sesion)
+    claves = set()
+    try:
+        for nombre in os.listdir(carpeta):
+            if nombre.endswith(".fotos"):
+                claves.update(f[:-len(".foto")] for f in os.listdir(os.path.join(carpeta, nombre)) if f.endswith(".foto"))
+    except OSError:
+        pass
+    return claves
+
+
 def _cambiados(config, carpeta, limite):
     with open(os.path.join(carpeta, MANIFIESTO), encoding="utf-8") as f:
         manifiesto = json.load(f)
     sin_foto = {clave_foto(entrada["ruta"]) for entrada in manifiesto["archivos"] if not entrada.get("foto")}
+    ocupados = _en_manos_de_un_writer(config["raiz"], os.path.basename(carpeta))
     cambiados = []
     for ruta in archivos_de_capa_sucios(config, limite):
+        if ocupados and {clave_foto(ruta), clave_foto(os.path.realpath(ruta))} & ocupados:
+            continue
         base, foto = _cierre()._base_del_archivo(carpeta, ruta)
         if base == "foto":
             anterior = _leer(foto)

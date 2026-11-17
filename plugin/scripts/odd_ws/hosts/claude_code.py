@@ -4,9 +4,10 @@ import re
 from pathlib import Path
 
 from odd_ws import transcripcion
-from odd_ws.capacidades import FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
+from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, FIN_TURNO, INICIO, INICIO_TURNO, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO
-from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
+from odd_ws.eventos import (POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, FinTurno, Herramienta, InicioSesion, InicioTurno,
+                            Permitir, Preguntar, Seguir)
 from odd_ws.hosts import base, leer_hooks, manejadores, tokens_de
 
 cargar = base.cargar
@@ -19,7 +20,8 @@ VERSION_ON_FAILURE = (2, 1, 295)
 AVISO_ON_FAILURE = "un hook que no arranca deja pasar"
 AYUDA_ON_FAILURE = ("Actualizá Claude Code a 2.1.295 o superior: desde esa versión, onFailure: block hace que un hook que no arranca "
                     "(por ejemplo, sin python3) bloquee la herramienta en vez de dejarla pasar.")
-EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
+EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,),
+               INICIO_TURNO: (Permitir,), FIN_TURNO: (Seguir,)}
 DEGRADACIONES = {}
 BITACORA = False
 PRECARGA_SKILLS = True
@@ -34,10 +36,14 @@ MANIFIESTO = {
     "P8": (SOPORTADO, "skills del plugin con el namespace /odd-ws:"),
     "P9": (SOPORTADO, "marketplace y CLAUDE_PLUGIN_ROOT"),
     "P10": (SOPORTADO, "CLAUDE.md que se apilan por carpeta"),
-    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee Stop, así que la revisión de fin de turno "
-                           "(revisar_turno) no corre"),
-    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee UserPromptSubmit, así que no se saca la foto "
-                           "del inicio del turno"),
+    "P11": (DEGRADADO, "Stop, solo del agente principal (un subagente dispara SubagentStop): revisar_turno revisa los archivos de "
+                       "capa que cambiaron en el turno, por cualquier vía, y un bloqueo vuelve como decision block, una sola vez por "
+                       "turno (stop_hook_active); si el hook se cae o se pasa de su timeout, el turno cierra igual, sin revisión; "
+                       "Claude Code corta tras 8 bloqueos seguidos de Stop, un tope que se reinicia con cada herramienta y que "
+                       "revisar_turno solo no alcanza, porque sigue una sola vez"),
+    "P12": (SOPORTADO, "UserPromptSubmit, con su prompt_id: revisar_turno saca la foto de los archivos de capa que ya estaban "
+                       "sucios; también corre con las tareas programadas y con los avisos de los subagentes en segundo plano, que "
+                       "empiezan un turno del principal; agent_type llega también con --agent, así que solo agent_id marca un subagente"),
 }
 FASES = {"PreToolUse": "pre", "PostToolUse": "post"}
 NOMBRES = {fase: nombre for nombre, fase in FASES.items()}
@@ -120,6 +126,12 @@ def leer(payload, pre_por_defecto=False):
             cwd=payload.get("cwd"), transcript=payload.get("agent_transcript_path"),
             ultimo_mensaje=payload.get("last_assistant_message"), ya_reintentado=payload.get("stop_hook_active") is True,
         )
+    if nombre == "Stop":
+        return FinTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), continuado=payload.get("stop_hook_active") is True,
+                        ultimo_mensaje=payload.get("last_assistant_message"))
+    if nombre == "UserPromptSubmit":
+        return InicioTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), turno=payload.get("prompt_id"),
+                           id_agente=payload.get("agent_id"))
     return None
 
 
@@ -140,7 +152,7 @@ def responder(evento, decision):
             return _contexto(nombre, decision.texto)
     elif isinstance(evento, InicioSesion) and isinstance(decision, Contexto):
         return _contexto("SessionStart", decision.texto)
-    elif isinstance(evento, FinSubagente) and isinstance(decision, Seguir):
+    elif isinstance(evento, (FinSubagente, FinTurno)) and isinstance(decision, Seguir):
         return 0, json.dumps({"decision": "block", "reason": decision.motivo}), b""
     return SILENCIO
 

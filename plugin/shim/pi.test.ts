@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import extension, { ARCHIVO_DE_HOOKS, PLAZO_DE_CONFIRMACION, PLUGIN, registrar } from "./pi.ts";
+import extension, { AGENTES_POR_EVENTO, ARCHIVO_DE_HOOKS, PLAZO_DE_CONFIRMACION, PLUGIN, registrar } from "./pi.ts";
 import { leerLista, pythonDe, writerDe } from "./nucleo.ts";
 
 const SHIM = dirname(fileURLToPath(import.meta.url));
@@ -236,13 +236,15 @@ function aPosix(ruta: string): string {
   return ruta.replace(/\\/g, "/");
 }
 
-test("la extension registra sus seis eventos y su plugin es la carpeta padre del shim", () => {
-  assert.deepEqual(conPi().eventos().sort(), ["before_agent_start", "resources_discover", "session_compact", "session_start", "tool_call",
-    "tool_result"]);
+test("la extension registra sus siete eventos, en el padre y en el hijo, y su plugin es la carpeta padre del shim", () => {
+  const siete = ["agent_before_settle", "before_agent_start", "resources_discover", "session_compact", "session_start", "tool_call", "tool_result"];
+  assert.deepEqual(conPi().eventos().sort(), siete);
+  assert.deepEqual(conPiEn(PLUGIN, HIJO).eventos().sort(), siete);
   assert.deepEqual(conPiEn(PLUGIN, { GENTLE_PI_AGENTS_CHILD: "0" }).eventos().sort(), conPi().eventos().sort(), "un 0 no es un hijo");
   assert.equal(PLUGIN, dirname(SHIM));
   assert.equal(ARCHIVO_DE_HOOKS, "hooks/hooks.pi.json");
   assert.equal(PLAZO_DE_CONFIRMACION, 60000);
+  assert.deepEqual(AGENTES_POR_EVENTO, { before_agent_start: ["principal"], agent_before_settle: ["writer", "principal"] });
 });
 
 test("la extension define CLAUDE_PLUGIN_ROOT con la carpeta del plugin para los comandos de las skills, y no pisa uno que ya estaba", () => {
@@ -589,9 +591,23 @@ function asentarse(mensajes: unknown[], extra: Record<string, unknown> = {}) {
 function compuerta(nombre: string, accion: string, opciones: { python?: string; writer?: string | null; codigo?: string; timeout?: number } = {}) {
   const registro = join(BASE, nombre, "payloads.jsonl");
   const plugin = pluginFalso(nombre, { "stop.py": opciones.codigo ?? GUARDA },
-    { agent_before_settle: [{ hooks: [{ script: "stop.py", args: [registro, accion, SIGUE], timeout: opciones.timeout ?? 20 }] }] },
+    { agent_before_settle: [{ agente: "writer", hooks: [{ script: "stop.py", args: [registro, accion, SIGUE], timeout: opciones.timeout ?? 20 }] }] },
     opciones.python ?? PYTHON, opciones.writer === undefined ? WRITER : opciones.writer);
   return { plugin, registro };
+}
+
+const REVISA = "revisar-turno: todavía no cierres el turno.";
+
+function delTurno(nombre: string, accion: string, opciones: { codigo?: string; timeout?: number; alEmpezar?: string } = {}) {
+  const registros = { writer: join(BASE, nombre, "writer.jsonl"), inicio: join(BASE, nombre, "inicio.jsonl"), cierre: join(BASE, nombre, "cierre.jsonl") };
+  const guarda = (registro: string, decision: string, texto: string, script = "stop.py") =>
+    [{ script, args: [registro, decision, texto], timeout: opciones.timeout ?? 20 }];
+  const plugin = pluginFalso(nombre, { "stop.py": GUARDA, "turno.py": opciones.codigo ?? GUARDA }, {
+    before_agent_start: [{ agente: "principal", hooks: guarda(registros.inicio, opciones.alEmpezar ?? "", "", "turno.py") }],
+    agent_before_settle: [{ agente: "writer", hooks: guarda(registros.writer, "seguir", SIGUE) },
+      { agente: "principal", hooks: guarda(registros.cierre, accion, REVISA, "turno.py") }],
+  });
+  return { plugin, registros };
 }
 
 function payloads(registro: string): any[] {
@@ -900,7 +916,94 @@ test("la compuerta no corre si el hijo no es writer, si otra extension ya pidio 
   assert.equal((await writer.emitir(asentarse([delAsistente("x")]), ctxFalso(BASE))).continue, true, "el cierre de verdad sí corre");
   assert.deepEqual(writer.eventos().sort(), ["agent_before_settle", "before_agent_start", "resources_discover", "session_compact",
     "session_start", "tool_call", "tool_result"]);
-  assert.ok(!conPiEn(plugin, {}).eventos().includes("agent_before_settle"), "el padre no registra la compuerta");
+  assert.equal(payloads(registro).length, 1);
+  const padre = conPiEn(plugin, {});
+  await padre.emitir(turnoDelHijo(`${MARCA_SQL}\nx`), ctxFalso(BASE));
+  assert.equal(await padre.emitir(asentarse([delAsistente("x")]), ctxFalso(BASE)), undefined, "el padre no corre la compuerta del writer");
+  assert.equal(payloads(registro).length, 1, "writer_stop no se lanzó en el padre");
+});
+
+test("en el padre, el cierre corre solo el grupo del principal con child false, el ultimo mensaje y continued, y sigue una vez por turno", async () => {
+  const { plugin, registros } = delTurno("turno-seguir", "seguir");
+  const pi = conPiEn(plugin, {});
+  const ctx = ctxFalso(BASE, { sesion: "sesion-p" });
+  await pi.emitir(turnoDelHijo("Cambia x.sql"), ctx);
+  const previa = { type: "custom", customType: "de-gentle-ai", data: 1 };
+  const primero = await pi.emitir(asentarse([{ role: "user", content: "hola" }, delAsistente("parte uno", "parte dos")], { entries: [previa] }), ctx);
+  assert.deepEqual(primero, { entries: [previa, { type: "custom_message", customType: "odd-ws", content: REVISA, display: true }], continue: true });
+  assert.equal(await pi.emitir(asentarse([delAsistente("corregido")]), ctx), undefined, "una sola vuelta por turno");
+  const odd = (lastAssistantMessage: string, continued: boolean) => ({ type: "agent_before_settle",
+    ctx: { cwd: BASE, sessionId: "sesion-p", hasUI: false, mode: "print" }, oddWs: { child: false, lastAssistantMessage, continued } });
+  assert.deepEqual(payloads(registros.cierre), [odd("parte uno\nparte dos", false), odd("corregido", true)]);
+  assert.deepEqual(payloads(registros.writer), [], "el padre nunca corre writer_stop");
+  const ajena = await pi.emitir(asentarse([delAsistente("x")], { entries: [previa], continue: true }), ctx);
+  assert.equal(ajena, undefined, "si otra extensión ya pidió seguir, el padre no corre la revisión");
+  assert.equal(payloads(registros.cierre).length, 2);
+  for (const outcome of ["error", "aborted", undefined]) {
+    assert.equal(await pi.emitir(asentarse([delAsistente("x")], { outcome }), ctx), undefined, String(outcome));
+  }
+  assert.equal(payloads(registros.cierre).length, 2, "un cierre que no es completed no revisa");
+});
+
+test("en el hijo writer, el cierre corre solo writer_stop y nunca la revision del turno, y el hijo no saca la foto", async () => {
+  const { plugin, registros } = delTurno("turno-hijo", "seguir");
+  const pi = conPiEn(plugin, HIJO);
+  const ctx = ctxFalso(BASE, { sesion: "sesion-h" });
+  await pi.emitir(turnoDelHijo(`${MARCA_SQL}\nCambia x.sql`), ctx);
+  assert.deepEqual(payloads(registros.inicio), [], "el hijo no corre el inicio del turno");
+  const frenado = await pi.emitir(asentarse([delAsistente("Listo.")]), ctx);
+  assert.deepEqual(frenado.entries.map((entrada: any) => entrada.content), [SIGUE]);
+  assert.deepEqual(payloads(registros.writer).map((carga) => carga.oddWs), [{ agent: "writer-sql", agentId: "sesion-h",
+    lastAssistantMessage: "Listo.", continued: false }], "el payload del writer no cambia");
+  assert.deepEqual(payloads(registros.cierre), []);
+});
+
+test("en el padre, before_agent_start corre el grupo del principal antes de devolver el prompt, sin oddWs ni el prompt", async () => {
+  const { plugin, registros } = delTurno("turno-inicio", "", { alEmpezar: "" });
+  const pi = conPiEn(plugin, {});
+  const ctx = ctxFalso(BASE, { sesion: "sesion-i" });
+  const visto = await turno([pi.manejador("before_agent_start")], ctx);
+  assert.deepEqual(visto.devueltos, [undefined]);
+  assert.deepEqual(payloads(registros.inicio), [{ type: "before_agent_start", ctx: { cwd: BASE, sessionId: "sesion-i", hasUI: false, mode: "print" } }],
+    "la foto ya está cuando el turno arranca");
+  await turno([pi.manejador("before_agent_start")], ctx);
+  assert.equal(payloads(registros.inicio).length, 2, "cada turno saca su foto");
+});
+
+test("en el padre, una falla del inicio del turno no frena el turno ni cambia el prompt", async () => {
+  const casos: [string, { codigo?: string; timeout?: number; alEmpezar?: string }][] = [
+    ["exit 3", { codigo: "import sys\nsys.stdin.read()\nsys.exit(3)\n" }],
+    ["timeout", { codigo: "import time\ntime.sleep(60)\n", timeout: 1 }],
+    ["una accion fuera de lugar", { alEmpezar: "bloquear" }],
+  ];
+  for (const [nombre, opciones] of casos) {
+    const { plugin } = delTurno(`turno-inicio-${nombre.replace(/ /g, "-")}`, "seguir", opciones);
+    const pi = conPiEn(plugin, {});
+    assert.deepEqual(await pi.emitir({ type: "before_agent_start", systemPrompt: "P" }, ctxFalso(BASE)), undefined, nombre);
+  }
+  const roto = { ...ctxFalso(BASE), sessionManager: { getSessionId: () => { throw new Error("sesion ilegible"); } } };
+  const { plugin } = delTurno("turno-inicio-roto", "seguir");
+  assert.equal(await conPiEn(plugin, {}).emitir({ type: "before_agent_start", systemPrompt: "P" }, roto), undefined);
+});
+
+test("en el padre, una falla de la revision deja cerrar el turno, y un turno nuevo vuelve a contar la vuelta", async () => {
+  const casos: [string, { codigo?: string; timeout?: number }][] = [
+    ["exit 3", { codigo: "import sys\nsys.stdin.read()\nsys.exit(3)\n" }],
+    ["timeout", { codigo: "import time\ntime.sleep(60)\n", timeout: 1 }],
+  ];
+  for (const [nombre, opciones] of casos) {
+    const { plugin } = delTurno(`turno-cae-${nombre.replace(/ /g, "-")}`, "seguir", opciones);
+    assert.equal(await conPiEn(plugin, {}).emitir(asentarse([delAsistente("Listo.")]), ctxFalso(BASE)), undefined, nombre);
+  }
+  const { plugin, registros } = delTurno("turno-nuevo", "seguir");
+  const pi = conPiEn(plugin, {});
+  const ctx = ctxFalso(BASE);
+  await pi.emitir(turnoDelHijo("uno"), ctx);
+  assert.equal((await pi.emitir(asentarse([delAsistente("uno")]), ctx)).continue, true);
+  await pi.emitir(turnoDelHijo("dos"), ctx);
+  assert.equal((await pi.emitir(asentarse([delAsistente("dos")]), ctx)).continue, true,
+    "si la continuación no llegó a cerrar, el turno siguiente igual tiene su vuelta");
+  assert.deepEqual(payloads(registros.cierre).map((carga) => carga.oddWs.continued), [false, false]);
 });
 
 test("la compuerta corre solo en un cierre completed, como el handler de gentle-ai, y otro desenlace corta la cadena de continued", async () => {
@@ -960,6 +1063,27 @@ test("de punta a punta, padre e hijo con los hooks reales: el writer marcado ano
   const sidecar = JSON.parse(readFileSync(join(inst, ".claude", "estado", "writers", "hija-buena", "hija-buena.json"), "utf8"));
   assert.deepEqual([sidecar.agent_type, sidecar.agent_id, sidecar.formato_ok, sidecar.archivos, sidecar.stop_hook_active],
     ["writer-sql", "hija-buena", true, [sql], false]);
+  assert.equal(existsSync(join(inst, ".claude", "estado", "turnos")), false, "el hijo nunca saca la foto del turno ni la revisa");
+});
+
+test("de punta a punta, el padre con los hooks reales: saca la foto al empezar, y revisar_turno lo hace seguir una vez por un archivo de capa escrito por fuera", async () => {
+  const { inst, db } = mundo("turno-de-punta");
+  const pi = conPi();
+  const ctx = ctxFalso(inst, { sesion: "padre-turno" });
+  await pi.emitir({ type: "session_start", reason: "startup" }, ctx);
+  await turno([pi.manejador("before_agent_start")], ctx);
+  const foto = join(inst, ".claude", "estado", "turnos", "padre-turno");
+  assert.ok(existsSync(join(foto, "manifiesto.json")), "la foto ya está cuando el turno arranca");
+  writeFileSync(join(db, "x.sql"), "SELECT 1;\nSELECT 2; -- MALO\n");
+  const frenado = await pi.emitir(asentarse([delAsistente("Listo.")]), ctx);
+  assert.equal(frenado?.continue, true, JSON.stringify(frenado));
+  assert.deepEqual([frenado.entries.length, frenado.entries[0].customType, frenado.entries[0].display], [1, "odd-ws", true]);
+  assert.match(frenado.entries[0].content, /^revisar-turno: todavía no cierres el turno\./);
+  assert.match(frenado.entries[0].content, /T-01/);
+  assert.match(frenado.entries[0].content, /si este cambio no es tuyo, avísale al usuario y no lo toques/);
+  assert.doesNotMatch(frenado.entries[0].content, /malo\.sql/, "lo que ya estaba sucio al empezar no es del turno");
+  assert.equal(await pi.emitir(asentarse([delAsistente("Visto.")]), ctx), undefined, "una sola vuelta por turno");
+  assert.equal(existsSync(foto), false, "al dejar cerrar, la revisión borra la foto");
 });
 
 test("de punta a punta, el hijo writer: writer_guard le aplica sus reglas en bash_background y monitor, y anota sus comandos en la bitacora", async () => {

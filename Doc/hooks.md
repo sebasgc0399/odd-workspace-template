@@ -11,12 +11,14 @@ guard-comandos bloqueó el comando: git push --force (si de verdad hace falta fo
 | Cuándo | Qué hace |
 |---|---|
 | Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
+| Al empezar el turno | `revisar_turno.py` saca una foto de los archivos de capa que ya están modificados, para saber después qué cambió durante el turno. Corre solo en el agente principal: un subagente no saca foto. |
 | Al leer por primera vez un archivo de una capa | Inyecta sus no-negociables como contexto. |
 | Antes de editar un archivo de una capa | Si los no-negociables no se cargaron, bloquea la primera edición y los inyecta. El reintento pasa. |
 | Después de editar | Corre las reglas de la capa (`.claude/reglas/verificar_<capa>.py`): un `bloqueo` frena y un `aviso` llega como contexto. |
 | Antes de un comando de shell | `guard_comandos.py` bloquea force push, `reset --hard`, `clean -f`, borrados recursivos fuera del scratch y el parche de Codex aplicado por la shell (`--codex-run-as-apply-patch`), que escribe archivos sin pasar por los chequeos de capa. Fuera de un writer, bloquea también una escritura por shell que deja contenido nuevo en un archivo de capa, y manda a la herramienta de edición para que corran el primer toque y las reglas. En un repo con `agent_readonly: true`, pregunta antes de cualquier git que no sea de lectura. |
 | Dentro de un `writer-<capa>` | `writer_guard.py` bloquea el git de escritura y las escrituras por shell sobre los repos y el taller de la capa, y guarda una foto de cada archivo en su primer toque. |
 | Al terminar un `writer-<capa>` | `writer_stop.py` compara las líneas reales contra la foto, corre los chequeos de la capa y exige el bloque `## Resultado`. Bloquea una sola vez. |
+| Al terminar el turno | `revisar_turno.py` corre las reglas de la capa sobre los archivos de capa que cambiaron durante el turno, sin importar cómo se escribieron: con la herramienta de edición, por la shell, con un script o con git. Mira solo las líneas nuevas del turno. Si hay un `bloqueo`, el agente sigue una vez más para corregirlo, y los avisos llegan en el mismo mensaje. No distingue quién escribió el cambio: si el usuario editó un archivo de capa durante el turno, el agente igual recibe esa vuelta, con el pedido de avisarle al usuario y no tocarlo. Si el hook falla, el turno cierra igual, sin revisión. |
 
 Las reglas que corren después de editar son las de tu instancia: ver [Capas y reglas propias](capas-y-reglas.md).
 

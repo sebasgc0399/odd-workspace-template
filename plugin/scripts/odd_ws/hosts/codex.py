@@ -6,13 +6,15 @@ from collections import namedtuple
 from pathlib import Path
 
 from odd_ws import capas
-from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
+from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, FIN_TURNO, INICIO, INICIO_TURNO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora
-from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
+from odd_ws.eventos import (POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, FinTurno, Herramienta, InicioSesion, InicioTurno,
+                            Permitir, Preguntar, Seguir)
 from odd_ws.hosts import Archivo, base, leer_hooks, manejadores, tokens_de
 
 cargar = base.cargar
-EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
+EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,),
+               INICIO_TURNO: (Permitir,), FIN_TURNO: (Seguir,)}
 DEGRADACIONES = {PRE: {Preguntar: Bloquear}}
 BITACORA = True
 PRECARGA_SKILLS = False
@@ -41,10 +43,14 @@ MANIFIESTO = {
                        "instancia declara codex en hosts y el archivo no existe, sin ningún AGENTS.md; se lee desde la raíz "
                        "hasta el cwd, solo al arrancar y con un tope de 32 KiB, y .codex/ carga solo con el proyecto en "
                        "confianza"),
-    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee Stop del hilo raíz, así que la revisión de fin "
-                           "de turno (revisar_turno) no corre"),
-    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: todavía no lee UserPromptSubmit del hilo raíz, así que no se "
-                           "saca la foto del inicio del turno"),
+    "P11": (DEGRADADO, "Stop, que corre solo en el hilo raíz: revisar_turno revisa los archivos de capa que cambiaron en el "
+                       "turno, por cualquier vía, y un bloqueo vuelve como decision block por JSON con exit 0 (nunca exit 2, que "
+                       "PowerShell convierte en 1), con el motivo como prompt nuevo dentro del mismo turn_id, una sola vez por turno "
+                       "(stop_hook_active queda en true el resto del turno); Codex no tiene tope de continuaciones, y si el hook "
+                       "falla, el turno cierra igual, sin revisión; como todo hook, necesita confianza en /hooks"),
+    "P12": (SOPORTADO, "UserPromptSubmit, con su turn_id: revisar_turno saca la foto de los archivos de capa que ya estaban "
+                       "sucios; también corre dentro de un subagente, con agent_id y agent_type, y ahí no saca foto; no corre en la "
+                       "continuación de Stop"),
 }
 TEXTOS = {
     "{{host:arranque-writer}}": (
@@ -195,6 +201,12 @@ def leer(payload, pre_por_defecto=False):
             cwd=payload.get("cwd"), transcript=payload.get("agent_transcript_path"),
             ultimo_mensaje=payload.get("last_assistant_message"), ya_reintentado=payload.get("stop_hook_active") is True,
         )
+    if nombre == "Stop":
+        return FinTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), turno=payload.get("turn_id"),
+                        continuado=payload.get("stop_hook_active") is True, ultimo_mensaje=payload.get("last_assistant_message"))
+    if nombre == "UserPromptSubmit":
+        return InicioTurno(sesion=payload.get("session_id"), cwd=payload.get("cwd"), turno=payload.get("turn_id"),
+                           agente=payload.get("agent_type"), id_agente=payload.get("agent_id"))
     return None
 
 
@@ -224,7 +236,7 @@ def responder(evento, decision):
             return _contexto(NOMBRES[evento.fase], decision.texto)
     elif isinstance(evento, InicioSesion) and isinstance(decision, Contexto):
         return _contexto("SessionStart", decision.texto)
-    elif isinstance(evento, FinSubagente) and isinstance(decision, Seguir):
+    elif isinstance(evento, (FinSubagente, FinTurno)) and isinstance(decision, Seguir):
         return 0, json.dumps({"decision": "block", "reason": _limpio(decision.motivo)}), b""
     return SILENCIO
 

@@ -10,13 +10,15 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from odd_ws import capas
-from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, INICIO, NO_DISPONIBLE, POST, PRE, SOPORTADO
+from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, FIN_TURNO, INICIO, INICIO_TURNO, NO_DISPONIBLE, POST, PRE, SOPORTADO
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora, plazo_de
-from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, Herramienta, InicioSesion, Preguntar, Seguir
+from odd_ws.eventos import (POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, FinTurno, Herramienta, InicioSesion, InicioTurno,
+                            Permitir, Preguntar, Seguir)
 from odd_ws.hosts import Archivo, base, codex, leer_hooks, manejadores
 
 cargar = base.cargar
-EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,)}
+EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,),
+               INICIO_TURNO: (Permitir,), FIN_TURNO: (Seguir,)}
 DEGRADACIONES = {PRE: {Preguntar: Bloquear}}
 BITACORA = True
 PRECARGA_SKILLS = False
@@ -89,10 +91,17 @@ MANIFIESTO = {
     "P10": (DEGRADADO, "Pi lee un archivo de instrucciones por carpeta, desde el cwd hasta la raíz y solo al arrancar: el primero "
                        "que encuentra de AGENTS.override.md, AGENTS.md y CLAUDE.md, así que un AGENTS.md tapa el CLAUDE.md de su "
                        "carpeta, y los de las subcarpetas que se tocan después no se cargan; no se genera nada"),
-    "P11": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: el shim todavía no corre nada en el agent_before_settle del "
-                           "padre, así que la revisión de fin de turno (revisar_turno) no corre"),
-    "P12": (NO_DISPONIBLE, "pendiente del adaptador de la parte B: el shim todavía no lee before_agent_start, así que no se saca "
-                           "la foto del inicio del turno"),
+    "P11": (DEGRADADO, "agent_before_settle en el padre, el agente principal (o el único proceso, con Pi a secas): el shim corre "
+                       "el grupo principal de hooks.pi.json, revisar_turno, solo en un cierre completed y si otra extensión no pidió "
+                       "seguir antes, con child false, el último mensaje y continued en oddWs; revisar_turno revisa los archivos de capa "
+                       "que cambiaron en el turno, por cualquier vía, y un bloqueo vuelve como la acción seguir, que el shim agrega "
+                       "como una entrada custom_message con continue: true, conservando las entries previas, una sola vez por turno; "
+                       "en un hijo de gentle-shell corre solo el grupo writer (writer_stop, si el hijo es un writer) y el padre nunca "
+                       "lo corre; Pi no le pone tope ni timeout, pero el shim corta el hook a su timeout; si el hook o el shim fallan, "
+                       "o un abort corta el turno, el turno cierra igual, sin revisión, y la foto queda para el turno siguiente"),
+    "P12": (SOPORTADO, "before_agent_start en el padre, que Pi no dispara en una continuación: el shim corre el grupo principal de "
+                       "hooks.pi.json, revisar_turno, sin oddWs, y lo espera antes de que el turno arranque; revisar_turno saca la "
+                       "foto de los archivos de capa que ya estaban sucios; Pi no da un id de turno, y un hijo de gentle-shell no la saca"),
 }
 TEXTOS = {
     "{{host:arranque-writer}}": (
@@ -128,7 +137,8 @@ SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, 
 VERSION_MINIMA = (1, 5, 0)
 VERSION_DE_LA_COMPUERTA = (0, 87, 0)
 SIN_COMPUERTA = ("no existe agent_before_settle (CHANGELOG de Pi, 0.87.0: «Added actionable `turn_end` and `agent_before_settle` "
-                 "extension boundaries»), así que la compuerta de cierre del writer no corre y el writer cierra sin ella")
+                 "extension boundaries»), así que la compuerta de cierre del writer no corre y el writer cierra sin ella, y la "
+                 "revisión del fin del turno del agente principal tampoco corre")
 USOS = ("odd-ws usa agent_before_settle (desde 0.87.0), appendSystemPrompt de systemPromptOptions en before_agent_start (desde "
         "0.68.0), resources_discover (desde 0.50.8) e isProjectTrusted (desde 0.79.1, y Pi respeta un «Do not trust» guardado recién "
         "desde 1.5.0)")
@@ -163,14 +173,17 @@ ID_CONFIANZA = "pi-confianza"
 FORMA = "forma"
 SCRIPT_DEL_SHIM = re.compile(r"[A-Za-z0-9_]+\.py")
 REGEX_DE_WRITER = "^%s$" % capas.WRITER_RE.pattern
+WRITER = "writer"
+PRINCIPAL = "principal"
 COBERTURA = {
     "session_start": {None: ("verificar_capa.py",)},
     "session_compact": {None: ("verificar_capa.py",)},
+    "before_agent_start": {PRINCIPAL: ("revisar_turno.py",)},
     "tool_call": {"edit": ("verificar_capa.py", "writer_guard.py"), "write": ("verificar_capa.py", "writer_guard.py"),
                   "bash": ("writer_guard.py", "guard_comandos.py"), "bash_background": ("writer_guard.py", "guard_comandos.py"),
                   "monitor": ("writer_guard.py", "guard_comandos.py"), "powershell": ("writer_guard.py", "guard_comandos.py")},
     "tool_result": {"edit": ("verificar_capa.py",), "write": ("verificar_capa.py",), "read": ("verificar_capa.py",)},
-    "agent_before_settle": {None: ("writer_stop.py",)},
+    "agent_before_settle": {WRITER: ("writer_stop.py",), PRINCIPAL: ("revisar_turno.py",)},
 }
 NO_LOCALES = ("npm:", "git:", "github:", "http:", "https:", "ssh:", "builtin:")
 CAMPOS_DE_RECURSOS = ("extensions", "skills", "prompts", "themes")
@@ -213,6 +226,9 @@ FASES = {"tool_call": "pre", "tool_result": "post"}
 EVENTOS_DE_HERRAMIENTA = tuple(FASES)
 INICIOS = ("session_start", "session_compact")
 FIN = "agent_before_settle"
+INICIO_DE_TURNO = "before_agent_start"
+AGENTES_POR_EVENTO = {INICIO_DE_TURNO: (PRINCIPAL,), FIN: (WRITER, PRINCIPAL)}
+CIERRE_SIN_ELLA = {WRITER: "el writer cierra sin compuerta", PRINCIPAL: "el turno cierra sin revisión"}
 TIPOS = {"edit": "edicion", "write": "edicion", "read": "lectura", "bash": "shell", "bash_background": "shell", "monitor": "shell",
          "powershell": "shell"}
 DIALECTOS = {"bash": POSIX, "bash_background": POSIX, "monitor": POSIX, "powershell": POWERSHELL}
@@ -324,8 +340,15 @@ def leer(payload, pre_por_defecto=False):
         razon = "compact" if tipo == "session_compact" else payload.get("reason")
         return InicioSesion(origen=ORIGENES.get(razon, razon) if isinstance(razon, str) else razon,
                             sesion=contexto.get("sessionId"), cwd=contexto.get("cwd"))
+    if tipo == INICIO_DE_TURNO:
+        identidad = _objeto(payload.get("oddWs"))
+        return InicioTurno(sesion=contexto.get("sessionId"), cwd=contexto.get("cwd"), agente=identidad.get("agent"),
+                           id_agente=identidad.get("agentId"))
     if tipo == FIN:
         identidad = _objeto(payload.get("oddWs"))
+        if identidad.get("child") is False:
+            return FinTurno(sesion=contexto.get("sessionId"), cwd=contexto.get("cwd"), continuado=identidad.get("continued") is True,
+                            ultimo_mensaje=identidad.get("lastAssistantMessage"))
         return FinSubagente(
             agente=identidad.get("agent"), id_agente=identidad.get("agentId"), sesion=contexto.get("sessionId"),
             cwd=contexto.get("cwd"), ultimo_mensaje=identidad.get("lastAssistantMessage"),
@@ -359,7 +382,7 @@ def responder(evento, decision, pantalla=False):
             return _accion("contexto", decision.texto)
     elif isinstance(evento, InicioSesion) and isinstance(decision, Contexto):
         return _accion("contexto", decision.texto)
-    elif isinstance(evento, FinSubagente) and isinstance(decision, Seguir):
+    elif isinstance(evento, (FinSubagente, FinTurno)) and isinstance(decision, Seguir):
         return _accion("seguir", decision.motivo)
     return SILENCIO
 
@@ -1231,6 +1254,8 @@ def _forma(datos):
                 continue
             if "tools" in grupo and not (isinstance(grupo["tools"], list) and all(_texto(nombre) for nombre in grupo["tools"])):
                 problemas.append("%s: tools tiene que ser una lista de nombres de herramienta" % lugar)
+            if "agente" in grupo and not _texto(grupo["agente"]):
+                problemas.append("%s: agente tiene que ser un texto no vacío, el agente en el que corre el grupo" % lugar)
             if not isinstance(grupo.get("hooks"), list):
                 problemas.append("%s: hooks tiene que ser una lista" % lugar)
                 continue
@@ -1239,9 +1264,38 @@ def _forma(datos):
     return problemas
 
 
-def _corren(eventos, evento, herramienta):
-    return {hook["script"] for grupo in eventos.get(evento, [])
-            if "tools" not in grupo or (herramienta is not None and herramienta in grupo["tools"]) for hook in grupo["hooks"]}
+def _corre(grupo, herramienta, agente):
+    con_la_herramienta = "tools" not in grupo or (herramienta is not None and herramienta in grupo["tools"])
+    return con_la_herramienta and grupo.get("agente") == agente
+
+
+def _scripts(eventos, evento, filtro):
+    herramienta, agente = (filtro, None) if evento in EVENTOS_DE_HERRAMIENTA else (None, filtro)
+    return [hook["script"] for grupo in eventos.get(evento, []) if _corre(grupo, herramienta, agente) for hook in grupo["hooks"]]
+
+
+def _muerto(evento, grupo, lugar):
+    de_herramienta = evento in EVENTOS_DE_HERRAMIENTA
+    agentes = AGENTES_POR_EVENTO.get(evento)
+    if de_herramienta and grupo.get("tools") == []:
+        return "%s tiene tools vacía: ese grupo no corre nunca" % lugar
+    if not de_herramienta and "tools" in grupo:
+        return "%s tiene tools, y %s no es de una herramienta: ese grupo no corre nunca" % (lugar, evento)
+    if agentes is None and "agente" in grupo:
+        return "%s tiene agente, y en %s el shim no elige por agente: ese grupo no corre nunca" % (lugar, evento)
+    if agentes is not None and "agente" not in grupo:
+        return "%s no tiene agente: en %s el shim corre solo los grupos de %s, así que ese grupo no corre nunca" % (
+            lugar, evento, " y ".join(agentes))
+    if agentes is not None and grupo["agente"] not in agentes:
+        return "%s tiene agente %r: en %s el shim corre solo los grupos de %s, así que ese grupo no corre nunca" % (
+            lugar, grupo["agente"], evento, " y ".join(agentes))
+    return None
+
+
+def _donde(evento, filtro):
+    if filtro is None:
+        return evento
+    return "%s %s %s" % (evento, "de" if evento in EVENTOS_DE_HERRAMIENTA else "del", filtro)
 
 
 def _estricto(datos):
@@ -1251,19 +1305,14 @@ def _estricto(datos):
     elif datos["writer"] != REGEX_DE_WRITER:
         problemas.append(("writer", OTRO_WRITER % (datos["writer"], REGEX_DE_WRITER)))
     for evento, grupos in datos["hooks"].items():
-        de_herramienta = evento in EVENTOS_DE_HERRAMIENTA
         for indice, grupo in enumerate(grupos):
-            lugar = "%s[%d]" % (evento, indice)
-            if de_herramienta and grupo.get("tools") == []:
-                problemas.append(("muerto %s %d" % (evento, indice), "%s tiene tools vacía: ese grupo no corre nunca" % lugar))
-            elif not de_herramienta and "tools" in grupo:
-                problemas.append(("muerto %s %d" % (evento, indice),
-                                  "%s tiene tools, y %s no es de una herramienta: ese grupo no corre nunca" % (lugar, evento)))
-    for evento, por_herramienta in COBERTURA.items():
-        for herramienta, scripts in por_herramienta.items():
-            corren = _corren(datos["hooks"], evento, herramienta)
-            donde = evento if herramienta is None else "%s de %s" % (evento, herramienta)
-            problemas += [("cobertura %s %s %s" % (evento, herramienta or "-", script), "%s no corre %s" % (donde, script))
+            muerto = _muerto(evento, grupo, "%s[%d]" % (evento, indice))
+            if muerto is not None:
+                problemas.append(("muerto %s %d" % (evento, indice), muerto))
+    for evento, por_filtro in COBERTURA.items():
+        for filtro, scripts in por_filtro.items():
+            corren = _scripts(datos["hooks"], evento, filtro)
+            problemas += [("cobertura %s %s %s" % (evento, filtro or "-", script), "%s no corre %s" % (_donde(evento, filtro), script))
                           for script in scripts if script not in corren]
     return problemas
 
@@ -1288,10 +1337,12 @@ def _de_la_compuerta(datos, plugin):
                 if hook["timeout"] <= plazo:
                     problemas.append("%s: timeout %s no es mayor que su --plazo %s, así que el shim corta el hook antes de su plazo" % (
                         lugar, hook["timeout"], "%g" % plazo))
-    cierre = [hook["script"] for entrada in datos["hooks"].get(FIN, []) for hook in entrada["hooks"]]
-    if len(cierre) > 1 or set(cierre) - set(COBERTURA[FIN][None]):
-        problemas.append("%s corre %d hooks (%s): la compuerta corre solo %s, porque cualquier falla le gana a seguir y el writer cierra "
-                         "sin compuerta" % (FIN, len(cierre), ", ".join(cierre), ", ".join(COBERTURA[FIN][None])))
+    for agente, esperados in COBERTURA[FIN].items():
+        cierre = _scripts(datos["hooks"], FIN, agente)
+        if len(cierre) > 1 or set(cierre) - set(esperados):
+            corre = cierre[0] if len(cierre) == 1 else "%d hooks (%s)" % (len(cierre), ", ".join(cierre))
+            problemas.append("%s corre %s: ahí corre solo %s, porque cualquier falla le gana a seguir y %s" % (
+                _donde(FIN, agente), corre, ", ".join(esperados), CIERRE_SIN_ELLA[agente]))
     return problemas
 
 

@@ -7,6 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { combinar, contexto, correrEvento, hooksDe, leerLista, pythonDe, writerDe } from "./nucleo.ts";
 import type { Hook, ListaDeHooks, Resultado } from "./nucleo.ts";
+import { AGENTES_POR_EVENTO } from "./pi.ts";
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)));
 const PYTHON = pythonDe(leerLista(join(PLUGIN, "hooks", "hooks.pi.json")));
@@ -145,6 +146,10 @@ test("leerLista acepta hooks.pi.json y nombra lo que no tiene la forma", conTemp
     { ...sana, hooks: { tool_call: [{ hooks: [{ ...hook("a.py"), args: ["--plazo", 8] }] }] } },
     { ...sana, hooks: { tool_call: [{ hooks: [{ ...hook("a.py"), timeout: 0 }] }] } },
     { ...sana, hooks: { tool_call: [{ hooks: [{ ...hook("a.py"), timeout: "10" }] }] } },
+    { ...sana, hooks: { agent_before_settle: [{ agente: "", hooks: [] }] } },
+    { ...sana, hooks: { agent_before_settle: [{ agente: 7, hooks: [] }] } },
+    { ...sana, hooks: { agent_before_settle: [{ agente: null, hooks: [] }] } },
+    { ...sana, hooks: { agent_before_settle: [{ agente: ["writer"], hooks: [] }] } },
   ];
   for (const rota of rotas) {
     assert.throws(() => leerLista(escribirLista(base, JSON.stringify(rota))), /no tiene la forma/, JSON.stringify(rota));
@@ -186,6 +191,33 @@ test("hooksDe elige los hooks del evento que matchean la herramienta, en el orde
     assert.deepEqual(hooksDe(propia, evento, "edit"), [], evento);
   }
 });
+
+test("hooksDe con agente corre solo los grupos de ese agente, y sin agente solo los grupos que no nombran ninguno", () => {
+  const [w, p, s, x, y] = [hook("w.py"), hook("p.py"), hook("s.py"), hook("x.py"), hook("y.py")];
+  const propia = lista({
+    agent_before_settle: [{ agente: "writer", hooks: [w] }, { agente: "principal", hooks: [p] }, { hooks: [y] }],
+    session_start: [{ hooks: [s] }, { agente: "principal", hooks: [x] }],
+    tool_call: [{ tools: ["bash"], agente: "principal", hooks: [x] }, { tools: ["bash"], hooks: [s] }],
+  });
+  assert.deepEqual(hooksDe(propia, "agent_before_settle", undefined, "writer"), [w]);
+  assert.deepEqual(hooksDe(propia, "agent_before_settle", undefined, "principal"), [p], "el padre nunca corre lo del writer");
+  assert.deepEqual(hooksDe(propia, "agent_before_settle", undefined, "otro"), []);
+  assert.deepEqual(hooksDe(propia, "agent_before_settle"), [y]);
+  assert.deepEqual(hooksDe(propia, "session_start"), [s]);
+  assert.deepEqual(hooksDe(propia, "tool_call", "bash"), [s]);
+});
+
+test("correrEvento pasa el agente a hooksDe: corre el grupo de ese agente y nada mas", conTemporal(async (base) => {
+  const plugin = pluginFalso(base, { "eco.py": ECO });
+  const propia = lista({ agent_before_settle: [{ agente: "writer", hooks: [hook("eco.py", ["w"])] },
+    { agente: "principal", hooks: [hook("eco.py", ["p"])] }] });
+  const corrida = { lista: propia, plugin, evento: "agent_before_settle", entrada: { type: "agent_before_settle" }, cwd: base };
+  for (const [agente, args] of [["writer", ["w"]], ["principal", ["p"]]] as [string, string[]][]) {
+    const resultados = await correrEvento({ ...corrida, agente });
+    assert.deepEqual(resultados.map((uno) => JSON.parse(uno.texto).args), [args], agente);
+  }
+  assert.deepEqual(await correrEvento(corrida), []);
+}));
 
 test("lanza python con el script y sus args sin shell, el JSON por stdin y el cwd pedido", conTemporal(async (base) => {
   const raros = ["--plazo", "8", "--host", "pi", "con espacio & ; | $HOME `x` \"comillas\" 'simples' ñ"];
@@ -304,12 +336,18 @@ const SONDA_DEL_DOCTOR = [
   "from odd_ws.hosts import pi",
   "rutas = json.loads(sys.stdin.read())",
   "cobertura = {e: {h or '': list(s) for h, s in t.items()} for e, t in pi.COBERTURA.items()}",
+  "agentes = {e: list(a) for e, a in pi.AGENTES_POR_EVENTO.items()}",
   "veredictos = [sorted({clave for clave, _ in pi.revisar_lista(ruta)}) for ruta in rutas]",
-  "sys.stdout.write(json.dumps({'cobertura': cobertura, 'writer': pi.REGEX_DE_WRITER, 'veredictos': veredictos}))",
+  "sys.stdout.write(json.dumps({'cobertura': cobertura, 'agentes': agentes, 'writer': pi.REGEX_DE_WRITER, 'veredictos': veredictos}))",
   "",
 ].join("\n");
 
-interface DelDoctor { cobertura: Record<string, Record<string, string[]>>; writer: string; veredictos: string[][] }
+interface DelDoctor {
+  cobertura: Record<string, Record<string, string[]>>;
+  agentes: Record<string, string[]>;
+  writer: string;
+  veredictos: string[][];
+}
 interface Caso { nombre: string; texto: string | Buffer; dialecto?: true }
 
 function delDoctor(rutas: string[]): DelDoctor {
@@ -339,16 +377,19 @@ function delShim(ruta: string, doctor: DelDoctor): string[] {
     grupos.forEach((grupo, indice) => {
       const sonda: ListaDeHooks = { ...leida, hooks: { [evento]: [{ ...grupo, hooks: [hook("sonda.py")] }] } };
       const herramientas = EVENTOS_DE_HERRAMIENTA.includes(evento) ? [...HERRAMIENTAS_VIGILADAS, ...(grupo.tools ?? [])] : [undefined];
-      if (!herramientas.some((herramienta) => hooksDe(sonda, evento, herramienta).length > 0)) {
+      const agentes = Object.hasOwn(AGENTES_POR_EVENTO, evento) ? AGENTES_POR_EVENTO[evento] : [undefined];
+      if (!herramientas.some((herramienta) => agentes.some((agente) => hooksDe(sonda, evento, herramienta, agente).length > 0))) {
         claves.add(`muerto ${evento} ${indice}`);
       }
     });
   }
-  for (const [evento, porHerramienta] of Object.entries(doctor.cobertura)) {
-    for (const [herramienta, scripts] of Object.entries(porHerramienta)) {
-      const corren = hooksDe(leida, evento, herramienta === "" ? undefined : herramienta).map((corre) => corre.script);
+  for (const [evento, porClave] of Object.entries(doctor.cobertura)) {
+    for (const [clave, scripts] of Object.entries(porClave)) {
+      const filtro = clave === "" ? undefined : clave;
+      const corren = (EVENTOS_DE_HERRAMIENTA.includes(evento) ? hooksDe(leida, evento, filtro) : hooksDe(leida, evento, undefined, filtro))
+        .map((corre) => corre.script);
       for (const script of scripts.filter((esperado) => !corren.includes(esperado))) {
-        claves.add(`cobertura ${evento} ${herramienta === "" ? "-" : herramienta} ${script}`);
+        claves.add(`cobertura ${evento} ${clave === "" ? "-" : clave} ${script}`);
       }
     }
   }
@@ -424,6 +465,22 @@ function corpus(): Caso[] {
     { nombre: "la lectura con otra herramienta", texto: variante((datos) => { datos.hooks.tool_result[1].tools = ["grep"]; }) },
     { nombre: "otro script en el guard del writer", texto: delHook({ script: "otro.py" }) },
     { nombre: "sin la compuerta", texto: variante((datos) => { datos.hooks.agent_before_settle = []; }) },
+    { nombre: "sin la revisión del turno", texto: variante((datos) => { datos.hooks.agent_before_settle.pop(); }) },
+    { nombre: "sin la foto del turno", texto: variante((datos) => { delete datos.hooks.before_agent_start; }) },
+    { nombre: "agente vacío en el cierre", texto: variante((datos) => { datos.hooks.agent_before_settle[0].agente = ""; }) },
+    { nombre: "agente número en el cierre", texto: variante((datos) => { datos.hooks.agent_before_settle[0].agente = 7; }) },
+    { nombre: "agente null en el inicio", texto: variante((datos) => { datos.hooks.before_agent_start[0].agente = null; }) },
+    { nombre: "agente en una lista", texto: variante((datos) => { datos.hooks.agent_before_settle[1].agente = ["principal"]; }) },
+    { nombre: "un cierre sin agente", texto: variante((datos) => { delete datos.hooks.agent_before_settle[0].agente; }) },
+    { nombre: "un inicio sin agente", texto: variante((datos) => { delete datos.hooks.before_agent_start[0].agente; }) },
+    { nombre: "un agente desconocido", texto: variante((datos) => { datos.hooks.agent_before_settle[1].agente = "otro"; }) },
+    { nombre: "el writer en el inicio", texto: variante((datos) => { datos.hooks.before_agent_start[0].agente = "writer"; }) },
+    { nombre: "agente en un guard", texto: delGrupo({ agente: "principal" }) },
+    { nombre: "agente al iniciar la sesión", texto: variante((datos) => { datos.hooks.session_start[0].agente = "principal"; }) },
+    { nombre: "el principal sin grupo propio", texto: variante((datos) => { datos.hooks.agent_before_settle[1].agente = "writer"; }) },
+    { nombre: "un grupo de más del writer", texto: variante((datos) => {
+      datos.hooks.agent_before_settle.push({ agente: "writer", hooks: [hook("verificar_capa.py")] });
+    }) },
     { nombre: "un grupo sin tools corre en todas", texto: variante((datos) => { delete datos.hooks.tool_call[0].tools; }) },
     { nombre: "un evento de más", texto: variante((datos) => { datos.hooks.otro_evento = [{ hooks: [hook("x.py")] }]; }) },
   ];
@@ -437,7 +494,11 @@ test("el doctor de Pi rechaza lo mismo que el shim sobre el mismo corpus de hook
     return ruta;
   });
   const doctor = delDoctor(rutas);
-  assert.deepEqual(Object.keys(doctor.cobertura).sort(), ["agent_before_settle", "session_compact", "session_start", "tool_call", "tool_result"]);
+  assert.deepEqual(Object.keys(doctor.cobertura).sort(), ["agent_before_settle", "before_agent_start", "session_compact", "session_start",
+    "tool_call", "tool_result"]);
+  assert.deepEqual(doctor.agentes, AGENTES_POR_EVENTO, "el doctor sabe en qué agente corre el shim cada evento");
+  assert.deepEqual(doctor.cobertura.agent_before_settle, { writer: ["writer_stop.py"], principal: ["revisar_turno.py"] });
+  assert.deepEqual(doctor.cobertura.before_agent_start, { principal: ["revisar_turno.py"] });
   const aceptados: string[] = [];
   casos.forEach((caso, indice) => {
     const delDelShim = delShim(rutas[indice], doctor);
@@ -452,7 +513,12 @@ test("el doctor de Pi rechaza lo mismo que el shim sobre el mismo corpus de hook
     }
   });
   assert.deepEqual(aceptados, ["el del plugin", "UTF-8 roto dentro de description", "una clave de más arriba", "timeout con decimales",
-    "un grupo de más sin hooks", "un grupo sin tools corre en todas", "un evento de más"]);
+    "un grupo de más sin hooks", "un grupo de más del writer", "un grupo sin tools corre en todas", "un evento de más"]);
+  const veredicto = (nombre: string) => doctor.veredictos[casos.findIndex((caso) => caso.nombre === nombre)];
+  assert.deepEqual(veredicto("un cierre sin agente"), ["cobertura agent_before_settle writer writer_stop.py", "muerto agent_before_settle 0"]);
+  assert.deepEqual(veredicto("agente en un guard"), ["cobertura tool_call bash writer_guard.py", "cobertura tool_call bash_background writer_guard.py",
+    "cobertura tool_call edit writer_guard.py", "cobertura tool_call monitor writer_guard.py", "cobertura tool_call powershell writer_guard.py",
+    "cobertura tool_call write writer_guard.py", "muerto tool_call 1"]);
   const rechazos = new Set(casos.flatMap((_, indice) => doctor.veredictos[indice].map((clave) => clave.split(" ")[0])));
   assert.deepEqual([...rechazos].sort(), ["cobertura", "forma", "muerto", "writer"]);
 }));

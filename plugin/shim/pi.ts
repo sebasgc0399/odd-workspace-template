@@ -9,6 +9,12 @@ export const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)));
 export const ARCHIVO_DE_HOOKS = "hooks/hooks.pi.json";
 export const PLAZO_DE_CONFIRMACION = 60000;
 export const VARIABLE_DEL_HIJO = "GENTLE_PI_AGENTS_CHILD";
+const WRITER = "writer";
+const PRINCIPAL = "principal";
+export const AGENTES_POR_EVENTO: Readonly<Record<string, readonly string[]>> = {
+  before_agent_start: [PRINCIPAL],
+  agent_before_settle: [WRITER, PRINCIPAL],
+};
 const CONFIG_DE_LA_INSTANCIA = "workspace.config.json";
 const SKILLS_DE_LA_INSTANCIA = join(".claude", "skills");
 const MARCA_DE_GIT = ".git";
@@ -70,6 +76,7 @@ interface Lanzamiento { agent: string; task: string; context?: string; repositor
 interface CwdDelHijo { cwd: string; campo?: string; valor?: string }
 interface Identidad { agent: string | null; agentId: string | null }
 interface Estado { hijo: boolean; fijada: boolean; identidad: Identidad; continuado: boolean }
+interface Cierre { agente: string; oddWs: Record<string, unknown> }
 
 function esObjeto(valor: unknown): valor is Record<string, any> {
   return typeof valor === "object" && valor !== null && !Array.isArray(valor);
@@ -107,9 +114,10 @@ function carga(evento: EventoDePi, ctx: ContextoDePi, oddWs?: object) {
   };
 }
 
-function correr(plugin: string, hooks: ListaDeHooks, evento: EventoDePi, ctx: ContextoDePi, oddWs?: object): Promise<Resultado[]> {
-  return correrEvento({ lista: hooks, plugin, evento: evento.type, herramienta: evento.toolName, entrada: carga(evento, ctx, oddWs),
-    cwd: ctx.cwd });
+function correr(plugin: string, hooks: ListaDeHooks, evento: EventoDePi, ctx: ContextoDePi, oddWs?: object,
+  agente?: string): Promise<Resultado[]> {
+  return correrEvento({ lista: hooks, plugin, evento: evento.type, herramienta: evento.toolName, agente,
+    entrada: carga(evento, ctx, oddWs), cwd: ctx.cwd });
 }
 
 function sinMarcas(texto: string): string {
@@ -370,6 +378,23 @@ function ultimoDelAsistente(evento: EventoDePi): string {
   return "";
 }
 
+async function alEmpezarElTurnoDelPrincipal(plugin: string, evento: EventoDePi, ctx: ContextoDePi, estado: Estado): Promise<void> {
+  estado.continuado = false;
+  try {
+    await correr(plugin, lista(plugin), evento, ctx, undefined, PRINCIPAL);
+  } catch {
+    return;
+  }
+}
+
+function cierreDe(estado: Estado, hooks: ListaDeHooks): Cierre | undefined {
+  if (!estado.hijo) {
+    return { agente: PRINCIPAL, oddWs: { child: false } };
+  }
+  const { agent, agentId } = estado.identidad;
+  return agent !== null && writerDe(hooks).test(agent) ? { agente: WRITER, oddWs: { agent, agentId } } : undefined;
+}
+
 async function alAsentarse(plugin: string, evento: EventoDePi, ctx: ContextoDePi, estado: Estado): Promise<Continuacion | undefined> {
   if (evento.continue === true) {
     return undefined;
@@ -381,12 +406,12 @@ async function alAsentarse(plugin: string, evento: EventoDePi, ctx: ContextoDePi
   }
   try {
     const hooks = lista(plugin);
-    const { agent, agentId } = estado.identidad;
-    if (agent === null || !writerDe(hooks).test(agent)) {
+    const cierre = cierreDe(estado, hooks);
+    if (cierre === undefined) {
       return undefined;
     }
     const decision = combinar(await correr(plugin, hooks, evento, ctx,
-      { agent, agentId, lastAssistantMessage: ultimoDelAsistente(evento), continued: continuado }));
+      { ...cierre.oddWs, lastAssistantMessage: ultimoDelAsistente(evento), continued: continuado }, cierre.agente));
     if (decision.tipo !== "seguir" || continuado) {
       return undefined;
     }
@@ -511,13 +536,14 @@ export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<
   pi.on("session_start", iniciar);
   pi.on("session_compact", iniciar);
   pi.on("resources_discover", (evento: EventoDePi, ctx: Partial<ContextoDePi>) => skillsDeLaInstancia(evento, ctx ?? {}));
-  pi.on("before_agent_start", (evento: EventoDePi, ctx: ContextoDePi) => {
+  pi.on("before_agent_start", async (evento: EventoDePi, ctx: ContextoDePi) => {
     fijarIdentidad(estado, evento, ctx);
+    if (!estado.hijo) {
+      await alEmpezarElTurnoDelPrincipal(plugin, evento, ctx, estado);
+    }
     return alEmpezarElTurno(evento, deInicio);
   });
-  if (estado.hijo) {
-    pi.on("agent_before_settle", (evento: EventoDePi, ctx: ContextoDePi) => alAsentarse(plugin, evento, ctx, estado));
-  }
+  pi.on("agent_before_settle", (evento: EventoDePi, ctx: ContextoDePi) => alAsentarse(plugin, evento, ctx, estado));
 }
 
 export default function (pi: ApiDePi): void {

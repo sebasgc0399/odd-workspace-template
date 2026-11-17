@@ -30,10 +30,10 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
 | B1 | S2 | Diseño:<br>• la foto al inicio del turno: qué se guarda y cuánto cuesta en un repo grande;<br>• cómo no culpar al agente de lo que cambió el usuario;<br>• qué hallazgos hacen seguir al agente;<br>• cómo no repetir lo que ya chequeó la edición;<br>• el tope de vueltas;<br>• la degradación en un host sin el evento | inline, con el usuario | hecho (L16) |
 | B2a | S2, S3 | El modelo neutral: `InicioTurno` y `FinTurno` en `eventos.py`, los puntos de evento y P11/P12 en `capacidades.py` (en los tres manifiestos, «no disponible» hasta B2c-B2e), con sus tests | delegado: writer W1, junto con B2b, por el respaldo de contexto de una sesión larga (L17) | hecho (L18) |
 | B2b | S2 | El script `revisar_turno.py`: la foto al inicio, la revisión al final contra la foto o HEAD, una vuelta por turno, la foto pendiente si el turno se corta. Con sus tests | delegado: W1 | hecho (L18) |
-| B2c | S2, S3 | Claude Code: `Stop` y `UserPromptSubmit` en el adaptador y en `hooks.json`, con sus tests | delegado: writer W2, después de W1, junto con B2d a B2f; los tests de paridad atan los tres hosts y no se pueden partir (L17) | pendiente |
-| B2d | S2, S3 | Codex: `Stop` y `UserPromptSubmit` (solo el hilo raíz) en el adaptador y en `hooks.codex.json`, con sus tests | delegado: W2 | pendiente |
-| B2e | S2, S3 | Pi: el settle del padre y `before_agent_start` en el shim, el adaptador y `hooks.pi.json`, y la regla del doctor sobre el settle; con sus tests de Python y TS | delegado: W2 | pendiente |
-| B2f | S3 | El doctor (cobertura y degradado) y los docs: `Doc/hooks.md`, `Doc/diseno.md` y las filas P11 y P12 de `multi-host.md`. La costura la cierra el padre, con la suite completa una vez | delegado: W2; la costura, inline | pendiente |
+| B2c | S2, S3 | Claude Code: `Stop` y `UserPromptSubmit` en el adaptador y en `hooks.json`, con sus tests | delegado: writer W2, después de W1, junto con B2d a B2f; los tests de paridad atan los tres hosts y no se pueden partir (L17) | hecho (L19) |
+| B2d | S2, S3 | Codex: `Stop` y `UserPromptSubmit` (solo el hilo raíz) en el adaptador y en `hooks.codex.json`, con sus tests | delegado: W2 | hecho (L19) |
+| B2e | S2, S3 | Pi: el settle del padre y `before_agent_start` en el shim, el adaptador y `hooks.pi.json`, y la regla del doctor sobre el settle; con sus tests de Python y TS | delegado: W2 | hecho (L19) |
+| B2f | S3 | El doctor (cobertura y degradado) y los docs: `Doc/hooks.md`, `Doc/diseno.md` y las filas P11 y P12 de `multi-host.md`. La costura la cierra el padre, con la suite completa una vez | delegado: W2; la costura, inline | hecho (L19); la costura, en el pre-commit |
 | VB | S2, S3, S4 | Verificador independiente de la parte B, con todo el documento | delegado | pendiente |
 | H | S3, S4 | Prueba de humo en Claude Code, Codex y Pi, cada uno con su home aparte | inline; el usuario hace los logins | pendiente |
 | F1 | — | Seguimiento: los hooks ponen `dont_write_bytecode` y un plugin instalado compila sus módulos en cada corrida. Con caché, `guard_comandos` ahorra unos 60 ms (L11) | aparte | anotado |
@@ -269,3 +269,51 @@ Objetivo: que las reglas de la capa corran aunque un agente que no es writer esc
     - las dos aserciones de los adaptadores;
     - `Doc/diseno.md:131`, que dice «P1 a P10».
   - **Scratch del writer,** para borrar a mano: `%TEMP%\tmp.EseIW9Eohu`.
+  - **El commit:** `b524566`, con el CI en verde en los tres sistemas.
+- **L19 (2026-11-17), W2: B2c a B2f.**
+  - **Claude Code:**
+    - `Stop` se lee como `FinTurno`, con `continuado` sacado de `stop_hook_active`.
+    - `UserPromptSubmit` se lee como `InicioTurno`, con `turno` sacado de `prompt_id`. Toma solo `agent_id`, porque `agent_type` también llega con `--agent`.
+    - `Seguir` sale como `decision: block`, igual que en `writer_stop`.
+  - **Codex:** los mismos dos eventos, con `turn_id`. Un `UserPromptSubmit` de un subagente trae `agente`, así que no saca foto. Responde por JSON con exit 0.
+  - **Pi:**
+    - Cada grupo de `before_agent_start` y de `agent_before_settle` en `hooks.pi.json` lleva `agente: "writer" | "principal"`, y el shim los compara exactos. Así el padre y el hijo no pueden correr la misma compuerta.
+    - El settle del padre manda `oddWs.child: false`, y `pi.py` lo lee como `FinTurno`.
+    - `before_agent_start` del padre corre la foto y el shim la espera, porque Pi 1.5.2 hace `await` de esos handlers.
+  - **Hooks:**
+    - Al inicio, `--plazo 8` con timeout 10.
+    - Al fin, `--plazo 50` con timeout 60, como `writer_stop`.
+    - Sin `matcher`, porque Codex y Claude Code lo ignoran en esos eventos.
+  - **Manifiestos:** P11 queda `degradado` en los tres, porque si el hook se cae el turno cierra igual. P12 queda `soportado`.
+  - **Doctor:**
+    - `hooks-host` cuenta los hooks nuevos.
+    - En Codex, `codex-hooks` pide la confianza de los dos handlers nuevos.
+    - En Pi:
+      - revisa la cobertura por agente;
+      - marca los grupos muertos;
+      - la regla del settle pasa a ser por agente: el writer corre `writer_stop` y el principal, `revisar_turno`.
+  - **Docs:**
+    - `Doc/hooks.md` suma las filas de inicio y de fin de turno.
+    - `Doc/diseno.md` suma la subsección «Revisión del fin del turno» y corrige «P1 a P10».
+    - `multi-host.md` suma las filas P11 y P12.
+  - **Rojo antes del código:**
+
+    | Suite | Resultado |
+    |---|---|
+    | `capacidades` | 26/37 |
+    | `claude_code` | 35/40 |
+    | `codex` | 37/44 |
+    | `pi` | 58/66 |
+    | `doctor` | 180/184 |
+    | `revisar_turno` | 19/21 |
+    | TS | 66/77 |
+
+  - **Verde:** los 46 archivos `*.tests.py` y 85/85 en TypeScript. El padre volvió a correr TypeScript y le dio 85/85.
+  - **Lo que agregó el padre:** W2 avisó que en Claude Code un writer en segundo plano puede seguir escribiendo cuando corre el `Stop` del principal. Así, el principal recibiría la vuelta por un trabajo a medias, con un mensaje que culpa al usuario.
+    - `revisar_turno` ahora deja fuera un archivo que tiene una foto de un writer en curso de la misma sesión (`writers/<sesion>/<agente>.fotos/`), porque lo revisa `writer_stop`.
+    - Compara la clave de la ruta y la de su `realpath`.
+    - Un test, en rojo antes del código, cubre también que la foto de otra sesión no saca el archivo. `revisar_turno` queda en 22/22.
+  - **Notas de W2, sin bloqueo:**
+    - cada mensaje del usuario lanza ahora un proceso Python en los tres hosts, que sin instancia sale enseguida;
+    - registrar `agent_before_settle` en el padre lleva a Pi a su camino de cierre por frontera, el mismo que ya usa gentle-ai en gentle-shell.
+  - **Scratch de W2,** para borrar a mano: `%TEMP%\tmp.Q9obgKEw14` y `%TEMP%\tmp.kzTQUXKgG2`.

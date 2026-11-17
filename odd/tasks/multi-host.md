@@ -43,6 +43,8 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 | P8 skills del plugin | sí | sí (SKILL.md) | a verificar | sí, sin namespace | parcial: por código | sí, sin namespace, con `disable-model-invocation`; `.claude/skills` solo por `resources_discover` |
 | P9 distribución | sí | sí, lee `.claude-plugin` | sí, lee `.claude-plugin` | sí (`gemini-extension.json`) | parcial: npm, sin raíz del plugin | sí: paquete Pi (clave `pi`) con `gentle-shell install`; sin `PLUGIN_ROOT` |
 | P10 instrucciones por carpeta | sí (CLAUDE.md apilado) | parcial: AGENTS.md, al arrancar | a verificar | sí (GEMINI.md, carga JIT) | sí (AGENTS.md, carga diferida) | parcial: `AGENTS.md` o `CLAUDE.md`, uno por carpeta, del cwd a la raíz, al arrancar |
+| P11 compuerta de fin de turno del principal | parcial: `Stop`, solo del principal, sigue con `decision: block`; un tope de 8 bloqueos seguidos que se reinicia con cada herramienta, y si el hook se cae el turno cierra | parcial (0.144): `Stop`, solo en el hilo raíz, sigue con `decision: block` por JSON con exit 0 y el motivo como prompt en el mismo `turn_id`; sin tope, y si el hook falla deja cerrar | sin investigar | sin investigar | sin investigar | parcial (gentle-shell 4.8.0): `agent_before_settle` en el padre, sigue con un `custom_message` y `continue: true`; sin tope ni timeout, un error falla abierto y un abort lo saltea |
+| P12 inicio de turno | sí: `UserPromptSubmit`, con `prompt_id`; también con las tareas programadas y los avisos de los subagentes en segundo plano | sí (0.144): `UserPromptSubmit`, con `turn_id`; también corre dentro de un subagente (con `agent_id`) y no en la continuación | sin investigar | sin investigar | sin investigar | sí (gentle-shell 4.8.0): `before_agent_start`, sin id de turno; la continuación no lo dispara |
 
 **Fuentes de la columna gentle-shell (L44).** Se leyeron los paquetes como datos, sin ejecutarlos: `[pi]` es https://cdn.jsdelivr.net/npm/@earendil-works/pi-coding-agent@1.5.2/ y `[gs]` es https://cdn.jsdelivr.net/npm/gentle-pi@4.7.0/. La wiki de GitHub de gentle-shell devuelve el README, y su enlace «Wiki» va a la de gentle-ai, que en la parte de Pi está desactualizada.
 - **P1:** [pi] `dist/core/extensions/types.d.ts:595-655`, `docs/extensions.md:615-659` y `examples/extensions/claude-rules.ts:54-80`.
@@ -55,6 +57,7 @@ Objetivo: que odd-ws corra en otros CLI además de Claude Code, con un núcleo c
 - **P8:** [pi] `docs/skills.md:53-85`, `dist/core/skills.js:244-279,355-356` y `docs/extensions.md:448-463`.
 - **P9:** [pi] `docs/packages.md:9-116`, `docs/extensions.md:211` y `examples/extensions/dynamic-resources/index.ts:5`; [gs] `README.md:486-519` y `docs/readme-reference.md:271-281,336-337`.
 - **P10:** [pi] `dist/core/resource-loader.js:129-209` y `docs/configuration.md:5,41-47`; [gs] `extensions/child-context.ts:20-28`.
+- **P11 y P12:** L15 de `odd/tasks/capa-por-shell.md`, con la doc oficial, el código de los upstream leído como dato y las versiones instaladas: Claude Code 2.1.319, Codex 0.144 y Pi 1.5.2 con gentle-shell 4.8.0. En los tres, P11 es parcial porque un hook que se cae deja cerrar el turno; los manifiestos la declaran `degradado`.
 
 ## Tasks
 

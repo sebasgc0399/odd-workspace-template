@@ -70,6 +70,13 @@ def fin(**extra):
     return payload
 
 
+def turno(nombre, **extra):
+    payload = {"hook_event_name": nombre, "session_id": "s1", "cwd": "/w", "transcript_path": "/t/s1.jsonl",
+               "permission_mode": "default"}
+    payload.update(extra)
+    return payload
+
+
 def transcript(base, usos, nombre="agent-1.jsonl"):
     lineas = [json.dumps({"type": "user", "message": {"role": "user", "content": "haz esto"}}), "{esto no es json"]
     for nombre_h, entrada in usos:
@@ -139,6 +146,40 @@ def test_subagent_stop_con_y_sin_reintento():
     assert m().leer({"hook_event_name": "SubagentStop"}) == ev().FinSubagente()
 
 
+def test_stop_es_el_fin_del_turno_del_principal_con_su_continuacion():
+    esperado = ev().FinTurno(sesion="s1", cwd="/w", continuado=False, ultimo_mensaje="Listo.")
+    assert m().leer(turno("Stop", last_assistant_message="Listo.")) == esperado
+    assert m().leer(turno("Stop", last_assistant_message="Listo.", stop_hook_active=False)) == esperado
+    assert m().leer(turno("Stop", last_assistant_message="Listo.", stop_hook_active=True)) == ev().FinTurno(
+        **dict(vars(esperado), continuado=True))
+    for casi in ("true", 1, "True", [True], None):
+        assert m().leer(turno("Stop", stop_hook_active=casi)).continuado is False, casi
+    assert m().leer({"hook_event_name": "Stop"}) == ev().FinTurno()
+
+
+def test_user_prompt_submit_es_el_inicio_del_turno_con_su_prompt_id():
+    E = ev()
+    assert m().leer(turno("UserPromptSubmit", prompt="hola", prompt_id="p1")) == E.InicioTurno(sesion="s1", cwd="/w", turno="p1")
+    assert m().leer(turno("UserPromptSubmit", prompt="hola")) == E.InicioTurno(sesion="s1", cwd="/w")
+    con_agent = m().leer(turno("UserPromptSubmit", prompt="hola", agent_type="revisor-sql"))
+    assert (con_agent.agente, con_agent.id_agente) == (None, None), "agent_type también llega con --agent, que es el principal"
+    assert m().leer(turno("UserPromptSubmit", agent_id="a1")).id_agente == "a1", "agent_id llega solo dentro de un subagente"
+    assert m().leer({"hook_event_name": "UserPromptSubmit"}) == E.InicioTurno()
+
+
+def test_responder_al_terminar_y_al_empezar_el_turno():
+    E = ev()
+    al_terminar, al_empezar = m().leer(turno("Stop")), m().leer(turno("UserPromptSubmit"))
+    assert m().responder(al_terminar, E.Seguir("todavía no: razón")) == (
+        0, '{"decision": "block", "reason": "todav\\u00eda no: raz\\u00f3n"}', b"")
+    assert m().responder(al_terminar, E.Seguir("x")) == m().responder(m().leer(fin()), E.Seguir("x")), (
+        "la misma forma que la compuerta del writer en SubagentStop")
+    for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x")):
+        assert m().responder(al_terminar, decision) == SILENCIO, decision
+    for decision in (E.Permitir(), E.Bloquear("x"), E.Preguntar("x"), E.Contexto("x"), E.Seguir("x")):
+        assert m().responder(al_empezar, decision) == SILENCIO, decision
+
+
 def test_json_invalido_y_lo_que_no_es_un_evento():
     for crudo in (b"no es json", b"", b"\xff\xfe basura", "{cortado"):
         try:
@@ -152,7 +193,7 @@ def test_json_invalido_y_lo_que_no_es_un_evento():
     assert m().cargar(json.dumps(payload)) == payload and m().cargar(payload) is payload
     for no_es in (None, 5, "texto", [], [payload], b"{}"):
         assert m().leer(no_es) is None, no_es
-    for nombre in ("Stop", "Notification", "UserPromptSubmit", "", None, 5, ["PreToolUse"], "pretooluse"):
+    for nombre in ("Notification", "PreCompact", "stop", "", None, 5, ["PreToolUse"], "pretooluse"):
         assert m().leer(dict(payload, hook_event_name=nombre)) is None, nombre
 
 
@@ -239,7 +280,7 @@ def test_atender_lee_decide_y_responde():
     assert m().atender(json.dumps(payload).encode("utf-8"), nucleo) == (2, "", b"no\n")
     assert vistos == [m().leer(payload)] and isinstance(vistos[0], E.Herramienta), "el núcleo recibe el evento, no el payload"
     sin = {k: v for k, v in payload.items() if k != "hook_event_name"}
-    for ajeno in ({"hook_event_name": "Stop"}, sin, [], 5):
+    for ajeno in ({"hook_event_name": "Notification"}, sin, [], 5):
         assert m().atender(ajeno, nucleo) == SILENCIO, ajeno
     assert len(vistos) == 1, "sin evento, el núcleo no corre"
     assert m().atender(sin, nucleo, pre_por_defecto=True) == (2, "", b"no\n") and len(vistos) == 2
@@ -376,7 +417,11 @@ def test_claude_code_anterior_a_2_1_295_es_aviso_porque_un_hook_que_no_arranca_d
 def test_los_hooks_registrados_de_claude_code_son_command_y_args_de_hooks_json():
     with Temporal() as base:
         registrados = list(m().hooks_registrados(Ctx(base), None))
-        assert len(registrados) == 7 and all(propio for _, _, propio in registrados), registrados
+        assert len(registrados) == 9 and all(propio for _, _, propio in registrados), registrados
+        argumentos = ["${CLAUDE_PLUGIN_ROOT}/scripts/revisar_turno.py", "--plazo"]
+        assert [(origen, tokens) for origen, tokens, _ in registrados if tokens[1:3] == argumentos] == [
+            ("hooks/hooks.json UserPromptSubmit[0][0]", ["python3", *argumentos, "8"]),
+            ("hooks/hooks.json Stop[0][0]", ["python3", *argumentos, "50"])], registrados
         assert registrados[0] == ("hooks/hooks.json SessionStart[0][0]",
                                   ["python3", "${CLAUDE_PLUGIN_ROOT}/scripts/verificar_capa.py", "--plazo", "8"], True), registrados[0]
         ctx = Ctx(base)
@@ -579,7 +624,8 @@ def test_el_puerto_de_memorias_se_declara_soportado_sin_tocar_el_manifiesto():
     estado, nota = m().MEMORIAS
     assert estado == capacidades.SOPORTADO and nota.strip(), m().MEMORIAS
     assert list(m().MANIFIESTO) == list(capacidades.CAPACIDADES)
-    assert all(estado == capacidades.SOPORTADO for clave, (estado, _) in m().MANIFIESTO.items() if clave not in ("P11", "P12"))
+    assert all(estado == capacidades.SOPORTADO for clave, (estado, _) in m().MANIFIESTO.items() if clave != "P11")
+    assert m().MANIFIESTO["P11"][0] == capacidades.DEGRADADO, "si revisar_turno se cae, el turno cierra igual"
 
 
 def main():

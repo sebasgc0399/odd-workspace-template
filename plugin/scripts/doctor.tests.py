@@ -1168,7 +1168,8 @@ def test_instancia_plugin_con_settings_roto_es_falta_sin_arreglo():
 
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 CLAVES_DE_CODEX = [CLAVE_PLUGIN + ":hooks/hooks.codex.json:" + clave for clave in (
-    "session_start:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0", "subagent_stop:0:0")]
+    "session_start:0:0", "pre_tool_use:0:0", "pre_tool_use:1:0", "pre_tool_use:2:0", "post_tool_use:0:0", "subagent_stop:0:0",
+    "user_prompt_submit:0:0", "stop:0:0")]
 ITEMS_DE_CODEX = ["codex", "codex-plugin", "codex-hooks", "codex-proyecto", "codex-config", "codex-agentes"]
 ITEMS_DE_CLAUDE = {"claude", "marketplace", "instancia-plugin", "agentes-skills", "agentes-hooks"}
 
@@ -1332,10 +1333,27 @@ def test_una_instancia_codex_sana_da_ok_en_todos_sus_items():
 def test_hooks_host_cuenta_handlers_y_aparte_los_comandos_cuando_un_handler_trae_command_windows():
     with Escenario() as e:
         _, ctx = instancia_codex_sana(e)
-        assert por_id(ctx)["hooks-host"].detalle == "6 hooks de codex (12 comandos), cada uno con el --host de su archivo"
+        assert por_id(ctx)["hooks-host"].detalle == "8 hooks de codex (16 comandos), cada uno con el --host de su archivo"
     with Escenario() as e:
         _, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
-        assert por_id(ctx)["hooks-host"].detalle == "13 hooks de claude-code, codex (19 comandos), cada uno con el --host de su archivo"
+        assert por_id(ctx)["hooks-host"].detalle == "17 hooks de claude-code, codex (25 comandos), cada uno con el --host de su archivo"
+
+
+def test_hooks_host_ve_el_host_de_revisar_turno_al_empezar_y_al_terminar_el_turno():
+    with Escenario() as e:
+        _, ctx = instancia_codex_sana(e, hosts=("claude-code", "codex"))
+        archivo = ctx.plugin / "hooks" / "hooks.codex.json"
+        original = archivo.read_text(encoding="utf-8")
+        for evento in ("UserPromptSubmit", "Stop"):
+            datos = json.loads(original)
+            hook = datos["hooks"][evento][0]["hooks"][0]
+            hook["command"] = hook["command"].replace(" --host codex", "")
+            archivo.write_text(json.dumps(datos), encoding="utf-8")
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and ("hooks/hooks.codex.json %s[0][0]: revisar_turno.py sin --host" % evento) in r.detalle, (evento, r)
+            assert "(commandWindows)" not in r.detalle, "el de Windows sigue con su --host: %r" % r.detalle
+        archivo.write_text(original, encoding="utf-8")
+        assert por_id(ctx)["hooks-host"].estado == "OK"
 
 
 def test_codex_por_version_ausente_o_vieja_y_sin_codex_lo_de_la_maquina_no_aplica():
@@ -1395,7 +1413,7 @@ def test_codex_hooks_pide_la_clave_exacta_de_cada_handler_con_trusted_hash():
         for falta in CLAVES_DE_CODEX:
             poner_config_de_codex(ctx, claves=[c for c in CLAVES_DE_CODEX if c != falta], proyecto=(raiz, "trusted"))
             r = por_id(ctx)["codex-hooks"]
-            assert r.estado == "AVISO" and "1 de 6" in r.detalle and falta.split("json:")[1] in r.detalle, (falta, r)
+            assert r.estado == "AVISO" and "1 de 8" in r.detalle and falta.split("json:")[1] in r.detalle, (falta, r)
             assert "/hooks" in r.ayuda and r.arreglo is None and "no se verifica" in r.detalle, r
         claves = [c for c in CLAVES_DE_CODEX if c != CLAVES_DE_CODEX[2]]
         poner_config_de_codex(ctx, claves=claves, proyecto=(raiz, "trusted"),
@@ -1717,7 +1735,7 @@ def home_de_la_maquina(e):
 
 
 MANIFIESTO_DE_F2F = {"name": "odd-ws", "pi": {"extensions": ["shim/pi.ts"]}}
-SCRIPTS_DE_LOS_HOOKS = ("verificar_capa.py", "writer_guard.py", "guard_comandos.py", "writer_stop.py")
+SCRIPTS_DE_LOS_HOOKS = ("verificar_capa.py", "writer_guard.py", "guard_comandos.py", "writer_stop.py", "revisar_turno.py")
 
 
 def como_paquete_de_pi(carpeta, manifiesto=MANIFIESTO_DE_F2F):
@@ -1760,9 +1778,9 @@ def arbol_de(*carpetas):
 
 
 def test_una_instancia_pi_sana_da_ok_en_todos_sus_items_en_su_orden():
-    for hosts, items, hooks in ((("pi",), ITEMS_DE_PI, "8 hooks de pi, cada uno con el --host de su archivo"),
+    for hosts, items, hooks in ((("pi",), ITEMS_DE_PI, "10 hooks de pi, cada uno con el --host de su archivo"),
                                 (("claude-code", "pi"), ["claude", "marketplace", *ITEMS_DE_PI],
-                                 "15 hooks de claude-code, pi, cada uno con el --host de su archivo")):
+                                 "19 hooks de claude-code, pi, cada uno con el --host de su archivo")):
         with Escenario() as e:
             raiz, ctx = instancia_pi_sana(e, hosts)
             r = por_id(ctx)
@@ -2476,7 +2494,8 @@ def test_hooks_host_de_pi_revisa_que_cada_script_exista_y_que_la_compuerta_pueda
     casos = ((lambda d: d["hooks"]["agent_before_settle"][0]["hooks"][0].update(timeout=50),
               ("agent_before_settle[0][0]", "timeout 50", "--plazo 50")),
              (lambda d: d["hooks"]["tool_call"][1]["hooks"][0].update(timeout=5), ("tool_call[1][0]", "timeout 5", "--plazo 8")),
-             (lambda d: d["hooks"]["agent_before_settle"].append({"hooks": [otro]}), ("agent_before_settle", "verificar_capa.py", "seguir")),
+             (lambda d: d["hooks"]["agent_before_settle"].append({"agente": "writer", "hooks": [otro]}),
+              ("agent_before_settle", "verificar_capa.py", "seguir")),
              (lambda d: d["hooks"]["agent_before_settle"][0]["hooks"].append(dict(otro, script="writer_stop.py", args=["--plazo", "50", "--host", "pi"],
                                                                                   timeout=60)),
               ("agent_before_settle", "2 hooks")))
@@ -2495,6 +2514,39 @@ def test_hooks_host_de_pi_revisa_que_cada_script_exista_y_que_la_compuerta_pueda
         escribir_hooks_de_pi(ctx, lambda d: d["hooks"]["tool_call"][1]["hooks"][0].update(timeout=0))
         r = por_id(ctx)["hooks-host"]
         assert "writer_stop.py no existe" not in r.detalle and "el shim no puede leer" in r.detalle, "con la forma rota basta el motivo del shim"
+
+
+def test_hooks_host_de_pi_revisa_que_el_padre_corra_solo_revisar_turno_y_el_hijo_solo_writer_stop():
+    revision = {"script": "revisar_turno.py", "args": ["--plazo", "50", "--host", "pi"], "timeout": 60}
+    casos = (
+        (lambda d: d["hooks"]["agent_before_settle"].pop(1), ("agent_before_settle del principal no corre revisar_turno.py",)),
+        (lambda d: d["hooks"].pop("before_agent_start"), ("before_agent_start del principal no corre revisar_turno.py",)),
+        (lambda d: d["hooks"]["agent_before_settle"][0].pop("agente"),
+         ("agent_before_settle[0] no tiene agente", "agent_before_settle del writer no corre writer_stop.py")),
+        (lambda d: d["hooks"]["agent_before_settle"][1].update(agente="writer"),
+         ("agent_before_settle del writer corre 2 hooks (writer_stop.py, revisar_turno.py)", "el writer cierra sin compuerta",
+          "agent_before_settle del principal no corre revisar_turno.py")),
+        (lambda d: d["hooks"]["agent_before_settle"][0].update(agente="principal"),
+         ("agent_before_settle del principal corre 2 hooks (writer_stop.py, revisar_turno.py)", "el turno cierra sin revisión")),
+        (lambda d: d["hooks"]["agent_before_settle"][0]["hooks"].append(revision),
+         ("agent_before_settle del writer corre 2 hooks", "seguir")),
+        (lambda d: d["hooks"]["agent_before_settle"][1]["hooks"][0].update(script="writer_stop.py"),
+         ("agent_before_settle del principal corre writer_stop.py: ahí corre solo revisar_turno.py",
+          "agent_before_settle del principal no corre revisar_turno.py")),
+    )
+    with Escenario() as e:
+        _, ctx = instancia_pi_sana(e)
+        assert por_id(ctx)["hooks-host"].estado == "OK"
+        for cambiar, rastros in casos:
+            escribir_hooks_de_pi(ctx, cambiar)
+            r = por_id(ctx)["hooks-host"]
+            assert r.estado == "FALTA" and all(rastro in r.detalle for rastro in rastros), (rastros, r)
+            assert pim().AYUDA_HOOKS in r.ayuda and r.arreglo is None, r
+        escribir_hooks_de_pi(ctx)
+        (ctx.plugin / "scripts" / "revisar_turno.py").unlink()
+        r = por_id(ctx)["hooks-host"]
+        assert r.estado == "FALTA" and "before_agent_start[0][0]: revisar_turno.py no existe en" in r.detalle, r
+        assert "agent_before_settle[1][0]: revisar_turno.py no existe en" in r.detalle, r
 
 
 def test_hooks_host_revisa_que_cada_hook_de_hooks_pi_json_lleve_host_pi():

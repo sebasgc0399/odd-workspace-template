@@ -1,5 +1,5 @@
 {
-  "description": "Hooks de odd-ws para Pi, que no tiene archivo de hooks: los lee el shim (shim/pi.ts) y lanza el python de cada sistema con scripts/<script> y sus args, sin shell, con el timeout en segundos. writer es la regex de los writers, la del matcher de SubagentStop de hooks.json: con ella el shim marca la tarea de subagent_run y corre agent_before_settle solo en un hijo writer",
+  "description": "Hooks de odd-ws para Pi, que no tiene archivo de hooks: los lee el shim (shim/pi.ts) y lanza el python de cada sistema con scripts/<script> y sus args, sin shell, con el timeout en segundos. writer es la regex de los writers, la del matcher de SubagentStop de hooks.json: con ella el shim marca la tarea de subagent_run y reconoce a un hijo writer. En before_agent_start y agent_before_settle, cada grupo nombra su agente y corre solo en él: principal es el padre (o Pi a secas), el agente principal, y writer es un hijo writer; un grupo sin agente ahí no corre nunca",
   "python": "python3",
   "pythonWindows": "python",
   "writer": "^writer-[a-z0-9][a-z0-9-]*$",
@@ -15,6 +15,14 @@
       {
         "hooks": [
           { "script": "verificar_capa.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
+        ]
+      }
+    ],
+    "before_agent_start": [
+      {
+        "agente": "principal",
+        "hooks": [
+          { "script": "revisar_turno.py", "args": ["--plazo", "8", "--host", "pi"], "timeout": 10 }
         ]
       }
     ],
@@ -54,8 +62,15 @@
     ],
     "agent_before_settle": [
       {
+        "agente": "writer",
         "hooks": [
           { "script": "writer_stop.py", "args": ["--plazo", "50", "--host", "pi"], "timeout": 60 }
+        ]
+      },
+      {
+        "agente": "principal",
+        "hooks": [
+          { "script": "revisar_turno.py", "args": ["--plazo", "50", "--host", "pi"], "timeout": 60 }
         ]
       }
     ]

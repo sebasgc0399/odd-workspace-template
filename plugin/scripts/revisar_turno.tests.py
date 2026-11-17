@@ -257,6 +257,24 @@ def test_un_archivo_de_capa_escrito_por_cualquier_via_con_un_bloqueo_hace_seguir
         assert "apply_patch" in motivo(fin(inst, host="codex"))
 
 
+def test_un_archivo_con_un_writer_en_curso_queda_para_su_compuerta():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        assert inicio(inst) == Permitir()
+        a, b = repo / "db" / "a.sql", repo / "db" / "b.sql"
+        agregar(a, "x MALO BLOQ\n")
+        agregar(b, "z MALO BLOQ\n")
+        fotos = inst / ".claude" / "estado" / "writers" / "s1" / "writer-sql.fotos"
+        fotos.mkdir(parents=True)
+        (fotos / (R.clave_foto(str(a)) + ".foto")).write_bytes(b"")
+        texto = motivo(fin(inst))
+        assert nombra(texto, b) and not nombra(texto, a), texto
+        otra = inst / ".claude" / "estado" / "writers" / "s2" / "writer-sql.fotos"
+        otra.mkdir(parents=True)
+        (otra / (R.clave_foto(str(b)) + ".foto")).write_bytes(b"")
+        assert nombra(motivo(fin(inst)), b), "la foto de un writer de otra sesión no saca el archivo"
+
+
 def test_una_linea_mala_que_ya_estaba_en_un_archivo_sucio_no_se_vuelve_a_marcar():
     with temporal() as base:
         repo, inst = escenario(base)
@@ -426,6 +444,76 @@ def test_emite_seguir_en_el_fin_de_turno_y_nada_mas():
     construidas = {nodo.func.id for nodo in ast.walk(arbol) if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name)
                    and nodo.func.id in ("Bloquear", "Preguntar", "Contexto", "Seguir")}
     assert construidas == {"Seguir"}, construidas
+
+
+def _pi(tipo, inst, odd_ws=None):
+    datos = {"type": tipo, "ctx": {"cwd": str(inst), "sessionId": "s1", "hasUI": False, "mode": "print"}}
+    return datos if odd_ws is None else dict(datos, oddWs=odd_ws)
+
+
+def _turno_por_host(host, inst):
+    if host == "pi":
+        return (_pi("before_agent_start", inst),
+                _pi("agent_before_settle", inst, {"child": False, "lastAssistantMessage": "Listo.", "continued": False}),
+                _pi("agent_before_settle", inst, {"child": False, "lastAssistantMessage": "Corregido.", "continued": True}))
+    comun_ = {"session_id": "s1", "cwd": str(inst)}
+    if host == "codex":
+        comun_["turn_id"] = "t1"
+    return (dict(comun_, hook_event_name="UserPromptSubmit", prompt="hola", prompt_id="p1"),
+            dict(comun_, hook_event_name="Stop", stop_hook_active=False, last_assistant_message="Listo."),
+            dict(comun_, hook_event_name="Stop", stop_hook_active=True, last_assistant_message="Corregido."))
+
+
+def _motivo_de_la_salida(host, salida):
+    codigo, texto, error = salida
+    assert (codigo, error) == (0, b""), salida
+    datos = json.loads(texto)
+    if host == "pi":
+        assert set(datos) == {"accion", "texto"} and datos["accion"] == "seguir", datos
+        return datos["texto"]
+    assert set(datos) == {"decision", "reason"} and datos["decision"] == "block", datos
+    return datos["reason"]
+
+
+def test_de_punta_a_punta_cada_host_saca_la_foto_al_empezar_y_hace_seguir_una_vez_al_terminar():
+    for host, edicion in (("claude-code", "Edit o Write"), ("codex", "apply_patch"), ("pi", "`edit` o `write`")):
+        with temporal() as base:
+            repo, inst = escenario(base)
+            empezar, terminar, continuacion = _turno_por_host(host, inst)
+            assert R.correr(empezar, raiz=str(inst), plazo=60, host=host) == SILENCIO, host
+            assert foto(inst).is_dir(), host
+            a = repo / "db" / "a.sql"
+            agregar(a, "x MALO BLOQ\n")
+            texto = _motivo_de_la_salida(host, R.correr(terminar, raiz=str(inst), plazo=60, host=host))
+            assert nombra(texto, a) and FRASE in texto and edicion in texto, (host, texto)
+            assert foto(inst).is_dir(), host
+            assert R.correr(continuacion, raiz=str(inst), plazo=60, host=host) == SILENCIO, host
+            assert not foto(inst).exists(), "la continuación no revisa de nuevo y borra la foto: %s" % host
+
+
+def test_de_punta_a_punta_un_subagente_no_saca_foto_y_su_cierre_no_toca_la_del_principal():
+    with temporal() as base:
+        repo, inst = escenario(base)
+        agregar(repo / "db" / "a.sql", "x MALO BLOQ\n")
+        subagente = {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "turn_id": "t2", "cwd": str(inst), "prompt": "x",
+                     "agent_id": "a1", "agent_type": "explorer"}
+        assert R.correr(subagente, raiz=str(inst), plazo=60, host="codex") == SILENCIO
+        assert not turnos(inst).exists(), "en Codex, UserPromptSubmit de un subagente no saca foto"
+        hijo = _pi("before_agent_start", inst, {"agent": "writer-sql", "agentId": "hija"})
+        assert R.correr(hijo, raiz=str(inst), plazo=60, host="pi") == SILENCIO
+        assert not turnos(inst).exists(), "un hijo de gentle-shell no saca foto aunque lo mandaran"
+        assert R.correr(_turno_por_host("pi", inst)[0], raiz=str(inst), plazo=60, host="pi") == SILENCIO
+        assert foto(inst).is_dir()
+        agregar(repo / "db" / "b.sql", "y MALO BLOQ\n")
+        cierres = (("pi", _pi("agent_before_settle", inst, {"agent": "writer-sql", "agentId": "hija", "lastAssistantMessage": "x",
+                                                            "continued": False})),
+                   ("claude-code", {"hook_event_name": "SubagentStop", "session_id": "s1", "cwd": str(inst), "agent_type": "writer-sql",
+                                    "agent_id": "a1", "stop_hook_active": False}),
+                   ("codex", {"hook_event_name": "SubagentStop", "session_id": "s1", "turn_id": "t1", "cwd": str(inst),
+                              "agent_type": "writer-sql", "agent_id": "a1", "stop_hook_active": False}))
+        for host, cierre in cierres:
+            assert R.correr(cierre, raiz=str(inst), plazo=60, host=host) == SILENCIO, host
+            assert foto(inst).is_dir(), "el cierre de un writer es de writer_stop: %s" % host
 
 
 def test_main_lee_stdin_y_falla_abierto():

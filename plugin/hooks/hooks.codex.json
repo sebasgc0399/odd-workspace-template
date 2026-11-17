@@ -9,6 +9,13 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/revisar_turno.py\" --plazo 8 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/revisar_turno.py\" --plazo 8 --host codex", "timeout": 10 }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "apply_patch",
@@ -42,6 +49,13 @@
         "matcher": "^writer-[a-z0-9][a-z0-9-]*$",
         "hooks": [
           { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/writer_stop.py\" --plazo 50 --host codex", "timeout": 60 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/revisar_turno.py\" --plazo 50 --host codex", "commandWindows": "python \"${PLUGIN_ROOT}/scripts/revisar_turno.py\" --plazo 50 --host codex", "timeout": 60 }
         ]
       }
     ]

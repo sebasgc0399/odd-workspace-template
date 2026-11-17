@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Hook { script: string; args: string[]; timeout: number }
-export interface Grupo { tools?: string[]; hooks: Hook[] }
+export interface Grupo { tools?: string[]; agente?: string; hooks: Hook[] }
 export interface ListaDeHooks { python: string; pythonWindows: string; writer?: string; hooks: Record<string, Grupo[]> }
 export type Accion = "bloquear" | "preguntar" | "contexto" | "seguir";
 export type Tipo = "permitir" | "falla" | Accion;
@@ -15,6 +15,7 @@ export interface Corrida {
   plugin: string;
   evento: string;
   herramienta?: string;
+  agente?: string;
   entrada: unknown;
   cwd: string;
 }
@@ -40,7 +41,7 @@ function esHook(valor: unknown): valor is Hook {
 
 function esGrupo(valor: unknown): valor is Grupo {
   return esObjeto(valor) && (valor.tools === undefined || (Array.isArray(valor.tools) && valor.tools.every(esTexto)))
-    && Array.isArray(valor.hooks) && valor.hooks.every(esHook);
+    && (valor.agente === undefined || esTexto(valor.agente)) && Array.isArray(valor.hooks) && valor.hooks.every(esHook);
 }
 
 function esRegex(valor: unknown): valor is string {
@@ -87,7 +88,7 @@ export function leerLista(ruta: string): ListaDeHooks {
   }
   if (!esLista(datos)) {
     throw new Error(`${ruta} no tiene la forma de una lista de hooks: python y pythonWindows, writer opcional (una regex), y en hooks, `
-      + "por evento, grupos con tools opcional y hooks con script (un .py de scripts/), args y timeout en segundos");
+      + "por evento, grupos con tools y agente opcionales y hooks con script (un .py de scripts/), args y timeout en segundos");
   }
   return datos;
 }
@@ -103,9 +104,10 @@ export function pythonDe(lista: ListaDeHooks, plataforma: string = process.platf
   return plataforma === "win32" ? lista.pythonWindows : lista.python;
 }
 
-export function hooksDe(lista: ListaDeHooks, evento: string, herramienta?: string): Hook[] {
+export function hooksDe(lista: ListaDeHooks, evento: string, herramienta?: string, agente?: string): Hook[] {
   const grupos = Object.hasOwn(lista.hooks, evento) ? lista.hooks[evento] : [];
   return grupos.filter((grupo) => grupo.tools === undefined || (herramienta !== undefined && grupo.tools.includes(herramienta)))
+    .filter((grupo) => grupo.agente === agente)
     .flatMap((grupo) => grupo.hooks);
 }
 
@@ -176,7 +178,7 @@ function correrHook(python: string, plugin: string, hook: Hook, entrada: string,
 }
 
 export async function correrEvento(corrida: Corrida): Promise<Resultado[]> {
-  const hooks = hooksDe(corrida.lista, corrida.evento, corrida.herramienta);
+  const hooks = hooksDe(corrida.lista, corrida.evento, corrida.herramienta, corrida.agente);
   if (hooks.length === 0) {
     return [];
   }
