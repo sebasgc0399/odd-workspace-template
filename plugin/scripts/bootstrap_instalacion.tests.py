@@ -190,7 +190,7 @@ def test_el_doctor_da_ok_sobre_una_instancia_generada():
         ctx = Contexto(cwd=e.raiz)
         ctx.entorno = {}
         resultados = {r.id: r for r in [doctor.chequear_plugin_root(ctx), *doctor.chequear_instancia(ctx)]}
-        assert set(resultados) == {"plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin"}, sorted(resultados)
+        assert set(resultados) == {"plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura"}, sorted(resultados)
         for id, r in resultados.items():
             assert r.estado == doctor.OK, (id, r.estado, r.detalle)
 

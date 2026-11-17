@@ -127,6 +127,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 
 - Muestra una tabla OK / FALTA / AVISO / NO APLICA, con el arreglo de cada ítem. Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna.
 - Arregla de a un ítem, solo con tu sí (`doctor.py --arreglar <id>`).
+- **Las extensiones sin capa (`capas-cobertura`).** Te avisa qué extensiones versionadas de tus repos no cubre ninguna capa, porque un cambio en esos archivos lleva el triaje de `/odd-ws:revisar` a modo `completo`. Si son del mismo lenguaje que una capa (`.mjs` en una capa `ts`), súmalas a sus `extensions`.
 - Revisa cada CLI solo si la instancia lo declara en `hosts` (sin la clave, Claude Code). Con `codex` suma la versión de Codex (0.144 o más), el plugin instalado y habilitado, la confianza de los hooks y del proyecto, `.codex/config.toml` y que cada `.codex/agents/<agente>.toml` sea el que sale de su `.md` (`codex-agentes`), además de `hooks-host`, que ningún hook lleve un `--host` desconocido, vacío o de otro host. No escribe en la carpeta de Codex, y no verifica que el hash de la confianza siga fresco.
 - **Sumar Codex a una instancia que ya existe:** agrega `"codex"` a `hosts` y corre `doctor.py --arreglar codex-config` y `doctor.py --arreglar codex-agentes`. Los TOML salen de los `.md` de `.claude/agents`, con su `description` y sus bloques; uno editado a mano queda en AVISO y no se pisa.
 - Sin el plugin instalado, se corre desde un clon: `python3 plugin/scripts/doctor.py`.

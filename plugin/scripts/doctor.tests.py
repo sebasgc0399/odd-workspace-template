@@ -875,7 +875,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1129,6 +1129,48 @@ def test_instancia_hooks_con_otro_valor_es_falta_sin_arreglo_y_no_lo_pisa():
         codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
         assert codigo == 2 and "no tiene arreglo automático" in salida, salida
         assert hooks_path(raiz) == "otros-hooks"
+
+
+def instancia_con_repo_versionado(e, archivos):
+    repo = e.base / "db"
+    for relativa, texto in archivos.items():
+        poner(repo, relativa, texto)
+    git_en(repo, "init", "-q")
+    git_en(repo, "add", "-A")
+    return instancia_con_repos(e, {"repos": {"db": {"path": str(repo)}}})
+
+
+def test_capas_cobertura_ok_cuando_todo_lo_versionado_tiene_capa_o_es_doc():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "sub/b.SQL": "x", "README.md": "x", "notas.txt": "x", "guia.rst": "x"})
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
+        assert r.estado == "OK" and r.arreglo is None and r.comando is None, r
+
+
+def test_capas_cobertura_avisa_las_extensiones_sin_capa_con_su_cantidad():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "scripts/x.mjs": "x", "scripts/y.mjs": "x", "package.json": "{}",
+                                                 "Makefile": "x", "README.md": "x"})
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
+        assert r.estado == "AVISO" and r.arreglo is None, r
+        assert ".mjs (2)" in r.detalle and ".json (1)" in r.detalle and "(sin extensión) (1)" in r.detalle, r.detalle
+        assert ".sql" not in r.detalle and ".md" not in r.detalle, r.detalle
+        assert r.detalle.index(".mjs") < r.detalle.index(".json"), "de la más frecuente a la menos"
+        assert "completo" in r.ayuda and "extensions" in r.ayuda, r.ayuda
+
+
+def test_capas_cobertura_no_aplica_sin_repos_o_con_la_config_rota():
+    with Escenario() as e:
+        r = por_id(Falso(e.base, cwd=e.instancia(), git_real=True))["capas-cobertura"]
+        assert r.estado == "NO APLICA", r
+    with Escenario() as e:
+        raiz = instancia_con_repos(e, {"repos": {}})
+        assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].estado == "NO APLICA"
+
+
+def test_las_extensiones_de_docs_del_doctor_son_las_del_triaje():
+    import triaje
+    assert d().EXTENSIONES_DE_DOCS == triaje.DOC_EXT
 
 
 def test_instancia_eol_no_aplica_si_la_raiz_no_esta_en_un_repo_git():

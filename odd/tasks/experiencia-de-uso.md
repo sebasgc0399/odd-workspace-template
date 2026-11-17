@@ -37,8 +37,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T6 | S7 | Ticket activo y sesión del ticket | inline | hecho | `2dac068` |
 | T7 | S8 | Memorias de los repos | inline | hecho | `19d0f21` |
 | T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | `69f0b2c` |
-| T10 | S11 | Las rondas de una revisión | inline | hecho | el commit que suma L29 |
-| T11 | S12 | Las extensiones de código sin capa | inline | pendiente | |
+| T10 | S11 | Las rondas de una revisión | inline | hecho | `c5735a5` |
+| T11 | S12 | Las extensiones de código sin capa | inline | hecho | el commit que suma L31 |
 | T12 | S13 | La base de la revisión de una unidad | inline, con verificador | pendiente | |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 
@@ -188,3 +188,15 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Docs: `Doc/diseno.md`, `Doc/uso.md` y la skill `revisar`.
   - Risk: none. Es una opción nueva, y sin ella la carpeta y la elección del recibo son las de siempre.
 - **L30 (2026-11-17), lo siguiente:** T11.
+- **L31 (2026-11-17), T11 hecho, y dos ideas nuevas fuera de la versión.**
+  - **El chequeo `capas-cobertura`.** El doctor lista las extensiones versionadas de los repos que ninguna capa cubre, con su cantidad, hasta 8. Es AVISO sin arreglo.
+    - La capa la decide `config_loader.clasificar`, la misma función del triaje, así que el doctor y el triaje no pueden discrepar.
+    - Los docs no cuentan. `EXTENSIONES_DE_DOCS` es igual a `triaje.DOC_EXT`, y un test lo fija.
+  - **El criterio de capas del bootstrap** dice que los scripts del mismo lenguaje van en la misma capa (`.js`, `.mjs` y `.cjs` en una capa `ts`). También pide nombrar en la propuesta las extensiones que quedan sin capa.
+  - Rojo: doctor 189/195. Verde: doctor 195/195, bootstrap_instalacion 13/13, bootstrap_e2e 14/14 y triaje 78/78.
+  - Docs: `Doc/diseno.md`, `Doc/uso.md` y las skills `doctor` y `bootstrap`.
+  - Risk: none. Es un chequeo AVISO nuevo, y el resto del doctor no cambia.
+  - **Al roadmap, como ideas nuevas para analizar con rigor:**
+    - I21 hace efectiva la perilla `mold_source`. Es la premisa de los tres tipos de proyecto: D2 la deja como una etiqueta que nada consume.
+    - I22 trata las reglas que cambian con el tiempo: cuál reemplaza a cuál, y la recalibración contra el código actual.
+- **L32 (2026-11-17), lo siguiente:** T12, con verificador.
