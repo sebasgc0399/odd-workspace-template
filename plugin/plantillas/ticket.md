@@ -53,6 +53,14 @@ el commit que la contiene.
 |---|---|---|---|---|---|
 | T1 | S1 | <qué> | en la sesión | pendiente | |
 
+## Seguimientos
+
+Lo que queda para después, fuera de la tabla de Tareas para no romperla: los hallazgos que una
+revisión derivó a otra tarea y los pendientes que aparecen en el camino. Una línea por cosa, con su
+destino: una tarea (T#), otro ticket o el backlog. Queda también en un ticket chico.
+
+- <fecha>: <qué> → <destino: T#, otro ticket o el backlog>
+
 ## Decisiones
 
 - <fecha> — <decisión tomada> — <por qué>

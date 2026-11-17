@@ -984,6 +984,222 @@ def test_sellar_con_opciones_que_no_son_suyas_es_error_de_uso():
         assert codigo == 2 and salida == "" and "no-existe" in error, error
 
 
+UNIDAD = {"a.sql": "linea 1\nREVISADO\nlinea 3\n", "b.cs": "class B { int r; }\n", "nuevo.sql": "nuevo\n"}
+
+
+def primera_ronda(t, nombre="T-20-u"):
+    repo, base = repo_con_principal(t, ARCHIVOS)
+    escribir(repo, UNIDAD)
+    ticket = Path(t) / nombre
+    ticket.mkdir()
+    codigo, _, error = correr(args_write(ticket, [repo], [repo / a for a in sorted(UNIDAD)],
+                                          ["--fecha", "2026-10-21", "--modo", "completo", "--estado", "pendiente"]))
+    assert codigo == 0, error
+    return repo, base, ticket, ticket / "revision" / "2026-10-21-completo"
+
+
+def rechequeo(ticket, repos, archivos, previo, extra=()):
+    return args_write(ticket, repos, archivos, ["--fecha", "2026-10-21", "--modo", "completo", "--ronda", "2",
+                                                "--previo", str(previo), *extra])
+
+
+def test_rechequeo_cubre_la_union_y_hereda_lo_que_no_cambio():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        crudo_primera = (primera / "recibo.json").read_bytes()
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        assert correr(["--check", str(primera)])[0] == 1
+        segunda = ticket / "revision" / "2026-10-21-completo-2" / "recibo.json"
+        hechos = []
+        for previo in (primera, primera / "recibo.json", ticket):
+            codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "a.sql"], previo, ["--estado", "limpio"]))
+            assert codigo == 0 and error == "", (previo, salida, error)
+            assert salida == "recibo escrito: %s (1 repo(s), 3 archivo(s); 1 rechequeado(s) y 2 heredado(s) de revision/2026-10-21-completo)\n" % (
+                str(segunda).replace("\\", "/")), salida
+            hechos.append(segunda.read_bytes())
+            segunda.unlink()
+        assert hechos[0] == hechos[1] == hechos[2], "las tres formas de --previo dan el mismo recibo"
+        segunda.write_bytes(hechos[0])
+        assert (primera / "recibo.json").read_bytes() == crudo_primera, "el recibo previo no se toca"
+        datos = json.loads(hechos[0].decode("utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "previo", "repos"], list(datos)
+        assert datos["previo"] == "revision/2026-10-21-completo"
+        r = datos["repos"][0]
+        union = calc(repo, base, sorted(UNIDAD))
+        assert r["base"] == base and r["archivos"] == ["a.sql", "b.cs", "nuevo.sql"], r
+        assert r["sha256"] == union["sha256"] and r["sha256_por_archivo"] == union["sha256_por_archivo"], r
+        assert r["rechequeados"] == ["a.sql"] and r["heredados"] == ["b.cs", "nuevo.sql"] and r["retirados"] == [], r
+        assert r["estado"] == "limpio" and r["modo"] == "completo"
+        codigo, salida, _ = correr(["--check", str(ticket)])
+        assert codigo == 0 and "2026-10-21-completo-2" in salida.replace("\\", "/") and "3 archivo(s)" in salida, salida
+
+
+def test_rechequeo_con_un_archivo_que_cambio_sin_rechequear_no_escribe_nada():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n", "b.cs": "class B { int otro; }\n"})
+        antes = sorted(p.name for p in (ticket / "revision").iterdir())
+        codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera))
+        assert codigo == 1 and error == "", (codigo, salida, error)
+        texto = salida.replace("\\", "/")
+        assert "recibo NO se escribe" in texto and str(repo).replace("\\", "/") in texto and "b.cs" in texto, texto
+        assert "a.sql" not in texto.split("\n", 1)[1] and "nuevo.sql" not in texto, texto
+        assert sorted(p.name for p in (ticket / "revision").iterdir()) == antes
+        escribir(repo, {"nuevo.sql": "nuevo cambiado\n"})
+        codigo, salida, _ = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera))
+        assert codigo == 1 and "b.cs, nuevo.sql" in salida, salida
+        codigo, _, error = correr(rechequeo(ticket, [repo], [repo / "a.sql", repo / "b.cs", repo / "nuevo.sql"], primera))
+        assert codigo == 0, error
+
+
+def test_rechequeo_con_otra_base_no_escribe_nada_y_sin_base_toma_la_del_previo():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        otra = commitear(repo, {})
+        _git(repo, "update-ref", "refs/remotes/origin/main", otra)
+        assert M.resolver_base(str(repo)) == otra, "el merge-base de ahora ya no es la base del previo"
+        codigo, salida, error = correr(rechequeo(ticket, ["%s#%s" % (repo, otra)], [repo / "a.sql"], primera))
+        assert codigo == 1 and error == "", (codigo, salida, error)
+        assert "recibo NO se escribe" in salida and otra in salida and base in salida, salida
+        assert not (ticket / "revision" / "2026-10-21-completo-2").exists()
+        codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera))
+        assert codigo == 0, (salida, error)
+        datos = json.loads((ticket / "revision" / "2026-10-21-completo-2" / "recibo.json").read_text(encoding="utf-8"))
+        assert datos["repos"][0]["base"] == base
+        assert correr(rechequeo(ticket, ["%s#%s" % (repo, base[:12])], [repo / "a.sql"], primera))[0] == 0
+
+
+def test_rechequeo_se_puede_sellar_con_la_unidad_entera_y_uno_parcial_no():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        assert correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", "--modo", "completo", "--ronda", "2"]))[0] == 0
+        head = commitear(repo, {})
+        codigo, salida, _ = correr(["--sellar", str(ticket)])
+        assert codigo == 1 and "fuera de lo revisado" in salida and "b.cs" in salida, "un recibo parcial no se sella: %s" % salida
+        codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera, ["--ronda", "3"]))
+        assert codigo == 0, (salida, error)
+        tercera = ticket / "revision" / "2026-10-21-completo-3" / "recibo.json"
+        codigo, salida, error = correr(["--sellar", str(ticket)])
+        assert codigo == 0, (salida, error)
+        assert "2026-10-21-completo-3/recibo.json" in salida.replace("\\", "/"), salida
+        assert json.loads(tercera.read_text(encoding="utf-8"))["repos"][0]["sellado"] == head
+        codigo, salida, _ = correr(["--check", str(ticket)])
+        assert codigo == 0 and "2026-10-21-completo-3" in salida.replace("\\", "/"), salida
+
+
+def test_rechequeo_hereda_el_repo_que_no_se_paso_y_suma_uno_nuevo_al_final():
+    with temporal() as t:
+        r1, b1 = repo_con_principal(t, ARCHIVOS, "uno")
+        r2, b2 = repo_con_principal(t, ARCHIVOS, "dos")
+        r3, b3 = repo_con_principal(t, ARCHIVOS, "tres")
+        escribir(r1, {"a.sql": "x\n"})
+        escribir(r2, {"b.cs": "class B { int x; }\n"})
+        ticket = Path(t) / "T-21-u"
+        ticket.mkdir()
+        assert correr(args_write(ticket, [r1, r2], [r1 / "a.sql", r2 / "b.cs"], ["--fecha", "2026-10-21", "--modo", "completo"]))[0] == 0
+        primera = ticket / "revision" / "2026-10-21-completo"
+        escribir(r1, {"a.sql": "y\n"})
+        escribir(r3, {"c.txt": "tocado\n"})
+        codigo, salida, error = correr(rechequeo(ticket, [r1, r3], [r1 / "a.sql", r3 / "c.txt"], primera))
+        assert codigo == 0, (salida, error)
+        datos = json.loads((ticket / "revision" / "2026-10-21-completo-2" / "recibo.json").read_text(encoding="utf-8"))
+        rutas = [r["ruta"] for r in datos["repos"]]
+        assert rutas == [str(r).replace("\\", "/") for r in (r1, r2, r3)], rutas
+        uno, dos, tres = datos["repos"]
+        assert uno["rechequeados"] == ["a.sql"] and uno["heredados"] == [] and uno["base"] == b1
+        assert dos["rechequeados"] == [] and dos["heredados"] == ["b.cs"] and dos["archivos"] == ["b.cs"] and dos["base"] == b2
+        assert dos["sha256"] == calc(r2, b2, ["b.cs"])["sha256"]
+        assert tres["rechequeados"] == ["c.txt"] and tres["heredados"] == [] and tres["base"] == b3
+        assert correr(["--check", str(ticket)])[0] == 0
+        escribir(r2, {"b.cs": "class B { int z; }\n"})
+        codigo, salida, _ = correr(rechequeo(ticket, [r1], [r1 / "a.sql"], primera))
+        assert codigo == 1 and "b.cs" in salida and str(r2).replace("\\", "/") in salida.replace("\\", "/"), salida
+
+
+def test_rechequeo_retira_el_archivo_nuevo_que_la_correccion_quito():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        (repo / "nuevo.sql").unlink()
+        codigo, salida, _ = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera))
+        assert codigo == 1 and "nuevo.sql" in salida, "quitarlo es un cambio: %s" % salida
+        codigo, salida, error = correr(rechequeo(ticket, [repo], ["nuevo.sql"], primera))
+        assert codigo == 0, (salida, error)
+        assert "0 rechequeado(s) y 2 heredado(s)" in salida and "1 retirado(s)" in salida, salida
+        r = json.loads((ticket / "revision" / "2026-10-21-completo-2" / "recibo.json").read_text(encoding="utf-8"))["repos"][0]
+        assert r["archivos"] == ["a.sql", "b.cs"] and r["retirados"] == ["nuevo.sql"] and r["rechequeados"] == [], r
+        assert correr(["--check", str(ticket)])[0] == 0
+        codigo, _, error = correr(rechequeo(ticket, [repo], ["nuevo.sql", "otro-que-no-existe.sql"], primera, ["--ronda", "3"]))
+        assert codigo == 2 and "otro-que-no-existe.sql" in error, error
+
+
+def test_rechequeo_con_un_previo_que_no_sirve_es_error_de_uso():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        _, _, ajeno, primera_ajena = primera_ronda(Path(t) / "otro", "T-22-ajeno")
+        crudo = (primera / "recibo.json").read_bytes()
+        antes = sorted(p.name for p in (ticket / "revision").iterdir())
+        malos = [
+            (rechequeo(ticket, [repo], [repo / "a.sql"], Path(t) / "no-existe"), "no-existe"),
+            (rechequeo(ticket, [repo], [repo / "a.sql"], primera_ajena), "este ticket"),
+            (args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", "--modo", "completo", "--previo", str(primera)]), "--ronda"),
+            (args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", "--modo", "rapido", "--previo", str(primera)]), "--ronda"),
+            (args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-20", "--modo", "completo", "--previo", str(primera)]), "--ronda"),
+        ]
+        for argv, esperado in malos:
+            codigo, salida, error = correr(argv)
+            assert codigo == 2 and salida == "" and esperado in error, (argv, codigo, salida, error)
+        assert (primera / "recibo.json").read_bytes() == crudo
+        assert sorted(p.name for p in (ticket / "revision").iterdir()) == antes
+        codigo, _, error = correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-22", "--modo", "rapido", "--previo", str(primera)]))
+        assert codigo == 0, "una fecha posterior queda despues del previo aunque el modo sea otro: %s" % error
+
+
+def test_derivado_se_guarda_en_el_recibo_y_uno_mal_formado_es_error_de_uso():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], [
+            "--fecha", "2026-10-22", "--derivado", "x = y en a.sql:2=T14", "--derivado", " sin dueño en b.cs = backlog "]))
+        assert codigo == 0, (salida, error)
+        assert salida.endswith("(1 repo(s), 1 archivo(s); 2 derivado(s))\n"), salida
+        datos = json.loads((ticket / "revision" / "2026-10-22-rapido" / "recibo.json").read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "repos", "derivados"], list(datos)
+        assert datos["derivados"] == [{"hallazgo": "x = y en a.sql:2", "destino": "T14"},
+                                      {"hallazgo": "sin dueño en b.cs", "destino": "backlog"}], datos["derivados"]
+        for malo in ("sin-igual", "=T14", "hallazgo=", " = ", "hallazgo=   "):
+            codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-23", "--derivado", malo]))
+            assert codigo == 2 and salida == "" and "--derivado" in error, (malo, codigo, error)
+        assert not (ticket / "revision" / "2026-10-23-rapido").exists()
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "a.sql"], primera, ["--derivado", "nuevo WARNING=SM-3"]))
+        assert codigo == 0 and salida.endswith("de revision/2026-10-21-completo; 1 derivado(s))\n"), (salida, error)
+        datos = json.loads((ticket / "revision" / "2026-10-21-completo-2" / "recibo.json").read_text(encoding="utf-8"))
+        assert datos["derivados"] == [{"hallazgo": "nuevo WARNING", "destino": "SM-3"}]
+
+
+def test_sin_previo_ni_derivado_el_recibo_trae_los_campos_de_siempre():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "repos"], list(datos)
+        assert list(datos["repos"][0]) == ["ruta", "base", "archivos", "sha256", "sha256_por_archivo", "modo", "reviewers",
+                                           "verificacion", "estado"], list(datos["repos"][0])
+
+
+def test_previo_y_derivado_con_check_o_sellar_son_error_de_uso():
+    with temporal() as t:
+        repo, ticket, recibo = preparar_recibo(t)
+        commitear(repo, {})
+        crudo = recibo.read_bytes()
+        for modo in (["--check", str(recibo)], ["--sellar", str(recibo)]):
+            for extra in (["--previo", str(recibo)], ["--derivado", "h=T1"]):
+                codigo, salida, error = correr(modo + extra)
+                assert codigo == 2 and salida == "" and extra[0] in error, (modo, extra, codigo, salida, error)
+        assert recibo.read_bytes() == crudo
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

@@ -22,6 +22,7 @@ SECCIONES_DEL_TICKET = (
     "## Alcance y no-goals",
     "## Specs",
     "## Tareas",
+    "## Seguimientos",
     "## Decisiones",
     "## Gotchas",
     "## Bitácora",
@@ -238,6 +239,15 @@ def test_las_secciones_de_odd_del_ticket_dicen_cuando_se_usan_y_como():
     assert "grande" in specs and "tal cual" in specs and "S1" in specs, specs
     assert "grande" in tareas and "| ID | Specs |" in tareas and "| Commit |" in tareas, tareas
     assert "tal cual" in bitacora and "Log" in bitacora, bitacora
+
+
+def test_los_seguimientos_del_ticket_siguen_a_las_tareas_y_quedan_en_un_ticket_chico():
+    texto = textos()["tickets/_plantilla/CLAUDE.md"]
+    seccion = " ".join(texto.split("## Seguimientos")[1].split("\n## ")[0].split())
+    assert texto.index("## Seguimientos") > texto.index("| T1 |"), "va justo después de la tabla de Tareas"
+    assert "derivó" in seccion and "tabla de Tareas" in seccion and "ticket chico" in seccion, seccion
+    assert "T#" in seccion and "otro ticket" in seccion and "backlog" in seccion, seccion
+    assert "—" not in seccion and "–" not in seccion, seccion
 
 
 def test_el_indice_declara_la_carpeta_de_tickets_con_el_glob_recursivo():

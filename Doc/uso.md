@@ -101,7 +101,7 @@ claude --add-dir D:/code/mi-repo
 | `/odd-ws:bootstrap` | Para crear una instancia o completar una que ya existe | La carpeta del proyecto | Solo tú |
 | `/odd-ws:doctor` | Al estrenar máquina, después de clonar o cuando un hook no corre | Un clon de la plantilla o una instancia | Tú o Claude |
 | `/odd-ws:abrir` | Al empezar un ticket | La instancia: su raíz o un ticket | Solo tú |
-| `/odd-ws:revisar` | Antes de cada commit, o antes de mostrarle un cambio a un líder | La carpeta del ticket | Tú o Claude, siempre con tu sí |
+| `/odd-ws:revisar` | Antes de cada commit, o antes de mostrarle un cambio a un líder | La carpeta del ticket | Tú o Claude, con tu sí cuando cuesta corridas |
 | `/odd-ws:cerrar` | Al terminar un ticket, o con `memorias` para graduar las memorias del proyecto | La instancia: su raíz o el ticket | Solo tú |
 | `/odd-ws:conocimiento` | Para revisar la salud de los docs del proyecto | La raíz de la instancia | Solo tú |
 | `/odd-ws:eval-reviewers` | Para medir un revisor contra la revisión real de un líder | La instancia | Tú o Claude |
@@ -109,7 +109,7 @@ claude --add-dir D:/code/mi-repo
 
 En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`; ver [Usarlo desde Codex](#usarlo-desde-codex).
 
-«Solo tú» quiere decir que Claude no la dispara por su cuenta: la escribes tú en el chat. Todas las skills que escriben algo te muestran antes lo que van a hacer y esperan tu sí.
+«Solo tú» quiere decir que Claude no la dispara por su cuenta: la escribes tú en el chat. Todas las skills que escriben algo te muestran antes lo que van a hacer y esperan tu sí. Las únicas excepciones están en `/odd-ws:revisar`: el modo `0`, que no cuesta corridas, y el rechequeo que aprobaste junto con su corrección.
 
 ### `/odd-ws:bootstrap`
 
@@ -149,8 +149,10 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
   - `0`: solo docs o notas, con lectura estructural y sin revisores;
   - `rapido`: todas las señales en negativo;
   - `completo`: alguna señal positiva, o un cambio que va a un líder.
-- **El costo.** Anuncia cuántas corridas cuesta y espera tu sí. En `completo`, `revisor-diseno` corre 3 veces, más el `revisor-<capa>` de cada capa tocada.
+- **El costo.** Anuncia cuántas corridas cuesta y espera tu sí. En `completo`, `revisor-diseno` corre 3 veces, más el `revisor-<capa>` de cada capa tocada. El modo `0` no cuesta corridas: te dice el modo y corre sin esperar tu sí.
 - **Lo que deja** en `tickets/<id>-<slug>/revision/<fecha>-<modo>/`: los diffs de entrada, los reportes, `consolidado.md` y `recibo.json`. Una segunda ronda del mismo día y modo va en `<fecha>-<modo>-2`, sin pisar la primera.
+- **El cierre: una corrección y un rechequeo.** Tú eliges qué se corrige, y eso va en un solo lote. El mensaje que lo propone te anuncia también el rechequeo y su costo, así que con un solo sí apruebas los dos. El rechequeo verifica los hallazgos anteriores y revisa solo los archivos que cambiaron desde la ronda anterior, con el revisor de diseño y los de sus capas. Su recibo (`recibo.py --write --previo <ronda anterior>`) hereda los archivos que no cambiaron, así que cubre la unidad entera y se puede sellar. El porqué: en un ticket real, la re-revisión después de una corrección volvió a revisar toda la unidad, al mismo costo que la primera, y una re-revisión parcial no se podía sellar.
+- **Lo que aparece en el rechequeo.** Un hallazgo `CRITICAL` se corrige en la unidad. Uno que no es `CRITICAL` se deriva: va a otra tarea, otro ticket o el backlog, queda anotado en el recibo (`--derivado "<hallazgo>=<destino>"`) y en la sección `## Seguimientos` del ticket, que va justo después de las Tareas y queda también en un ticket chico. Antes, lo que quedaba para después terminaba metido en la tabla de Tareas, y la rompía.
 - **El sello.** Cuando commiteas una unidad revisada, la skill corre `recibo.py --sellar` sobre el ticket, que anota en el recibo el commit donde quedó lo revisado. Así la revisión de la unidad siguiente parte de ese commit y no vuelve a revisar lo que ya revisó: sin sello, en un ticket real el triaje contó 83 archivos en vez de los 21 de la unidad nueva. No sella si cambió lo revisado, si falta commitearlo o si `HEAD` ya trae otra cosa, como un commit de otra unidad; por eso conviene sellar justo después del commit.
 - **No commitea.**
 

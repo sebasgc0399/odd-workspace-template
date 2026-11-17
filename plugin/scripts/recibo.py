@@ -19,7 +19,8 @@ FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 RONDA_RE = re.compile(r"[1-9][0-9]*")
 ESTADOS = ("limpio", "con-hallazgos", "pendiente")
-AJENAS_A_SELLAR = ("ticket", "repo", "archivo", "modo", "recibo", "reviewer", "verificacion", "estado", "fecha", "ronda")
+AJENAS_A_SELLAR = ("ticket", "repo", "archivo", "modo", "recibo", "reviewer", "verificacion", "estado", "fecha", "ronda",
+                   "previo", "derivado")
 AUSENTE = hashlib.sha256(b"<ausente>").hexdigest()
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 OPCIONES_DIFF = (
@@ -171,7 +172,7 @@ def asignar(repos, archivos):
     return por_repo
 
 
-def armar_recibo(args):
+def _repos_y_archivos(args):
     if not os.path.isdir(args.ticket):
         raise ErrorUso("la carpeta del ticket no existe: %s" % args.ticket)
     if not args.repo:
@@ -185,18 +186,96 @@ def armar_recibo(args):
         if raiz not in vistos:
             vistos.add(raiz)
             repos.append((raiz, base))
-    por_repo = asignar(repos, args.archivo)
-    entradas = []
-    for raiz, base in repos:
-        resultado = calcular(raiz, base, por_repo[raiz])
-        entradas.append({
-            "ruta": raiz, "base": resultado["base"], "archivos": resultado["archivos"],
-            "sha256": resultado["sha256"], "sha256_por_archivo": resultado["sha256_por_archivo"],
-            "modo": args.modo, "reviewers": list(args.reviewer or []),
-            "verificacion": list(args.verificacion or []), "estado": args.estado,
-        })
+    return repos, asignar(repos, args.archivo)
+
+
+def _entrada(raiz, resultado, args):
+    return {
+        "ruta": raiz, "base": resultado["base"], "archivos": resultado["archivos"],
+        "sha256": resultado["sha256"], "sha256_por_archivo": resultado["sha256_por_archivo"],
+        "modo": args.modo, "reviewers": list(args.reviewer or []),
+        "verificacion": list(args.verificacion or []), "estado": args.estado,
+    }
+
+
+def armar_recibo(args):
+    repos, por_repo = _repos_y_archivos(args)
+    entradas = [_entrada(raiz, calcular(raiz, base, por_repo[raiz]), args) for raiz, base in repos]
     return {"version": VERSION, "fecha": args.fecha, "ticket": os.path.basename(os.path.abspath(args.ticket)),
             "repos": entradas}
+
+
+def _orden_de_carpeta(m):
+    return (m.group(1), MODOS.index(m.group(2)), int(m.group(3) or 1))
+
+
+def recibo_previo(ticket, previo, carpeta):
+    archivo = ubicar_recibo(previo)
+    datos = cargar_recibo(archivo)
+    suya = os.path.dirname(os.path.abspath(archivo))
+    m = CARPETA_RE.fullmatch(os.path.basename(suya))
+    if not m or _clave_ruta(os.path.dirname(suya)) != _clave_ruta(os.path.join(ticket, "revision")):
+        raise ErrorUso("--previo tiene que ser un recibo de este ticket (%s/revision/<fecha>-<modo>[-<ronda>]/), no %s"
+                       % (ticket.replace("\\", "/"), archivo.replace("\\", "/")))
+    nueva = CARPETA_RE.fullmatch(os.path.basename(carpeta))
+    if _orden_de_carpeta(nueva) <= _orden_de_carpeta(m):
+        raise ErrorUso("el rechequeo tiene que quedar despues de revision/%s: misma fecha y modo con --ronda %d, "
+                       "o una fecha posterior; si no, --check y --sellar sobre el ticket tomarian el recibo previo"
+                       % (m.group(0), _orden_de_carpeta(m)[2] + 1))
+    return archivo, datos, "revision/" + m.group(0)
+
+
+def _informar_sin_escribir(archivo, motivo, malos, arreglo):
+    print("recibo NO se escribe (previo %s): %s" % (archivo.replace("\\", "/"), motivo))
+    for ruta, cosas in malos:
+        print("  repo %s: %s" % (ruta, ", ".join(cosas)))
+    print(arreglo)
+    return 1
+
+
+def armar_rechequeo(args, carpeta):
+    repos, por_repo = _repos_y_archivos(args)
+    archivo, previo, nombre = recibo_previo(args.ticket, args.previo, carpeta)
+    dados = {_clave_ruta(raiz): (raiz, base) for raiz, base in repos}
+    plan, claves = [], set()
+    for previa in previo["repos"]:
+        clave = _clave_ruta(previa["ruta"])
+        if clave in claves:
+            continue
+        claves.add(clave)
+        raiz, base = dados.get(clave) or (raiz_del_repo(previa["ruta"]), None)
+        plan.append((raiz, resolver_base(raiz, base or previa["base"]), por_repo.get(raiz, []), previa))
+    for raiz, base in repos:
+        if _clave_ruta(raiz) not in claves:
+            plan.append((raiz, resolver_base(raiz, base), por_repo[raiz], None))
+    otras = [(raiz, ["%s en vez de %s" % (base, previa["base"])]) for raiz, base, _, previa in plan
+             if previa and base != previa["base"]]
+    if otras:
+        return None, _informar_sin_escribir(archivo, "la base no es la del recibo previo", otras,
+                                            "un rechequeo parte de la base del recibo previo; con otra base, revisa la unidad entera sin --previo")
+    partes, cambiados = [], []
+    for raiz, base, rutas, previa in plan:
+        nombres = sorted({normalizar(raiz, r) for r in rutas})
+        previos = sorted(previa["archivos"]) if previa else []
+        heredados = [a for a in previos if a not in nombres]
+        retirados = [a for a in nombres if a in previos and diff_de_ruta(raiz, base, a, permitir_ausente=True) is None]
+        if heredados:
+            guardado = previa.get("sha256_por_archivo") or {}
+            ahora = calcular(raiz, base, heredados, permitir_ausentes=True)["sha256_por_archivo"]
+            distintos = [a for a in heredados if guardado.get(a) != ahora[a]]
+            if distintos:
+                cambiados.append((raiz, distintos))
+        partes.append((raiz, base, [a for a in nombres if a not in retirados], heredados, retirados))
+    if cambiados:
+        return None, _informar_sin_escribir(archivo, "cambiaron archivos del recibo previo que esta ronda no rechequeo", cambiados,
+                                            "rechequealos (van con --archivo) o revisa por que cambiaron")
+    entradas = []
+    for raiz, base, rechequeados, heredados, retirados in partes:
+        entrada = _entrada(raiz, calcular(raiz, base, rechequeados + heredados), args)
+        entrada.update(rechequeados=rechequeados, heredados=heredados, retirados=retirados)
+        entradas.append(entrada)
+    return {"version": VERSION, "fecha": args.fecha, "ticket": os.path.basename(os.path.abspath(args.ticket)),
+            "previo": nombre, "repos": entradas}, 0
 
 
 def _avisar_si_pisa(destino, datos):
@@ -220,16 +299,35 @@ def _guardar(destino, datos):
         f.write("\n")
 
 
+def _detalle(datos):
+    detalle = ""
+    if "previo" in datos:
+        cuenta = {c: sum(len(r[c]) for r in datos["repos"]) for c in ("rechequeados", "heredados", "retirados")}
+        detalle = "; %d rechequeado(s) y %d heredado(s) de %s" % (cuenta["rechequeados"], cuenta["heredados"], datos["previo"])
+        if cuenta["retirados"]:
+            detalle += ", %d retirado(s)" % cuenta["retirados"]
+    if "derivados" in datos:
+        detalle += "; %d derivado(s)" % len(datos["derivados"])
+    return detalle
+
+
 def escribir_recibo(args):
-    datos = armar_recibo(args)
     sufijo = "-%d" % args.ronda if args.ronda and args.ronda > 1 else ""
     carpeta = os.path.join(args.ticket, "revision", "%s-%s%s" % (args.fecha, args.modo, sufijo))
+    if args.previo is not None:
+        datos, codigo = armar_rechequeo(args, carpeta)
+        if datos is None:
+            return codigo
+    else:
+        datos = armar_recibo(args)
+    if args.derivado:
+        datos["derivados"] = list(args.derivado)
     os.makedirs(carpeta, exist_ok=True)
     destino = os.path.join(carpeta, "recibo.json")
     _avisar_si_pisa(destino, datos)
     _guardar(destino, datos)
-    print("recibo escrito: %s (%d repo(s), %d archivo(s))" % (
-        destino.replace("\\", "/"), len(datos["repos"]), sum(len(r["archivos"]) for r in datos["repos"])))
+    print("recibo escrito: %s (%d repo(s), %d archivo(s)%s)" % (
+        destino.replace("\\", "/"), len(datos["repos"]), sum(len(r["archivos"]) for r in datos["repos"]), _detalle(datos)))
     return 0
 
 
@@ -388,6 +486,13 @@ def _ronda(texto):
     return int(texto)
 
 
+def _derivado(texto):
+    hallazgo, igual, destino = texto.rpartition("=")
+    if not igual or not hallazgo.strip() or not destino.strip():
+        raise argparse.ArgumentTypeError("tiene que ser '<hallazgo>=<destino>', con los dos lados no vacios, no %r" % texto)
+    return {"hallazgo": hallazgo.strip(), "destino": destino.strip()}
+
+
 def _parser():
     p = argparse.ArgumentParser(prog="recibo.py", description="Recibo de la revision atado al diff.")
     modo = p.add_mutually_exclusive_group(required=True)
@@ -406,6 +511,11 @@ def _parser():
     p.add_argument("--fecha", default=None, type=_fecha, help="AAAA-MM-DD valido (por defecto, hoy)")
     p.add_argument("--ronda", default=None, type=_ronda,
                    help="con --write: la ronda de una revision del mismo dia y modo; desde la 2, la carpeta lleva -<ronda>")
+    p.add_argument("--previo", metavar="RUTA",
+                   help="con --write: rechequeo; --archivo es lo rechequeado y el recibo hereda del previo (recibo.json, su carpeta o la del ticket) "
+                        "los archivos que no cambiaron")
+    p.add_argument("--derivado", action="append", type=_derivado, metavar="HALLAZGO=DESTINO",
+                   help="con --write: hallazgo que se deriva a otra tarea, otro ticket o el backlog; repetible")
     return p
 
 
@@ -420,6 +530,9 @@ def main(argv=None):
         if args.check:
             if args.ronda is not None:
                 raise ErrorUso("--ronda es de --write: --check toma la ronda mas alta, o la de --recibo")
+            for opcion in ("previo", "derivado"):
+                if getattr(args, opcion) is not None:
+                    raise ErrorUso("--%s es de --write: --check no escribe el recibo" % opcion)
             return chequear_recibo(args.check, args.modo, args.recibo)
         if args.recibo:
             raise ErrorUso("--recibo es de --check: --write escribe el recibo en revision/<fecha>-<modo>/")
