@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sebasgc0399.github.io/odd-workspace-template/sitemap.xml

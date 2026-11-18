@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>odd-ws: que tu agente no repita el mismo error</title>
+<meta name="description" content="odd-ws es un plugin para Claude Code, Codex CLI y gentle-shell que convierte lo que aprendes en un proyecto en chequeos que corren solos: hooks por capa, writers con compuerta y revisión con recibo atado al diff.">
+<link rel="canonical" href="https://sebasgc0399.github.io/odd-workspace-template/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="odd-ws: que tu agente no repita el mismo error">
+<meta property="og:description" content="Plugin para Claude Code, Codex CLI y gentle-shell: lo que aprendes en un proyecto se vuelve chequeos que corren solos.">
+<meta property="og:url" content="https://sebasgc0399.github.io/odd-workspace-template/">
+<meta property="og:image" content="https://raw.githubusercontent.com/sebasgc0399/odd-workspace-template/main/Doc/img/odd-ws-portada.gif">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --fondo: #ffffff;
+    --superficie: #f4f5f7;
+    --texto: #1b1f24;
+    --suave: #57606a;
+    --acento: #6d4aff;
+    --acento-texto: #ffffff;
+    --borde: #d8dee4;
+    --codigo: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #0f1115;
+      --superficie: #171a21;
+      --texto: #e6e8eb;
+      --suave: #9aa4b2;
+      --acento: #9b85ff;
+      --acento-texto: #0f1115;
+      --borde: #2a2f3a;
+      --codigo: #1d212a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main, header, footer { max-width: 920px; margin: 0 auto; padding: 0 16px; }
+  header { padding-top: 56px; padding-bottom: 24px; }
+  h1 { font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: 0 0 12px; }
+  h2 { font-size: 1.5rem; margin: 48px 0 12px; }
+  h3 { font-size: 1.1rem; margin: 20px 0 8px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--acento); }
+  .lema { font-size: 1.2rem; color: var(--suave); max-width: 680px; }
+  .marca { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--acento); font-weight: 700; }
+  .botones { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0 8px; }
+  .boton {
+    display: inline-block; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: 600;
+    border: 1px solid var(--borde); color: var(--texto); background: var(--superficie);
+  }
+  .boton.principal { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+  .clis { color: var(--suave); font-size: 0.95rem; }
+  figure { margin: 32px 0 0; }
+  figure img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--borde); }
+  figcaption { color: var(--suave); font-size: 0.9rem; margin-top: 8px; }
+  .flujo { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
+  .paso { background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; font-size: 0.95rem; }
+  .paso b { display: block; color: var(--acento); font-size: 0.8rem; }
+  @media (max-width: 720px) { .flujo { grid-template-columns: 1fr; } }
+  ul.lista { padding-left: 20px; }
+  ul.lista li { margin-bottom: 8px; }
+  .carpetas { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin: 16px 0; }
+  .carpeta { background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: 14px; }
+  .carpeta code { font-weight: 700; }
+  .flecha { color: var(--suave); text-align: center; font-size: 0.9rem; }
+  @media (max-width: 720px) { .carpetas { grid-template-columns: 1fr; } .flecha { transform: rotate(90deg); } }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; background: var(--codigo); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--codigo); border: 1px solid var(--borde); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0 12px; }
+  pre code { background: none; padding: 0; }
+  details { border: 1px solid var(--borde); border-radius: 10px; padding: 4px 16px; margin: 10px 0; background: var(--superficie); }
+  summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+  ol li { margin-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+  footer { padding-top: 40px; padding-bottom: 48px; color: var(--suave); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <p class="marca">odd-ws</p>
+  <h1>Que tu agente no vuelva a cometer el mismo error</h1>
+  <p class="lema">Un plugin que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.</p>
+  <p class="clis">Para Claude Code, Codex CLI y gentle-shell (Pi). Código abierto, licencia MIT.</p>
+  <div class="botones">
+    <a class="boton principal" href="https://github.com/sebasgc0399/odd-workspace-template">Ver el repo en GitHub</a>
+    <a class="boton" href="#instalar">Instalar</a>
+    <a class="boton" href="https://github.com/sebasgc0399/odd-workspace-template/releases">Versiones</a>
+  </div>
+  <figure>
+    <img src="https://raw.githubusercontent.com/sebasgc0399/odd-workspace-template/main/Doc/img/odd-ws-portada.gif" alt="El agente escribe una vista sin el filtro WHERE activo = 1, el chequeo de la capa la marca como SQL-01 CRITICAL y el agente la corrige." loading="lazy">
+    <figcaption>En el chat es un consejo; en tu repo, es un chequeo.</figcaption>
+  </figure>
+</header>
+
+<main>
+  <h2>Cómo funciona</h2>
+  <p>Una convención que solo vive como texto depende de que el modelo la recuerde. odd-ws sigue el principio <b>mecanismo antes que memoria</b>: lo que se aprende se vuelve un chequeo, no un recordatorio.</p>
+  <div class="flujo" role="list">
+    <div class="paso" role="listitem"><b>1</b>El agente comete un error</div>
+    <div class="paso" role="listitem"><b>2</b>Lo corriges en el ticket</div>
+    <div class="paso" role="listitem"><b>3</b><code>/odd-ws:cerrar</code> lo gradúa</div>
+    <div class="paso" role="listitem"><b>4</b>Se vuelve un chequeo, una skill o un revisor</div>
+    <div class="paso" role="listitem"><b>5</b>Corre solo en el próximo ticket</div>
+  </div>
+
+  <h2>Qué te da</h2>
+  <ul class="lista">
+    <li><b>Cada ticket tiene su carpeta,</b> con su objetivo, sus criterios de aceptación y su alcance.</li>
+    <li><b>Los hooks chequean cada edición</b> contra las reglas de su capa, y frenan los comandos peligrosos.</li>
+    <li><b>Los cambios grandes los escriben agentes con compuerta,</b> y los revisores dejan un recibo atado al diff.</li>
+    <li><b>Lo aprendido en un ticket sube</b> a reglas y docs verificables.</li>
+    <li><b>Las reglas de un stack se pueden traer de otro repo git,</b> fijadas a una etiqueta.</li>
+  </ul>
+
+  <h2>Dónde va la instancia</h2>
+  <p>odd-ws monta una <b>instancia</b>, un espacio de trabajo con agentes, en una carpeta aparte, al lado de tus repos de código. La instancia tiene su propio git y apunta a tus repos por su ruta, sin tocarlos.</p>
+  <div class="carpetas">
+    <div class="carpeta"><code>mi-proyecto-ws/</code><br>La instancia: tickets, reglas, agentes y su propio git.</div>
+    <div class="flecha">apunta por su ruta →</div>
+    <div class="carpeta"><code>mi-proyecto/</code><br>Tu repo de código, intacto.</div>
+  </div>
+  <p>Si la creas dentro de un repo de código, pierde su git: el bootstrap no le hace <code>git init</code>, ni configura el hook, ni hace el primer commit.</p>
+
+  <h2 id="instalar">Instalar</h2>
+  <p>Necesitas Python (invocable como <code>python3</code>, 3.7 o más) y Git. Los requisitos de cada CLI están en el <a href="https://github.com/sebasgc0399/odd-workspace-template#instalación">README</a>.</p>
+
+  <details open>
+    <summary>Con Claude Code</summary>
+    <ol>
+      <li>Crea la carpeta de la instancia, aparte de tus repos (puede estar vacía), y desde ahí instala el plugin. <code>--scope project</code> es obligatorio: sin él, los hooks correrían en todos tus proyectos.
+        <pre><code>claude plugin marketplace add sebasgc0399/odd-workspace-template
+claude plugin install odd-ws@odd-workspace-template --scope project</code></pre>
+      </li>
+      <li>Abre <code>claude</code> en esa carpeta y corre <code>/odd-ws:bootstrap</code>. Detecta tus repos, te muestra la propuesta completa y solo escribe después de tu sí, con el primer commit incluido.</li>
+      <li>Corre <code>/odd-ws:doctor</code>, arregla lo que marque FALTA y abre tu primer ticket con <code>/odd-ws:abrir</code>.</li>
+    </ol>
+  </details>
+
+  <details>
+    <summary>Con Codex CLI</summary>
+    <ol>
+      <li>Declara Codex en la instancia: <code>"hosts": ["claude-code", "codex"]</code> en <code>workspace.config.json</code>.</li>
+      <li>Instala el plugin en Codex:
+        <pre><code>codex plugin marketplace add sebasgc0399/odd-workspace-template
+codex plugin add odd-ws@odd-workspace-template</code></pre>
+      </li>
+      <li>Abre <code>codex</code> en la raíz de la instancia, confía en la carpeta y confía los hooks de odd-ws desde <code>/hooks</code>. Las skills se invocan con <code>$</code>, por ejemplo <code>$doctor</code>.</li>
+    </ol>
+  </details>
+
+  <details>
+    <summary>Con gentle-shell (Pi)</summary>
+    <ol>
+      <li>Declara Pi en la instancia: <code>"hosts": ["claude-code", "pi"]</code>, o solo <code>["pi"]</code>.</li>
+      <li>Instala gentle-shell con <code>npm i -g gentle-pi</code> y el paquete de odd-ws desde git, con la etiqueta de la versión:
+        <pre><code>gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v&lt;versión&gt;</code></pre>
+      </li>
+      <li>Abre gentle-shell en la raíz de la instancia, dale confianza con <code>/trust</code> y corre <code>/skill:doctor</code>.</li>
+    </ol>
+  </details>
+
+  <h2>Junto a gentle-ai y engram</h2>
+  <p>odd-ws no reemplaza a ninguno de los dos: cada uno cubre una parte distinta, y ninguno es obligatorio.</p>
+  <table>
+    <thead><tr><th>Herramienta</th><th>De qué se encarga</th></tr></thead>
+    <tbody>
+      <tr><td>gentle-ai</td><td>Cómo trabaja el agente: el flujo, la delegación y la revisión</td></tr>
+      <tr><td>engram</td><td>Qué recuerda el agente entre sesiones</td></tr>
+      <tr><td>odd-ws</td><td>Qué se exige en cada proyecto, con lo aprendido convertido en chequeos</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Documentación</h2>
+  <ul class="lista">
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/uso.md">Guía de uso</a>: los conceptos, el ciclo de un ticket y cada skill.</li>
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/hooks.md">Hooks</a>: por qué el agente frenó una edición o un comando.</li>
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/capas-y-reglas.md">Capas y reglas</a>: escribir reglas para tu stack, o traerlas de otro repo.</li>
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/actualizar.md">Actualizar el plugin</a>.</li>
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">Qué cambió en cada versión</a>.</li>
+  </ul>
+</main>
+
+<footer>
+  <p>odd-ws · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
+</footer>
+</body>
+</html>
