@@ -21,6 +21,8 @@ TOPE_BYTES = 2000000
 UMBRAL_CONSUMIDORES = 2
 TOPE_OBJETOS = 20
 DOC_EXT = (".md", ".txt", ".rst")
+CARPETA_GENERADA = "__pycache__"
+EXT_GENERADA = (".pyc", ".pyo")
 SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 LENGUAJES = {".sql": tsql}
 COTA = "solo en los repos declarados en workspace.config.json"
@@ -85,6 +87,10 @@ def leer_archivo(ruta):
 
 def es_doc(ruta):
     return os.path.splitext(ruta)[1].lower() in DOC_EXT
+
+
+def es_generado(ruta):
+    return CARPETA_GENERADA in ruta.split("/")[:-1] or os.path.splitext(ruta)[1].lower() in EXT_GENERADA
 
 
 def _lenguaje(c):
@@ -274,9 +280,14 @@ def recolectar_repo(ruta, base_arg, config, ticket=None):
     for i in range(0, len(salida) - 1, 2):
         if salida[i]:
             estados[salida[i + 1].decode("utf-8", errors="replace")] = salida[i].decode("ascii", errors="replace")[:1]
+    generados = []
     for crudo in _git_ok(top, "ls-files", "--others", "--exclude-standard", "-z").stdout.split(b"\0"):
         if crudo:
-            estados.setdefault(crudo.decode("utf-8", errors="replace"), "?")
+            rel = crudo.decode("utf-8", errors="replace")
+            if rel not in estados and es_generado(rel):
+                generados.append(rel)
+            else:
+                estados.setdefault(rel, "?")
     cambios = []
     for rel in sorted(estados):
         texto_diff = None
@@ -304,7 +315,8 @@ def recolectar_repo(ruta, base_arg, config, ticket=None):
         elif c["estado"] == "D":
             c["quitadas"] = lineas_de(c["base_texto"])
         cambios.append(c)
-    return {"ruta": top, "base": base, "base_origen": origen, "base_recibo": sellada_en, "cambios": cambios}
+    return {"ruta": top, "base": base, "base_origen": origen, "base_recibo": sellada_en, "cambios": cambios,
+            "generados": sorted(generados)}
 
 
 def recolectar_taller(ruta, config):
@@ -469,6 +481,8 @@ def _repo_de_salida(r, con_origen):
         salida.update(base_origen=r["base_origen"], base_recibo=r["base_recibo"])
     salida["archivos"] = [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
                           for c in r["cambios"]]
+    if r["generados"]:
+        salida["generados"] = r["generados"]
     return salida
 
 
@@ -592,6 +606,9 @@ def formatear(r):
                                                              len(repo["archivos"])))
         for a in repo["archivos"]:
             salida.append("  %s %s [%s]" % (a["estado"], a["ruta"], a["capa"] or "sin capa"))
+        if repo.get("generados"):
+            salida.append("  fuera de la unidad: %d archivo(s) generado(s) sin trackear: %s"
+                          % (len(repo["generados"]), ", ".join(repo["generados"])))
     for t in r["taller"]:
         salida.append("taller %s [%s]%s" % (t["ruta"], t["capa"] or "sin capa",
                                             " contraparte " + t["contraparte"] if t["contraparte"] else ""))

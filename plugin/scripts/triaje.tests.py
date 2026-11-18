@@ -715,6 +715,26 @@ def test_incluye_archivos_sin_trackear_sin_tocar_el_indice():
         assert nivel(r, "efecto") == "positiva"
 
 
+def test_los_generados_sin_trackear_quedan_fuera_de_la_unidad_y_se_nombran_aparte():
+    generados = {"tools/__pycache__/util.cpython-312.pyc": b"\x00\x01", "tools/viejo.PYC": b"\x00", "tools/opt.pyo": b"\x00"}
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        sin = w.analizar()
+        assert "generados" not in sin["repos"][0], "sin generados, la salida es la de siempre"
+        escribir(w.db, generados)
+        con = w.analizar()
+        repo = con["repos"][0]
+        assert [a["ruta"] for a in repo["archivos"]] == [SQL_ALFA], repo
+        assert repo["generados"] == sorted(generados), repo
+        assert con["modo"] == sin["modo"] and con["senales"] == sin["senales"], "los generados no mueven el modo ni las señales"
+        codigo, salida, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz)])
+        assert codigo == 0, error
+        assert "fuera de la unidad: 3 archivo(s) generado(s) sin trackear: " + ", ".join(sorted(generados)) in salida, salida
+        escribir(w.db, {"tools/__pycache__/nota.md": "no es bytecode\n"})
+        repo = w.analizar()["repos"][0]
+        assert "tools/__pycache__/nota.md" in repo["generados"], "todo lo que está bajo __pycache__ es generado"
+
+
 def test_base_por_defecto_es_el_merge_base_con_la_rama_de_origin_head():
     with Mundo() as w:
         base = git(w.db, "rev-parse", "HEAD")

@@ -63,7 +63,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 
    Un falso positivo solo cuesta una revisión de más; un falso negativo cuesta un hallazgo que llega al líder. Ante la duda, subí. No bajes el modo por tu cuenta.
 3. **Preguntá si el cambio va a un líder antes del commit.** El triaje no lo puede detectar: lo declara en «el triaje NO detecta». Si va a un líder, el modo es `completo` aunque todo haya salido en negativo.
-4. Mostrá también la lista «el triaje NO detecta» y aplicá tu criterio a lo que toque este cambio (consumidores fuera de los repos declarados, la forma de un resultado que consume otra capa, constantes compartidas).
+4. Si el triaje nombra archivos «fuera de la unidad» (generados sin trackear, como `__pycache__/` o `*.pyc`), no entran a la revisión ni al recibo; decíselo al usuario en una línea, porque puede borrarlos o ignorarlos en su repo. Mostrá también la lista «el triaje NO detecta» y aplicá tu criterio a lo que toque este cambio (consumidores fuera de los repos declarados, la forma de un resultado que consume otra capa, constantes compartidas).
 5. **Anunciá, antes de lanzar nada:**
    - el modo y las señales que lo decidieron (o «va a un líder»);
    - las capas tocadas, que salen de la columna `[capa]` del triaje. Un archivo `sin capa` no tiene revisor de capa: lo lee el de diseño, y se avisa;
