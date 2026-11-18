@@ -1345,6 +1345,39 @@ test("sin selector, gentle-shell corre al writer en la raiz del repo git: con la
   assert.equal(conRepoPropio.task, `x\n${MARCA_SQL}`);
 });
 
+test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, como git; un .git archivo sigue contando", async () => {
+  const repo = join(BASE, "monorepo-git-invalido");
+  mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q");
+  const bloqueado = async (inst: string) => {
+    const bloqueo = await conPi().emitir(lanzamiento({ agent: "writer-sql", task: "x" }), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, inst);
+    assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(repo)}, la raíz del repo git que contiene la instancia, `), bloqueo.reason);
+  };
+  const pasa = async (inst: string) => {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, inst);
+    assert.equal(entrada.task, `x\n${MARCA_SQL}`);
+  };
+  const vacia = instancia(join(repo, "vacia"), false);
+  mkdirSync(join(vacia, ".git"));
+  await bloqueado(vacia);
+  const sinObjects = instancia(join(repo, "sin-objects"), false);
+  mkdirSync(join(sinObjects, ".git", "refs"), { recursive: true });
+  writeFileSync(join(sinObjects, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await bloqueado(sinObjects);
+  const sinHead = instancia(join(repo, "sin-head"), false);
+  mkdirSync(join(sinHead, ".git", "refs"), { recursive: true });
+  mkdirSync(join(sinHead, ".git", "objects"));
+  await bloqueado(sinHead);
+  const valida = instancia(join(repo, "valida"), false);
+  git(valida, "init", "-q");
+  await pasa(valida);
+  const archivo = instancia(join(repo, "archivo"), false);
+  writeFileSync(join(archivo, ".git"), "gitdir: ../.git/worktrees/archivo\n");
+  await pasa(archivo);
+});
+
 test("una instancia fuera de todo repo git: el writer sin selector corre en ctx.cwd y pasa", { skip: hayGitArriba(BASE) }, async () => {
   const inst = instancia(join(BASE, "sin-git", "inst"), false);
   const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };

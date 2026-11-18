@@ -478,8 +478,12 @@ function raizDeLaInstancia(desde: string): string | null {
   return subir(desde, (carpeta) => es(join(carpeta, CONFIG_DE_LA_INSTANCIA), "archivo"));
 }
 
+function esCarpetaDeGit(ruta: string): boolean {
+  return es(join(ruta, "HEAD"), "archivo") && es(join(ruta, "objects"), "carpeta") && es(join(ruta, "refs"), "carpeta");
+}
+
 function raizDeGit(desde: string): string | null {
-  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || es(join(carpeta, MARCA_DE_GIT), "carpeta"));
+  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || esCarpetaDeGit(join(carpeta, MARCA_DE_GIT)));
 }
 
 function canonica(ruta: string): string {
