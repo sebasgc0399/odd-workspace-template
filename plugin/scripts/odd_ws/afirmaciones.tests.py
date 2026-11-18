@@ -670,11 +670,21 @@ def test_correr_un_plazo_invalido_vale_el_de_por_defecto():
 
 
 def test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar():
+    modulo = m()
+    original = modulo.ejecutar_con_bash
+
+    def durmiente(argvs, cwd, env, plazo):
+        return original([[SLEEP, "30"]], cwd, env, plazo)
+
     with temporal() as tmp:
         repo = repo_fixture(tmp)
         t0 = time.time()
-        v = m().correr(af(CONTEO, 1), repo, plazo=0.001)
-        assert v.estado == "ERROR" and v.detalle.startswith("plazo de 0.001 s agotado"), v
+        modulo.ejecutar_con_bash = durmiente
+        try:
+            v = modulo.correr(af(CONTEO, 1), repo, plazo=0.5)
+        finally:
+            modulo.ejecutar_con_bash = original
+        assert v.estado == "ERROR" and v.detalle.startswith("plazo de 0.5 s agotado"), v
         assert time.time() - t0 < 9, "el plazo no cortó a tiempo"
         v = m().correr(af(CONTEO, 1), repo)
         assert tuple(v) == ("OK", "1")
