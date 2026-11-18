@@ -1370,12 +1370,80 @@ test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, 
   mkdirSync(join(sinHead, ".git", "refs"), { recursive: true });
   mkdirSync(join(sinHead, ".git", "objects"));
   await bloqueado(sinHead);
+  const sinRefs = instancia(join(repo, "sin-refs"), false);
+  mkdirSync(join(sinRefs, ".git", "objects"), { recursive: true });
+  writeFileSync(join(sinRefs, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await bloqueado(sinRefs);
+  const headCarpeta = instancia(join(repo, "head-carpeta"), false);
+  mkdirSync(join(headCarpeta, ".git", "HEAD"), { recursive: true });
+  mkdirSync(join(headCarpeta, ".git", "objects"));
+  mkdirSync(join(headCarpeta, ".git", "refs"));
+  await bloqueado(headCarpeta);
+  const conCommondir = instancia(join(repo, "con-commondir"), false);
+  mkdirSync(join(conCommondir, ".git"), { recursive: true });
+  writeFileSync(join(conCommondir, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(conCommondir, ".git", "commondir"), join(repo, ".git"));
+  await pasa(conCommondir);
+  const objectsArchivo = instancia(join(repo, "objects-archivo"), false);
+  mkdirSync(join(objectsArchivo, ".git", "refs"), { recursive: true });
+  writeFileSync(join(objectsArchivo, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(objectsArchivo, ".git", "objects"), "");
+  if (process.platform === "win32") {
+    await pasa(objectsArchivo);
+  } else {
+    await bloqueado(objectsArchivo);
+  }
+  const headEnlace = instancia(join(repo, "head-enlace"), false);
+  mkdirSync(join(headEnlace, ".git", "objects"), { recursive: true });
+  mkdirSync(join(headEnlace, ".git", "refs"));
+  let hayEnlaces = true;
+  try {
+    symlinkSync("refs/heads/no-existe", join(headEnlace, ".git", "HEAD"));
+  } catch {
+    hayEnlaces = false;
+  }
+  if (hayEnlaces) {
+    await pasa(headEnlace);
+  }
   const valida = instancia(join(repo, "valida"), false);
   git(valida, "init", "-q");
   await pasa(valida);
   const archivo = instancia(join(repo, "archivo"), false);
   writeFileSync(join(archivo, ".git"), "gitdir: ../.git/worktrees/archivo\n");
   await pasa(archivo);
+});
+
+test("un repo de arriba que git acepta con commondir, con objects como archivo o con HEAD como enlace no deja pasar al writer", async () => {
+  const bloqueado = async (inst: string) => {
+    const bloqueo = await conPi().emitir(lanzamiento({ agent: "writer-sql", task: "x" }), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, inst);
+  };
+  const real = join(BASE, "repo-real-de-arriba");
+  mkdirSync(real, { recursive: true });
+  git(real, "init", "-q");
+  const conCommondir = join(BASE, "arriba-commondir");
+  mkdirSync(join(conCommondir, ".git"), { recursive: true });
+  writeFileSync(join(conCommondir, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(conCommondir, ".git", "commondir"), join(real, ".git"));
+  await bloqueado(instancia(join(conCommondir, "inst"), false));
+  const objectsArchivo = join(BASE, "arriba-objects-archivo");
+  mkdirSync(join(objectsArchivo, ".git", "refs"), { recursive: true });
+  writeFileSync(join(objectsArchivo, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(objectsArchivo, ".git", "objects"), "");
+  if (process.platform === "win32") {
+    await bloqueado(instancia(join(objectsArchivo, "inst"), false));
+  }
+  const headEnlace = join(BASE, "arriba-head-enlace");
+  mkdirSync(join(headEnlace, ".git", "objects"), { recursive: true });
+  mkdirSync(join(headEnlace, ".git", "refs"));
+  try {
+    symlinkSync("refs/heads/no-existe", join(headEnlace, ".git", "HEAD"));
+    await bloqueado(instancia(join(headEnlace, "inst"), false));
+  } catch (error) {
+    if ((error as { code?: string }).code !== "EPERM") {
+      throw error;
+    }
+  }
 });
 
 test("una instancia fuera de todo repo git: el writer sin selector corre en ctx.cwd y pasa", { skip: hayGitArriba(BASE) }, async () => {
