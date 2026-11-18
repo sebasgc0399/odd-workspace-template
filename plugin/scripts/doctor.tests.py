@@ -2334,6 +2334,92 @@ def test_pi_plugin_acepta_el_paquete_del_proyecto_y_no_lee_un_settings_roto_como
         r = por_id(ctx)["pi-plugin"]
         assert r.estado == "FALTA" and "no se puede leer" in r.detalle and str(aislado(ctx) / "settings.json") in r.detalle and r.ayuda, r
         assert (aislado(ctx) / "settings.json").read_bytes() == b"{roto"
+
+
+def sombra_del_plugin(ctx, nombre="enlace-al-plugin"):
+    enlace = ctx.plugin.parent / nombre
+    if not enlazar(enlace, ctx.plugin):
+        return None
+    assert os.path.realpath(enlace) == os.path.realpath(ctx.plugin)
+    return enlace
+
+
+def test_pi_plugin_agrupa_por_la_ruta_real_y_la_primera_copia_deshabilitada_por_un_enlace_es_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        enlace = sombra_del_plugin(ctx)
+        if enlace is None:
+            return
+        poner_paquetes(aislado(ctx), {"source": str(enlace), "extensions": ["-shim/pi.ts"]}, str(ctx.plugin))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "extensions" in r.detalle, ("en un mismo settings gana la primera, que Pi descarta por la ruta real", r)
+        poner_paquetes(aislado(ctx), str(ctx.plugin), {"source": str(enlace), "extensions": ["-shim/pi.ts"]})
+        assert por_id(ctx)["pi-plugin"].estado == "OK", "con el orden al revés gana la que carga"
+
+
+def test_pi_plugin_la_copia_del_proyecto_por_un_enlace_tapa_a_la_del_home_con_la_misma_ruta_real():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        enlace = sombra_del_plugin(ctx)
+        if enlace is None:
+            return
+        poner(raiz, ".pi/settings.json", json.dumps({"packages": [{"source": str(enlace), "extensions": ["-shim/pi.ts"]}]}))
+        confiar(ctx, raiz)
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA", r
+        confiar(ctx, raiz, False)
+        assert por_id(ctx)["pi-plugin"].estado == "OK", "sin confianza Pi no lee el proyecto y vale el home"
+
+
+def test_pi_plugin_una_extension_de_nivel_superior_por_un_enlace_es_la_misma_que_la_del_paquete():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        enlace = sombra_del_plugin(ctx)
+        if enlace is None:
+            return
+        poner(aislado(ctx), "settings.json", json.dumps({"packages": [str(ctx.plugin)], "extensions": [str(enlace / "shim" / "pi.ts")]}))
+        r = por_id(ctx)["pi-plugin"]
+        assert r.estado == "FALTA" and "nivel superior" in r.detalle, r
+        poner(aislado(ctx), "settings.json", json.dumps({"packages": [str(ctx.plugin)], "extensions": [str(ctx.plugin / "shim" / "pi.ts")]}))
+        assert por_id(ctx)["pi-plugin"].estado == "FALTA", "el mismo archivo por su ruta directa ya era FALTA"
+
+
+def test_pi_plugin_un_settings_con_nan_o_infinity_no_lo_lee_pi_y_es_falta():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        for constante in ("NaN", "Infinity", "-Infinity"):
+            poner(aislado(ctx), "settings.json", '{"packages": [%s], "x": %s}' % (json.dumps(str(ctx.plugin)), constante))
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == "FALTA" and "no se puede leer" in r.detalle and constante.lstrip("-") in r.detalle, (constante, r)
+        poner(aislado(ctx), "settings.json", json.dumps({"packages": [str(ctx.plugin)], "x": 1.5}))
+        assert por_id(ctx)["pi-plugin"].estado == "OK"
+
+
+def test_pi_plugin_un_filtro_con_una_url_file_se_normaliza_como_lo_hace_pi():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        shim = ctx.plugin / "shim" / "pi.ts"
+        url = "file:///" + str(shim).replace("\\", "/").lstrip("/")
+        for filtro, estado in ((["-" + url], "FALTA"), (["!" + url], "FALTA"), (["+" + url], "OK"),
+                               (["-" + url.replace("/shim/pi.ts", "/shim/otro.ts")], "OK")):
+            poner_paquetes(aislado(ctx), {"source": str(ctx.plugin), "extensions": filtro})
+            r = por_id(ctx)["pi-plugin"]
+            assert r.estado == estado, (filtro, r)
+
+
+def test_gentle_shell_avisa_si_la_instancia_es_una_subcarpeta_de_su_repo_y_no_si_es_su_raiz():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        ctx.respuestas[("git", "-C", str(raiz), "rev-parse", "--show-toplevel")] = (0, str(raiz.parent) + "\n")
+        r = por_id(ctx)["gentle-shell"]
+        assert r.estado == "AVISO" and str(raiz.parent) in r.detalle and "writers" in r.detalle and r.ayuda, r
+        assert por_id(ctx)["pi-plugin"].estado == "OK", "el aviso es solo del ítem gentle-shell"
+        codigo, salida = correr([], ctx)
+        assert codigo == 0, "un AVISO no hace fallar el doctor: " + salida
+        ctx.respuestas[("git", "-C", str(raiz), "rev-parse", "--show-toplevel")] = (0, str(raiz) + "\n")
+        assert por_id(ctx)["gentle-shell"].estado == "OK"
+        ctx.respuestas[("git", "-C", str(raiz), "rev-parse", "--show-toplevel")] = (128, "fatal: not a git repository\n")
+        assert por_id(ctx)["gentle-shell"].estado == "OK"
         poner(aislado(ctx), "settings.json", json.dumps({"packages": "no es una lista"}))
         poner(raiz, ".pi/settings.json", json.dumps({}))
         assert por_id(ctx)["pi-plugin"].estado == "FALTA"

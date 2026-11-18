@@ -159,6 +159,25 @@ def test_un_host_desconocido_calla_fuera_de_pre():
         assert hosts().atender("otro", roto, nucleo) == SILENCIO, roto
 
 
+def test_los_helpers_de_los_md_de_agentes_viven_en_base_y_pi_y_codex_los_toman_de_alli():
+    b = base()
+    assert b.normal("﻿a\r\nb") == "a\nb"
+    assert b.declarada(["# k: v ", "otra"], "# k:", True) == "v" and b.declarada(["x", "# k: v"], "# k:", True) is None
+    assert b.declarada(["k: 1", "---", "k: 2"], "k:", False) == "1" and b.declarada(["---", "k: 2"], "k:", False) is None
+    assert b.RevisionDeAgente._fields == ("nombre", "codigo", "esperado", "motivo")
+    assert not hasattr(importlib.import_module("odd_ws.hosts.codex"), "_normal")
+    for modulo in ("pi", "codex"):
+        fuente = (AQUI / ("%s.py" % modulo)).read_text(encoding="utf-8")
+        assert "codex._" not in fuente, modulo
+    import tempfile
+    with tempfile.TemporaryDirectory() as carpeta:
+        ruta = Path(carpeta) / "a" / "x.md"
+        assert b.crear(ruta, "hola") == str(ruta) and b.leer_utf8(ruta) == "hola"
+        assert "ya existe" in b.crear(ruta, "otra") and b.leer_utf8(ruta) == "hola"
+        ruta.write_bytes(b"\xff\xfe")
+        assert b.leer_utf8(ruta) is None and b.leer_utf8(Path(carpeta) / "no") is None
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
