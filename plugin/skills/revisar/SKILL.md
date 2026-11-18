@@ -69,7 +69,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
    - las capas tocadas, que salen de la columna `[capa]` del triaje. Un archivo `sin capa` no tiene revisor de capa: lo lee el de diseño, y se avisa;
    - el costo, en corridas, sin inventar cifras: `modo 0` son 0 corridas; `rapido` son `1 + <capas tocadas>`; `completo` son `3 + <capas tocadas>`. Cada una cuesta lo que una corrida de revisor sobre este diff.
 6. **Esperá el sí del usuario.** Sin sí explícito, no se lanza ni se escribe nada. Las dos excepciones de la regla 1:
-   - **modo `0`:** no hay nada que lanzar. Anunciá el modo y los archivos que vas a leer, y seguí con el paso 5 sin esperar;
+   - **modo `0`:** no hay nada que lanzar. Anunciá el modo y los archivos que vas a leer, y seguí con la sección 5 sin esperar;
    - **un rechequeo** que el usuario aprobó junto con su lote de corrección: seguí sin volver a pedirlo.
 
 ## 3. La entrada de los revisores
@@ -163,7 +163,7 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
    - `--derivado` anota un hallazgo que no se corrige en esta unidad y va a otra tarea, otro ticket o el backlog (sección 9). Es repetible, y el destino es lo que va después del último `=`. Uno sin `=`, o con un lado vacío, es un error de uso.
    - `--ronda <n>` va solo desde la segunda ronda del mismo día y modo, con el número de su carpeta. `--check` toma la ronda más alta, o la de `--recibo`.
    - `<base>` es la base completa del triaje, para que el recibo cubra el mismo diff que se revisó.
-   - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente`, volvé a escribirlo con `con-hallazgos`. `--verificacion` anota lo que se corrió de verdad y su resultado.
+   - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente`, volvé a escribirlo con `con-hallazgos` y los mismos argumentos; si era un rechequeo, también con su `--previo`, porque sin él el recibo pierde lo heredado y después no se puede sellar. `--verificacion` anota lo que se corrió de verdad y su resultado.
    - Escribe `revision/<fecha>-<modo>[-<n>]/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
    - Si el recibo ya existía, se pisa entero: pasá todos los `--repo` en una sola llamada.
 3. **Antes de decir «listo» o «listo para commit», corré `--check`:**
@@ -184,9 +184,9 @@ Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste 
 
 1. **Una sola corrección.** Con la consolidación, el usuario elige qué se corrige, y eso es un lote. El mensaje que propone el lote anuncia también el rechequeo y su costo en corridas (abajo): si el usuario aprueba el lote, aprueba el rechequeo.
 2. **Un rechequeo** cuando termina el lote. Verifica los hallazgos anteriores y revisa solo lo que cambió desde la ronda anterior:
-   - **Qué entra.** `recibo.py --check "<carpeta de la ronda anterior>"` sale con 1 y nombra los archivos que cambiaron: esos, más los que el triaje lista y el recibo anterior no tiene (los que sumó la corrección), son los rechequeados. Si sale con 0, la corrección no tocó nada revisado y no hay rechequeo.
+   - **Qué entra.** Los rechequeados son los archivos que nombra `recibo.py --check "<carpeta de la ronda anterior>"` cuando sale con 1 (los que cambiaron), más los que el triaje lista y el recibo anterior no tiene (los que sumó la corrección, como un test nuevo). Si `--check` sale con 0 y la corrección no sumó archivos, no hay nada que rechequear. Un archivo sumado nunca se salta: sin su rechequeo queda sin revisar y `--sellar` rechaza el commit que lo trae.
    - **La base** es la del recibo anterior, y el triaje con `--ticket` da esa misma mientras la unidad no se selle. **El modo** es el de la ronda anterior, y la carpeta es la ronda siguiente (`<fecha>-<modo>-<n>`). Si el triaje de ahora da otra base o propone un modo más alto, no es un rechequeo: es una revisión nueva de la unidad entera, que pide su sí.
-   - **Las corridas** son las del modo, pero solo con el revisor de diseño y los de las capas de los archivos rechequeados: `1 + <capas>` en `rapido` y `3 + <capas>` en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero.
+   - **Las corridas** son las del modo, pero solo con el revisor de diseño y los de las capas de los archivos rechequeados: `1 + <capas>` en `rapido` y `3 + <capas>` en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo y pedí el sí.
    - **La entrada** es el diff de los rechequeados contra la base (paso 3). El prompt suma los hallazgos de la ronda anterior, con su ubicación, su regla y su severidad, copiados del `consolidado.md`, y pide decir de cada uno si quedó resuelto. La regla de no leer `revision/` sigue.
    - **El recibo** hereda lo que no cambió:
 
@@ -210,11 +210,11 @@ Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste 
 - **Después del commit de una unidad revisada, sellá su recibo**, antes de cualquier otro commit, y mostrá su línea:
 
   ```bash
-  python3 "<S>/recibo.py" --sellar "<ticket>"
+  python3 "<S>/recibo.py" --sellar "<ticket>/revision/<carpeta de la unidad>"
   ```
 
   - Por qué: anota en el recibo el commit que guarda lo revisado, y el triaje de la unidad siguiente parte de ese commit en vez del merge-base. Sin sello, vuelve a contar lo ya revisado (en un ticket real, 83 archivos en vez de los 21 de la unidad nueva).
-  - Sella el recibo más reciente del ticket; para otro, pasá su carpeta. Sellar de nuevo sin mover `HEAD` no cambia nada.
+  - Pasá la carpeta del recibo de la unidad: la de su última ronda, la del rechequeo si lo hubo. Con la carpeta del ticket toma el recibo más nuevo por fecha, modo y ronda, que puede no ser el de esta unidad (por ejemplo, una unidad en modo `0` revisada el mismo día después de una en `rapido`). Sellar de nuevo sin mover `HEAD` no cambia nada.
   - **Exit 0:** `recibo sellado: <recibo> (<commit> en <n> repo(s))`.
   - **Exit 1:** no sella y no toca el recibo: cambió el diff revisado, hay archivos revisados sin commitear («commitea primero lo revisado»), o `HEAD` trae cambios fuera de lo revisado (por ejemplo, un commit de otra unidad). Mostrá el motivo; no lo fuerces, porque un sello sobre lo no revisado lo dejaría fuera del triaje siguiente.
   - **Exit 2:** error de uso o de entorno. Mostrá el mensaje.

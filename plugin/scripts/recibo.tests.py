@@ -1089,6 +1089,26 @@ def test_rechequeo_se_puede_sellar_con_la_unidad_entera_y_uno_parcial_no():
         assert codigo == 0 and "2026-10-21-completo-3" in salida.replace("\\", "/"), salida
 
 
+def test_rechequeo_de_un_archivo_que_solo_sumo_la_correccion_deja_sellar_la_unidad():
+    with temporal() as t:
+        repo, base, ticket, primera = primera_ronda(t)
+        escribir(repo, {"prueba_a.sql": "prueba\n"})
+        codigo, salida, _ = correr(["--check", str(primera)])
+        assert codigo == 0, "la correccion no toco nada revisado: %s" % salida
+        head = commitear(repo, {})
+        codigo, salida, _ = correr(["--sellar", str(primera)])
+        assert codigo == 1 and "fuera de lo revisado" in salida and "prueba_a.sql" in salida, (
+            "sin rechequeo, el archivo sumado deja la unidad sin sellar: %s" % salida)
+        codigo, salida, error = correr(rechequeo(ticket, [repo], [repo / "prueba_a.sql"], primera))
+        assert codigo == 0 and "1 rechequeado(s) y 3 heredado(s)" in salida, (salida, error)
+        segunda = ticket / "revision" / "2026-10-21-completo-2"
+        codigo, salida, error = correr(["--sellar", str(segunda)])
+        assert codigo == 0, (salida, error)
+        r = json.loads((segunda / "recibo.json").read_text(encoding="utf-8"))["repos"][0]
+        assert r["rechequeados"] == ["prueba_a.sql"] and r["heredados"] == ["a.sql", "b.cs", "nuevo.sql"], r
+        assert r["sellado"] == head, r
+
+
 def test_rechequeo_hereda_el_repo_que_no_se_paso_y_suma_uno_nuevo_al_final():
     with temporal() as t:
         r1, b1 = repo_con_principal(t, ARCHIVOS, "uno")

@@ -44,8 +44,8 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T8 | S10 | Estudio del arranque en frío, y la opción C en textos | inline | hecho | `69f0b2c` |
 | T10 | S11 | Las rondas de una revisión | inline | hecho | `c5735a5` |
 | T11 | S12 | Las extensiones de código sin capa | inline | hecho | `87c64b3` |
-| T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho, verificador pendiente (junto con T13) | `3aaf174` |
-| T13 | S14, S15, S16 | El rechequeo, el cierre de una revisión y menos síes | writer A, en paralelo con T14 (superficies disjuntas) | hecho, verificador pendiente (junto con T12) | `478a3e7` |
+| T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho y verificado (junto con T13, L40) | `3aaf174` |
+| T13 | S14, S15, S16 | El rechequeo, el cierre de una revisión y menos síes | writer A, en paralelo con T14 (superficies disjuntas) | hecho y verificado (junto con T12, L40) | `478a3e7`, corrección en el commit que suma L40 |
 | T14 | S17 | El resumen del ticket activo | writer B, en paralelo con T13 | hecho | el commit que suma L39 |
 | T15 | S18 | Los scratch donde se pueden borrar | inline | hecho | el commit que suma L39 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
@@ -260,3 +260,17 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Diferencial contra `3aaf174` en 23 pasos: stdout, códigos de salida y bytes del recibo idénticos sin las opciones nuevas; solo cambia el banner de uso de argparse en stderr.
   - El parent aplicó el texto de B en `Doc/diseno.md`, y `Doc/uso.md` y `abrir` dicen que el ticket activo llega como resumen. Esos cambios van con T14, separados de T13 por hunk.
   - Risk: item 3 (cambia el contrato de `revisar` sobre cuándo se pide el sí y qué acepta `--sellar` como cubierto). Lo siguiente: el commit de T14 y T15, y un solo verificador independiente sobre T12 y T13 juntos.
+- **L40 (2026-11-17), el verificador independiente de T12 y T13 juntos.** Probó, contra la base `87c64b3`, el ciclo entero en un repo de prueba con `origin`: revisión, corrección, rechequeo, sello y la base de la unidad siguiente.
+  - S13 PASS, S15 PASS, S16 PASS. S14 FAIL solo por el texto de la skill; el código pasa entero.
+  - Sin regresión: 22 casos de `recibo.py` y 9 de `--sellar` dan el mismo código de salida, stdout, stderr y bytes del recibo. Solo cambia el banner de uso de argparse.
+  - **B1, el bloqueo:** la sección 9.2 de `revisar` decía «Si sale con 0, la corrección no tocó nada revisado y no hay rechequeo». Una corrección que solo suma un archivo (un test nuevo) lo dejaba sin revisar, y `--sellar` rechazaba el commit.
+  - **La corrección, en una sola tanda:** un archivo sumado siempre se rechequea. También cinco avisos:
+    - `--sellar` recibe la carpeta del recibo de la unidad, porque la del ticket puede tomar el de otra unidad (una en modo `0` revisada el mismo día después de una en `rapido`).
+    - Reescribir un recibo de rechequeo repite su `--previo`.
+    - Si el rechequeo suma una capa que el lote no anunció, vuelve a pedir el sí.
+    - `Doc/uso.md` nombra el sello como la tercera escritura sin sí.
+    - En el paso 6, «la sección 5».
+  - Un sexto aviso, sobre valores fuera de dominio, queda como está.
+  - El rechequeo del mismo verificador, limitado a B1 y los avisos: B1 FIXED, los cinco avisos FIXED, sin contradicciones con `recibo.py`.
+  - El caso de B1 queda como test de regresión en `recibo.tests.py` (76/76).
+  - Risk: item 3, ya verificado.
