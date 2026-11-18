@@ -30,6 +30,10 @@ Cada spec cita al autor tal cual. La definición de cada mejora es la fila de su
 - **S20. El costo de un rechequeo (I31).** Las mismas citas que S19. Un rechequeo corre una corrida de `revisor-diseno` más la de cada capa de los rechequeados, tanto en `rapido` como en `completo`, y cero en modo 0. Corrige la regla de T13, que en `completo` pedía `3 + <capas>`.
 - **S21. El idioma después de un `/compact` (I32).** Las mismas citas que S19. El `CLAUDE.md` de la instancia dice que la conversación sigue en el idioma en que escribe el usuario, también después de un `/compact` cuyo resumen quedó en otro idioma. Supuesto: una línea en la plantilla alcanza, porque ese `CLAUDE.md` se vuelve a cargar después de compactar.
 - **S22. Lo ya decidido no se vuelve a plantear (I33).** Las mismas citas que S19. El prompt de cada corrida de `revisar` suma las decisiones del ticket (`## Decisiones`) como lo que no se vuelve a plantear. Supuesto: un hallazgo CRITICAL que contradice una decisión se reporta igual, nombrando la decisión.
+- **S23. Los rituales los escribe el usuario (I39).** «Listo haz la ultima revision que ya hice el cierre del primer ticket» y, sobre la lista de lo encontrado (H1, H4, H5 y que `abrir` commitee el ticket a la versión, el resto como ideas), «Vale». El `CLAUDE.md` de la instancia dice que los rituales (`abrir`, `cerrar`, `bootstrap`, `conocimiento`, `paquetes`) los escribe el usuario: el agente no ofrece lanzarlos y termina con la línea exacta que hay que escribir.
+- **S24. La entrega después del cierre (I40).** Las mismas citas que S23. `cerrar` suma qué hacer cuando la entrega llega después del cierre: `Estado` pasa a `listo`, se actualiza lo que el ticket dice de la entrega, se commitea en la instancia y se quita la marca de ticket activo.
+- **S25. El worktree de un repo propio lo desarma el agente (I41).** Las mismas citas que S23. En un repo marcado como propio (`own`), `cerrar` desarma el worktree él mismo (`worktree remove` y `prune`) si está limpio y su rama ya está en `origin`; si no, lo dice y se lo deja al usuario. En los repos del equipo, sigue siendo del usuario.
+- **S26. `abrir` commitea el ticket (I42).** Las mismas citas que S23. `abrir` commitea la carpeta del ticket nuevo en la instancia, con `git add` por ruta y sin push, salvo `"ask_before_commit": true`, para que el estado del ticket tenga historia desde el primer día y el commit de `cerrar` no se lleve todo de una vez.
 
 ## Tareas
 
@@ -55,7 +59,11 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T16 | S19 | Los archivos generados sin trackear quedan fuera del triaje | inline | hecho | `3e6c06d` |
 | T17 | S20 | El costo de un rechequeo | inline | hecho | `6d7088c` |
 | T18 | S21 | El idioma después de un `/compact` | inline | hecho | `895a7ed` |
-| T19 | S22 | Lo ya decidido no se vuelve a plantear | inline | hecho | el commit que suma L43 |
+| T19 | S22 | Lo ya decidido no se vuelve a plantear | inline | hecho | `d95e0e7` |
+| T20 | S23 | Los rituales los escribe el usuario | inline | hecho | `481e02a` |
+| T21 | S24 | La entrega después del cierre | inline | hecho | el commit que suma L45, junto con T22 |
+| T22 | S25 | El worktree de un repo propio lo desarma el agente | inline | hecho | el commit que suma L45, junto con T21 |
+| T23 | S26 | `abrir` commitea el ticket | inline | hecho | `78f8887` |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 | F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | anotado | |
 
@@ -318,3 +326,39 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
     - T16 cambia qué archivos entran a la unidad, como pidió el autor. La salida del triaje suma una clave opcional, y sin generados queda igual, como lo prueba el test.
     - T17 y T19 cambian el texto de `revisar`, también pedido por el autor.
     - Ninguna rompe algo que no se pidió, así que no hay verificador independiente.
+- **L44 (2026-11-18), el cierre de SM-1, entre las 01:18 y las 04:08 UTC.** El pedido del autor, tal cual: «Listo haz la ultima revision que ya hice el cierre del primer ticket».
+  - Lo leyó un agente de solo lectura. El parent verificó tres afirmaciones contra la rama:
+    - solo `.sql` tiene biblioteca de señales, y sin ella la señal de consumidores queda inválida (`triaje.py`, `evaluar_consumidores`);
+    - las cinco skills de ritual traen `disable-model-invocation: true`;
+    - el paso 7 de `cerrar` le deja el worktree al usuario.
+  - **Cómo terminó SM-1:** `listo` y `graduado`, con el commit de cierre `4352746` y el de la entrega `07aecb0`. El `cerrar` tardó unos 5.5 minutos, con una sola tabla de propuesta.
+  - **Las fricciones:**
+    - H1: el agente ofreció lanzar `/odd-ws:cerrar`, que solo el usuario puede escribir.
+    - H2: un `CLAUDE.md` que ya venía modificado no salió en la propuesta. Ya lo cubre la `0.9.0`.
+    - H3: la instancia no se commiteó en todo el ticket, y el cierre se llevó 151 archivos.
+    - H4: la entrega falló después del cierre, y el estado y el segundo commit se improvisaron.
+    - H5: el worktree de un repo propio le quedó al usuario.
+    - H6: un arreglo de 3 líneas en un test forzó `completo` y agotó el límite de 5 horas.
+    - Lo nuevo de G8: `cerrar` igual graduó a un doc del repo, en una rama sin mergear.
+  - **El autor, tal cual, sobre H1, H4, H5 y que `abrir` commitee el ticket a la versión, el resto como ideas:** «Vale».
+  - Entran como S23 a S26 (T20 a T23).
+  - Quedan como ideas:
+    - I43: commitear las rondas de `revisar`;
+    - I44: el triaje de los lenguajes sin biblioteca, que se analiza con rigor junto con I28 e I34;
+    - lo nuevo de G8, sumado a I38.
+- **L45 (2026-11-18), T20 a T23 hechos, inline.**
+  - **T20 (S23):** la plantilla del `CLAUDE.md` de la instancia dice, en «Skills del plugin», que los cinco rituales los escribe el usuario y que el agente termina con la línea exacta. Queda en 155 líneas.
+    - Rojo: bootstrap_textos 28/29. Verde: 29/29.
+  - **T21 (S24):** `cerrar` suma «La entrega después del cierre»:
+    - comprobar la entrega con git de lectura;
+    - un cambio de código posterior a la revisión pasa antes por `revisar`;
+    - `listo`, con la foto nueva en la bitácora;
+    - `chore(<id>): entrega`;
+    - quitar la marca de ticket activo.
+    - El paso 9.5 ya no es ambiguo: la marca se quita solo con `listo`.
+  - **T22 (S25):** el paso 7 de `cerrar` desarma el worktree de un repo `own` si está limpio y su rama ya está en `origin`. En un repo del equipo, sigue siendo del usuario.
+  - **T23 (S26):** el paso 8.4 de `abrir` commitea el ticket en la instancia (`chore(<id>): abre el ticket`), con la carpeta del ticket y, si le sumó el worktree, el `.code-workspace`. La regla 3 lo nombra.
+  - T21 a T23 son solo texto en las skills y en `Doc/`, sin un test que pueda fallar antes. Ninguna suite lee esas skills, y la lectura estructural la hizo el parent.
+  - T21 y T22 van en un solo commit, porque comparten hunks en `cerrar`, `Doc/uso.md` y `Doc/diseno.md`, y se citan entre sí.
+  - Suites: bootstrap_textos 29/29, bootstrap_e2e 14/14, bootstrap 177/177 y ticket 38/38.
+  - Risk: none. Son cambios pedidos por el autor. `abrir` suma un commit en la instancia, que S3 ya autoriza ahí, y el worktree solo se desarma en un repo propio, con las dos comprobaciones.

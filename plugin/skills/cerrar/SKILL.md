@@ -123,14 +123,17 @@ En el `CLAUDE.md` del ticket, lo que mostró la propuesta (paso 4):
 
 ## 7. Desarmar el worktree
 
-Mirá «Worktree y rama» del ticket. Si usó un worktree, **recordale al usuario que lo desarme a mano**, porque los comandos en los repos del equipo los corre él:
+Mirá «Worktree y rama» del ticket. Si usó un worktree:
+
+- **En un repo con `"own": true`**, desarmalo vos, igual que `abrir` lo armó. Antes, comprobá dos cosas: que esté limpio (`git -C <ruta del worktree> status --porcelain` no imprime nada) y que su rama ya esté en `origin` (`git -C <repo> branch -r --contains <hash de la rama>` imprime al menos una rama, con el `fetch` del paso 6 si hizo falta). Con las dos, corré los dos comandos de abajo y mostrá lo que salió. Si falta una, no lo toques: decí cuál y dejáselo al usuario.
+- **En un repo del equipo**, recordale al usuario que lo desarme a mano, porque los comandos en esos repos los corre él.
 
 ```bash
 git -C <repo> worktree remove <ruta del worktree>
 git -C <repo> worktree prune
 ```
 
-**La rama no se borra** en este paso: su merge lo autoriza un líder, no el cierre.
+**La rama no se borra** en este paso: su merge lo decide quien lo autoriza, no el cierre. Si la entrega todavía no está, el worktree se queda: se desarma en «La entrega después del cierre».
 
 ## 8. El conocimiento
 
@@ -172,7 +175,7 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
 
    Si el pre-commit de la instancia falla, mostrá su salida: no lo saltees con `--no-verify`.
 
-5. **Si el ticket quedó cerrado**, sacale la marca de ticket activo, que solo se quita si es la suya: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ticket.py" --desactivar <id>`.
+5. **Si la entrega ya está** (`Estado` en `listo`), sacale la marca de ticket activo, que solo se quita si es la suya: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ticket.py" --desactivar <id>`. Si la entrega todavía no está, la marca se queda hasta «La entrega después del cierre».
 
 ## 10. Las memorias sin triar
 
@@ -180,7 +183,17 @@ Un aviso de una línea, que no tría ni frena el cierre. Corré `memorias.py` co
 
 ## Qué decir al final
 
-El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, lo de motor anotado, el estado de los dos relojes, el hash del commit, el aviso de las memorias y lo que le toca al usuario (desarmar el worktree, el `fetch` si quedó «no verificado»).
+El resumen del cierre: qué se graduó y a dónde, qué se quedó en el ticket, lo de motor anotado, el estado de los dos relojes, el hash del commit, el aviso de las memorias y lo que le toca al usuario (desarmar el worktree de un repo del equipo, o el de un repo propio que no se pudo desarmar, y el `fetch` si quedó «no verificado»).
+
+## La entrega después del cierre
+
+El cierre gradúa cuando el conocimiento está verificado, no cuando el código sale, así que un ticket puede cerrarse `en revisión` y entregarse después. En un ticket real, la entrega falló después del cierre: el arreglo, el `Estado` y un segundo commit se improvisaron, y el usuario tuvo que pedirlo. Cuando la entrega queda hecha (el usuario lo dice, o la hiciste vos en un repo propio con su sí), no se vuelve a correr el cierre:
+
+1. **Comprobá la entrega** con git de solo lectura, como en la foto del paso 6: la rama o el merge con su hash, y `git -C <repo> branch -r --contains <hash>`. El `fetch` previo, con el sí del usuario si es un repo del equipo.
+2. **Si la entrega cambió código después de la revisión**, ese cambio pasa antes por `/odd-ws:revisar`: el cierre no lo cubre.
+3. **En el `CLAUDE.md` del ticket:** `Estado` pasa a `listo`, la `Nota de estado` se vacía o dice lo que quede, y una entrada nueva de la bitácora trae la foto nueva de la entrega y lo que cambió desde el cierre.
+4. **Commiteá en la raíz de la instancia**, con `git add` por ruta, sin preguntar salvo `"ask_before_commit": true`, y sin push: `git commit -m "chore(<id>): entrega"`.
+5. **Sacale la marca de ticket activo** (`ticket.py --desactivar <id>`) y, en un repo propio, desarmá el worktree como en el paso 7.
 
 ## Modo memorias
 

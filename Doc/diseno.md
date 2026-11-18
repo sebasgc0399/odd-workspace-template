@@ -952,7 +952,9 @@ Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: 
   - Estado no se toca, salvo que cambie la entrega;
   - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado».
 - **Después de editar los docs**, corre `conocimiento.py`.
-- **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado y un `git add` explícito anclado con `:/` (nunca `-A`). No pide un segundo sí, porque el de la propuesta ya lo cubre (I10); con `"ask_before_commit": true`, sí lo pide. Nunca hace push. El worktree lo desarma el usuario, y la rama no se borra.
+- **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado y un `git add` explícito anclado con `:/` (nunca `-A`). No pide un segundo sí, porque el de la propuesta ya lo cubre (I10); con `"ask_before_commit": true`, sí lo pide. Nunca hace push. La rama no se borra. Si la entrega ya está (`listo`), quita la marca de ticket activo; si no, la marca se queda.
+- **El worktree (I41):** en un repo con `"own": true`, la skill lo desarma (`worktree remove` y `prune`) solo si está limpio y su rama ya está en `origin`; si no, dice qué falta. En un repo del equipo lo desarma el usuario. En un ticket real, el usuario tuvo que pedirle al agente que desarmara el worktree de su propio repo, que `abrir` había armado solo.
+- **La entrega después del cierre (I40):** un ticket puede cerrarse `en revisión` y entregarse después. Cuando la entrega queda hecha, no se repite el cierre: se comprueba con git de lectura, un cambio de código posterior a la revisión pasa antes por `revisar`, `Estado` va a `listo` con la foto nueva en la bitácora, se commitea (`chore(<id>): entrega`) y se quita la marca de ticket activo. En un ticket real, la entrega falló después del cierre, y el estado y el segundo commit se improvisaron.
 - **Las memorias sin triar:** al final, una línea con cuántas quedan, sin triarlas (ver «Memorias»).
 - **Fuera de la T9:**
   - el chequeo mecánico de «graduado ⇒ candidatos vacíos», que la skill pide en prosa;

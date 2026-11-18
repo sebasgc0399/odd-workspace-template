@@ -163,7 +163,9 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **El triaje de los aprendizajes.** Lee el ticket y decide qué pasa con cada aprendizaje: lo general sube a los docs de dominio, al `CLAUDE.md` de la raíz o a una fila de la matriz; lo de un solo ticket se queda en su carpeta.
 - **Antes de escribir** te muestra la propuesta completa y espera tu sí.
 - **El modo sombra.** Si hay un caso sin puntuar, frena y te manda primero a `/odd-ws:eval-reviewers`.
-- **Al final** te guía para desarmar el worktree y hace el commit de cierre (`chore(<id>): cierre e hidratación`) sin volver a preguntar, porque tu sí a la propuesta ya lo cubría. Con `"ask_before_commit": true` en la config, te pide un segundo sí antes del commit. Nunca hace push.
+- **Al final** hace el commit de cierre (`chore(<id>): cierre e hidratación`) sin volver a preguntar, porque tu sí a la propuesta ya lo cubría. Con `"ask_before_commit": true` en la config, te pide un segundo sí antes del commit. Nunca hace push.
+- **El worktree.** En un repo marcado como tuyo, lo desarma él si está limpio y su rama ya está en `origin`; si no, te dice qué falta. En un repo del equipo, te da los comandos para que lo desarmes tú.
+- **La entrega después del cierre.** Si cerraste antes de entregar, cuando la entrega queda hecha no se vuelve a cerrar: pasa el ticket a `listo`, anota la entrega en la bitácora, commitea (`chore(<id>): entrega`) y quita la marca de ticket activo. Si la entrega cambió código después de la revisión, ese cambio pasa antes por `/odd-ws:revisar`.
 - **Las memorias sin triar.** Cierra con una línea: «N memorias sin triar: `/odd-ws:cerrar memorias`». No las tría ni frena el cierre.
 
 #### El modo `memorias`
