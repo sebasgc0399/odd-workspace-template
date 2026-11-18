@@ -64,7 +64,7 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T21 | S24 | La entrega después del cierre | inline | hecho | el commit que suma L45, junto con T22 |
 | T22 | S25 | El worktree de un repo propio lo desarma el agente | inline | hecho | el commit que suma L45, junto con T21 |
 | T23 | S26 | `abrir` commitea el ticket | inline | hecho | `78f8887` |
-| T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
+| T9 | S1 | Entrega de la `0.9.0` | inline | hecho | el commit que suma L46, con la etiqueta `odd-ws--v0.9.0` |
 | F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | anotado | |
 
 ## Log
@@ -362,3 +362,15 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - T21 y T22 van en un solo commit, porque comparten hunks en `cerrar`, `Doc/uso.md` y `Doc/diseno.md`, y se citan entre sí.
   - Suites: bootstrap_textos 29/29, bootstrap_e2e 14/14, bootstrap 177/177 y ticket 38/38.
   - Risk: none. Son cambios pedidos por el autor. `abrir` suma un commit en la instancia, que S3 ya autoriza ahí, y el worktree solo se desarma en un repo propio, con las dos comprobaciones.
+- **L46 (2026-11-18), T9: la entrega de la `0.9.0`.** El autor, tal cual: «autorizo».
+  - El CI de `8c731a1`, el último commit de T20 a T23, pasó en los tres sistemas.
+  - El CHANGELOG `## 0.9.0` trae «Lo que cambia para ti», «Qué hacer en tu instancia» y «Detalle técnico». `tools/notas.py 0.9.0` imprime el cuerpo sin cortes.
+  - `plugin.json` (Claude Code y Codex), `package.json` y el README pasan a `0.9.0`.
+  - `Doc/actualizar.md` suma dos cosas:
+    - los dos comandos de Claude Code van juntos, porque sin `marketplace update` la instancia sigue en la versión anterior, como pasó en SM-1;
+    - «Después de actualizar: las plantillas de la instancia», con lo que hay que copiar a mano, sacado del diff de `plugin/plantillas/` contra `odd-ws--v0.8.0`.
+  - Roadmap:
+    - R4 pasa a Hecho, y sus 26 ideas a «hecha (`0.9.0`)»;
+    - R2 queda como lo siguiente, con F1 adentro;
+    - R3 pasa a «Esperando», con la cita del autor: «Bueno lo de R3 se puede postergar hasta nuevo aviso, ya que no me han pedido soporte para OpenCode, Gemini CLI y Copilot CLI para que lo hagamos a demanda».
+  - Pendiente después de publicar: medir cuánto tarda el bootstrap («de 20 minutos a X») en una instancia nueva.

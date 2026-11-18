@@ -2,6 +2,80 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.9.0
+
+**El primer uso pide menos pasos a mano, y revisar cuesta menos.** Todo sale de usar odd-ws en un ciclo real, de la instalación al cierre de un ticket.
+
+### Lo que cambia para ti
+
+- **El bootstrap, en una parada.**
+  - Detecta tus repos y sus extensiones, y te muestra una sola propuesta, con cada término explicado. Un sí la aplica.
+  - Deja el hook en LF con un `.gitattributes`, y hace el primer commit con el hook ejecutable, también en Windows.
+  - Cierra con el siguiente paso: abrir tu primer ticket, o sembrar las reglas que tu repo ya tiene.
+- **Los commits en la instancia.**
+  - El agente commitea en la raíz de la instancia sin pedirte permiso cada vez, con `git add` por ruta y nunca push. Eso cubre el primer commit del bootstrap, el del ticket al abrirlo, el del cierre y el de la entrega.
+  - Si prefieres aprobarlos, pon `"ask_before_commit": true` en `workspace.config.json`.
+  - En los repos del equipo no cambia nada: cada commit se autoriza puntualmente.
+- **Tus repos.** Un repo con `"own": true` es tuyo. Ahí `abrir` crea el worktree del ticket, y `cerrar` lo desarma si está limpio y su rama ya está en `origin`.
+- **Los tickets.**
+  - Sin tracker, `abrir` te propone el siguiente id (`T-1`, `T-2`…).
+  - El ticket es el documento de trabajo. Uno grande suma `## Specs` y `## Tareas`, y todos tienen `## Seguimientos` para lo que queda para después.
+  - Puedes trabajar desde la raíz, que es lo cómodo en VS Code. El ticket activo te llega como resumen al arrancar y después de cada `/compact`.
+  - La conversación sigue en tu idioma después de compactar.
+  - Los rituales (`abrir`, `cerrar`, `bootstrap`…) los escribes tú, y el agente te deja la línea exacta en vez de ofrecerte lanzarlos.
+- **Revisar.**
+  - Las rondas se numeran y nunca pisan una revisión anterior.
+  - Cada unidad se revisa desde el commit sellado de la anterior, así que no se vuelve a revisar lo ya revisado.
+  - Después de una corrección, el rechequeo mira solo lo que cambió o se sumó: una corrida de diseño más una por capa, también en `completo`. Su recibo cubre la unidad entera y se puede sellar.
+  - Lo que el rechequeo encuentra y no es `CRITICAL` se deriva a `## Seguimientos`.
+  - Te pide menos síes. El modo `0` corre sin preguntar, y aprobar una corrección aprueba su rechequeo.
+  - Los revisores reciben las decisiones del ticket y no te las vuelven a discutir.
+  - Los archivos que Python genera sin trackear (`__pycache__/`, `*.pyc`) ya no suben el modo.
+- **Cerrar.** Si la entrega llega después del cierre, `cerrar` deja el ticket en `listo` sin repetir el cierre.
+- **Las memorias.** `cerrar memorias` también lee las memorias que guardaste trabajando dentro de tus repos.
+- **El doctor.** Te avisa de las extensiones de código que ninguna capa cubre, porque llevan la revisión a `completo`, y revisa que el hook esté en LF.
+
+### Qué hacer en tu instancia
+
+1. **Actualiza el plugin con los dos comandos** de [Doc/actualizar.md](Doc/actualizar.md). Sin `marketplace update`, te quedas en la versión anterior sin aviso.
+2. **Copia lo nuevo de las plantillas** a tu `CLAUDE.md` y a `tickets/_plantilla/CLAUDE.md`, porque el bootstrap no las pisa. La lista está en [Doc/actualizar.md](Doc/actualizar.md#después-de-actualizar-las-plantillas-de-la-instancia).
+3. **Corre `/odd-ws:doctor`.** Te avisa si al hook le falta el `.gitattributes` y qué extensiones no tienen capa.
+
+### Detalle técnico
+
+- **`bootstrap.py`:**
+  - `--proponer` lee el `.code-workspace` y cuenta las extensiones con `git ls-files`.
+  - `--commitear` hace el primer commit, con `git add --chmod=+x` para el hook.
+  - El `.gitattributes` lleva `.githooks/* text eol=lf`, y el doctor revisa la línea en `instancia-eol`.
+- **`config_loader.py`** valida tres claves opcionales: `tickets.prefix`, `ask_before_commit` y `repos.<r>.own`. `own` no puede ir junto con `agent_readonly`.
+- **`ticket.py`:**
+  - `--siguiente` da el siguiente id, contando también los tickets archivados.
+  - `--activar` y `--desactivar` mueven la marca `.claude/estado/ticket-activo`.
+- **`verificar_capa.py`:**
+  - En la raíz, `SessionStart` inyecta un resumen del ticket activo: la cabecera sin las citas del molde, Objetivo, Specs, Tareas, Seguimientos y las últimas 5 entradas de la Bitácora.
+  - Corre en `startup`, `resume`, `compact` y `clear`, en los tres CLI.
+  - El tope de 12000 caracteres queda solo como red.
+- **`recibo.py`:**
+  - `--ronda` escribe en `revision/<fecha>-<modo>-<n>/`.
+  - `--sellar` anota el commit que guarda lo revisado.
+  - `--previo` escribe el recibo de un rechequeo, con `rechequeados`, `heredados` y `retirados`, desde la base del recibo previo.
+  - `--derivado HALLAZGO=DESTINO` anota lo que se deriva.
+  - Sin las opciones nuevas, la salida y los bytes del recibo son los de antes, según un diferencial contra la `0.8.0`.
+- **`triaje.py`:**
+  - La base de `--ticket` sale, en este orden, de la explícita, del sello más nuevo (si es ancestro de `HEAD` y más nuevo que el merge-base) o del merge-base.
+  - Los archivos generados sin trackear salen en `generados`, fuera de la unidad.
+- **`memorias.py --repo`** lee las memorias del proyecto de cada repo de la config.
+- **El doctor** suma `capas-cobertura`.
+- **Las skills:**
+  - `revisar` suma la sección 9 (una corrección y un rechequeo) y las decisiones en el prompt.
+  - `abrir` commitea el ticket.
+  - `cerrar` suma la entrega después del cierre y el worktree de un repo propio.
+- **Las verificaciones:**
+  - Dos cambios tuvieron verificador independiente ([experiencia-de-uso](odd/tasks/experiencia-de-uso.md)):
+    - los commits del bootstrap y de `cerrar`, con tres bloqueos corregidos y rechequeados;
+    - la base sellada junto con el rechequeo, con un bloqueo de texto corregido y rechequeado (L40).
+  - El CI pasó en Windows, Ubuntu y macOS.
+
 ## 0.8.0
 
 **Las reglas de la capa corren aunque el agente escriba por la shell.**
