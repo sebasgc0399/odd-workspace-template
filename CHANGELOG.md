@@ -2,6 +2,37 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.9.1
+
+**Un parche: el doctor de Pi deja de dar OK falsos, un writer de gentle-shell ya no corre sin guards en el repo de arriba, y la documentación dice dónde va la instancia.**
+
+### Lo que cambia para ti
+
+- **La instancia va en una carpeta aparte.** El README y la guía de uso ahora lo dicen claro: la instancia es una carpeta propia, con su propio git, al lado de tus repos de código. Apunta a tus repos por su ruta, sin tocarlos. Si la creas dentro de un repo de código, pierde su git: el bootstrap no le hace `git init`, ni configura el hook, ni hace el primer commit.
+- **En gentle-shell (Pi), un writer ya no corre sin guards en el repo de arriba.** Si la instancia estaba dentro de otro repo y tenía una carpeta `.git` vacía o rota, el shim la tomaba como raíz git, mientras gentle-shell corría al writer en el repo de arriba. Ahora el shim mira el `.git` como lo hace git, y lo frena.
+- **El doctor de Pi dice la verdad.** Antes daba OK en cinco casos en que Pi no cargaba el shim: tres enlaces o junctions que duplican el plugin, un `NaN` en el `settings.json` y un filtro escrito como `file://`. Ahora da el veredicto real. Además te avisa si la instancia está en una subcarpeta de su repo, donde gentle-shell no tiene writers.
+- **No tienes que regenerar nada.** Actualiza el plugin con los dos comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **`hosts/pi.py`:**
+  - La deduplicación de paquetes y la clave `extensions` de nivel superior usan la ruta real, como `getResourcePathKey` en Pi. En `toResolvedPaths`, Pi ordena por precedencia y descarta los duplicados, así que la primera copia gana aunque esté deshabilitada.
+  - El `settings.json` se lee con `parse_constant`, que rechaza `NaN`, `Infinity` y `-Infinity` como `JSON.parse`.
+  - Un patrón `file://` se normaliza a su ruta.
+  - Con `git rev-parse --show-toplevel`, el ítem de gentle-shell da AVISO cuando la instancia está en una subcarpeta de su repo.
+  - Los helpers que `pi.py` importaba de `codex.py` pasan a `hosts/base.py`, sin cambio de comportamiento.
+- **`shim/pi.ts`:** `esCarpetaDeGit` cuenta una carpeta `.git` cuando se cumplen dos cosas:
+  - `HEAD` es un archivo o un enlace, visto con `lstat`;
+  - y hay un `commondir`, o bien `objects` y `refs`: carpetas en POSIX y de cualquier tipo en Windows, como acepta git for Windows.
+  - Un `.git` que es archivo sigue igual.
+  - **Quedan dos límites:** un `HEAD` cuyo contenido git rechaza, y un `commondir` que apunta a una carpeta que no existe (X18).
+- **Los dos tests de plazo** (`test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` y `test_un_git_que_pasa_el_plazo_se_informa_y_la_salida_sigue_en_cero`) corren un comando que duerme 30 s contra un plazo de 0.5 s. El corte ya no depende del tiempo.
+- **Las verificaciones:**
+  - El cambio del shim tuvo un verificador independiente, una tanda de corrección y un rechequeo ([multi-host](odd/tasks/multi-host.md), L60).
+  - El doctor dio la misma salida que en la `0.9.0` en los casos de antes.
+  - El CI pasó en Windows, Ubuntu y macOS.
+- **Los estudios:** `odd/estudios/` trae cinco borradores para decidir: el costo de revisar, la calidad de los revisores, las reglas que cambian, `mold_source` y mudar la instancia a otra máquina.
+
 ## 0.9.0
 
 **El primer uso pide menos pasos a mano, y revisar cuesta menos.** Todo sale de usar odd-ws en un ciclo real, de la instalación al cierre de un ticket.

@@ -65,7 +65,7 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T22 | S25 | El worktree de un repo propio lo desarma el agente | inline | hecho | el commit que suma L45, junto con T21 |
 | T23 | S26 | `abrir` commitea el ticket | inline | hecho | `78f8887` |
 | T9 | S1 | Entrega de la `0.9.0` | inline | hecho | el commit que suma L46, con la etiqueta `odd-ws--v0.9.0` |
-| F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | anotado | |
+| F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | hecho con X16 de multi-host, en la `0.9.1` | `2e8af01` |
 
 ## Log
 

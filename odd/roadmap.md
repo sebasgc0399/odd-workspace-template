@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-18, con la `0.9.0` (R4), las ideas I1 a I44, R2 como siguiente y R3 a demanda.
+Actualizado: 2026-11-18, con la `0.9.1` (R2), las ideas I1 a I45 y R3 a demanda. La cola está vacía: lo siguiente sale de los estudios de `odd/estudios/`, que se deciden con el autor.
 
 ## Cómo se mueve
 
@@ -17,7 +17,6 @@ Actualizado: 2026-11-18, con la `0.9.0` (R4), las ideas I1 a I44, R2 como siguie
 
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
-| R2 | En Pi, el doctor da un OK falso en cinco casos forzados, y una carpeta `.git` inválida confunde la raíz de la instancia. Además, dos tests de plazo fallan a veces en el CI, entre ellos el de `afirmaciones` en macOS (F1 de [experiencia-de-uso](tasks/experiencia-de-uso.md)). | [multi-host](tasks/multi-host.md), X14 a X16 | siguiente |
 
 ## Esperando
 
@@ -87,16 +86,16 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 |---|---|
 | [endurecer-guards](tasks/endurecer-guards.md) | Y1 a Y5 e Y7 a Y10 |
 | [graduar-memorias](tasks/graduar-memorias.md) | X1 a X6 |
-| [multi-host](tasks/multi-host.md) | X1, X3 a X8, X12 y X13 |
+| [multi-host](tasks/multi-host.md) | X1, X3 a X8, X12, X13 y X18 |
 | [paquetes-de-reglas](tasks/paquetes-de-reglas.md) | A4 a A8, los avisos del verificador de T1 |
 | [uso-en-equipo](tasks/uso-en-equipo.md) | F1 y F2 |
 | [capa-por-shell](tasks/capa-por-shell.md) | F1, la caché de bytecode de los hooks; los avisos A1 a A6 del verificador de la parte B (L20) |
-| [experiencia-de-uso](tasks/experiencia-de-uso.md) | F1, el test de plazo de `afirmaciones`, inestable en macOS (L41): va con R2 |
 
 ## Hecho
 
 | Versión | Qué |
 |---|---|
+| `0.9.1` | El doctor de Pi sin OK falsos, el `.git` del shim como lo mira git y los tests de plazo deterministas (R2: X14, X15 y X16 de [multi-host](tasks/multi-host.md)), y la instancia en una carpeta aparte en el README |
 | `0.9.0` | La experiencia de uso, vista en un ciclo real que fue de la instalación al cierre de un ticket (R4): el bootstrap en una parada, los commits en la instancia, el ticket activo como resumen, el rechequeo y el cierre de una revisión, y el cierre con la entrega después ([experiencia-de-uso](tasks/experiencia-de-uso.md); ideas I7 a I16, I18 a I20, I23 a I27, I30 a I33 e I39 a I42) |
 | `0.8.0` | Las reglas de la capa corren aunque el agente escriba por la shell: el guard frena la escritura de capa por la shell (R1) y el fin del turno revisa lo que cambió (R1b) ([capa-por-shell](tasks/capa-por-shell.md)) |
 | `0.7.0` | Paquetes de reglas importables desde git ([paquetes-de-reglas](tasks/paquetes-de-reglas.md)) y la guía de uso en equipo ([uso-en-equipo](tasks/uso-en-equipo.md)) |
