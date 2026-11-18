@@ -207,6 +207,13 @@ def test_la_raiz_dice_como_sumar_los_repos_a_la_sesion_del_ticket():
     assert "«Worktree y rama»" in contexto
 
 
+def test_la_raiz_fija_el_idioma_del_usuario_tambien_despues_de_compactar():
+    texto = textos()["CLAUDE.md"]
+    contexto = " ".join(texto.split("## Cómo se carga el contexto")[1].split("## Ciclo de un ticket")[0].split())
+    assert "idioma en que escribe el usuario" in contexto and "`/compact`" in contexto, contexto
+    assert "resumen quedó en otro idioma" in contexto, contexto
+
+
 def test_la_raiz_dice_quien_commitea_en_la_instancia_y_que_hace_el_agente_en_un_repo_propio():
     texto = textos()["CLAUDE.md"]
     seccion = " ".join(texto.split("## Repos del equipo")[1].split("\n## ")[0].split())

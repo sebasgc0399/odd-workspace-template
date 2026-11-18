@@ -23,6 +23,9 @@ que abriste, o el que marcaste con `ticket.py --activar <id>`) llega como resume
 cada `/compact`: objetivo, specs, tareas, seguimientos y la bitácora reciente. Lo demás se lee en su
 `CLAUDE.md`. Sus repos o su worktree van como carpetas del `.code-workspace`, después de la raíz.
 
+**El idioma de la conversación** es el idioma en que escribe el usuario, también después de un `/compact`
+cuyo resumen quedó en otro idioma.
+
 ## Ciclo de un ticket
 
 1. **Abrir** con `/odd-ws:abrir`: crea `{{tickets}}/<id>-<slug>/` desde la plantilla
