@@ -97,6 +97,8 @@ Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el *
 | `rapido` | `revisor-diseno` ×1, más `revisor-<capa>` ×1 por cada capa tocada |
 | `completo` | `revisor-diseno` ×3, con los archivos en un orden distinto en cada corrida (con un solo archivo el orden es el mismo y las 3 son muestras independientes: no lo anuncies como «en otro orden»), más `revisor-<capa>` ×1 por cada capa tocada |
 
+**Un rechequeo** (sección 9) corre `revisor-diseno` ×1 más `revisor-<capa>` ×1 por cada capa de los rechequeados, también en modo `completo`: sin orden barajado ni frecuencias.
+
 **Orden barajado (modo `completo`).** La primera corrida de diseño recibe los archivos en el orden del triaje; la segunda, en el orden inverso; la tercera, en un orden barajado. El orden va escrito en el prompt como lectura sugerida.
 
 **La forma del prompt:**
@@ -139,7 +141,7 @@ python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --desti
 
 La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 
-- **Modo `rapido`:** junta los reportes de diseño y de capa. Cada hallazgo, una vez, con su ubicación y su regla.
+- **Modo `rapido`, y todo rechequeo:** junta los reportes de diseño y de capa. Cada hallazgo, una vez, con su ubicación y su regla.
 - **Modo `completo`:**
   - **Hallazgos con su frecuencia** entre las tres corridas de diseño (3/3, 2/3, 1/3), unidos por ubicación y regla. Los que salieron 1/3 van marcados **«a confirmar»**.
   - **Conflictos:** la misma pieza con veredictos opuestos entre corridas (por ejemplo, «quitar» contra «consumido»). Van en su propia sección, **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**.
@@ -186,7 +188,7 @@ Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste 
 2. **Un rechequeo** cuando termina el lote. Verifica los hallazgos anteriores y revisa solo lo que cambió desde la ronda anterior:
    - **Qué entra.** Los rechequeados son los archivos que nombra `recibo.py --check "<carpeta de la ronda anterior>"` cuando sale con 1 (los que cambiaron), más los que el triaje lista y el recibo anterior no tiene (los que sumó la corrección, como un test nuevo). Si `--check` sale con 0 y la corrección no sumó archivos, no hay nada que rechequear. Un archivo sumado nunca se salta: sin su rechequeo queda sin revisar y `--sellar` rechaza el commit que lo trae.
    - **La base** es la del recibo anterior, y el triaje con `--ticket` da esa misma mientras la unidad no se selle. **El modo** es el de la ronda anterior, y la carpeta es la ronda siguiente (`<fecha>-<modo>-<n>`). Si el triaje de ahora da otra base o propone un modo más alto, no es un rechequeo: es una revisión nueva de la unidad entera, que pide su sí.
-   - **Las corridas** son las del modo, pero solo con el revisor de diseño y los de las capas de los archivos rechequeados: `1 + <capas>` en `rapido` y `3 + <capas>` en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo y pedí el sí.
+   - **Las corridas** son una de `revisor-diseno` más una por cada capa de los archivos rechequeados, `1 + <capas>`, tanto en `rapido` como en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. El rechequeo verifica una corrección acotada y no repite las tres corridas de `completo`: en un ticket real, dos rechequeos de una corrida, con los hallazgos anteriores en el prompt, cerraron bien. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo y pedí el sí.
    - **La entrada** es el diff de los rechequeados contra la base (paso 3). El prompt suma los hallazgos de la ronda anterior, con su ubicación, su regla y su severidad, copiados del `consolidado.md`, y pide decir de cada uno si quedó resuelto. La regla de no leer `revision/` sigue.
    - **El recibo** hereda lo que no cambió:
 
