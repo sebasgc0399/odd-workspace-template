@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -478,8 +478,36 @@ function raizDeLaInstancia(desde: string): string | null {
   return subir(desde, (carpeta) => es(join(carpeta, CONFIG_DE_LA_INSTANCIA), "archivo"));
 }
 
+function existeComoArchivoOEnlace(ruta: string): boolean {
+  try {
+    const datos = lstatSync(ruta);
+    return datos.isFile() || datos.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function existeSegunLaPlataforma(ruta: string): boolean {
+  if (process.platform === "win32") {
+    try {
+      statSync(ruta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return es(ruta, "carpeta");
+}
+
+function esCarpetaDeGit(ruta: string): boolean {
+  if (!existeComoArchivoOEnlace(join(ruta, "HEAD"))) {
+    return false;
+  }
+  return es(join(ruta, "commondir"), "archivo") || (existeSegunLaPlataforma(join(ruta, "objects")) && existeSegunLaPlataforma(join(ruta, "refs")));
+}
+
 function raizDeGit(desde: string): string | null {
-  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || es(join(carpeta, MARCA_DE_GIT), "carpeta"));
+  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || esCarpetaDeGit(join(carpeta, MARCA_DE_GIT)));
 }
 
 function canonica(ruta: string): string {

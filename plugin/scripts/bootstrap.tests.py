@@ -2648,10 +2648,19 @@ def test_un_git_que_pasa_el_plazo_se_informa_y_la_salida_sigue_en_cero():
             print("      (el temporal está dentro de un repo: prueba omitida)")
             return
         anterior = b().PLAZO_DE_GIT
-        b().PLAZO_DE_GIT = 0.000001
+        corrida = b().subprocess.run
+
+        def git_durmiente(argv, *args, **kwargs):
+            if argv and argv[0] == "git":
+                argv = [sys.executable, "-c", "import time; time.sleep(30)"]
+            return corrida(argv, *args, **kwargs)
+
+        b().PLAZO_DE_GIT = 0.5
+        b().subprocess.run = git_durmiente
         try:
             codigo, salida, errores = correr_con_git(e, e.raiz)
         finally:
+            b().subprocess.run = corrida
             b().PLAZO_DE_GIT = anterior
         assert codigo == 0 and errores == "", (codigo, errores)
         lineas = salida.splitlines()
