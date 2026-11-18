@@ -12,7 +12,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 
 1. **Nada se escribe antes del sí.** La carpeta se crea con el sí del paso 2, y el contenido del ticket se escribe con el sí del paso 8. Mostrar primero, escribir después.
 2. **Nada se asume.** Si algo del pedido no está claro, queda como pregunta en el ticket. En particular, todo «X o Y» del pedido es una pregunta por fijar con el líder antes de codear, no una elección tuya.
-3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. Lo único que escribe es la carpeta del ticket. La excepción es un repo con `"own": true` en `workspace.config.json`, que es del usuario: ahí la skill corre ella misma el `fetch` y crea el worktree (paso 6). Ni ahí commitea ni hace push.
+3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. Lo único que escribe es, en la instancia, la carpeta del ticket, el `.code-workspace` si le suma el worktree, y el commit de eso (paso 8). La excepción es un repo con `"own": true` en `workspace.config.json`, que es del usuario: ahí la skill corre ella misma el `fetch` y crea el worktree (paso 6). Ni ahí commitea ni hace push.
 4. **No hay contrato con el tracker.** Si esta sesión tiene una herramienta (MCP) del tracker del usuario, se usa para leer el pedido; si no, el usuario lo pega.
 5. **Cuando el glob de un id encuentra más de una carpeta, las listás y preguntás.** Nunca elegís una vos. Con ids que llevan guion, la carpeta de `AB-CD-x` también aparece en el glob del id `AB`.
 
@@ -124,7 +124,15 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
    - **Si es chico**, decí que vas a quitar esas dos secciones.
 2. **Pedí el sí.** Sin sí, no se escribe nada. Si el usuario corrige algo, ajustá y volvé a mostrar.
 3. **Con el sí**, editá `<ticket>/CLAUDE.md` con Edit, sección por sección, sin tocar las demás (Seguimientos, Decisiones, Gotchas, Candidatos a graduar y Cierre quedan como los trae la plantilla). En un ticket chico, quitá `## Specs` y `## Tareas`; `## Seguimientos` queda, porque ahí van los hallazgos que una revisión derivó y los pendientes, también en un ticket chico. La primera entrada de la bitácora lleva el pedido tal cual, porque la bitácora hace de Log: `<fecha> — el pedido, tal cual: «<…>»; abierto desde <fuente>; preguntas por fijar: <n>`.
-4. **Decí qué quedó escrito** y qué sigue:
+4. **Commiteá el ticket en la raíz de la instancia**, sin volver a preguntar: el sí del paso 2 ya lo cubre, y en la instancia el agente commitea sin pedir aprobación. Solo si `workspace.config.json` dice `"ask_before_commit": true`, pedí el sí antes. Así el ticket tiene historia desde el primer día, y el commit de `cerrar` no se lleva todo de una vez: en un ticket real, el cierre barrió 151 archivos. `git add` explícito, nunca `-A`: la carpeta del ticket y, si este `abrir` le sumó el worktree, el `.code-workspace`. Nunca hagas push.
+
+   ```bash
+   git add -- ':/<ticket>' [':/<archivo>.code-workspace']
+   git commit -m "chore(<id>): abre el ticket"
+   ```
+
+   Si el pre-commit de la instancia falla, mostrá su salida: no lo saltees con `--no-verify`.
+5. **Decí qué quedó escrito** y qué sigue:
    - las dos formas de trabajar el ticket, con las rutas reales:
      - **desde su carpeta**, con `claude --add-dir <ruta>` por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o editar fuera de la carpeta del ticket;
      - **desde la raíz**, que es lo cómodo en VS Code: `ticket.py` ya lo dejó como ticket activo, así que un resumen de su `CLAUDE.md` (objetivo, specs, tareas, seguimientos y la bitácora reciente) llega al arrancar y después de cada `/compact`;

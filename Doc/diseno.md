@@ -892,6 +892,7 @@ Es el ritual de apertura de un ticket: que el trabajo arranque con el alcance en
   - **Un repo con `"own": true`** (I10) es del usuario: si el usuario elige un worktree, la skill corre ella misma el `fetch` y el `worktree add`, y muestra lo que salió. Si elige el árbol principal, el `switch` lo corre él, como en cualquier repo. Ni ahí commitea ni hace push. Estas reglas son de la skill: el guard de comandos solo protege los repos con `agent_readonly`, y `own` no puede ir con esa clave.
 - **El Paso 0** (hermano vigente y consumidor de cada dato nuevo) se recuerda y queda escrito en el ticket antes de cualquier código; si todavía no se sabe, queda pendiente.
 - **Mostrar antes de escribir:** el contenido del ticket se muestra junto y se escribe solo con el sí. Cierra con los pasos que siguen: `/odd-ws:revisar` antes de cada commit y `/odd-ws:cerrar` al terminar.
+- **El commit del ticket (I42):** con el ticket escrito, la skill lo commitea en la raíz de la instancia (la carpeta del ticket y, si le sumó el worktree, el `.code-workspace`), con `git add` anclado con `:/`, sin un segundo sí salvo `"ask_before_commit": true` y sin push. En un ticket real, la instancia no tuvo un commit en todo el ticket, y el de cierre se llevó 151 archivos de una vez.
 
 ### Revisar (`skills/revisar`, T9)
 

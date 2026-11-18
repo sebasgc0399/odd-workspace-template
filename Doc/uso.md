@@ -140,6 +140,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **Si el ticket es grande**, suma sus Specs (tu pedido tal cual, numerado) y sus Tareas. Si usas el ODD de gentle-ai, ese ticket es su documento de feature: no se crea otro en `odd/tasks/`.
 - **El worktree o la rama.** Te sugiere el comando, con `--no-track`, y lo corres tú. En un repo marcado como tuyo (`"own": true` en `workspace.config.json`), corre él mismo el `fetch` y crea el worktree; no commitea ni hace push ahí.
 - **El ticket activo.** El ticket que abre queda como activo, y si retomas uno, lo marca con `ticket.py --activar <id>`. Si trabajas desde la raíz, un resumen de su `CLAUDE.md` llega al arrancar y después de cada `/compact`. Si la raíz tiene un `.code-workspace`, le suma el worktree como carpeta.
+- **El commit del ticket.** Con el ticket escrito, lo commitea en la instancia (`chore(<id>): abre el ticket`) sin volver a preguntar, salvo `"ask_before_commit": true`. Así el ticket tiene historia desde el primer día. Nunca hace push.
 - **Al final** te dice las dos formas de trabajar el ticket: desde su carpeta con `--add-dir`, o desde la raíz.
 
 ### `/odd-ws:revisar`
