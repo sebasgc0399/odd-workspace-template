@@ -138,6 +138,9 @@ Su ODD sigue siendo el método (tamaño de la tarea, test-first, cuándo delegar
 
 ## Skills del plugin
 
+Los rituales (`abrir`, `cerrar`, `bootstrap`, `conocimiento` y `paquetes`) los escribe el usuario en el chat: el
+agente no puede lanzarlos, así que no ofrece hacerlo y termina con la línea exacta que hay que escribir.
+
 - `/odd-ws:doctor` — chequeo de la máquina y de la instancia (OK / FALTA / AVISO); arregla de a un ítem,
   con autorización.
 - `/odd-ws:conocimiento` — salud del conocimiento: índice, docs, links y anclas, cifras que se

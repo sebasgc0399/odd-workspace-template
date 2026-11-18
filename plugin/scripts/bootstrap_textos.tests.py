@@ -214,6 +214,14 @@ def test_la_raiz_fija_el_idioma_del_usuario_tambien_despues_de_compactar():
     assert "resumen quedó en otro idioma" in contexto, contexto
 
 
+def test_la_raiz_dice_que_los_rituales_los_escribe_el_usuario():
+    texto = textos()["CLAUDE.md"]
+    seccion = " ".join(texto.split("## Skills del plugin")[1].split())
+    for ritual in ("`abrir`", "`cerrar`", "`bootstrap`", "`conocimiento`", "`paquetes`"):
+        assert ritual in seccion.split("- `/odd-ws:")[0], (ritual, seccion)
+    assert "los escribe el usuario" in seccion and "la línea exacta" in seccion, seccion
+
+
 def test_la_raiz_dice_quien_commitea_en_la_instancia_y_que_hace_el_agente_en_un_repo_propio():
     texto = textos()["CLAUDE.md"]
     seccion = " ".join(texto.split("## Repos del equipo")[1].split("\n## ")[0].split())
