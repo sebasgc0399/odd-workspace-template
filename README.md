@@ -23,7 +23,7 @@ flowchart LR
 
 ## Qué te da
 
-El plugin convierte la carpeta de tu proyecto en una **instancia**, un espacio de trabajo con agentes:
+El plugin monta una **instancia**, un espacio de trabajo con agentes, en una carpeta aparte, al lado de tus repos de código. La instancia tiene su propio git y apunta a tus repos por su ruta, sin tocarlos:
 
 - **Cada ticket tiene su carpeta,** con su objetivo, sus criterios de aceptación y su alcance.
 - **Los hooks chequean cada edición** contra las reglas de su capa, y frenan los comandos peligrosos.
@@ -72,7 +72,7 @@ En Windows, `python3` lo crean el Python install manager de python.org y la Micr
 <details open>
 <summary><strong>Con Claude Code</strong></summary>
 
-1. **Instala el plugin** desde la carpeta del proyecto (puede estar vacía). `--scope project` es obligatorio: sin él, los hooks correrían en todos tus proyectos.
+1. **Instala el plugin** desde la carpeta de la instancia: una carpeta aparte, no la de tu repo de código (puede estar vacía). `--scope project` es obligatorio: sin él, los hooks correrían en todos tus proyectos.
 
    ```text
    claude plugin marketplace add sebasgc0399/odd-workspace-template

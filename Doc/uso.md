@@ -6,7 +6,7 @@ Esta guía es para quien ya instaló el plugin y lo usa en su proyecto: los conc
 
 | Término | Qué es |
 |---|---|
-| Instancia | La carpeta de tu proyecto con la metodología montada: `workspace.config.json`, su `CLAUDE.md`, sus agentes y sus reglas. La genera `/odd-ws:bootstrap`. |
+| Instancia | Una carpeta aparte, al lado de tus repos de código, con la metodología montada: `workspace.config.json`, su `CLAUDE.md`, sus agentes y sus reglas, y su propio git. La genera `/odd-ws:bootstrap`. Si la creas dentro de un repo de código, pierde su git: el bootstrap no le hace `git init` ni configura el hook ni el primer commit. |
 | Ticket | Una carpeta por pedido, en `tickets/<id>-<slug>/`. Su `CLAUDE.md` guarda el objetivo, los criterios de aceptación, el alcance, el Paso 0 y la bitácora. |
 | Repo de código | Donde vive el código. La instancia no lo contiene: lo referencia por su ruta en `workspace.local.json`. |
 | Capa | Un tipo de código con convenciones propias (por ejemplo `sql` o `web`): sus extensiones, sus repos y su prefijo de reglas. |
@@ -98,7 +98,7 @@ claude --add-dir D:/code/mi-repo
 
 | Comando | Cuándo | Dónde | Quién la dispara |
 |---|---|---|---|
-| `/odd-ws:bootstrap` | Para crear una instancia o completar una que ya existe | La carpeta del proyecto | Solo tú |
+| `/odd-ws:bootstrap` | Para crear una instancia o completar una que ya existe | La carpeta de la instancia, aparte de tus repos | Solo tú |
 | `/odd-ws:doctor` | Al estrenar máquina, después de clonar o cuando un hook no corre | Un clon de la plantilla o una instancia | Tú o Claude |
 | `/odd-ws:abrir` | Al empezar un ticket | La instancia: su raíz o un ticket | Solo tú |
 | `/odd-ws:revisar` | Antes de cada commit, o antes de mostrarle un cambio a un líder | La carpeta del ticket | Tú o Claude, con tu sí cuando cuesta corridas |
