@@ -26,6 +26,10 @@ Cada spec cita al autor tal cual. La definición de cada mejora es la fila de su
 - **S16. Menos síes en `revisar` (I25).** Las mismas citas que S14. El modo 0, que cuesta cero corridas, corre sin pedir el sí. Aprobar un lote de corrección cuyo mensaje anuncia el rechequeo y su costo aprueba también ese rechequeo.
 - **S17. El resumen del ticket activo (I26).** Las mismas citas que S14. Lo que T6 inyecta deja de ser un recorte a 12000 caracteres, que en un ticket real de 30600 caracteres cortaba `## Tareas` a la mitad, y pasa a ser un resumen: la cabecera, el Objetivo, los S#, la tabla de Tareas entera, los Seguimientos y las últimas entradas de la Bitácora, con la ruta del archivo completo. Si aun así pasa el tope, se recorta con la línea de dónde sigue.
 - **S18. Los scratch donde se pueden borrar (I27).** Las mismas citas que S14. Las skills y las plantillas que sugieren «el temp del sistema» para el scratch dicen `%TEMP%\claude` (o el scratch de la sesión), porque fuera de ahí el guard no deja borrar con `rm -rf` y la limpieza le queda al usuario.
+- **S19. Los archivos generados sin trackear (I30).** «Pues si quieres revisa la sesion a ver que mas puedes observar como mejora» y, sobre la lista de lo encontrado (G1, G3, G5 y G7 a la versión, el resto como ideas), «Vale me parece bien». El triaje deja fuera de la unidad los archivos sin trackear que genera una herramienta (`__pycache__/`, `*.pyc`, `*.pyo`) y los nombra aparte, para que no vuelvan inválida la señal de consumidores ni lleven el modo a `completo`. Supuesto: la lista de patrones es fija; ampliarla por config queda fuera.
+- **S20. El costo de un rechequeo (I31).** Las mismas citas que S19. Un rechequeo corre una corrida de `revisor-diseno` más la de cada capa de los rechequeados, tanto en `rapido` como en `completo`, y cero en modo 0. Corrige la regla de T13, que en `completo` pedía `3 + <capas>`.
+- **S21. El idioma después de un `/compact` (I32).** Las mismas citas que S19. El `CLAUDE.md` de la instancia dice que la conversación sigue en el idioma en que escribe el usuario, también después de un `/compact` cuyo resumen quedó en otro idioma. Supuesto: una línea en la plantilla alcanza, porque ese `CLAUDE.md` se vuelve a cargar después de compactar.
+- **S22. Lo ya decidido no se vuelve a plantear (I33).** Las mismas citas que S19. El prompt de cada corrida de `revisar` suma las decisiones del ticket (`## Decisiones`) como lo que no se vuelve a plantear. Supuesto: un hallazgo CRITICAL que contradice una decisión se reporta igual, nombrando la decisión.
 
 ## Tareas
 
@@ -46,8 +50,12 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T11 | S12 | Las extensiones de código sin capa | inline | hecho | `87c64b3` |
 | T12 | S13 | La base de la revisión de una unidad | delegada a un writer (razón de contexto), con verificador | hecho y verificado (junto con T13, L40) | `3aaf174` |
 | T13 | S14, S15, S16 | El rechequeo, el cierre de una revisión y menos síes | writer A, en paralelo con T14 (superficies disjuntas) | hecho y verificado (junto con T12, L40) | `478a3e7`, corrección en el commit que suma L40 |
-| T14 | S17 | El resumen del ticket activo | writer B, en paralelo con T13 | hecho | el commit que suma L39 |
-| T15 | S18 | Los scratch donde se pueden borrar | inline | hecho | el commit que suma L39 |
+| T14 | S17 | El resumen del ticket activo | writer B, en paralelo con T13 | hecho | `7974a62` |
+| T15 | S18 | Los scratch donde se pueden borrar | inline | hecho | `7974a62` |
+| T16 | S19 | Los archivos generados sin trackear quedan fuera del triaje | inline | hecho | `3e6c06d` |
+| T17 | S20 | El costo de un rechequeo | inline | hecho | `6d7088c` |
+| T18 | S21 | El idioma después de un `/compact` | inline | hecho | `895a7ed` |
+| T19 | S22 | Lo ya decidido no se vuelve a plantear | inline | hecho | el commit que suma L43 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
 | F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | anotado | |
 
@@ -282,3 +290,31 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - Con el job relanzado (`gh run rerun --failed`), los tres sistemas quedan en verde.
   - Lo pedido por el autor, tal cual: «vale», a anotarlo en el roadmap como seguimiento, fuera de la `0.9.0`. Queda como F1, y en el roadmap.
   - El arreglo de fondo es un comando más lento que el plazo de forma determinista, por ejemplo con un `sleep`, y no depender de 1 ms.
+- **L42 (2026-11-18), lo nuevo de SM-1 entre las 20:01 y las 01:18 UTC.** El pedido del autor, tal cual: «Pues si quieres revisa la sesion a ver que mas puedes observar como mejora».
+  - Lo leyó un agente de solo lectura y verificó cada punto contra la rama.
+  - **La instancia corría la `0.7.0`**, no la `0.8.0`. El parent lo confirmó en `installed_plugins.json`: el clon local del marketplace nunca se actualizó. La entrega tiene que decir cómo se actualiza.
+  - **Ocho fricciones nuevas:**
+    - G1: un `.pyc` sin trackear forzó `completo` durante horas. El parent confirmó que `triaje.py` suma los archivos sin trackear (`ls-files --others`) y marca inválida la señal de un archivo sin lenguaje.
+    - G2: un `.yml` de CI de 6 líneas costó cerca de 1M tokens en `completo`.
+    - G3: la regla de T13 pide `3 + <capas>` en un rechequeo `completo`, mientras que en SM-1 dos rechequeos de una corrida cerraron bien.
+    - G4: cada reporte de revisión entra entero al contexto del orquestador.
+    - G5: el agente pasó a inglés después de un compact.
+    - G6: los hooks propios del repo no corren desde la instancia.
+    - G7: los revisores volvieron a plantear algo ya aprobado.
+    - G8: un revisor del repo usó `gh` sin autorización, y `cerrar` no gradúa a un repo propio.
+  - **El autor, tal cual, sobre G1, G3, G5 y G7 a la versión y el resto como ideas:** «Vale me parece bien».
+  - Entran como S19 a S22 (T16 a T19). G2, G4, G6 y G8 quedan como I34 a I38 en el roadmap, y G2 se analiza junto con I28.
+  - Lo siguiente: T16 a T19, inline y una por una, y después la entrega.
+- **L43 (2026-11-18), T16 a T19 hechos, inline, un commit por tarea.**
+  - **T16 (S19):** `triaje.py` deja fuera de la unidad los archivos sin trackear bajo `__pycache__/` o con extensión `.pyc` o `.pyo`. Los nombra en `generados`, una clave que solo aparece si hay alguno, y en una línea «fuera de la unidad». Ni las señales ni el modo cambian por ellos. Un archivo que la base tenía y ya no está trackeado sigue en la unidad.
+    - Rojo: triaje 88/89. Verde: 89/89.
+  - **T17 (S20):** un rechequeo corre `revisor-diseno` ×1 más una corrida por capa, también en `completo`, y se consolida como `rapido`. Es solo texto en `revisar`, `Doc/uso.md` y `Doc/diseno.md`, sin un test que pueda fallar antes; la lectura estructural la hizo el parent.
+  - **T18 (S21):** la plantilla del `CLAUDE.md` de la instancia dice que la conversación sigue en el idioma del usuario después de un `/compact`. Queda en 152 líneas.
+    - Rojo: bootstrap_textos 27/28. Verde: 28/28.
+  - **T19 (S22):** el prompt de cada corrida copia las decisiones del ticket, y la consolidación deja aparte lo que reabre una decisión sin ser `CRITICAL`. Solo texto, como T17.
+  - Suites antes de commitear: triaje 89/89, doctor 195/195, bootstrap_textos 28/28, bootstrap_e2e 14/14 y bootstrap 177/177.
+  - `revisar/SKILL.md`, `Doc/uso.md` y `Doc/diseno.md` se separaron por hunk entre los cuatro commits.
+  - Risk: none en las cuatro.
+    - T16 cambia qué archivos entran a la unidad, como pidió el autor. La salida del triaje suma una clave opcional, y sin generados queda igual, como lo prueba el test.
+    - T17 y T19 cambian el texto de `revisar`, también pedido por el autor.
+    - Ninguna rompe algo que no se pidió, así que no hay verificador independiente.

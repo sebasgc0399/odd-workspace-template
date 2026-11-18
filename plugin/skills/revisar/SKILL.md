@@ -113,8 +113,13 @@ Entrada:
 - <solo capa> Archivos de tu capa: <lista>.
 - <solo diseño, modo completo> Orden de lectura sugerido: <lista>.
 
+Ya decidido en el ticket (## Decisiones), no lo vuelvas a plantear como hallazgo; si un CRITICAL lo contradice, reportalo y nombrá la decisión:
+- <una línea por decisión, copiada de ## Decisiones, o «ninguna»>
+
 Entregá el reporte con tu contrato.
 ```
+
+- **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
 
 - Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento.
 - **No leas reportes parciales:** esperá a que terminen todas. Nunca lances otra revisión mientras tanto.
@@ -150,6 +155,7 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
   - **Lo derivado:** lo que diseño pasó a un revisor de capa y lo que ese revisor devolvió. Una derivación que nadie toma (diseño se la pasa a la capa y la capa se la devuelve) se marca **«sin dueño»** y se la lleva el usuario.
   - **Preguntas para el líder**, aparte: las que cualquier corrida dejó como pregunta, no como hallazgo.
   - Lo que ya estaba antes del cambio y los límites que declaró cada revisor van aparte; un límite declarado no es un hallazgo.
+  - **Lo que reabre una decisión del ticket** y no es `CRITICAL` tampoco es un hallazgo: va aparte, con la decisión que contradice, y no entra al lote de corrección. Un `CRITICAL` que la contradice sí es un hallazgo, y nombra la decisión.
 - Guardá la consolidación en `<ticket>/revision/<fecha>-<modo>/consolidado.md`.
 
 ## 8. Presentar y dejar el recibo
