@@ -49,6 +49,7 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
 | T14 | S17 | El resumen del ticket activo | writer B, en paralelo con T13 | hecho | el commit que suma L39 |
 | T15 | S18 | Los scratch donde se pueden borrar | inline | hecho | el commit que suma L39 |
 | T9 | S1 | Entrega de la `0.9.0` | inline | pendiente | |
+| F1 | — | Seguimiento: `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` (`afirmaciones.tests.py`) es inestable en macOS: con un plazo de 0.001 s, el comando a veces termina antes del corte (L41) | aparte | anotado | |
 
 ## Log
 
@@ -274,3 +275,10 @@ Todas van inline: no hay unidades paralelas lanzadas juntas ni otra razón de wr
   - El rechequeo del mismo verificador, limitado a B1 y los avisos: B1 FIXED, los cinco avisos FIXED, sin contradicciones con `recibo.py`.
   - El caso de B1 queda como test de regresión en `recibo.tests.py` (76/76).
   - Risk: item 3, ya verificado.
+- **L41 (2026-11-18), el CI de `4cbb8cb` y el seguimiento F1.**
+  - Primer intento: Windows y Ubuntu en verde. macOS falló en un solo test, `test_correr_el_plazo_corta_un_comando_que_no_alcanza_a_terminar` de `afirmaciones.tests.py`, con `Veredicto(estado='OK', detalle='1')`.
+  - Esta rama no tocó esa suite, cuyo último cambio es `04d0674`.
+  - El test le da al comando un plazo de 0.001 s y espera que se corte. En el runner arm64, el conteo alcanzó a terminar dentro del plazo: es una carrera de tiempos.
+  - Con el job relanzado (`gh run rerun --failed`), los tres sistemas quedan en verde.
+  - Lo pedido por el autor, tal cual: «vale», a anotarlo en el roadmap como seguimiento, fuera de la `0.9.0`. Queda como F1, y en el roadmap.
+  - El arreglo de fondo es un comando más lento que el plazo de forma determinista, por ejemplo con un `sleep`, y no depender de 1 ms.

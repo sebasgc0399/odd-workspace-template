@@ -76,6 +76,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 | [paquetes-de-reglas](tasks/paquetes-de-reglas.md) | A4 a A8, los avisos del verificador de T1 |
 | [uso-en-equipo](tasks/uso-en-equipo.md) | F1 y F2 |
 | [capa-por-shell](tasks/capa-por-shell.md) | F1, la caché de bytecode de los hooks; los avisos A1 a A6 del verificador de la parte B (L20) |
+| [experiencia-de-uso](tasks/experiencia-de-uso.md) | F1, el test de plazo de `afirmaciones`, inestable en macOS (L41) |
 
 ## Hecho
 
