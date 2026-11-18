@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-from collections import namedtuple
 from pathlib import Path
 
 from odd_ws import capas
@@ -128,8 +127,6 @@ AYUDA_AGENTES = ("El .md de .claude/agents es la fuente de su TOML: pasá tu cam
                  "<!-- instancia:... -->), sacá el TOML y corré --arreglar codex-agentes. Si el .md se editó fuera de sus bloques, "
                  "arreglalo primero; el TOML de un agente que ya no existe lo borrás vos.")
 EVENTO_RE = re.compile(r"(?<!^)(?=[A-Z])")
-
-RevisionDeAgente = namedtuple("RevisionDeAgente", "nombre codigo esperado motivo")
 
 
 def _dialecto():
@@ -517,24 +514,12 @@ def _proyecto(ctx, raiz, nucleo, usuario, datos, error):
     return nucleo.resultado(id, nucleo.AVISO, f"{clave} tiene trust_level = {nivel} en {usuario}: {NO_CARGA}", None, ayuda)
 
 
-def _crear(ruta, texto):
-    try:
-        ruta.parent.mkdir(parents=True, exist_ok=True)
-        with open(ruta, "xb") as archivo:
-            archivo.write(texto.encode("utf-8"))
-    except FileExistsError:
-        return f"{ruta} ya existe: no se pisa"
-    except OSError as error:
-        return f"no se pudo crear {ruta}: {error.strerror or error}"
-    return str(ruta)
-
-
 def _config_del_proyecto(raiz, nucleo):
     id = "codex-config"
     ruta = raiz / capas.CODEX_CONFIG
     if not os.path.lexists(ruta):
         return nucleo.resultado(id, nucleo.FALTA, f"falta {capas.CODEX_CONFIG}: Codex no lee los CLAUDE.md de la instancia",
-                                arreglo=lambda: _crear(ruta, CONFIG_DEL_PROYECTO))
+                                arreglo=lambda: base.crear(ruta, CONFIG_DEL_PROYECTO))
     datos, error = leer_toml(ruta)
     if error is not None:
         return nucleo.resultado(id, nucleo.FALTA, f"{capas.CODEX_CONFIG} no se puede leer como TOML ({error})", None, _ayuda_del_toml(error))
@@ -545,62 +530,32 @@ def _config_del_proyecto(raiz, nucleo):
                                               "lee los CLAUDE.md de la instancia", None, AYUDA_CONFIG % CONFIG_DEL_PROYECTO.strip())
 
 
-def _normal(texto):
-    return texto.lstrip("﻿").replace("\r\n", "\n")
-
-
-def _declarada(lineas, clave, en_cabecera):
-    for linea in lineas:
-        if en_cabecera and not linea.startswith("#"):
-            return None
-        if linea.startswith(clave):
-            return linea[len(clave):].strip()
-        if not en_cabecera and linea == "---":
-            return None
-    return None
-
-
-def _md_intacto(texto, plantilla_writer):
-    lineas = texto.split("\n")
-    if not lineas or lineas[0] != "---":
-        return False
-    sello = plantilla_writer.huella(texto)
-    return sello is not None and sello == _declarada(lineas[1:], plantilla_writer.CLAVE_HASH + ":", False)
-
-
 def _derivado_por_odd_ws(texto):
-    return _normal(texto).startswith(ENCABEZADO.split("%s", 1)[0])
-
-
-def _leer_utf8(ruta):
-    try:
-        return ruta.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+    return base.normal(texto).startswith(ENCABEZADO.split("%s", 1)[0])
 
 
 def _revisar_agente(raiz, nombre, bootstrap_agentes, plantilla_writer):
-    texto = _leer_utf8(raiz / capas.agente(nombre))
+    texto = base.leer_utf8(raiz / capas.agente(nombre))
     if texto is None:
-        return RevisionDeAgente(nombre, "fuente", None, "no se puede leer como UTF-8")
+        return base.RevisionDeAgente(nombre, "fuente", None, "no se puede leer como UTF-8")
     texto = plantilla_writer.normalizar(texto)
-    if not _md_intacto(texto, plantilla_writer):
-        return RevisionDeAgente(nombre, "fuente", None, "se editó fuera de sus bloques o no lo generó la plantilla")
+    if not base.md_intacto(texto, plantilla_writer):
+        return base.RevisionDeAgente(nombre, "fuente", None, "se editó fuera de sus bloques o no lo generó la plantilla")
     try:
         esperado = toml(plantilla_writer.agente(bootstrap_agentes.armar(nombre, texto, "codex")))
     except ValueError as error:
-        return RevisionDeAgente(nombre, "fuente", None, str(error))
+        return base.RevisionDeAgente(nombre, "fuente", None, str(error))
     ruta = raiz / capas.agente_codex(nombre)
     if not os.path.lexists(ruta):
-        return RevisionDeAgente(nombre, "falta", esperado, None)
-    actual = _leer_utf8(ruta) if ruta.is_file() else None
+        return base.RevisionDeAgente(nombre, "falta", esperado, None)
+    actual = base.leer_utf8(ruta) if ruta.is_file() else None
     if actual is None:
-        return RevisionDeAgente(nombre, "ilegible", None, None)
-    if _normal(actual) == esperado:
-        return RevisionDeAgente(nombre, "ok", esperado, None)
-    if _declarada(_normal(actual).split("\n"), CLAVE_HASH, True) == huella(actual):
-        return RevisionDeAgente(nombre, "atrasado", esperado, None)
-    return RevisionDeAgente(nombre, "editado", None, None)
+        return base.RevisionDeAgente(nombre, "ilegible", None, None)
+    if base.normal(actual) == esperado:
+        return base.RevisionDeAgente(nombre, "ok", esperado, None)
+    if base.declarada(base.normal(actual).split("\n"), CLAVE_HASH, True) == huella(actual):
+        return base.RevisionDeAgente(nombre, "atrasado", esperado, None)
+    return base.RevisionDeAgente(nombre, "editado", None, None)
 
 
 def revisar_agentes(raiz, declaradas):
@@ -615,9 +570,9 @@ def revisar_agentes(raiz, declaradas):
             revisiones.append(_revisar_agente(raiz, nombre, bootstrap_agentes, plantilla_writer))
     carpeta = raiz / capas.CODEX_AGENTES
     for ruta in sorted(carpeta.glob("*.toml")) if carpeta.is_dir() else ():
-        texto = _leer_utf8(ruta) if ruta.is_file() else None
+        texto = base.leer_utf8(ruta) if ruta.is_file() else None
         if ruta.stem not in con_md and texto is not None and _derivado_por_odd_ws(texto):
-            revisiones.append(RevisionDeAgente(ruta.stem, "sobrante", None, None))
+            revisiones.append(base.RevisionDeAgente(ruta.stem, "sobrante", None, None))
     return revisiones
 
 
@@ -643,7 +598,7 @@ def _escribir_agentes(raiz):
             continue
         ruta = raiz / capas.agente_codex(revision.nombre)
         if revision.codigo == "falta":
-            escritos.append(_crear(ruta, revision.esperado))
+            escritos.append(base.crear(ruta, revision.esperado))
             continue
         try:
             ruta.write_bytes(revision.esperado.encode("utf-8"))

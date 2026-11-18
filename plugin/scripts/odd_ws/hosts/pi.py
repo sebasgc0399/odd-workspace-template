@@ -14,7 +14,7 @@ from odd_ws.capacidades import DEGRADADO, FIN_SUBAGENTE, FIN_TURNO, INICIO, INIC
 from odd_ws.comun import SILENCIO, archivos_de_la_bitacora, comandos_de_la_bitacora, plazo_de
 from odd_ws.eventos import (POSIX, POWERSHELL, Bloquear, Contexto, FinSubagente, FinTurno, Herramienta, InicioSesion, InicioTurno,
                             Permitir, Preguntar, Seguir)
-from odd_ws.hosts import Archivo, base, codex, leer_hooks, manejadores
+from odd_ws.hosts import Archivo, base, leer_hooks, manejadores
 
 cargar = base.cargar
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,),
@@ -148,6 +148,7 @@ SIN_GENTLE_SHELL = ("con Pi a secas no hay subagentes, así que un writer corre 
                     "(P5 y P6)")
 AYUDA_GENTLE_SHELL = ("Instalá gentle-shell (npm i -g gentle-pi) y abrí la instancia con gentle-shell desde su raíz, que es donde lee "
                       ".pi/agents. Pi a secas también sirve, pero sin writers.")
+AYUDA_SUBCARPETA = "Con gentle-shell, los writers solo existen si la instancia es la raíz de su repo git: haz de la instancia la raíz de uno."
 AYUDA_PAQUETE = ("Instalá el paquete de odd-ws en el home activo, con gentle-shell install <fuente> (o pi install <fuente> con Pi a "
                  "secas): la fuente es git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>, o la raíz de un clon "
                  "del repositorio, no su carpeta plugin/. odd-ws no está en npm. El doctor no escribe en los homes de Pi.")
@@ -515,7 +516,7 @@ def chequeos(ctx, raiz, nucleo, cli):
     resultados = []
     if cli == nucleo.CLI_INSTALADO:
         gentle = _gentle_shell(ctx, nucleo)
-        resultados += [_item_gentle_shell(gentle, nucleo), _paquete(ctx, raiz, nucleo, gentle)]
+        resultados += [_en_subcarpeta(ctx, raiz, nucleo, _item_gentle_shell(gentle, nucleo)), _paquete(ctx, raiz, nucleo, gentle)]
         if raiz is not None:
             resultados.append(_confianza(ctx, Path(raiz), nucleo, gentle))
     else:
@@ -524,6 +525,19 @@ def chequeos(ctx, raiz, nucleo, cli):
     if raiz is not None:
         resultados.append(_agentes(Path(raiz), nucleo))
     return resultados
+
+
+def _en_subcarpeta(ctx, raiz, nucleo, item):
+    if raiz is None:
+        return item
+    codigo, salida = ctx.ejecutar(["git", "-C", str(raiz), "rev-parse", "--show-toplevel"])
+    repo = nucleo.primera_linea(salida) if codigo == 0 else ""
+    if not repo or _misma(repo, raiz):
+        return item
+    aviso = f"la instancia está en una subcarpeta del repo {repo}: ahí no hay writers en gentle-shell"
+    estado = item.estado if item.estado != nucleo.OK else nucleo.AVISO
+    return item._replace(estado=estado, detalle=f"{item.detalle}; {aviso}" if item.estado != nucleo.OK else aviso,
+                         ayuda=(item.ayuda + " " if item.ayuda else "") + AYUDA_SUBCARPETA)
 
 
 def _item_gentle_shell(gentle, nucleo):
@@ -581,7 +595,7 @@ def _objeto_json(ruta):
     if not ruta.is_file():
         return {}, None
     try:
-        datos = json.loads(ruta.read_bytes().decode("utf-8-sig"))
+        datos = json.loads(ruta.read_bytes().decode("utf-8-sig"), parse_constant=_sin_constantes)
     except (OSError, UnicodeDecodeError, ValueError, RecursionError) as error:
         return None, str(error)
     return (datos, None) if isinstance(datos, dict) else (None, "no es un objeto JSON")
@@ -760,6 +774,8 @@ def _relativa(archivo, base):
 
 
 def _patron_de_pi(patron, ctx):
+    if patron.startswith("file://"):
+        return _normal(patron, False).replace(os.sep, "/")
     patron = _de_git_bash(patron) if ctx.windows else patron
     if patron == "~" or patron.startswith(("~/", "~\\")):
         patron = os.path.join(str(ctx.home), patron[2:])
@@ -963,7 +979,7 @@ def _resolver_paquetes(ctx, raiz, activo, confia):
             dudoso = True
             continue
         for archivo, estado in aporte.items():
-            estados.setdefault(_clave(archivo, ctx.windows), (archivo, None if dudoso else estado, _fuente(paquete), settings, alcance))
+            estados.setdefault(_clave_real(archivo, ctx.windows), (archivo, None if dudoso else estado, _fuente(paquete), settings, alcance))
     return list(estados.values()), dudoso, motivos
 
 
@@ -971,9 +987,10 @@ def _de_nivel_superior(datos, base, archivos, ctx):
     entradas = datos.get("extensions") if isinstance(datos, dict) else None
     planas = [entrada for entrada in entradas if isinstance(entrada, str) and not _es_override(entrada) and not COMODIN.search(entrada)] \
         if isinstance(entradas, list) else []
-    claves = [(ruta, _clave(ruta, ctx.windows)) for ruta in (_local(entrada, base, ctx) for entrada in planas)]
+    claves = [(ruta, _clave_real(ruta, ctx.windows)) for ruta in (_local(entrada, base, ctx) for entrada in planas)]
     return list(dict.fromkeys(str(ruta) for ruta, clave in claves for archivo in archivos
-                              if _clave(archivo, ctx.windows) == clave or _clave(archivo, ctx.windows).startswith(clave.rstrip(os.sep) + os.sep)))
+                              if _clave_real(archivo, ctx.windows) == clave
+                              or _clave_real(archivo, ctx.windows).startswith(clave.rstrip(os.sep) + os.sep)))
 
 
 def _paquete(ctx, raiz, nucleo, gentle):
@@ -1024,6 +1041,10 @@ def _paquete(ctx, raiz, nucleo, gentle):
 def _clave(ruta, windows):
     resuelta = os.path.normpath(os.path.abspath(ruta))
     return resuelta.lower() if windows else resuelta
+
+
+def _clave_real(ruta, windows):
+    return _clave(os.path.realpath(ruta), windows)
 
 
 def _piden_confianza(ctx, raiz):
@@ -1093,32 +1114,32 @@ def _confianza(ctx, raiz, nucleo, gentle):
 
 
 def _derivado_por_odd_ws(texto):
-    return codex._normal(texto).startswith(DELIMITADOR + "\n" + ENCABEZADO.split("%s", 1)[0])
+    return base.normal(texto).startswith(DELIMITADOR + "\n" + ENCABEZADO.split("%s", 1)[0])
 
 
 def _revisar_agente(raiz, nombre, bootstrap_agentes, plantilla_writer):
-    texto = codex._leer_utf8(raiz / capas.agente(nombre))
+    texto = base.leer_utf8(raiz / capas.agente(nombre))
     if texto is None:
-        return codex.RevisionDeAgente(nombre, "fuente", None, "no se puede leer como UTF-8")
+        return base.RevisionDeAgente(nombre, "fuente", None, "no se puede leer como UTF-8")
     texto = plantilla_writer.normalizar(texto)
-    if not codex._md_intacto(texto, plantilla_writer):
-        return codex.RevisionDeAgente(nombre, "fuente", None, "se editó fuera de sus bloques o no lo generó la plantilla")
+    if not base.md_intacto(texto, plantilla_writer):
+        return base.RevisionDeAgente(nombre, "fuente", None, "se editó fuera de sus bloques o no lo generó la plantilla")
     try:
         esperado = md(plantilla_writer.agente(bootstrap_agentes.armar(nombre, texto, "pi")))
     except ValueError as error:
-        return codex.RevisionDeAgente(nombre, "fuente", None, str(error))
+        return base.RevisionDeAgente(nombre, "fuente", None, str(error))
     ruta = raiz / capas.agente_pi(nombre)
     if not os.path.lexists(ruta):
-        return codex.RevisionDeAgente(nombre, "falta", esperado, None)
-    actual = codex._leer_utf8(ruta) if ruta.is_file() else None
+        return base.RevisionDeAgente(nombre, "falta", esperado, None)
+    actual = base.leer_utf8(ruta) if ruta.is_file() else None
     if actual is None:
-        return codex.RevisionDeAgente(nombre, "ilegible", None, None)
-    lineas = codex._normal(actual).split("\n")
+        return base.RevisionDeAgente(nombre, "ilegible", None, None)
+    lineas = base.normal(actual).split("\n")
     if "\n".join(lineas) == esperado:
-        return codex.RevisionDeAgente(nombre, "ok", esperado, None)
-    if lineas[0] == DELIMITADOR and codex._declarada(lineas[1:], CLAVE_HASH, True) == huella(actual):
-        return codex.RevisionDeAgente(nombre, "atrasado", esperado, None)
-    return codex.RevisionDeAgente(nombre, "editado", None, None)
+        return base.RevisionDeAgente(nombre, "ok", esperado, None)
+    if lineas[0] == DELIMITADOR and base.declarada(lineas[1:], CLAVE_HASH, True) == huella(actual):
+        return base.RevisionDeAgente(nombre, "atrasado", esperado, None)
+    return base.RevisionDeAgente(nombre, "editado", None, None)
 
 
 def revisar_agentes(raiz, declaradas):
@@ -1133,9 +1154,9 @@ def revisar_agentes(raiz, declaradas):
             revisiones.append(_revisar_agente(raiz, nombre, bootstrap_agentes, plantilla_writer))
     carpeta = raiz / capas.PI_AGENTES
     for ruta in sorted(carpeta.glob("*.md")) if carpeta.is_dir() else ():
-        texto = codex._leer_utf8(ruta) if ruta.is_file() else None
+        texto = base.leer_utf8(ruta) if ruta.is_file() else None
         if ruta.stem not in con_md and texto is not None and _derivado_por_odd_ws(texto):
-            revisiones.append(codex.RevisionDeAgente(ruta.stem, "sobrante", None, None))
+            revisiones.append(base.RevisionDeAgente(ruta.stem, "sobrante", None, None))
     return revisiones
 
 
@@ -1161,7 +1182,7 @@ def _escribir_agentes(raiz):
             continue
         ruta = raiz / capas.agente_pi(revision.nombre)
         if revision.codigo == "falta":
-            escritos.append(codex._crear(ruta, revision.esperado))
+            escritos.append(base.crear(ruta, revision.esperado))
             continue
         try:
             ruta.write_bytes(revision.esperado.encode("utf-8"))
