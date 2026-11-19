@@ -1,20 +1,26 @@
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import bootstrap
 import config_loader
-from odd_ws import capas
-from odd_ws.comun import entorno_git, id_valido, raiz_de_instancia
+from odd_ws import capas, enlaces
+from odd_ws.comun import decodificar, entorno_git, id_valido, raiz_de_instancia
 
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
        "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
        "     ticket.py --activar <id> [--raiz <carpeta>]\n"
        "     ticket.py --desactivar <id> [--raiz <carpeta>]\n"
-       "     ticket.py --cobertura [--raiz <carpeta>]")
-MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar", "--cobertura": "cobertura"}
+       "     ticket.py --cobertura [--raiz <carpeta>]\n"
+       "     ticket.py --enlaces <id> [--raiz <carpeta>] [--copiar]\n"
+       "     ticket.py --enlaces <ruta a un .md> [--copiar]")
+MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar", "--cobertura": "cobertura", "--enlaces": "enlaces"}
+DOCUMENTO_DEL_TICKET = Path(capas.TICKET_PLANTILLA).name
+COPIAR_CON_POWERSHELL = ("$m = New-Object System.IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($m); "
+                         "Set-Clipboard -Value ([Text.Encoding]::UTF8.GetString($m.ToArray()))")
 COBERTURA_COMPLETA = "todo lo versionado en los repos tiene capa o es doc"
 SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasá el prefijo (ticket.py --siguiente <prefijo>) "
                f"o fijalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
@@ -141,12 +147,16 @@ def _argumentos(argv):
     posicionales = []
     raiz = None
     ensayo = False
+    copiar = False
     modo = None
     i = 0
     while i < len(argv):
         argumento = argv[i]
         if argumento == "--ensayo" and not ensayo:
             ensayo = True
+            i += 1
+        elif argumento == "--copiar" and not copiar:
+            copiar = True
             i += 1
         elif argumento in MODOS and modo is None:
             modo = MODOS[argumento]
@@ -159,6 +169,12 @@ def _argumentos(argv):
         else:
             posicionales.append(argumento)
             i += 1
+    if copiar and modo != "enlaces":
+        return None
+    if modo == "enlaces":
+        if ensayo or len(posicionales) != 1:
+            return None
+        return "enlaces", posicionales[0], raiz, copiar
     if modo == "siguiente":
         if ensayo or len(posicionales) > 1:
             return None
@@ -275,6 +291,93 @@ def _cobertura(texto_de_raiz):
     return 0
 
 
+def documento_de(objetivo, texto_de_raiz):
+    if id_valido(objetivo):
+        raiz = _raiz(texto_de_raiz)
+        carpetas = carpetas_del_id(raiz, objetivo)
+        if not carpetas:
+            raise Rechazo(f"el id {objetivo} no tiene carpeta en {capas.TICKETS}/")
+        if len(carpetas) > 1:
+            raise Rechazo(f"el id {objetivo} tiene varias carpetas: {', '.join(carpetas)}; pasá la ruta del {DOCUMENTO_DEL_TICKET} que querés revisar")
+        documento = raiz / carpetas[0] / DOCUMENTO_DEL_TICKET
+        if not documento.is_file():
+            raise Rechazo(f"{carpetas[0]} no tiene {DOCUMENTO_DEL_TICKET}")
+        return documento
+    if texto_de_raiz is not None:
+        raise Rechazo("--raiz va con un id: una ruta ya dice dónde está el documento")
+    documento = Path(objetivo)
+    if documento.suffix.lower() != ".md" or not documento.is_file():
+        raise Rechazo(f"{objetivo} no es un .md que exista: pasá el id de un ticket o la ruta a un .md")
+    return documento
+
+
+def listado(documento, hallados):
+    sanos = [e for e in hallados if e.tipo is not None]
+    rotos = [e for e in hallados if e.ruta is not None and e.tipo is None]
+    con_esquema = [e for e in hallados if e.ruta is None]
+    lineas = [f"enlaces de {Path(os.path.abspath(documento)).as_posix()}: {len(hallados)}"]
+    lineas += [f"  {e.tipo}  {e.texto} -> {e.ruta}" for e in sanos]
+    if rotos:
+        lineas.append(f"rotos: {len(rotos)}")
+        lineas += [f"  no existe  {e.texto} -> {e.ruta}" for e in rotos]
+    if con_esquema:
+        lineas.append(f"con esquema, sin verificar: {len(con_esquema)}")
+        lineas += [f"  {e.texto} -> {e.destino}" for e in con_esquema]
+    return lineas, [e.ruta for e in sanos + rotos]
+
+
+def herramientas_de_portapapeles():
+    if os.name == "nt":
+        return [[nombre, "-NoProfile", "-NonInteractive", "-Command", COPIAR_CON_POWERSHELL] for nombre in ("powershell", "pwsh")]
+    if sys.platform == "darwin":
+        return [["pbcopy"]]
+    return [["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]
+
+
+def copiar_al_portapapeles(texto):
+    herramientas = herramientas_de_portapapeles()
+    fallidas = []
+    for argv in herramientas:
+        programa = shutil.which(argv[0])
+        if programa is None:
+            continue
+        try:
+            resultado = subprocess.run([programa, *argv[1:]], input=texto.encode("utf-8"), stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, timeout=30)
+            if resultado.returncode == 0:
+                return None
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        fallidas.append(argv[0])
+    if fallidas:
+        return f"el portapapeles no aceptó la lista ({', '.join(fallidas)} falló)"
+    return f"no hay herramienta de portapapeles (busqué {', '.join(argv[0] for argv in herramientas)})"
+
+
+def _enlaces(objetivo, texto_de_raiz, copiar):
+    try:
+        documento = documento_de(objetivo, texto_de_raiz)
+        lineas, rutas = listado(documento, list(enlaces.enlaces(decodificar(documento.read_bytes()), documento.parent)))
+    except ErrorDeEntorno as error:
+        return _error(str(error), 2)
+    except Rechazo as error:
+        return _error(str(error), 1)
+    except Exception as error:
+        return _error(f"error interno: {type(error).__name__}: {error}", 2)
+    print("\n".join(lineas))
+    if not copiar:
+        return 0
+    if not rutas:
+        print("portapapeles: no hay rutas que copiar")
+        return 0
+    problema = copiar_al_portapapeles(os.linesep.join(rutas))
+    if problema is not None:
+        print(f"ticket: aviso: {problema}: la lista sale solo por pantalla", file=sys.stderr)
+    else:
+        print("portapapeles: 1 ruta copiada" if len(rutas) == 1 else f"portapapeles: {len(rutas)} rutas copiadas")
+    return 0
+
+
 def principal(argv):
     for flujo in (sys.stdout, sys.stderr):
         if hasattr(flujo, "reconfigure"):
@@ -283,6 +386,8 @@ def principal(argv):
     if argumentos is None:
         print(USO, file=sys.stderr)
         return 2
+    if argumentos[0] == "enlaces":
+        return _enlaces(*argumentos[1:])
     if argumentos[0] == "siguiente":
         return _siguiente(*argumentos[1:])
     if argumentos[0] == "cobertura":

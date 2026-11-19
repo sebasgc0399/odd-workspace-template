@@ -34,7 +34,9 @@ USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
        "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
        "     ticket.py --activar <id> [--raiz <carpeta>]\n"
        "     ticket.py --desactivar <id> [--raiz <carpeta>]\n"
-       "     ticket.py --cobertura [--raiz <carpeta>]\n")
+       "     ticket.py --cobertura [--raiz <carpeta>]\n"
+       "     ticket.py --enlaces <id> [--raiz <carpeta>] [--copiar]\n"
+       "     ticket.py --enlaces <ruta a un .md> [--copiar]\n")
 PLANTILLA = {
     "tickets/_plantilla/CLAUDE.md": CLAUDE_MD,
     "tickets/_plantilla/.claude/settings.json": SETTINGS,
@@ -569,6 +571,142 @@ def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
         rechazado(e, 2, "no hay workspace.config.json", "--cobertura", "--raiz", str(e.base))
         (e.raiz / "workspace.config.json").write_bytes(b"{roto")
         rechazado(e, 2, "está rota", "--cobertura", "--raiz", str(e.raiz))
+
+
+DOC_CON_ENLACES = (
+    "# 12\n\n"
+    "[Guía](notas/guia.md) y [sección](notas/guia.md#uso)\n"
+    "[notas](notas/) [el repo](../../../repo-a)\n"
+    "[con espacios](<carpeta con espacios/año.txt>) [ñandú](ñandú.md)\n"
+    "[lo que falta](falta.md) [carpeta que falta](no-hay/)\n"
+    "[web](https://example.org/a#b) [correo](mailto:a@b.c) [arriba](#objetivo)\n"
+)
+
+
+def absoluta(ruta):
+    return Path(os.path.abspath(ruta)).as_posix()
+
+
+def ticket_con_enlaces(e):
+    e.escribir({
+        "tickets/12-mi-ticket/CLAUDE.md": DOC_CON_ENLACES.encode("utf-8"),
+        "tickets/12-mi-ticket/notas/guia.md": b"# guia\n",
+        "tickets/12-mi-ticket/carpeta con espacios/año.txt": b"x",
+        "tickets/12-mi-ticket/ñandú.md": b"x",
+    })
+    d = absoluta(carpeta(e))
+    rutas = [f"{d}/notas/guia.md", f"{d}/notas/guia.md", f"{d}/notas", absoluta(e.repo),
+             f"{d}/carpeta con espacios/año.txt", f"{d}/ñandú.md", f"{d}/falta.md", f"{d}/no-hay"]
+    listado = (
+        f"enlaces de {d}/CLAUDE.md: 10\n"
+        f"  archivo  Guía -> {rutas[0]}\n"
+        f"  archivo  sección -> {rutas[1]}\n"
+        f"  carpeta  notas -> {rutas[2]}\n"
+        f"  carpeta  el repo -> {rutas[3]}\n"
+        f"  archivo  con espacios -> {rutas[4]}\n"
+        f"  archivo  ñandú -> {rutas[5]}\n"
+        "rotos: 2\n"
+        f"  no existe  lo que falta -> {rutas[6]}\n"
+        f"  no existe  carpeta que falta -> {rutas[7]}\n"
+        "con esquema, sin verificar: 2\n"
+        "  web -> https://example.org/a#b\n"
+        "  correo -> mailto:a@b.c\n"
+    )
+    return listado, rutas
+
+
+def test_enlaces_de_un_ticket_por_id_los_lista_con_su_ruta_su_tipo_y_los_rotos_aparte_sin_escribir():
+    with Escenario() as e:
+        listado, _ = ticket_con_enlaces(e)
+        antes = arbol(e.base)
+        assert e.correr("--enlaces", "12", "--raiz", str(e.raiz)) == (0, listado, "")
+        assert e.correr("--enlaces", "12", cwd=e.raiz / "tickets") == (0, listado, "")
+        assert arbol(e.base) == antes
+
+
+def test_enlaces_de_cualquier_md_por_ruta_no_necesita_instancia():
+    with Escenario() as e:
+        e.escribir({"odd/tasks/feature.md": b"[repo](../../repo-a) [nada](nada.txt)\n"}, raiz=e.base)
+        documento = absoluta(e.base / "odd" / "tasks" / "feature.md")
+        listado = (f"enlaces de {documento}: 2\n  carpeta  repo -> {absoluta(e.repo)}\n"
+                   f"rotos: 1\n  no existe  nada -> {absoluta(e.base / 'odd' / 'tasks' / 'nada.txt')}\n")
+        antes = arbol(e.base)
+        assert e.correr("--enlaces", "odd/tasks/feature.md", cwd=e.base) == (0, listado, "")
+        assert e.correr("--enlaces", documento, cwd=e.repo) == (0, listado, "")
+        assert arbol(e.base) == antes
+
+
+def test_enlaces_de_un_documento_sin_enlaces_dice_cero():
+    with Escenario() as e:
+        e.escribir({"vacio.md": b"# sin enlaces\n[arriba](#sin-enlaces)\n"}, raiz=e.base)
+        assert e.correr("--enlaces", "vacio.md", cwd=e.base) == (0, f"enlaces de {absoluta(e.base / 'vacio.md')}: 0\n", "")
+
+
+def test_enlaces_de_un_id_o_una_ruta_que_no_sirven_se_rechaza_sin_escribir():
+    with Escenario() as e:
+        rechazado(e, 1, "el id 99 no tiene carpeta en tickets/", "--enlaces", "99", "--raiz", str(e.raiz))
+        (e.raiz / "tickets" / "12-sin-documento").mkdir(parents=True)
+        rechazado(e, 1, "tickets/12-sin-documento no tiene CLAUDE.md", "--enlaces", "12", "--raiz", str(e.raiz))
+        (e.raiz / "tickets" / "12-otra").mkdir()
+        rechazado(e, 1, "tickets/12-otra", "--enlaces", "12", "--raiz", str(e.raiz))
+        e.escribir({"notas.txt": b"[a](b.md)\n", "doc.md": b"[a](b.md)\n"}, raiz=e.base)
+        for objetivo in ("notas.txt", "nada.md", str(e.raiz)):
+            rechazado(e, 1, "no es un .md", "--enlaces", objetivo, cwd=e.base)
+        rechazado(e, 1, "--raiz", "--enlaces", "doc.md", "--raiz", str(e.raiz), cwd=e.base)
+        rechazado(e, 2, "no hay workspace.config.json", "--enlaces", "12", cwd=e.base)
+
+
+def portapapeles_falso(e):
+    carpeta_bin = e.base / "bin-falso"
+    carpeta_bin.mkdir()
+    falso = carpeta_bin / "falso.py"
+    falso.write_text("import os, sys\nopen(os.environ['COPIADO_POR_EL_FALSO'], 'wb').write(sys.stdin.buffer.read())\n", encoding="utf-8")
+    if os.name == "nt":
+        (carpeta_bin / "powershell.cmd").write_text(f'@"{sys.executable}" "%~dp0falso.py" %*\r\n', encoding="ascii")
+    else:
+        for nombre in ("pbcopy", "wl-copy"):
+            (carpeta_bin / nombre).write_text(f'#!/bin/sh\nexec "{sys.executable}" "{falso}" "$@"\n', encoding="utf-8")
+            (carpeta_bin / nombre).chmod(0o755)
+    copiado = e.base / "copiado.bin"
+    return {"PATH": str(carpeta_bin), "COPIADO_POR_EL_FALSO": str(copiado)}, copiado
+
+
+def test_copiar_manda_las_rutas_absolutas_al_portapapeles_y_lista_igual():
+    with Escenario() as e:
+        listado, rutas = ticket_con_enlaces(e)
+        entorno, copiado = portapapeles_falso(e)
+        codigo, salida, errores = e.correr("--enlaces", "12", "--copiar", "--raiz", str(e.raiz), entorno=entorno)
+        assert (codigo, salida, errores) == (0, listado + "portapapeles: 8 rutas copiadas\n", ""), (codigo, salida, errores)
+        assert copiado.read_bytes() == os.linesep.join(rutas).encode("utf-8"), copiado.read_bytes()
+
+
+def test_copiar_sin_rutas_no_toca_el_portapapeles():
+    with Escenario() as e:
+        e.escribir({"web.md": b"[web](https://example.org)\n"}, raiz=e.base)
+        entorno, copiado = portapapeles_falso(e)
+        codigo, salida, errores = e.correr("--copiar", "--enlaces", "web.md", cwd=e.base, entorno=entorno)
+        assert (codigo, errores) == (0, ""), (codigo, errores)
+        assert salida.endswith("  web -> https://example.org\nportapapeles: no hay rutas que copiar\n"), salida
+        assert not copiado.exists()
+
+
+def test_copiar_sin_herramienta_de_portapapeles_avisa_y_lista_igual():
+    with Escenario() as e:
+        listado, _ = ticket_con_enlaces(e)
+        vacio = e.base / "path-vacio"
+        vacio.mkdir()
+        codigo, salida, errores = e.correr("--enlaces", "12", "--copiar", "--raiz", str(e.raiz), entorno={"PATH": str(vacio)})
+        assert (codigo, salida) == (0, listado), (codigo, salida, errores)
+        assert errores.startswith("ticket: aviso: no hay herramienta de portapapeles (busqué ") and errores.endswith(
+            "): la lista sale solo por pantalla\n"), errores
+
+
+def test_copiar_fuera_de_enlaces_y_enlaces_mal_formado_son_error_de_uso():
+    with Escenario() as e:
+        for argv in (("--copiar",), ("--siguiente", "T", "--copiar"), ("12", "x", "--copiar"), ("--enlaces",),
+                     ("--enlaces", "12", "--ensayo"), ("--enlaces", "12", "13"), ("--enlaces", "12", "--copiar", "--copiar")):
+            assert e.correr(*argv, "--raiz", str(e.raiz)) == (2, "", USO), argv
+        assert e.correr("--siguiente", "T", "--raiz", str(e.raiz)) == (0, "siguiente: T-1\n", "")
 
 
 def main():
