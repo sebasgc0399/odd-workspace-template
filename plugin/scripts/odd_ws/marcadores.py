@@ -8,6 +8,9 @@ LADOS = (b"<", b">")
 SIN_REGLAS_DE_ESPACIOS = "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent"
 AVISO_DE_GIT = re.compile(rb"(.+):([0-9]+): leftover conflict marker")
 SALIDAS_DEL_CHEQUEO = (0, 2)
+COMODINES = re.compile(r"[*?\[\\]")
+PIDE_COMILLAS = re.compile(r'[ \t\r\n"]|^#')
+ESCAPES_DE_C = {"\\": "\\\\", '"': '\\"', "\t": "\\t", "\r": "\\r", "\n": "\\n"}
 USO = "uso: marcadores.py   (revisa lo stageado desde la raíz del repo; no recibe argumentos)"
 
 Marcador = namedtuple("Marcador", "ruta numero linea")
@@ -67,6 +70,15 @@ def marcadores_stageados(raiz):
     return hallazgos
 
 
+def patron_de_gitattributes(ruta):
+    patron = COMODINES.sub(lambda comodin: "\\" + comodin.group(0), ruta)
+    if patron.startswith("!"):
+        patron = "\\" + patron
+    if not PIDE_COMILLAS.search(patron):
+        return patron
+    return '"' + "".join(ESCAPES_DE_C.get(caracter, caracter) for caracter in patron) + '"'
+
+
 def explicar(hallazgos):
     separador = "=" * 7
     lineas = ["COMMIT FRENADO: lo stageado agrega marcadores de conflicto (apertura y cierre en un mismo archivo):"]
@@ -75,7 +87,7 @@ def explicar(hallazgos):
         f"Resuelve el conflicto en cada archivo: deja el contenido que va, borra las líneas de los marcadores (también la de {separador})"
         " y vuelve a stagearlo con git add.",
         "Si esas líneas son contenido a propósito (un ejemplo o un fixture), saca el archivo del chequeo en .gitattributes con un"
-        f" tamaño de marcador que no use, por ejemplo: {hallazgos[0].ruta} conflict-marker-size=32",
+        f" tamaño de marcador que no use, por ejemplo: {patron_de_gitattributes(hallazgos[0].ruta)} conflict-marker-size=32",
     ]
     return "\n".join(lineas)
 

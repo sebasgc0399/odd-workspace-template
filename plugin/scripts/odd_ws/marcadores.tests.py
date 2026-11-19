@@ -58,6 +58,12 @@ class Repo:
         self.escribir(ruta, contenido)
         self.git("add", "--", ruta)
 
+    def stagear_solo_en_el_indice(self, ruta, contenido):
+        blob = self.base / "blob"
+        blob.write_bytes(contenido.encode("utf-8"))
+        self.git("config", "core.protectNTFS", "false")
+        self.git("update-index", "--add", "--cacheinfo", "100644,%s,%s" % (self.git("hash-object", "-w", str(blob)).strip(), ruta))
+
     def commitear(self, mensaje="prueba"):
         self.git("commit", "-q", "--allow-empty", "-m", mensaje)
 
@@ -160,6 +166,37 @@ def test_un_nombre_con_espacios_dos_puntos_y_acentos_se_nombra_tal_cual():
         repo.stagear(nombre, CONFLICTO)
         codigo, _, errores = repo.revisar()
         assert codigo == 1 and f"{nombre}:2: {APERTURA} HEAD" in errores and f"{nombre}:6:" in errores, errores
+
+
+def _ejemplo_de_exclusion(errores):
+    return errores.split("por ejemplo: ", 1)[1].rstrip("\r\n")
+
+
+def test_el_ejemplo_de_exclusion_de_una_ruta_simple_sigue_sin_comillas():
+    with Repo() as repo:
+        repo.stagear("docs/guia.md", CONFLICTO)
+        assert _ejemplo_de_exclusion(repo.revisar()[2]) == "docs/guia.md conflict-marker-size=32"
+
+
+def test_el_ejemplo_de_exclusion_es_un_patron_valido_para_cualquier_ruta():
+    casos = (("dir con espacio/café ñandú.txt", '"dir con espacio/café ñandú.txt" conflict-marker-size=32', None),
+             ("#nota.md", None, None), ("!importante.md", None, None), ("[ab].md", None, "a.md"), ("a?.md", None, "ab.md"),
+             ("a*b.md", None, "axb.md"), ('com"illa.md', None, None), ("barra\\invertida.md", None, None),
+             ("con\ttab.md", None, None))
+    for ruta, esperado, vecino in casos:
+        with Repo() as repo:
+            for archivo in filter(None, (ruta, vecino)):
+                repo.stagear_solo_en_el_indice(archivo, CONFLICTO)
+            codigo, _, errores = repo.revisar()
+            assert codigo == 1 and f"{ruta}:2:" in errores, (ruta, codigo, errores)
+            ejemplo = _ejemplo_de_exclusion(errores)
+            assert esperado is None or ejemplo == esperado, (ruta, ejemplo)
+            repo.stagear(".gitattributes", ejemplo + "\n")
+            if vecino is None:
+                assert repo.revisar() == (0, "", ""), (ruta, ejemplo, repo.revisar())
+            else:
+                codigo, _, errores = repo.revisar()
+                assert codigo == 1 and f"{vecino}:2:" in errores and f"{ruta}:" not in errores, (ruta, ejemplo, errores)
 
 
 def test_en_un_merge_lo_que_trae_el_otro_lado_cuenta_como_agregado():
