@@ -1242,7 +1242,7 @@ def test_la_bajada_de_recibo_lee_el_json_que_guarda_el_triaje():
         assert not (ticket / "revision" / "2026-11-19-rapido" / "recibo.json").exists()
 
 
-PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
+PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 
 def main():

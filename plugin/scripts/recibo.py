@@ -303,6 +303,28 @@ def leer_triaje(carpeta):
     return datos
 
 
+def _repos_del_triaje(triaje):
+    repos = triaje.get("repos") if isinstance(triaje.get("repos"), list) else []
+    return {_clave_ruta(r["ruta"]): (r["ruta"], r.get("base")) for r in repos if isinstance(r, dict) and isinstance(r.get("ruta"), str)}
+
+
+def leer_triaje_del_diff(carpeta, repos):
+    triaje = leer_triaje(carpeta)
+    del_triaje = _repos_del_triaje(triaje)
+    distintos = []
+    for entrada in repos:
+        ruta, base = del_triaje.pop(_clave_ruta(entrada["ruta"]), (None, None))
+        if ruta is None:
+            distintos.append("%s no esta en el triaje" % entrada["ruta"])
+        elif base != entrada["base"]:
+            distintos.append("%s tiene base %s en el triaje y %s en el recibo" % (entrada["ruta"], base, entrada["base"]))
+    distintos += ["%s esta en el triaje y no en el recibo" % ruta for ruta, _ in del_triaje.values()]
+    if distintos:
+        raise ErrorUso("el triaje de %s no es de este diff: %s; guardalo con triaje.py --json con los mismos --repo y la misma "
+                       "base que el recibo" % (os.path.join(carpeta, *TRIAJE).replace("\\", "/"), "; ".join(distintos)))
+    return triaje
+
+
 def riesgos_reales(triaje):
     sin_capa = triaje.get("sin_capa")
     solo_sin_capa = isinstance(sin_capa, dict) and sin_capa.get("unico_motivo_de_capas") is True
@@ -317,9 +339,9 @@ def _sin_riesgo_real(carpeta, triaje):
                        % (os.path.join(carpeta, *TRIAJE).replace("\\", "/"), ", ".join("senal %s: positiva" % r for r in reales)))
 
 
-def bajada_de_la_ronda(args, carpeta, heredada):
+def bajada_de_la_ronda(args, carpeta, heredada, repos):
     if args.bajada is not None:
-        triaje = leer_triaje(carpeta)
+        triaje = leer_triaje_del_diff(carpeta, repos)
         if (triaje["modo"], args.modo) != BAJADA:
             raise ErrorUso("una bajada es un solo escalon, de completo a rapido (nunca a 0): el triaje propuso %s y --modo es %s"
                            % (triaje["modo"], args.modo))
@@ -332,7 +354,7 @@ def bajada_de_la_ronda(args, carpeta, heredada):
         raise ErrorUso("el recibo previo trae una bajada con forma invalida: %s" % json.dumps(heredada, ensure_ascii=False))
     if args.modo != heredada["a"]:
         return None
-    _sin_riesgo_real(carpeta, leer_triaje(carpeta))
+    _sin_riesgo_real(carpeta, leer_triaje_del_diff(carpeta, repos))
     return heredada
 
 
@@ -381,7 +403,7 @@ def escribir_recibo(args):
             return codigo
     else:
         datos = armar_recibo(args)
-    bajada = bajada_de_la_ronda(args, carpeta, heredada)
+    bajada = bajada_de_la_ronda(args, carpeta, heredada, datos["repos"])
     if args.derivado:
         datos["derivados"] = list(args.derivado)
     if bajada is not None:

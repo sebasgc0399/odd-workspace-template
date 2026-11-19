@@ -1334,9 +1334,11 @@ def triaje_con(modo="completo", positivas=("capas",), invalidas=("consumidores",
             "sin_capa": {"archivos": ["c.txt"], "unico_motivo_de_capas": unico, "aviso": aviso} if sin_capa else None}
 
 
-def guardar_triaje(carpeta, datos, codificacion="utf-8"):
+def guardar_triaje(carpeta, datos, codificacion="utf-8", repos=None):
     entrada = Path(carpeta) / "entrada"
     entrada.mkdir(parents=True, exist_ok=True)
+    if repos is not None and isinstance(datos, dict):
+        datos = {"repos": [{"ruta": Path(r).as_posix(), "base": b, "archivos": []} for r, b in repos], **datos}
     texto = datos if isinstance(datos, str) else json.dumps(datos, ensure_ascii=False, indent=2)
     (entrada / "triaje.json").write_bytes(texto.encode(codificacion))
 
@@ -1366,7 +1368,7 @@ def bytes_de(ticket):
 def test_bajada_de_completo_a_rapido_guarda_el_motivo_y_la_respuesta_del_lider():
     with temporal() as t:
         repo, base, ticket, carpeta = unidad_bajada(t)
-        guardar_triaje(carpeta, triaje_con())
+        guardar_triaje(carpeta, triaje_con(), repos=[(repo, base)])
         codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], [
             "--fecha", "2026-10-21", "--derivado", "h en a.sql:2=T9", *bajar("  solo c.txt, sin capa: config de la instancia  ")]))
         assert codigo == 0 and error == "", (salida, error)
@@ -1377,7 +1379,8 @@ def test_bajada_de_completo_a_rapido_guarda_el_motivo_y_la_respuesta_del_lider()
                                    "va_a_lider": False}, datos["bajada"]
         assert list(datos["repos"][0]) == CLAVES_DEL_REPO and datos["repos"][0]["modo"] == "rapido", datos["repos"][0]
         assert datos["repos"][0]["sha256"] == calc(repo, base, ["a.sql", "c.txt"])["sha256"]
-        guardar_triaje(carpeta, triaje_con(positivas=(), invalidas=("consumidores", "efecto"), sin_capa=False), "utf-16")
+        guardar_triaje(carpeta, triaje_con(positivas=(), invalidas=("consumidores", "efecto"), sin_capa=False), "utf-16",
+                       repos=[(repo, base)])
         codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", *bajar("solo inválidas")]))
         assert codigo == 0 and salida.endswith("(1 repo(s), 1 archivo(s); bajado de completo a rapido)\n"), (salida, error)
         datos = json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))
@@ -1414,7 +1417,7 @@ def test_una_bajada_que_no_vale_es_error_de_uso_y_no_escribe_nada():
             for vieja in (ticket / "revision").glob("*") if (ticket / "revision").is_dir() else []:
                 shutil.rmtree(vieja, onexc=_quitar)
             if triaje is not None:
-                guardar_triaje(ticket / "revision" / ("2026-10-21-" + modo[-1]), triaje)
+                guardar_triaje(ticket / "revision" / ("2026-10-21-" + modo[-1]), triaje, repos=[(repo, base)])
             antes = bytes_de(ticket)
             codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], [*modo, *extra]))
             assert codigo == 2 and salida == "" and esperado in error.replace("\\", "/"), (nombre, codigo, salida, error)
@@ -1440,7 +1443,7 @@ def test_sin_bajada_el_recibo_no_lee_el_triaje_y_sale_con_los_mismos_bytes():
 def test_check_y_sellar_valen_con_un_recibo_bajado_y_la_bajada_no_es_suya():
     with temporal() as t:
         repo, base, ticket, carpeta = unidad_bajada(t)
-        guardar_triaje(carpeta, triaje_con())
+        guardar_triaje(carpeta, triaje_con(), repos=[(repo, base)])
         assert correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], ["--fecha", "2026-10-21", *bajar()]))[0] == 0
         recibo = carpeta / "recibo.json"
         codigo, salida, error = correr(["--check", str(carpeta)])
@@ -1468,7 +1471,7 @@ def test_check_y_sellar_valen_con_un_recibo_bajado_y_la_bajada_no_es_suya():
 def test_un_rechequeo_despues_de_una_bajada_la_hereda_y_un_riesgo_real_nuevo_no_baja():
     with temporal() as t:
         repo, base, ticket, primera = unidad_bajada(t)
-        guardar_triaje(primera, triaje_con())
+        guardar_triaje(primera, triaje_con(), repos=[(repo, base)])
         assert correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"],
                                  ["--fecha", "2026-10-21", "--estado", "pendiente", *bajar("c.txt sin capa")]))[0] == 0
         escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
@@ -1477,11 +1480,11 @@ def test_un_rechequeo_despues_de_una_bajada_la_hereda_y_un_riesgo_real_nuevo_no_
         codigo, salida, error = correr(argv)
         assert codigo == 2 and salida == "" and "entrada/triaje.json" in error.replace("\\", "/"), (codigo, salida, error)
         assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"], recibos_de(ticket)
-        guardar_triaje(segunda, triaje_con(positivas=("migracion", "capas")))
+        guardar_triaje(segunda, triaje_con(positivas=("migracion", "capas")), repos=[(repo, base)])
         codigo, salida, error = correr(argv)
         assert codigo == 2 and salida == "" and "migracion" in error, (codigo, salida, error)
         assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"], recibos_de(ticket)
-        guardar_triaje(segunda, triaje_con())
+        guardar_triaje(segunda, triaje_con(), repos=[(repo, base)])
         codigo, salida, error = correr(argv + ["--estado", "limpio"])
         assert codigo == 0 and error == "", (salida, error)
         assert salida.endswith("; 1 rechequeado(s) y 1 heredado(s) de revision/2026-10-21-rapido; bajado de completo a rapido)\n"), salida
@@ -1490,7 +1493,7 @@ def test_un_rechequeo_despues_de_una_bajada_la_hereda_y_un_riesgo_real_nuevo_no_
         assert datos["bajada"] == {"de": "completo", "a": "rapido", "motivo": "c.txt sin capa", "va_a_lider": False}, datos["bajada"]
         assert correr(["--check", str(ticket)])[0] == 0
         tercera = ticket / "revision" / "2026-10-21-rapido-3"
-        guardar_triaje(tercera, triaje_con())
+        guardar_triaje(tercera, triaje_con(), repos=[(repo, base)])
         codigo, salida, error = correr(argv + ["--ronda", "3", *bajar("otro motivo")])
         assert codigo == 0, (salida, error)
         assert json.loads((tercera / "recibo.json").read_text(encoding="utf-8"))["bajada"]["motivo"] == "otro motivo"
@@ -1499,6 +1502,62 @@ def test_un_rechequeo_despues_de_una_bajada_la_hereda_y_un_riesgo_real_nuevo_no_
         assert codigo == 0 and "bajado" not in salida, (salida, error)
         datos = json.loads((ticket / "revision" / "2026-10-22-completo" / "recibo.json").read_text(encoding="utf-8"))
         assert "bajada" not in datos, "un rechequeo en completo no está bajado"
+
+
+def otro_repo(t):
+    otro, base_otro = repo_con_principal(t, dict(ARCHIVOS, **{"d.txt": "solo del otro repo\n"}), nombre="otro")
+    escribir(otro, {"b.cs": "class B { decimal Precio; }\n"})
+    return otro, base_otro
+
+
+def test_una_bajada_con_el_triaje_de_otro_diff_sale_con_2_y_no_escribe_nada():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        otro, base_otro = otro_repo(t)
+        uno = args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], ["--fecha", "2026-10-21", *bajar()])
+        dos = args_write(ticket, [repo, otro], [repo / "a.sql", otro / "b.cs"], ["--fecha", "2026-10-21", *bajar()])
+        casos = [
+            ("el triaje es de otro repo", uno, [(otro, base_otro)], "%s no esta en el triaje" % Path(repo).as_posix()),
+            ("el mismo repo con otra base", uno, [(repo, base_otro)],
+             "%s tiene base %s en el triaje y %s en el recibo" % (Path(repo).as_posix(), base_otro, base)),
+            ("el triaje no trae repos", uno, None, "%s no esta en el triaje" % Path(repo).as_posix()),
+            ("el triaje trae un repo de mas", uno, [(repo, base), (otro, base_otro)],
+             "%s esta en el triaje y no en el recibo" % Path(otro).as_posix()),
+            ("al triaje le falta un repo del recibo", dos, [(repo, base)], "%s no esta en el triaje" % Path(otro).as_posix()),
+        ]
+        for nombre, argv, repos, esperado in casos:
+            for vieja in (ticket / "revision").glob("*") if (ticket / "revision").is_dir() else []:
+                shutil.rmtree(vieja, onexc=_quitar)
+            guardar_triaje(carpeta, triaje_con(), repos=repos)
+            antes = bytes_de(ticket)
+            codigo, salida, error = correr(argv)
+            assert codigo == 2 and salida == "" and "no es de este diff" in error, (nombre, codigo, salida, error)
+            assert esperado in error.replace("\\", "/"), (nombre, esperado, error)
+            assert recibos_de(ticket) == [] and bytes_de(ticket) == antes, (nombre, recibos_de(ticket))
+        guardar_triaje(carpeta, triaje_con(), repos=[(otro, base_otro), (repo, base)])
+        codigo, salida, error = correr(dos)
+        assert codigo == 0 and error == "" and salida.endswith("(2 repo(s), 2 archivo(s); bajado de completo a rapido)\n"), (salida, error)
+
+
+def test_un_rechequeo_que_hereda_la_bajada_con_el_triaje_de_otro_diff_sale_con_2_y_no_escribe_nada():
+    with temporal() as t:
+        repo, base, ticket, primera = unidad_bajada(t)
+        otro, base_otro = otro_repo(t)
+        guardar_triaje(primera, triaje_con(), repos=[(repo, base)])
+        assert correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"],
+                                 ["--fecha", "2026-10-21", "--estado", "pendiente", *bajar()]))[0] == 0
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        segunda = ticket / "revision" / "2026-10-21-rapido-2"
+        argv = args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", "--ronda", "2", "--previo", str(primera)])
+        for repos in ([(otro, base_otro)], [(repo, base_otro)], None):
+            guardar_triaje(segunda, triaje_con(), repos=repos)
+            antes = bytes_de(ticket)
+            codigo, salida, error = correr(argv)
+            assert codigo == 2 and salida == "" and "no es de este diff" in error, (repos, codigo, salida, error)
+            assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"] and bytes_de(ticket) == antes, (repos, recibos_de(ticket))
+        guardar_triaje(segunda, triaje_con(), repos=[(repo, base)])
+        codigo, salida, error = correr(argv)
+        assert codigo == 0 and salida.endswith("; bajado de completo a rapido)\n"), (salida, error)
 
 
 def main():

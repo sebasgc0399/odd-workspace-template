@@ -38,10 +38,10 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
 | T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | delegada con T4. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecho; verificador: PASS (L7) | `a7ac88d` |
 | T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | delegada con T3, por el contexto del orquestador | hecho (L6) | `2c3689f` |
 | T5 | S9 | El costo del orquestador y el aviso de corridas en serie en `costo.json` | delegada, por el contexto del orquestador. Risk: none | hecho (L7) | `f30405a` |
-| F1 | S5 | Seguimiento: `recibo.py` confía en el `triaje.json` de la carpeta. Se blinda comparando sus repos y su base con los del recibo (L7) | aparte | anotado | |
+| F1 | S5 | Seguimiento: `recibo.py` confía en el `triaje.json` de la carpeta. Se blinda comparando sus repos y su base con los del recibo (L7) | en `fix/seguimientos-0-10`. Risk: item 2, porque es una compuerta del recibo; lleva verificador | hecho; verificador en curso (L8) | este commit |
 | F2 | S5 | Seguimiento, ya estaba antes de T3: un recibo `rapido` sin `--bajada`, sobre un triaje que propuso `completo`, no se detecta (L7) | aparte | anotado | |
 | F3 | S9 | Seguimiento: un rescate posterior desde otra sesión pisa con `null` un `orquestador` que estaba bien; además, `costo.json` no guarda el modo que propuso el triaje (L7) | aparte | anotado | |
-| F4 | — | Seguimiento cosmético: `triaje.tests.py` perdió un espacio (`PRUEBAS =[`) | aparte | anotado | |
+| F4 | — | Seguimiento cosmético: `triaje.tests.py` perdió un espacio (`PRUEBAS =[`) | con F1 | hecho (L8) | este commit |
 
 ## Log
 
@@ -89,3 +89,7 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
     - **Verificación del orquestador.** Volvió a correr `rescatar.tests.py` y dio 48/48.
     - **Riesgo.** El writer marcó el ítem 3, pero solo suma claves opcionales, así que el orquestador lo clasificó `Risk: none`.
   - R5 queda lista, de T0 a T5, para salir con la próxima versión. Las decisiones de O6 y O5 (S8) esperan las revisiones medidas.
+- **L8** (2026-11-19) F1 y F4, en `fix/seguimientos-0-10`.
+  - **F1.** Antes de leer el triaje para una bajada, o para heredarla en un rechequeo, `recibo.py` comprueba que sus `repos` sean los del recibo, con la misma `base` cada uno. Si falta un repo, sobra uno o cambia una base, sale con 2 sin escribir nada y nombra cada diferencia. Lo fijan dos tests nuevos, con cinco casos de bajada y tres de rechequeo; los tests de bajada que ya existían guardan ahora el triaje con sus repos.
+  - **F4.** Vuelve el espacio de `PRUEBAS = [`.
+  - F2 y F3 siguen anotados.
