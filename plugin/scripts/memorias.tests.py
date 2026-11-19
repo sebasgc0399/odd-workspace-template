@@ -804,6 +804,21 @@ def test_la_correccion_que_pide_matriz_py_se_muestra_y_espera_el_si():
     assert sin_si != texto and problemas_de_la_correccion(sin_si), "control positivo: una corrección escrita sin el sí se detecta"
 
 
+def problemas_del_id(texto):
+    rutas = re.findall(r'^\s*[A-Z]+ = "(\.claude/[^"]+)"', seccion_de(texto, "## 5."), re.M)
+    paso = numeradas_de(seccion_de(texto, "### M3.")).get("2", "")
+    problemas = [] if len(rutas) >= 2 else ["el script del paso 5 nombra %d archivos, se esperaban la matriz y verificar_<capa>.py" % len(rutas)]
+    problemas += [] if "paso 5" in paso else ["M3.2 no remite al script del paso 5 para el id"]
+    return problemas + ["M3.2 no dice que el id sale también de %s, como en el script del paso 5" % ruta for ruta in rutas if ruta not in paso]
+
+
+def test_la_propuesta_calcula_el_id_con_los_mismos_archivos_que_el_script_del_paso_5():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    assert problemas_del_id(texto) == [], problemas_del_id(texto)
+    sin_reglas = texto.replace(" y los que ya usa `.claude/reglas/verificar_<capa>.py`", "", 1)
+    assert sin_reglas != texto and problemas_del_id(sin_reglas), "control positivo: un id que no mira verificar_<capa>.py se detecta"
+
+
 def test_de_punta_a_punta_solo_un_origen_exacto_y_valido_gradua():
     with temporal() as base:
         raiz = instancia(base, [fila("SQL-01", "memoria:graduable"), fila("SQL-02", "memoria:engram-123"),
