@@ -1170,6 +1170,154 @@ def test_un_resumen_que_pasa_el_tope_se_recorta_y_dice_donde_sigue():
         assert texto.rstrip().endswith("[...] el resto sigue en tickets/T-7-algo/CLAUDE.md"), texto[-200:]
 
 
+ENCABEZADO_DEL_RESUMEN = ("odd-ws: el ticket activo de esta instancia es tickets/T-7-algo. La sesión corre en la raíz, así que Claude Code no "
+                          "carga su CLAUDE.md solo; este es su resumen, de tickets/T-7-algo/CLAUDE.md:\n\n")
+CIERRE_DEL_TICKET = ("El resto (alcance, criterios de aceptación, contexto técnico, decisiones, gotchas y candidatos) está en el archivo "
+                     "completo: tickets/T-7-algo/CLAUDE.md")
+ENLACES_A_DEPURAR = "Enlaces del ticket rotos o no portables (una ruta de la máquina se rompe en el clon de otra persona):\n"
+LISTA_DE_ENLACES = "La lista completa sale con `ticket.py --enlaces tickets/T-7-algo/CLAUDE.md`."
+FILAS_LARGAS = "".join("| T%03d | S1 | una tarea con bastante texto para ocupar lugar | en la sesión | hecho | |\n" % i for i in range(300))
+MARCA_UNC = "servidor-que-no-se-toca"
+
+
+def enlaces_a_depurar(*lineas):
+    return "\n\n" + ENLACES_A_DEPURAR + "".join(linea + "\n" for linea in lineas) + LISTA_DE_ENLACES
+
+
+def test_un_ticket_con_enlaces_sanos_inyecta_el_mismo_resumen_que_antes():
+    with Toque() as w:
+        for rel in ("notas/guía.md", "con espacios/a.md", "i.png"):
+            escribir(w.raiz, "tickets/T-7-algo/" + rel, "x\n")
+        objetivo = "Ver [la guía](notas/guía.md#uso), [notas](notas/), [la web](https://x.org/a#b), [arriba](#objetivo) y ![img](i.png)."
+        texto = resumen_del_ticket(w, "# T-7 — algo\n\n## Objetivo\n\n%s\n\n## Decisiones\n\n- [espacios](<con espacios/a.md>)\n" % objetivo)
+        assert texto == "%s# T-7 — algo\n\n## Objetivo\n\n%s\n\n%s" % (ENCABEZADO_DEL_RESUMEN, objetivo, CIERRE_DEL_TICKET), texto
+
+
+def test_un_ticket_largo_con_enlaces_sanos_se_recorta_como_antes():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/actas/acta.md", "x\n")
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\nVer [el acta](actas/acta.md).\n\n## Tareas\n\n" + FILAS_LARGAS +
+                                      "\n## Bitácora\n\n- ENTRADA-FINAL\n")
+        assert texto.endswith("\n\n[...] el resto sigue en tickets/T-7-algo/CLAUDE.md"), texto[-300:]
+        assert "Enlaces del ticket" not in texto and "ENTRADA-FINAL" not in texto, texto[-300:]
+        assert len(texto) <= M.TOPE_DEL_TICKET + 500, len(texto)
+
+
+def test_el_resumen_termina_con_los_enlaces_rotos_del_ticket():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/notas/guía.md", "x\n")
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\nVer [la guía](notas/guía.md).\n\n## Decisiones\n\n"
+                                      "- [el diseño](diseño.md#parte), [web](https://x.org/nada) y [la carpeta](<sin carpeta/>)\n")
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar("- no existe: el diseño -> diseño.md",
+                                                                     "- no existe: la carpeta -> sin carpeta/")), texto[-500:]
+        assert "la guía ->" not in texto and "web ->" not in texto, texto[-500:]
+
+
+def test_el_resumen_marca_las_rutas_de_la_maquina_aunque_existan():
+    with Toque() as w:
+        real = (w.raiz / "README.md").as_posix()
+        texto = resumen_del_ticket(w, "# T-7\n\n## Notas\n\n[existe](<%s>) [unidad](C:\\Users\\yo\\d.md) [raíz](/home/yo/x.md) "
+                                      "[casa](~/x.md)\n" % real)
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar(
+            "- ruta de la máquina: existe -> " + real, "- ruta de la máquina: unidad -> C:\\Users\\yo\\d.md",
+            "- ruta de la máquina: raíz -> /home/yo/x.md", "- ruta de la máquina: casa -> ~/x.md")), texto[-500:]
+
+
+def test_el_resumen_lista_rotos_y_rutas_de_la_maquina_en_el_orden_del_ticket():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\n[falta](nada.md)\n\n## Gotchas\n\n- [unidad](D:/x.md)\n- [otra](otra/nada/)\n")
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar(
+            "- no existe: falta -> nada.md", "- ruta de la máquina: unidad -> D:/x.md", "- no existe: otra -> otra/nada/")), texto[-500:]
+
+
+def test_los_enlaces_a_depurar_se_cortan_en_pocas_lineas():
+    with Toque() as w:
+        largo = "x" * 300
+        rotos = "".join("- [f%d](falta-%d.md)\n" % (i, i) for i in range(1, 8))
+        texto = resumen_del_ticket(w, "# T-7\n\n## Bitácora\n\n- [%s](<%s.md>)\n%s" % (largo, largo, rotos))
+        recortado = "x" * 120 + "..."
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar(
+            "- no existe: %s -> %s" % (recortado, recortado), "- no existe: f1 -> falta-1.md", "- no existe: f2 -> falta-2.md",
+            "- no existe: f3 -> falta-3.md", "- no existe: f4 -> falta-4.md", "- y 3 más")), texto[-800:]
+
+
+def test_los_enlaces_a_depurar_sobreviven_al_recorte_del_resumen():
+    with Toque() as w:
+        texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\nOBJETIVO-DEL-TICKET\n\n## Tareas\n\n" + FILAS_LARGAS +
+                                      "\n## Bitácora\n\n- ENTRADA-FINAL con [el acta](actas/2026-11-01.md)\n")
+        assert "ENTRADA-FINAL" not in texto, texto[-500:]
+        assert texto.endswith("\n\n[...] el resto sigue en tickets/T-7-algo/CLAUDE.md" +
+                              enlaces_a_depurar("- no existe: el acta -> actas/2026-11-01.md")), texto[-500:]
+        assert len(texto) <= M.TOPE_DEL_TICKET + 1000, len(texto)
+
+
+@contextlib.contextmanager
+def sin_tocar(marca):
+    tocados = []
+    objetivos = [(os, "stat"), (os, "lstat"), (os, "scandir"), (os, "listdir"), (os.path, "exists"), (os.path, "lexists"),
+                 (os.path, "isdir"), (os.path, "isfile"), (os.path, "realpath"), (Path, "exists"), (Path, "is_dir"),
+                 (Path, "is_file"), (Path, "resolve"), (Path, "stat")]
+    originales = [(dueno, nombre, getattr(dueno, nombre)) for dueno, nombre in objetivos]
+
+    def envolver(nombre, original):
+        def envuelta(*args, **kwargs):
+            if any(marca in str(arg) for arg in args):
+                tocados.append((nombre, str(args[0])))
+                raise OSError("tocó " + marca)
+            return original(*args, **kwargs)
+        return envuelta
+
+    for dueno, nombre, original in originales:
+        setattr(dueno, nombre, envolver(nombre, original))
+    try:
+        yield tocados
+    finally:
+        for dueno, nombre, original in originales:
+            setattr(dueno, nombre, original)
+
+
+def test_una_ruta_unc_se_marca_sin_tocar_el_disco_ni_la_red():
+    from odd_ws import enlaces
+    with Toque() as w:
+        unc = "\\\\%s\\recurso\\x.md" % MARCA_UNC
+        unc_con_barras = "//%s/recurso/y.md" % MARCA_UNC
+        ticket = "# T-7\n\n## Notas\n\n[unc](%s) [unc2](%s)\n" % (unc, unc_con_barras)
+        with sin_tocar(MARCA_UNC) as tocados:
+            texto = resumen_del_ticket(w, ticket)
+            del_hook = list(tocados)
+            list(enlaces.enlaces(ticket, w.raiz / "tickets" / "T-7-algo"))
+        assert del_hook == [], del_hook
+        assert tocados, "control positivo: enlaces() sí toca esas rutas, y el instrumento lo ve"
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar(
+            "- ruta de la máquina: unc -> " + unc, "- ruta de la máquina: unc2 -> " + unc_con_barras)), texto[-500:]
+
+
+def test_si_revisar_los_enlaces_falla_el_resumen_sale_igual_que_antes():
+    with Toque() as w:
+        original = M.enlaces.revisar
+
+        def rota(*_):
+            yield M.enlaces.Revisado("falta", "nada.md", M.enlaces.NO_EXISTE)
+            raise RuntimeError("rota")
+
+        M.enlaces.revisar = rota
+        try:
+            texto = resumen_del_ticket(w, "# T-7 — algo\n\n## Objetivo\n\n[falta](nada.md)\n")
+        finally:
+            M.enlaces.revisar = original
+        assert texto == "%s# T-7 — algo\n\n## Objetivo\n\n[falta](nada.md)\n\n%s" % (ENCABEZADO_DEL_RESUMEN, CIERRE_DEL_TICKET), texto
+
+
+def test_sin_plazo_los_enlaces_dejan_de_revisarse_y_el_resumen_sale():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", "# T-7\n\n## Objetivo\n\n[a](falta-a.md) [b](falta-b.md) [c](C:/x.md)\n")
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        codigo, out, err = w.correr(inicio_en("startup", w.raiz), plazo=-1)
+        assert codigo == 0 and err == b"", (codigo, err)
+        texto = aviso_de(out)
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar("- no existe: a -> falta-a.md")), texto[-500:]
+
+
 def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando():
     with Mundo() as w:
         escribir(w.raiz, "workspace.config.json", "{rota")

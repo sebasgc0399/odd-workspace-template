@@ -257,6 +257,14 @@ def test_links_scan_no_distingue_mayusculas_como_el_resto_de_los_globs():
         assert len(m().chequear_links(a.ctx())) == 1
 
 
+def test_links_usan_la_regla_compartida_y_siguen_mirando_solo_los_md_sin_angulares():
+    enlaces = importlib.import_module("odd_ws.enlaces")
+    assert (m().LINK_MD_RE, m().ESQUEMA_RE, m().existe, m().resolver) == (enlaces.LINK_MD_RE, enlaces.ESQUEMA_RE, enlaces.existe, enlaces.resolver)
+    archivos = {"CLAUDE.md": "[a](<no existe.md>) [b](falta.txt) [c](carpeta-que-falta/) [d](nada.md) [e](#arriba)\n"}
+    with Arbol(archivos) as a:
+        assert pares(m().chequear_links(a.ctx())) == [("FAIL", "CLAUDE.md -> nada.md (destino inexistente)")]
+
+
 def test_anclas_rotas_son_warn_y_las_sanas_no():
     archivos = {
         "CLAUDE.md": "[b](docs/b.md#ejecución)\n",

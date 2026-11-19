@@ -15,14 +15,13 @@ from pathlib import Path
 import config_loader
 from odd_ws import afirmaciones as motor
 from odd_ws.comun import decodificar, entorno_git, raiz_de_instancia
+from odd_ws.enlaces import ESQUEMA_RE, LINK_MD_RE, existe, resolver
 
 FAIL, WARN, INFO, WORKLIST, NOAPLICA = "FAIL", "warn", "info", "worklist", "n/a"
 MAX_ITEMS = 6
 CRUCE_MIN_DOCS = 6
 VOLATILIDAD_DIAS = {"alta": 30, "media": 90, "baja": None}
 IGNORADAS = (".git", "node_modules")
-ESQUEMA_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]+:")
-LINK_MD_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)(#[^)\s]*)?\)")
 LINK_SECCION_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)?#([^)\s]+)\)")
 ANCLA_HTML_RE = re.compile(r"""<a\s[^>]*\b(?:id|name)\s*=\s*["']([^"']+)["']""")
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.M)
@@ -64,20 +63,6 @@ def contexto_de(raiz, hoy=None):
 
 def leer(ruta):
     return decodificar(Path(ruta).read_bytes())
-
-
-def _existe(ruta):
-    try:
-        return ruta.exists()
-    except (OSError, ValueError):
-        return False
-
-
-def _resolver(ruta):
-    try:
-        return ruta.resolve()
-    except (OSError, ValueError):
-        return ruta
 
 
 def slug(titulo):
@@ -194,7 +179,7 @@ def chequear_links(ctx):
         for m in LINK_MD_RE.finditer(leer(archivo)):
             if ESQUEMA_RE.match(m.group(1)):
                 continue
-            if not _existe(_resolver(archivo.parent / m.group(1))):
+            if not existe(resolver(archivo.parent / m.group(1))):
                 salida.append(Hallazgo(FAIL, "%s -> %s (destino inexistente)" % (ctx.relativa(archivo), m.group(1)), "corregir la ruta o crear el destino"))
     return salida
 
@@ -203,7 +188,7 @@ def links_a_seccion(archivo):
     for m in LINK_SECCION_RE.finditer(leer(archivo)):
         if m.group(1) and ESQUEMA_RE.match(m.group(1)):
             continue
-        destino = _resolver(archivo.parent / m.group(1)) if m.group(1) else _resolver(archivo)
+        destino = resolver(archivo.parent / m.group(1)) if m.group(1) else resolver(archivo)
         yield destino, m.group(2), m.group(1)
 
 
@@ -211,7 +196,7 @@ def chequear_anclas(ctx):
     salida, cache = [], {}
     for archivo in docs_md(ctx):
         for destino, ancla, ruta in links_a_seccion(archivo):
-            if ruta is None or not _existe(destino):
+            if ruta is None or not existe(destino):
                 continue
             if destino not in cache:
                 cache[destino] = anclas_de(destino)
@@ -241,7 +226,7 @@ def chequear_cifras_en_headings(ctx):
             cantidad = patron.search(m.group(1))
             if not cantidad:
                 continue
-            refs = entrantes.get((_resolver(doc), slug(m.group(1))), [])
+            refs = entrantes.get((resolver(doc), slug(m.group(1))), [])
             if refs:
                 salida.append(Hallazgo(
                     WARN,

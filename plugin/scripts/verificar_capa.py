@@ -12,6 +12,7 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import enlaces
 from odd_ws import hosts
 from odd_ws import paquetes
 from odd_ws.capacidades import INICIO, POST, PRE
@@ -32,6 +33,10 @@ BITACORA = "Bitácora"
 ENTRADAS_DE_LA_BITACORA = 5
 CIERRE_DEL_RESUMEN = ("El resto (alcance, criterios de aceptación, contexto técnico, decisiones, gotchas y candidatos) "
                       "está en el archivo completo: ")
+ENLACES_A_DEPURAR = "Enlaces del ticket rotos o no portables (una ruta de la máquina se rompe en el clon de otra persona):"
+LISTA_DE_ENLACES = "La lista completa sale con `ticket.py --enlaces %s`."
+TOPE_DE_ENLACES = 5
+TOPE_DEL_ENLACE = 120
 CERCAS = ("```", "~~~")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
@@ -544,6 +549,30 @@ def _resumen_del_ticket(texto):
     return "\n\n".join(parte for parte in partes if parte)
 
 
+def _recortar(texto):
+    return texto if len(texto) <= TOPE_DEL_ENLACE else texto[:TOPE_DEL_ENLACE] + "..."
+
+
+def _enlaces_a_depurar(texto, carpeta, destino):
+    hallados = []
+    try:
+        for revisado in enlaces.revisar(texto, carpeta):
+            if revisado.motivo is not None:
+                hallados.append(revisado)
+            if _sin_tiempo():
+                break
+    except Exception:
+        return None
+    if not hallados:
+        return None
+    lineas = [ENLACES_A_DEPURAR]
+    lineas += ["- %s: %s -> %s" % (r.motivo, _recortar(r.texto), _recortar(r.destino)) for r in hallados[:TOPE_DE_ENLACES]]
+    if len(hallados) > TOPE_DE_ENLACES:
+        lineas.append("- y %d más" % (len(hallados) - TOPE_DE_ENLACES))
+    lineas.append(LISTA_DE_ENLACES % destino)
+    return "\n".join(lineas)
+
+
 def _ticket_activo(evento, config):
     raiz = config["raiz"]
     if not evento.cwd or config_loader.canonica(evento.cwd) != config_loader.canonica(raiz):
@@ -571,6 +600,9 @@ def _ticket_activo(evento, config):
         resumen = resumen[:TOPE_DEL_TICKET].rstrip() + "\n\n[...] el resto sigue en " + destino
     else:
         resumen = (resumen + "\n\n" if resumen else "") + CIERRE_DEL_RESUMEN + destino
+    depurar = _enlaces_a_depurar(texto, os.path.dirname(ruta), destino)
+    if depurar:
+        resumen += "\n\n" + depurar
     return Contexto("odd-ws: el ticket activo de esta instancia es %s. La sesión corre en la raíz, así que Claude Code no carga "
                     "su CLAUDE.md solo; este es su resumen, de %s:\n\n%s" % (relativa, destino, resumen))
 
