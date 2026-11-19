@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -499,11 +499,25 @@ function existeSegunLaPlataforma(ruta: string): boolean {
   return es(ruta, "carpeta");
 }
 
+function carpetaComun(ruta: string): string | null {
+  const commondir = join(ruta, "commondir");
+  if (!es(commondir, "archivo")) {
+    return ruta;
+  }
+  try {
+    const nombrada = readFileSync(commondir, "utf8").replace(/[\r\n]+$/, "");
+    return realpathSync.native(isAbsolute(nombrada) ? nombrada : `${ruta}/${nombrada}`);
+  } catch {
+    return null;
+  }
+}
+
 function esCarpetaDeGit(ruta: string): boolean {
   if (!existeComoArchivoOEnlace(join(ruta, "HEAD"))) {
     return false;
   }
-  return es(join(ruta, "commondir"), "archivo") || (existeSegunLaPlataforma(join(ruta, "objects")) && existeSegunLaPlataforma(join(ruta, "refs")));
+  const comun = carpetaComun(ruta);
+  return comun !== null && existeSegunLaPlataforma(join(comun, "objects")) && existeSegunLaPlataforma(join(comun, "refs"));
 }
 
 function raizDeGit(desde: string): string | null {

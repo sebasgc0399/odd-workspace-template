@@ -1399,7 +1399,10 @@ test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, 
   let hayEnlaces = true;
   try {
     symlinkSync("refs/heads/no-existe", join(headEnlace, ".git", "HEAD"));
-  } catch {
+  } catch (error) {
+    if ((error as { code?: string }).code !== "EPERM") {
+      throw error;
+    }
     hayEnlaces = false;
   }
   if (hayEnlaces) {
@@ -1411,6 +1414,61 @@ test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, 
   const archivo = instancia(join(repo, "archivo"), false);
   writeFileSync(join(archivo, ".git"), "gitdir: ../.git/worktrees/archivo\n");
   await pasa(archivo);
+});
+
+test("un commondir cuenta solo si la carpeta que nombra tiene objects y refs, como git; si no, gentle-shell corre al writer en el repo de arriba", async () => {
+  const repo = join(BASE, "monorepo-commondir");
+  mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q");
+  git(repo, "commit", "-q", "--allow-empty", "-m", "base");
+  const bloqueado = async (inst: string) => {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+    const bloqueo = await conPi().emitir(lanzamiento(entrada), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, inst);
+    assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(repo)}, la raíz del repo git que contiene la instancia, `), bloqueo.reason);
+    assert.equal(entrada.task, "x");
+  };
+  const pasa = async (inst: string) => {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, inst);
+    assert.equal(entrada.task, `x\n${MARCA_SQL}`);
+  };
+  const conCommondir = (nombre: string, contenido: string) => {
+    const inst = instancia(join(repo, nombre), false);
+    mkdirSync(join(inst, ".git"), { recursive: true });
+    writeFileSync(join(inst, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(inst, ".git", "commondir"), contenido);
+    return inst;
+  };
+  await bloqueado(conCommondir("a-una-que-no-existe", join(repo, "no-existe")));
+  const vacia = join(repo, "comun-vacia");
+  mkdirSync(vacia);
+  await bloqueado(conCommondir("a-una-vacia", vacia));
+  const sinRefs = join(repo, "comun-sin-refs");
+  mkdirSync(join(sinRefs, "objects"), { recursive: true });
+  await bloqueado(conCommondir("a-una-sin-refs", sinRefs));
+  const sinObjects = join(repo, "comun-sin-objects");
+  mkdirSync(join(sinObjects, "refs"), { recursive: true });
+  await bloqueado(conCommondir("a-una-sin-objects", sinObjects));
+  const conLosPropios = conCommondir("con-objects-y-refs-propios", vacia);
+  mkdirSync(join(conLosPropios, ".git", "objects"));
+  mkdirSync(join(conLosPropios, ".git", "refs"));
+  await bloqueado(conLosPropios);
+  await pasa(conCommondir("relativo-con-salto", "../../.git\n"));
+  await pasa(conCommondir("absoluto-con-crlf", `${join(repo, ".git")}\r\n`));
+  const valida = instancia(join(repo, "valida"), false);
+  git(valida, "init", "-q");
+  await pasa(valida);
+  const worktree = join(repo, "worktree-real");
+  git(repo, "worktree", "add", "-q", "-b", "rama-x18", worktree);
+  await pasa(instancia(worktree, false));
+  if (!hayGitArriba(BASE)) {
+    const arriba = join(BASE, "arriba-commondir-roto");
+    mkdirSync(join(arriba, ".git"), { recursive: true });
+    writeFileSync(join(arriba, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(arriba, ".git", "commondir"), join(BASE, "no-existe"));
+    await pasa(instancia(join(arriba, "inst"), false));
+  }
 });
 
 test("un repo de arriba que git acepta con commondir, con objects como archivo o con HEAD como enlace no deja pasar al writer", async () => {
