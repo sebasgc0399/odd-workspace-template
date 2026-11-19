@@ -1181,6 +1181,19 @@ def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando
             assert w.correr(e) == (0, "", b""), e
 
 
+def test_inicio_con_la_config_rota_en_fork_avisa_como_en_resume():
+    with Mundo() as w:
+        escribir(w.raiz, "workspace.config.json", "{rota")
+        resume = w.correr(inicio("resume"))
+        assert w.correr(inicio("fork")) == resume and "/odd-ws:doctor" in aviso_de(resume[1]), resume
+        codigo, out, err = M.correr(inicio("fork"), raiz=w.raiz, host="codex")
+        assert (codigo, err) == (0, b"") and "/odd-ws:doctor" in aviso_de(out), (codigo, out, err)
+        for source in ("startup", "resume"):
+            assert "/odd-ws:doctor" in aviso_de(w.correr(inicio(source))[1]), source
+        for source in ("compact", "clear", None, "otro", "", "Fork"):
+            assert w.correr(inicio(source)) == (0, "", b""), source
+
+
 def test_inicio_sin_instancia_calla_en_todos_los_origenes():
     with Mundo() as w:
         assert w.correr(inicio("startup"))[0] == 0

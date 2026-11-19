@@ -1292,7 +1292,7 @@ def test_de_punta_a_punta_verificar_capa_avisa_de_la_config_rota_segun_el_origen
         inst.mkdir()
         (inst / "workspace.config.json").write_text("{roto", encoding="utf-8")
         entorno = entorno_aislado(base)
-        for razon, avisa in (("startup", True), ("resume", True), ("reload", True), ("new", False), ("fork", False)):
+        for razon, avisa in (("startup", True), ("resume", True), ("reload", True), ("new", False), ("fork", True)):
             crudo = dict(inicio(razon), ctx=ctx(cwd=str(inst)))
             datos = decision_de(correr_hook("verificar_capa", crudo, inst, entorno, "--host", "pi"))
             if avisa:
