@@ -20,9 +20,17 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T0 | S1 | Este documento, y las ideas I48 a I54 en el roadmap | inline | hecho | este commit |
-| T1 | S4 | El chequeo de marcadores en `.githooks/pre-commit`, con su helper y sus tests | delegada: no comparte archivos con R5. Risk: item 5, porque es la compuerta de commit del repo; lleva verificador | pendiente | |
-| T2 | S2, S5 | `rescatar.py --host pi`, su helper en `hosts/pi.py`, los pasos 4 y 6 de `revisar` y los docs | delegada, después de T3 de R5. Risk: item 6, porque el archivo de tarea es interno de Gentle; lleva una prueba real en Pi | pendiente | |
-| T3 | S3 | La regla del límite de concurrencia en `revisar` | con T2: los mismos pasos de la skill | pendiente | |
+| T1 | S4 | El chequeo de marcadores en `.githooks/pre-commit`, con su helper y sus tests | delegada: no comparte archivos con R5. Risk: item 5, porque es la compuerta de commit del repo; lleva verificador | hecho; verificador: PASS (L4) | `a179a8e` |
+| T2 | S2, S5 | `rescatar.py --host pi`, su helper en `hosts/pi.py`, los pasos 4 y 6 de `revisar` y los docs | delegada, después de T3 de R5. Risk: item 6, porque el archivo de tarea es interno de Gentle; lleva una prueba real en Pi | hecho; verificador: PASS (L4). Falta la prueba en vivo (F9) | `b4a5eb9` |
+| T3 | S3 | La regla del límite de concurrencia en `revisar` | con T2: los mismos pasos de la skill. Risk: none | hecho (L4) | `11bdb89` |
+| F1 | S4 | Seguimiento: el ejemplo de exclusión del mensaje de bloqueo no sirve para una ruta con espacios; en `.gitattributes` va entre comillas, con escapes de C (L4) | aparte | anotado | |
+| F2 | S4 | Seguimiento: `git rebase --continue` no corre el pre-commit, ni antes ni ahora, así que un conflicto que quedó con marcadores entra. Se documenta en §8 (L4) | aparte | anotado | |
+| F3 | S2 | Seguimiento: `auditar_lecturas.py` solo clasifica `Read`, `Grep` y `Glob`, así que una corrida de Pi sale limpia aunque lea una ruta prohibida. Va antes de que `eval-reviewers` soporte Pi (L4) | aparte | anotado | |
+| F4 | S2 | Seguimiento: una corrida de Pi sin `task.usage` cuenta como medida. Además, `--sesion` con una carpeta sin `gentle-agents/tasks` sale con 1, y el doc dice 2 (L4) | aparte | anotado | |
+| F5 | S5 | Seguimiento: la línea de `pi-agentes` que muestra el doctor no dice lo de los overlays: solo lo dicen la nota del manifiesto y los docs (L4) | aparte | anotado | |
+| F6 | S2 | Seguimiento: los límites de gentle-shell que los docs no nombran (L4): <ul><li>la historia se poda a 200 tareas;</li><li>`usage` suma solo las primeras 128 respuestas;</li><li>el guardado final es asíncrono, así que un rescate que llega antes ve `running`;</li><li>un reporte cortado por `stopReason: length` queda `completed`, y en Claude Code pasa lo mismo.</li></ul> | aparte | anotado | |
+| F7 | S2 | Seguimiento: fuera de una sesión de gentle-shell, la regla cae en `~/.pi/agent`, pero el hogar aislado por defecto es `~/.gentle-shell/agent`. Dentro de la sesión, el lanzador fija las dos variables (L4) | aparte | anotado | |
+| F9 | S2 | La prueba en vivo: en esta máquina no hay archivos de tarea de Pi, así que falta una revisión real en gentle-shell con `--host pi`. La corre el autor | con el autor | pendiente | |
 
 ## Log
 
@@ -38,3 +46,21 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
     - la admisión de writers en lote, porque un hook de Claude Code no ve las otras llamadas del mismo mensaje;
     - el banco sintético para decidir O6, porque exagera los aciertos: las formas de revisión hallaron 4 de 4 defectos sembrados y como mucho 2 de 6 reales.
 - **L3** (2026-11-18) El autor aprobó el plan: «Si apruebo el plan». Siguiente paso: T1 en paralelo con R5; T2 y T3 cuando cierre T3 de R5.
+- **L4** (2026-11-19) T1, T2 y T3 hechos, con verificadores independientes. El límite de 5 horas de uso cortó a dos agentes a mitad de camino, y se retomaron desde donde estaban con el sí del autor («si, retomalos ahora»).
+  - **T1 (`a179a8e`).**
+    - **Qué hace:** `odd_ws/marcadores.py`, llamado desde `.githooks/pre-commit`, bloquea solo cuando un mismo archivo agrega `<` y `>` de conflicto.
+    - **Supuestos de diseño:**
+      - Las fallas de git dejan pasar el commit.
+      - En un merge, solo cuenta el primer padre.
+    - **Superficie extra:** el autor autorizó el stub en `corredores.test.ts` («Si, autoriza ese archivo»).
+    - **Verificador: PASS.** Corrió 61 escenarios, con 122 commits reales entre el hook viejo y el nuevo:
+      - los 34 bloqueos traen los dos marcadores en un archivo, y en todos HEAD y el índice quedan como estaban;
+      - los 27 que pasan dan la misma salida que antes.
+    - **Avisos:** F1 y F2.
+  - **T2 (`b4a5eb9`).**
+    - **Qué hace:** `rescatar.py --host pi` lee `<agentHome>/gentle-agents/tasks/<id>.json` y devuelve el mismo dict que en Claude Code. De la tarea salen `turnos`, `inicio`, `fin`, `salida` y las dos cachés; las de contexto quedan en null.
+    - **Verificador: PASS.** Confirmó el formato contra el código de gentle-shell, en main y en v4.8.0: estados, `thread.items`, `dropped`, ids y la regla del agentHome. Corrió 60 sondas de Pi, y Claude Code dio idéntico en 34 de 34 casos.
+    - **Sin prueba real:** en esta máquina no hay archivos de tarea de Pi, así que el formato quedó fijado por fixtures armados desde el código. La prueba en vivo es F9.
+    - **Avisos:** F3 a F7.
+  - **T3 (`11bdb89`).** Una corrida que el host rechaza por concurrencia no cuenta como cortada: se espera a otra, se cierra con `close_agent` en Codex, se relanza y se avisa que va por tandas. Está fijado por un test con control por mutación.
+  - R6 queda lista para salir con la próxima versión. Antes falta F9, que corre el autor.
