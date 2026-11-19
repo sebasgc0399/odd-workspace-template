@@ -8,6 +8,7 @@ ABRIBLES = frozenset((".md", ".markdown", ".txt", ".rst", ".log", ".csv", ".tsv"
                       ".ini", ".cfg", ".xml", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"))
 WINDOWS, MACOS, WSL, LINUX, REMOTO, SIN_PANTALLA = "windows", "macos", "wsl", "linux", "remoto", "sin pantalla"
 ABRIDORES = {WINDOWS: "explorer", MACOS: "open", WSL: "explorer.exe", LINUX: "xdg-open"}
+CON_EXPLORER = (WINDOWS, WSL)
 NO_ABRE = {
     REMOTO: "la sesión es remota (SSH_CONNECTION), así que se abriría en otra máquina",
     SIN_PANTALLA: "no hay pantalla (ni DISPLAY ni WAYLAND_DISPLAY), así que no hay dónde abrirlo",
@@ -15,6 +16,7 @@ NO_ABRE = {
 ABRE_UNA_CARPETA = "abierto en el gestor de archivos"
 ABRE_UN_ARCHIVO = "abierto con su programa"
 MUESTRA = "mostrado en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo"
+SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: abrila a mano"
 
 
 class NoAbrio(Exception):
@@ -78,8 +80,8 @@ def _orden(lugar, programa, destino, abre):
     nombre = ABRIDORES[lugar]
     if abre:
         return [programa, destino], nombre
-    if lugar in (WINDOWS, WSL):
-        return [programa, "/select," + destino], f"{nombre} /select"
+    if lugar in CON_EXPLORER:
+        return [programa, "/select,", destino], f"{nombre} /select"
     if lugar == MACOS:
         return [programa, "-R", destino], f"{nombre} -R"
     return [programa, os.path.dirname(destino)], f"{nombre} sobre su carpeta"
@@ -89,12 +91,14 @@ def _abrir(real, entorno, plataforma, plazo):
     lugar = escenario(entorno, plataforma)
     if lugar in NO_ABRE:
         raise NoAbrio(NO_ABRE[lugar])
+    if lugar in CON_EXPLORER and "," in real:
+        raise NoAbrio(f"{ABRIDORES[lugar]} {SEPARA_EN_LAS_COMAS}")
     programa = _programa(ABRIDORES[lugar], entorno)
     abre = se_abre(real, lugar)
     destino = _ruta_de_windows(real, entorno, plazo) if lugar == WSL else real
     argv, como = _orden(lugar, programa, destino, abre)
     resultado = _correr(ABRIDORES[lugar], argv, plazo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if lugar not in (WINDOWS, WSL) and resultado.returncode != 0:
+    if lugar not in CON_EXPLORER and resultado.returncode != 0:
         raise NoAbrio(f"{ABRIDORES[lugar]} falló (salida {resultado.returncode})")
     que = MUESTRA if not abre else ABRE_UNA_CARPETA if os.path.isdir(real) else ABRE_UN_ARCHIVO
     return f"{que}: {Path(real).as_posix()} ({como})"

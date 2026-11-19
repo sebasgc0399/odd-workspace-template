@@ -69,9 +69,9 @@ def test_existe_y_resolver_no_rompen_con_una_ruta_imposible():
 
 def test_una_ruta_de_la_maquina_es_unidad_raiz_unc_o_casa_y_lo_relativo_es_portable():
     de_la_maquina = ("C:\\Users\\yo\\d.md", "C:/Users/yo/d.md", "c:/x", "C:x.md", "/home/yo/x.md", "/", "\\x\\y.md",
-                     "\\\\servidor\\recurso\\x.md", "//servidor/recurso/x.md", "~/x.md", "~", "~\\x.md")
+                     "\\\\servidor\\recurso\\x.md", "//servidor/recurso/x.md", "~/x.md", "~", "~\\x.md", "~/")
     portables = ("notas/x.md", "./x.md", "../x.md", "x.md", "carpeta/", "ñ/con espacios.md", "a~b.md", "x/C:/y.md",
-                 "https://x.org/a.md", "mailto:yo@x.org", "file:///C:/x.md", "")
+                 "https://x.org/a.md", "mailto:yo@x.org", "file:///C:/x.md", "", "~notas.md", "~x/y.md", "~~/x.md", "~.md")
     for destino in de_la_maquina:
         assert m().es_ruta_de_la_maquina(destino) is True, destino
     for destino in portables:
@@ -95,6 +95,18 @@ def test_revisar_marca_los_rotos_y_las_rutas_de_la_maquina_y_salta_los_esquemas(
             ("", "vacio.md", "no existe"),
         ], revisados
         assert (m().NO_EXISTE, m().DE_LA_MAQUINA) == ("no existe", "ruta de la máquina")
+
+
+def test_revisar_resuelve_contra_la_carpeta_un_destino_con_virgulilla_sin_barra():
+    with Carpeta() as base:
+        (base / "~notas.md").write_bytes(b"x")
+        revisados = list(m().revisar("[nota](~notas.md) [falta](~falta.md) [casa](~/x.md) [sola](~)\n", base))
+        assert revisados == [
+            ("nota", "~notas.md", None),
+            ("falta", "~falta.md", "no existe"),
+            ("casa", "~/x.md", "ruta de la máquina"),
+            ("sola", "~", "ruta de la máquina"),
+        ], revisados
 
 
 def test_enlaces_sigue_resolviendo_las_rutas_de_la_maquina_como_antes():

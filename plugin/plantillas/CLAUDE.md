@@ -151,5 +151,7 @@ agente no puede lanzarlos, así que no ofrece hacerlo y termina con la línea ex
   actualiza, quita o lista, con ensayo y autorización.
 - `/odd-ws:abrir` — abre un ticket: carpeta desde la plantilla, alcance y no-goals, y los docs de dominio
   que toca.
+- `/odd-ws:enlaces` — los enlaces de un ticket o de un `.md`, con los rotos y las rutas de la máquina aparte;
+  abre o copia el que elige el usuario, nunca uno por su cuenta.
 - `/odd-ws:revisar` — revisión antes del commit: triaje, revisores por capa y recibo atado al diff.
 - `/odd-ws:cerrar` — cierra un ticket: triaje de aprendizajes, graduación y commit de cierre.

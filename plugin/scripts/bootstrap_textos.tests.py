@@ -181,6 +181,7 @@ def test_el_indice_trae_la_metodologia_generica():
         "/odd-ws:bootstrap",
         "/odd-ws:paquetes",
         "/odd-ws:abrir",
+        "/odd-ws:enlaces",
         "/odd-ws:revisar",
         "/odd-ws:cerrar",
     ):
