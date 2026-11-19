@@ -19,7 +19,7 @@ Esta guía es para quien modifica la plantilla misma. Si quieres usar el plugin 
 
 Los tres corren Python con el primero que arranca de `python3`, `python` y `py` (`.githooks/python.sh`); si no arranca ninguno, frenan con el motivo.
 
-El chequeo de marcadores (`plugin/scripts/odd_ws/marcadores.py`) frena el commit si un mismo archivo agrega una línea de apertura (`<<<<<<<`) y una de cierre (`>>>>>>>`) de un conflicto, y nombra cada archivo y línea. Un `=======` suelto pasa, porque es un subrayado de Markdown, y los errores de espacios nunca frenan. Si un archivo trae esas líneas a propósito, sácalo del chequeo en `.gitattributes` con un tamaño de marcador que no use (`<ruta> conflict-marker-size=32`). Si git falla, avisa y deja pasar el commit. El detalle, con el caso del merge, está en `Doc/diseno.md` (§8).
+El chequeo de marcadores (`plugin/scripts/odd_ws/marcadores.py`) frena el commit si un mismo archivo agrega una línea de apertura (`<<<<<<<`) y una de cierre (`>>>>>>>`) de un conflicto, y nombra cada archivo y línea. Un `=======` suelto pasa, porque es un subrayado de Markdown, y los errores de espacios nunca frenan. Si un archivo trae esas líneas a propósito, sácalo del chequeo en `.gitattributes` con un tamaño de marcador que no use (`<ruta> conflict-marker-size=32`). Si git falla, avisa y deja pasar el commit. `git rebase --continue` no corre el pre-commit, así que al resolver un conflicto en un rebase, corre `git commit` antes de seguir: así el chequeo pasa por lo que resolviste. El detalle, con el caso del merge, está en `Doc/diseno.md` (§8).
 
 ## Las pruebas
 
