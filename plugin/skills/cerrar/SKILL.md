@@ -269,7 +269,7 @@ Lo consultás vos, no el script.
 Juzgá cuáles de los candidatos suenan a regla (un criterio de revisión o una convención de una capa) y con qué destino. Mostrá, **antes de escribir nada**:
 
 1. **La cobertura de cada fuente:** la línea de la memoria en archivos (`completa`, con cuántas, el directorio y si fue `pasada` o `derivada`, o `no disponible`) y la de engram.
-2. **Los candidatos, uno por fila:** el slug (o `engram-<sync_id>`; sin `sync_id`, `engram-<id>`, con el aviso de que esa fila solo se reconoce en esta máquina); la fila exacta de la matriz con todos sus campos (el `id` que le va a tocar y `memoria:<slug>` como `origen`); el destino, con el texto exacto de la regla que va ahí; y la entrada de `.claude/reglas/evidencia.md`, con su texto exacto (salvo un `descarte`, que no lleva).
+2. **Los candidatos, uno por fila:** el slug (o `engram-<sync_id>`; sin `sync_id`, `engram-<id>`, con el aviso de que esa fila solo se reconoce en esta máquina); la fila exacta de la matriz con todos sus campos (el `id` que le va a tocar y `memoria:<slug>` como `origen`); el destino, con el texto exacto de la regla que va ahí; y la entrada de `.claude/reglas/evidencia.md`, con su texto exacto (salvo un `descarte`, que no lleva). Calculá ese `id` igual que el script del paso 5, sin escribir nada: el siguiente libre de `<rule_prefix>-NN` entre los de `.claude/reglas/matriz.csv` y los que ya usa `.claude/reglas/verificar_<capa>.py`, y para varios candidatos de la misma capa, los que siguen, en el orden en que se van a escribir.
 3. **Las «sin fila»:** las `nueva` y `cambiada` que no suenan a regla, las de dominio o de metodología y las de motor, cada una con su slug y el porqué en pocas palabras.
 4. **El registro local:** qué slugs quedan como `vista` (lo mostrado que no se aprueba, las «sin fila» incluidas) y cuáles como `descartada` (lo que el usuario descarta explícitamente). Avisá que lo que queda `vista` o `descartada` no vuelve a proponerse mientras el `modified` de su memoria no cambie.
 5. **El commit** (M5): los archivos y el mensaje.
@@ -278,7 +278,7 @@ Después pedí un sí explícito. Si el usuario aprueba solo algunos, descarta o
 
 ### M4. Con el sí
 
-1. **Lo aprobado se escribe como en el paso 5:** la fila con su script, con `memoria:<slug>` como `origen` y sin hash; la regla en su destino, con su ID, su severidad y sus números; la evidencia en `.claude/reglas/evidencia.md`, la misma que mostró la propuesta, que cita el ID y dice que sale de la memoria `<slug>`, sin copiarla; y los dos chequeos de `matriz.py` por capa, con 0 fallas. Rigen las excepciones del paso 5: con destino `evidencia`, el ID aparece una sola vez en `evidencia.md`, y un `descarte` no lleva evidencia ni aparece en ningún destino.
+1. **Lo aprobado se escribe como en el paso 5:** la fila con su script, con `memoria:<slug>` como `origen` y sin hash; la regla en su destino, con su ID, su severidad y sus números; la evidencia en `.claude/reglas/evidencia.md`, la misma que mostró la propuesta, que cita el ID y dice que sale de la memoria `<slug>`, sin copiarla; y los dos chequeos de `matriz.py` por capa, con 0 fallas. Rigen las excepciones del paso 5: con destino `evidencia`, el ID aparece una sola vez en `evidencia.md`, y un `descarte` no lleva evidencia ni aparece en ningún destino. Si un chequeo de `matriz.py` pide corregir la fila, la regla o la evidencia, mostrá la corrección tal como va a quedar escrita y pedí el sí antes de escribirla.
 2. **El registro, solo de slugs de archivos y con el mismo `--memorias` de M1:**
 
    ```bash

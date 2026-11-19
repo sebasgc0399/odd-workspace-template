@@ -695,6 +695,14 @@ def zona_de_memorias(texto):
     return seccion_de(texto, "## 10.") + "\n" + seccion_de(texto, "## Modo memorias")
 
 
+def numeradas_de(seccion):
+    return {linea.split(".", 1)[0]: linea for linea in seccion.split("\n") if re.match(r"\d+\. ", linea)}
+
+
+def oraciones_de(linea):
+    return re.split(r"(?<=\.)\**\s+", re.sub(r"^\d+\. ", "", linea))
+
+
 def comandos_de_memorias(zona):
     comandos, en_bloque = [], False
     for linea in zona.split("\n"):
@@ -773,13 +781,54 @@ def test_las_claves_del_json_que_nombra_la_skill_existen_en_la_salida_real():
     assert mutada != texto and len(problemas_del_json(mutada, datos, codex)) == 2, "control positivo: dos claves que no existen se detectan"
 
 
+def problemas_de_la_evidencia(texto):
+    numeradas = numeradas_de(seccion_de(texto, "### Reglas duras del modo"))
+    regla_2 = numeradas.get("2", "")
+    problemas = [] if "evidencia" in oraciones_de(regla_2)[0] else ["la primera oración de la regla 2 no nombra la evidencia: %r" % regla_2]
+    problemas += [] if "`descripcion`" in regla_2 else ["la regla 2 no nombra `descripcion`: %r" % regla_2]
+    problemas += [] if "evidencia.md" in numeradas.get("4", "") else ["la regla 4 no nombra evidencia.md: %r" % numeradas.get("4")]
+    problemas += [] if "evidencia.md" in seccion_de(texto, "### M3.") else ["la propuesta no muestra la entrada de evidencia.md"]
+    paso = numeradas_de(seccion_de(texto, "### M4.")).get("1", "")
+    problemas += [] if "evidencia.md" in paso and "la misma que mostró la propuesta" in paso else ["M4.1 no escribe en evidencia.md la misma entrada que mostró la propuesta: %r" % paso]
+    return problemas
+
+
 def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
     texto = SKILL_CERRAR.read_text(encoding="utf-8")
-    reglas = seccion_de(texto, "### Reglas duras del modo")
-    numeradas = {linea.split(".", 1)[0]: linea for linea in reglas.split("\n") if re.match(r"\d+\. ", linea)}
-    assert "evidencia" in numeradas.get("2", "") and "`descripcion`" in numeradas.get("2", ""), numeradas.get("2")
-    assert "evidencia.md" in numeradas.get("4", ""), numeradas.get("4")
-    assert "evidencia.md" in seccion_de(texto, "### M3."), "la propuesta muestra la entrada de evidencia.md"
+    assert problemas_de_la_evidencia(texto) == [], problemas_de_la_evidencia(texto)
+    for viejo, nuevo in (("**La fila, el destino y la evidencia parafrasean la regla.**", "**La fila y el destino parafrasean la regla.**"),
+                         (", la misma que mostró la propuesta,", ",")):
+        mutada = texto.replace(viejo, nuevo, 1)
+        assert mutada != texto and problemas_de_la_evidencia(mutada), "control positivo: %r → %r se detecta" % (viejo, nuevo)
+
+
+def problemas_de_la_correccion(texto):
+    paso = numeradas_de(seccion_de(texto, "### M4.")).get("1", "")
+    oracion = next((oracion for oracion in oraciones_de(paso) if "corregir" in oracion), "")
+    faltan = [palabra for palabra in ("`matriz.py`", "la fila", "la regla", "la evidencia", "mostrá", "pedí el sí") if palabra not in oracion]
+    return ["M4.1 no dice que la corrección que pide matriz.py se muestra antes del sí: falta %r" % palabra for palabra in faltan]
+
+
+def test_la_correccion_que_pide_matriz_py_se_muestra_y_espera_el_si():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    assert problemas_de_la_correccion(texto) == [], problemas_de_la_correccion(texto)
+    sin_si = texto.replace("y pedí el sí antes de escribirla", "y escribila", 1)
+    assert sin_si != texto and problemas_de_la_correccion(sin_si), "control positivo: una corrección escrita sin el sí se detecta"
+
+
+def problemas_del_id(texto):
+    rutas = re.findall(r'^\s*[A-Z]+ = "(\.claude/[^"]+)"', seccion_de(texto, "## 5."), re.M)
+    paso = numeradas_de(seccion_de(texto, "### M3.")).get("2", "")
+    problemas = [] if len(rutas) >= 2 else ["el script del paso 5 nombra %d archivos, se esperaban la matriz y verificar_<capa>.py" % len(rutas)]
+    problemas += [] if "paso 5" in paso else ["M3.2 no remite al script del paso 5 para el id"]
+    return problemas + ["M3.2 no dice que el id sale también de %s, como en el script del paso 5" % ruta for ruta in rutas if ruta not in paso]
+
+
+def test_la_propuesta_calcula_el_id_con_los_mismos_archivos_que_el_script_del_paso_5():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    assert problemas_del_id(texto) == [], problemas_del_id(texto)
+    sin_reglas = texto.replace(" y los que ya usa `.claude/reglas/verificar_<capa>.py`", "", 1)
+    assert sin_reglas != texto and problemas_del_id(sin_reglas), "control positivo: un id que no mira verificar_<capa>.py se detecta"
 
 
 def test_de_punta_a_punta_solo_un_origen_exacto_y_valido_gradua():

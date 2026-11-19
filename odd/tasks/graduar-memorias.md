@@ -31,9 +31,9 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
 | T3 | S2, S5, S6, S7 | La skill: el modo `memorias` de `cerrar`, el paso opcional de engram, las reglas de privacidad y el aviso del cierre de ticket. Los docs: `Doc/uso.md`, `Doc/diseno.md` y el CHANGELOG | delegado, por la misma razón; después, un verificador independiente (ítem 2: exposición de datos personales hacia un repo) | hecho (L5, L6) |
 | X1 | S3 | Seguimiento (A7): una memoria `graduada` que cambia sigue `graduada`, sin aviso, y su fila puede quedar desfasada | inline, aparte | pendiente |
 | X2 | S3, S4 | Seguimiento (A11): `--registrar` acepta slugs `user` y `reference`; la frase «modified de hoy» del help; `autoMemoryDirectory` de policy y de `--settings`; exigir `name` y `description` | inline, aparte | pendiente |
-| X3 | S6 | Seguimiento (V1): si `matriz.py` pide corregir la fila, la regla o la evidencia, la corrección se escribe sin volver a mostrarse. Una línea en M4.1: mostrarla y pedir el sí | inline, aparte | pendiente |
-| X4 | S6 | Seguimiento (V2): M3.2 no dice cómo calcular el ID, y el script del paso 5 también mira `verificar_<capa>.py`. Una línea: calcularlo igual que el script | inline, aparte | pendiente |
-| X5 | S6 | Seguimiento: `test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia` deja vivos dos mutantes. Comprobar la primera oración de la regla 2, agregar M4.1 y sumar un control por mutación | inline, aparte | pendiente |
+| X3 | S6 | Seguimiento (V1): si `matriz.py` pide corregir la fila, la regla o la evidencia, la corrección se escribe sin volver a mostrarse. Una línea en M4.1: mostrarla y pedir el sí | delegada, aparte (L8) | hecho | `56707ef` |
+| X4 | S6 | Seguimiento (V2): M3.2 no dice cómo calcular el ID, y el script del paso 5 también mira `verificar_<capa>.py`. Una línea: calcularlo igual que el script | delegada, aparte (L8) | hecho | `24c2737` |
+| X5 | S6 | Seguimiento: `test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia` deja vivos dos mutantes. Comprobar la primera oración de la regla 2, agregar M4.1 y sumar un control por mutación | delegada, aparte (L8) | hecho | `6f6451f` |
 | X6 | S5 | Seguimiento: Codex tiene su propia memoria (`$CODEX_HOME/memories_v2/`, apagada por defecto y sin formato documentado) | cuando se documente su formato | pendiente |
 | X7 | S1 | El lector del `ratchet-handoff/v1` de `gentle-contribution-skills` | cuando se acuerde el issue #1 | pendiente |
 
@@ -123,4 +123,10 @@ Objetivo: que `/odd-ws:cerrar` pueda graduar lo que ya está en las memorias del
   - **La entrega:**
     - los dos manifiestos y el README pasan a `0.4.0`, y `## Sin publicar` pasa a `## 0.4.0`, con el crédito a Denver2828;
     - la etiqueta es `odd-ws--v0.4.0`, y `main` avanza por fast-forward desde `dec68d4`.
+- **L8 (2026-11-18), los seguimientos X3, X4 y X5.** El autor preguntó «podemos trabajar con worktrees, otras cosas pendientes?», y se tomaron estos tres porque no necesitaban decisión. Los hizo un writer en la rama `fix/seguimientos-memorias`, desde la `0.9.1`, con un commit por unidad:
+  - **X3 (`56707ef`).** M4.1 muestra la corrección que pide `matriz.py` y espera el sí antes de escribirla. RED 38/39, GREEN 39/39.
+  - **X4 (`24c2737`).** M3.2 calcula el `id` igual que el script del paso 5, con `matriz.csv` y `verificar_<capa>.py`. RED 39/40, GREEN 40/40.
+  - **X5 (`6f6451f`).** El test revisa la primera oración de la regla 2 y M4.1, con un control por mutación. Los dos mutantes que antes quedaban vivos ahora mueren.
+  - **Verificación.** Las 46 suites en verde. El orquestador volvió a correr `memorias.tests.py` y dio 40/40.
+  - Risk: none en los tres. Es texto de la skill fijado por tests, y la revisión de privacidad queda más estricta, no más floja.
 - **La entrega:** el pronóstico es de unas 700 a 850 líneas, en tres commits de unidad. No hay PR: `main` avanza por fast-forward con autorización, como en la `0.3.1`. La revisión nativa de gentle-ai está apagada (`review mode status`: off, global), así que el riesgo lo cubre el verificador independiente de T3.
