@@ -38,10 +38,12 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
 | T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | delegada con T4. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecho; verificador: PASS (L7) | `a7ac88d` |
 | T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | delegada con T3, por el contexto del orquestador | hecho (L6) | `2c3689f` |
 | T5 | S9 | El costo del orquestador y el aviso de corridas en serie en `costo.json` | delegada, por el contexto del orquestador. Risk: none | hecho (L7) | `f30405a` |
-| F1 | S5 | Seguimiento: `recibo.py` confía en el `triaje.json` de la carpeta. Se blinda comparando sus repos y su base con los del recibo (L7) | en `fix/seguimientos-0-10`. Risk: item 2, porque es una compuerta del recibo; lleva verificador | hecho; verificador en curso (L8) | este commit |
+| F1 | S5 | Seguimiento: `recibo.py` confía en el `triaje.json` de la carpeta. Se blinda comparando sus repos y su base con los del recibo (L7) | en `fix/seguimientos-0-10`. Risk: item 2, porque es una compuerta del recibo; lleva verificador | hecho; verificador: PASS (L9) | `357a059` |
 | F2 | S5 | Seguimiento, ya estaba antes de T3: un recibo `rapido` sin `--bajada`, sobre un triaje que propuso `completo`, no se detecta (L7) | aparte | anotado | |
 | F3 | S9 | Seguimiento: un rescate posterior desde otra sesión pisa con `null` un `orquestador` que estaba bien; además, `costo.json` no guarda el modo que propuso el triaje (L7) | aparte | anotado | |
-| F4 | — | Seguimiento cosmético: `triaje.tests.py` perdió un espacio (`PRUEBAS =[`) | con F1 | hecho (L8) | este commit |
+| F4 | — | Seguimiento cosmético: `triaje.tests.py` perdió un espacio (`PRUEBAS =[`) | con F1 | hecho; verificador: PASS (L9) | `357a059` |
+| F5 | S5 | Seguimiento (aviso 1 del verificador de F1): el arreglo que sugiere el rechazo, «guardalo con triaje.py --json con los mismos --repo y la misma base que el recibo», lleva otra vez al mismo rechazo en dos flujos documentados: un rechequeo con un repo heredado entero, cuyo triaje tiene que traer todos los repos de la unidad, y un recibo sin `#BASE` después de una unidad sellada, donde lo que se corrige es la base del recibo. Los dos fallan cerrado (L9) | aparte | anotado | |
+| F6 | S5 | Seguimiento (aviso 2): el cruce compara repos y base, no archivos, así que un triaje guardado antes de sumar un archivo al mismo diff sigue habilitando la bajada. Ya pasaba antes de F1; se cerraría exigiendo que los `--archivo` de cada repo estén en sus `repos[].archivos` (L9) | aparte | anotado | |
 
 ## Log
 
@@ -93,3 +95,10 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
   - **F1.** Antes de leer el triaje para una bajada, o para heredarla en un rechequeo, `recibo.py` comprueba que sus `repos` sean los del recibo, con la misma `base` cada uno. Si falta un repo, sobra uno o cambia una base, sale con 2 sin escribir nada y nombra cada diferencia. Lo fijan dos tests nuevos, con cinco casos de bajada y tres de rechequeo; los tests de bajada que ya existían guardan ahora el triaje con sus repos.
   - **F4.** Vuelve el espacio de `PRUEBAS = [`.
   - F2 y F3 siguen anotados.
+- **L9** (2026-11-19) El verificador independiente de F1 y F4 (`357a059` contra `0b2ff56`): PASS, sin bloqueantes.
+  - **Suites.** Desde una copia de `357a059`, `recibo.tests.py` dio 87/87 y `triaje.tests.py` 95/95. Los dos tests nuevos fallan contra el `recibo.py` de la base, así que fijan el defecto.
+  - **El flujo real.** 23 casos con `triaje.py --json` y el recibo con los mismos repos dan idéntico en la base y en el candidato. Incluyen dos repos en otro orden, la base como sha corto o `origin/main`, y la misma carpeta escrita de varias maneras: mayúsculas, `\` o `/`, barra final, junction, ruta relativa y nombre corto 8.3.
+  - **Los desajustes.** Los 10 casos salen con 2, sin recibo y con el ticket idéntico byte a byte, y el mensaje nombra cada diferencia. La base escribía el recibo.
+  - **Lo que no cambia.** Sin bajada pasada ni heredada, 44 casos de `--write`, `--check` y `--sellar` dan idénticos.
+  - **Los `repos` malformados.** Las 24 variantes fallan cerrado con 2, sin error interno.
+  - **Avisos.** El 1 y el 2 quedan como F5 y F6. El 3 (un repo repetido gana la última entrada) y el 4 (la grafía UNC de una carpeta local se rechaza, cerrado) son entrada fuera de dominio. El 5 dice que, con dos errores a la vez, el mensaje que sale primero cambió.
