@@ -1086,6 +1086,17 @@ La lista negra vive fuera del repo, en `~/.odd-ws/denylist.txt` (o donde diga `O
 
 **Riesgo residual:** un clon sin `core.hooksPath .githooks` no corre ningún hook, porque git no los instala solo. Lo cubre `/odd-ws:doctor` (ítem `repo-hooks`), verificado con un clon nuevo: lo marca FALTA y `--arreglar repo-hooks` lo configura. Un escaneo del lado del servidor obligaría a subir la lista negra, lo que contradice el principio 3.
 
+### Los marcadores de conflicto en el pre-commit (`odd_ws/marcadores.py`, R6)
+
+Después del barrido de lo stageado y antes de las suites, el pre-commit del repo corre `plugin/scripts/odd_ws/marcadores.py`:
+
+- **Frena** con exit 1 si un mismo archivo agrega una línea de apertura (`<<<<<<<`) y una de cierre (`>>>>>>>`). Nombra cada archivo y línea, dice cómo resolverlo y cómo sacar el archivo del chequeo.
+- **Pasa** con un `=======` suelto, que es un subrayado de Markdown, y con un solo lado por archivo (una apertura sin cierre, o cada lado en otro archivo). Pedir los dos lados en el mismo archivo evita falsos positivos, al costo de no ver un conflicto resuelto a medias que perdió una de sus dos líneas.
+- **Lo detecta git:** `git diff --cached --check --no-color` con las reglas de espacios apagadas (`-c core.whitespace=-trailing-space,...`), así que un error de espacios nunca frena. De cada aviso `<ruta>:<línea>: leftover conflict marker` se toman la ruta, que tiene que estar entre las stageadas, y la línea; el lado sale del primer carácter de esa línea en el índice (`git cat-file blob :0:<ruta>`). Por venir de git, cuenta solo lo agregado contra `HEAD` (un marcador que ya estaba y no se toca pasa), se salta los binarios, lee el índice que arma `git commit -a` y respeta `conflict-marker-size` de `.gitattributes`. Ese atributo es la salida para un archivo que trae esas líneas a propósito: con un tamaño que el archivo no use, sus líneas de siete dejan de ser marcadores.
+- **El merge:** git corre el pre-commit en el commit que cierra un merge que paró por conflictos (uno automático corre `pre-merge-commit`, que el repo no tiene). Como `--cached` compara contra el primer padre, lo que trae el otro lado cuenta como agregado: si ese lado ya traía marcadores, el merge se frena aunque no los haya creado él, y se arreglan ahí o con el atributo. Se descartó la regla de Gentle, que cuenta solo los nuevos contra los dos lados: pide un chequeo por padre y deja entrar marcadores que el otro lado commiteó sin pasar por el hook (un `rebase` o un `git am`).
+- **Falla abierto:** si git no arranca o falla (fuera de un repo, o `--check` sale con algo distinto de 0 y 2), avisa por stderr que el commit sigue sin este chequeo y sale con 0.
+- **Reuso:** `marcadores_stageados(raiz)` devuelve los hallazgos sin imprimir nada, para el triaje (I47) y el pre-commit de la instancia. No es parte de `odd_ws.PUBLICO`.
+
 ### La entrega en el pre-push (`tools/entrega.py`, T9)
 
 Después del barrido, el pre-push revisa cada push a `refs/heads/main`:

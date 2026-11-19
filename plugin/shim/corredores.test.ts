@@ -112,6 +112,8 @@ function repo(base: string, suites: Suite[]): string {
   copyFileSync(PRE_COMMIT, join(raiz, ".githooks", "pre-commit"));
   copyFileSync(SONDA, join(raiz, ".githooks", "python.sh"));
   writeFileSync(join(raiz, "tools", "barrido.py"), "import sys\nsys.exit(0)\n");
+  mkdirSync(join(raiz, "plugin", "scripts", "odd_ws"), { recursive: true });
+  writeFileSync(join(raiz, "plugin", "scripts", "odd_ws", "marcadores.py"), "import sys\nsys.exit(0)\n");
   for (const suite of suites) {
     writeFileSync(join(raiz, "sub", suite), SUITES[suite]);
   }

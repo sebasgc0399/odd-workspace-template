@@ -13,11 +13,13 @@ Esta guía es para quien modifica la plantilla misma. Si quieres usar el plugin 
 
 | Hook | Qué corre |
 |---|---|
-| `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado y todas las suites `*.tests.py` (unos 4 minutos) |
+| `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado, el chequeo de marcadores de conflicto y todas las suites `*.tests.py` (unos 4 minutos) |
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
 | `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión y sus notas en `CHANGELOG.md` |
 
 Los tres corren Python con el primero que arranca de `python3`, `python` y `py` (`.githooks/python.sh`); si no arranca ninguno, frenan con el motivo.
+
+El chequeo de marcadores (`plugin/scripts/odd_ws/marcadores.py`) frena el commit si un mismo archivo agrega una línea de apertura (`<<<<<<<`) y una de cierre (`>>>>>>>`) de un conflicto, y nombra cada archivo y línea. Un `=======` suelto pasa, porque es un subrayado de Markdown, y los errores de espacios nunca frenan. Si un archivo trae esas líneas a propósito, sácalo del chequeo en `.gitattributes` con un tamaño de marcador que no use (`<ruta> conflict-marker-size=32`). Si git falla, avisa y deja pasar el commit. El detalle, con el caso del merge, está en `Doc/diseno.md` (§8).
 
 ## Las pruebas
 
