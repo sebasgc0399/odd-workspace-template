@@ -142,6 +142,15 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
    - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder. Si `--cobertura` avisó extensiones sin capa, repetí el aviso: un cambio en esos archivos sube la revisión a `completo` hasta que su capa se declare;
    - `/odd-ws:cerrar` al terminar, para graduar lo aprendido.
 
+## Abrir un enlace del ticket
+
+Cuando el usuario quiere revisar o abrir los enlaces del ticket, o los de cualquier `.md`:
+
+1. Corré `python3 "<S>/ticket.py" --enlaces <id | ruta a un .md>` y mostrale la lista tal cual. Los enlaces que existen salen numerados; los rotos y los que llevan esquema van aparte, sin número, y no se abren.
+2. Preguntale cuál quiere abrir. **Nunca abras uno por tu cuenta**, ni siquiera cuando la lista tiene uno solo: abrir lanza un programa del sistema, y lo decide el usuario cada vez.
+3. Con su elección, corré `python3 "<S>/ticket.py" --enlaces <id | ruta a un .md> --abrir <n>`. Una carpeta se abre en el gestor de archivos, y un documento, un dato o una imagen, con su programa. Cualquier otro archivo (un script, un ejecutable) se muestra en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo. La última línea dice qué se abrió y cómo.
+4. Si sale con 1 y dice `no se abrió <ruta>: <motivo>` (una sesión remota, sin pantalla, sin el abridor del sistema o un abridor que falló), pasale esa línea al usuario tal cual: la ruta está ahí para que la copie. No lo reintentes de otra forma. Un número que no está en la lista también sale con 1, y el mensaje dice cuántos tiene.
+
 ## Scripts
 
 | Script | Para qué | Salidas |
@@ -151,4 +160,4 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 | `ticket.py --desactivar <id>` | quita la marca si es de ese ticket | 0 `sin ticket activo` o `ticket activo: <carpeta> (no es el <id>)` · 2 error de uso o de entorno |
 | `ticket.py --siguiente [<prefijo>]` | propone el siguiente id consecutivo, con el prefijo de `tickets.prefix` o el que se le pasa; no escribe nada | 0 `siguiente: <id>` · 1 sin prefijo o prefijo inválido · 2 error de uso, sin instancia o config rota |
 | `ticket.py --cobertura` | repite el aviso `capas-cobertura` del doctor: cuenta por extensión lo versionado en los repos que ninguna capa clasifica, sin los docs; solo lee | 0 `aviso capas-cobertura: …` y su `cómo:`, o `capas-cobertura: todo lo versionado en los repos tiene capa o es doc` · 2 error de uso, sin instancia o config rota |
-| `ticket.py --enlaces <id \| ruta a un .md> [--copiar]` | lista los enlaces del `CLAUDE.md` del ticket, o de cualquier `.md`, con su ruta absoluta y si es archivo o carpeta; los rotos y los de esquema van aparte. `--copiar` manda además las rutas al portapapeles. Solo lee y no abre nada: si el usuario quiere abrir uno, en la terminal de VS Code una ruta absoluta se abre con Ctrl+clic | 0 `enlaces de <documento>: <n>` y la lista, aunque haya rotos (sin portapapeles avisa por stderr y la lista sale igual) · 1 id sin carpeta, con varias o sin `CLAUDE.md`, una ruta que no es un `.md` o `--raiz` con una ruta · 2 error de uso, o con un id, sin instancia o config rota |
+| `ticket.py --enlaces <id \| ruta a un .md> [--copiar \| --abrir <n>]` | lista los enlaces del `CLAUDE.md` del ticket, o de cualquier `.md`, con su ruta absoluta y si es archivo o carpeta; los que existen van numerados, y los rotos y los de esquema, aparte. `--copiar` manda además las rutas al portapapeles. `--abrir <n>` abre el enlace `<n>` que eligió el usuario (ver «Abrir un enlace del ticket»); sin él, solo lee | 0 `enlaces de <documento>: <n>` y la lista, aunque haya rotos (sin portapapeles avisa por stderr y la lista sale igual); con `--abrir`, una línea más que dice qué se abrió y cómo · 1 id sin carpeta, con varias o sin `CLAUDE.md`, una ruta que no es un `.md`, `--raiz` con una ruta, un número que no está en la lista, o `no se abrió <ruta>: <motivo>` · 2 error de uso (`--abrir` sin un entero o junto a `--copiar`), o con un id, sin instancia o config rota |

@@ -1,13 +1,12 @@
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import bootstrap
 import config_loader
-from odd_ws import capas, enlaces
+from odd_ws import abridor, capas, enlaces
 from odd_ws.comun import decodificar, entorno_git, id_valido, raiz_de_instancia
 
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
@@ -15,8 +14,9 @@ USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
        "     ticket.py --activar <id> [--raiz <carpeta>]\n"
        "     ticket.py --desactivar <id> [--raiz <carpeta>]\n"
        "     ticket.py --cobertura [--raiz <carpeta>]\n"
-       "     ticket.py --enlaces <id> [--raiz <carpeta>] [--copiar]\n"
-       "     ticket.py --enlaces <ruta a un .md> [--copiar]")
+       "     ticket.py --enlaces <id> [--raiz <carpeta>] [--copiar | --abrir <n>]\n"
+       "     ticket.py --enlaces <ruta a un .md> [--copiar | --abrir <n>]")
+NUMERO_RE = re.compile(r"-?[0-9]+")
 MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar", "--cobertura": "cobertura", "--enlaces": "enlaces"}
 DOCUMENTO_DEL_TICKET = Path(capas.TICKET_PLANTILLA).name
 COPIAR_CON_POWERSHELL = ("$m = New-Object System.IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($m); "
@@ -148,6 +148,7 @@ def _argumentos(argv):
     raiz = None
     ensayo = False
     copiar = False
+    numero = None
     modo = None
     i = 0
     while i < len(argv):
@@ -158,6 +159,9 @@ def _argumentos(argv):
         elif argumento == "--copiar" and not copiar:
             copiar = True
             i += 1
+        elif argumento == "--abrir" and numero is None and i + 1 < len(argv) and NUMERO_RE.fullmatch(argv[i + 1]):
+            numero = int(argv[i + 1])
+            i += 2
         elif argumento in MODOS and modo is None:
             modo = MODOS[argumento]
             i += 1
@@ -169,12 +173,12 @@ def _argumentos(argv):
         else:
             posicionales.append(argumento)
             i += 1
-    if copiar and modo != "enlaces":
+    if (copiar or numero is not None) and modo != "enlaces":
         return None
     if modo == "enlaces":
-        if ensayo or len(posicionales) != 1:
+        if ensayo or len(posicionales) != 1 or (copiar and numero is not None):
             return None
-        return "enlaces", posicionales[0], raiz, copiar
+        return "enlaces", posicionales[0], raiz, copiar, numero
     if modo == "siguiente":
         if ensayo or len(posicionales) > 1:
             return None
@@ -311,15 +315,23 @@ def documento_de(objetivo, texto_de_raiz):
     return documento
 
 
+def numerados(hallados):
+    return [e for e in hallados if e.tipo is not None]
+
+
+def _de_la_maquina(enlace):
+    return f"  ({enlaces.DE_LA_MAQUINA})" if enlaces.es_ruta_de_la_maquina(enlace.destino) else ""
+
+
 def listado(documento, hallados):
-    sanos = [e for e in hallados if e.tipo is not None]
+    sanos = numerados(hallados)
     rotos = [e for e in hallados if e.ruta is not None and e.tipo is None]
     con_esquema = [e for e in hallados if e.ruta is None]
     lineas = [f"enlaces de {Path(os.path.abspath(documento)).as_posix()}: {len(hallados)}"]
-    lineas += [f"  {e.tipo}  {e.texto} -> {e.ruta}" for e in sanos]
+    lineas += [f"  {n}  {e.tipo}  {e.texto} -> {e.ruta}{_de_la_maquina(e)}" for n, e in enumerate(sanos, 1)]
     if rotos:
         lineas.append(f"rotos: {len(rotos)}")
-        lineas += [f"  no existe  {e.texto} -> {e.ruta}" for e in rotos]
+        lineas += [f"  {enlaces.NO_EXISTE}  {e.texto} -> {e.ruta}{_de_la_maquina(e)}" for e in rotos]
     if con_esquema:
         lineas.append(f"con esquema, sin verificar: {len(con_esquema)}")
         lineas += [f"  {e.texto} -> {e.destino}" for e in con_esquema]
@@ -338,7 +350,7 @@ def copiar_al_portapapeles(texto):
     herramientas = herramientas_de_portapapeles()
     fallidas = []
     for argv in herramientas:
-        programa = shutil.which(argv[0])
+        programa = abridor.buscar(argv[0], os.environ)
         if programa is None:
             continue
         try:
@@ -354,10 +366,33 @@ def copiar_al_portapapeles(texto):
     return f"no hay herramienta de portapapeles (busqué {', '.join(argv[0] for argv in herramientas)})"
 
 
-def _enlaces(objetivo, texto_de_raiz, copiar):
+def elegido(hallados, numero):
+    abribles = numerados(hallados)
+    if not abribles:
+        raise Rechazo("no hay enlaces para abrir: la lista no tiene ninguno que exista")
+    if not 1 <= numero <= len(abribles):
+        rango = "1 enlace para abrir, el 1" if len(abribles) == 1 else f"{len(abribles)} enlaces para abrir, del 1 al {len(abribles)}"
+        raise Rechazo(f"el {numero} no está en la lista: tiene {rango}")
+    return abribles[numero - 1]
+
+
+def _abrir(enlace):
+    try:
+        abierto, mensaje = abridor.abrir(enlace.ruta, os.environ, sys.platform)
+    except Exception as error:
+        return _error(f"error interno: {type(error).__name__}: {error}", 2)
+    if not abierto:
+        return _error(mensaje, 1)
+    print(mensaje)
+    return 0
+
+
+def _enlaces(objetivo, texto_de_raiz, copiar, numero):
     try:
         documento = documento_de(objetivo, texto_de_raiz)
-        lineas, rutas = listado(documento, list(enlaces.enlaces(decodificar(documento.read_bytes()), documento.parent)))
+        hallados = list(enlaces.enlaces(decodificar(documento.read_bytes()), documento.parent))
+        lineas, rutas = listado(documento, hallados)
+        enlace = None if numero is None else elegido(hallados, numero)
     except ErrorDeEntorno as error:
         return _error(str(error), 2)
     except Rechazo as error:
@@ -365,6 +400,9 @@ def _enlaces(objetivo, texto_de_raiz, copiar):
     except Exception as error:
         return _error(f"error interno: {type(error).__name__}: {error}", 2)
     print("\n".join(lineas))
+    if enlace is not None:
+        sys.stdout.flush()
+        return _abrir(enlace)
     if not copiar:
         return 0
     if not rutas:

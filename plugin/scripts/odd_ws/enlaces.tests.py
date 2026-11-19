@@ -67,6 +67,47 @@ def test_existe_y_resolver_no_rompen_con_una_ruta_imposible():
     assert [(e.texto, e.tipo) for e in hallados] == [("x", None)], hallados
 
 
+def test_una_ruta_de_la_maquina_es_unidad_raiz_unc_o_casa_y_lo_relativo_es_portable():
+    de_la_maquina = ("C:\\Users\\yo\\d.md", "C:/Users/yo/d.md", "c:/x", "C:x.md", "/home/yo/x.md", "/", "\\x\\y.md",
+                     "\\\\servidor\\recurso\\x.md", "//servidor/recurso/x.md", "~/x.md", "~", "~\\x.md")
+    portables = ("notas/x.md", "./x.md", "../x.md", "x.md", "carpeta/", "ñ/con espacios.md", "a~b.md", "x/C:/y.md",
+                 "https://x.org/a.md", "mailto:yo@x.org", "file:///C:/x.md", "")
+    for destino in de_la_maquina:
+        assert m().es_ruta_de_la_maquina(destino) is True, destino
+    for destino in portables:
+        assert m().es_ruta_de_la_maquina(destino) is False, destino
+
+
+def test_revisar_marca_los_rotos_y_las_rutas_de_la_maquina_y_salta_los_esquemas():
+    with Carpeta() as base:
+        (base / "notas").mkdir()
+        (base / "notas" / "guía.md").write_bytes(b"x")
+        texto = ("[Guía](notas/guía.md#uso) [notas](notas/) [falta](nada.md#x) [web](https://x.org/a) [arriba](#titulo)\n"
+                 "[unidad](C:/Users/yo/d.md) [casa](<~/con espacios.md>) [unc](\\\\servidor\\recurso\\x.md) [](vacio.md)\n")
+        revisados = list(m().revisar(texto, base))
+        assert revisados == [
+            ("Guía", "notas/guía.md", None),
+            ("notas", "notas/", None),
+            ("falta", "nada.md", "no existe"),
+            ("unidad", "C:/Users/yo/d.md", "ruta de la máquina"),
+            ("casa", "~/con espacios.md", "ruta de la máquina"),
+            ("unc", "\\\\servidor\\recurso\\x.md", "ruta de la máquina"),
+            ("", "vacio.md", "no existe"),
+        ], revisados
+        assert (m().NO_EXISTE, m().DE_LA_MAQUINA) == ("no existe", "ruta de la máquina")
+
+
+def test_enlaces_sigue_resolviendo_las_rutas_de_la_maquina_como_antes():
+    with Carpeta() as base:
+        (base / "real.md").write_bytes(b"x")
+        absoluta_real = (base / "real.md").as_posix()
+        texto = "[abs](<%s>) [casa](~/x.md) [unidad](C:x.md)\n" % absoluta_real
+        hallados = list(m().enlaces(texto, base))
+        assert hallados[0] == ("abs", absoluta_real, absoluta(base / "real.md"), "archivo"), hallados
+        assert hallados[1] == ("casa", "~/x.md", absoluta(base / "~/x.md"), None), hallados
+        assert [(e.texto, e.destino) for e in hallados] == [("abs", absoluta_real), ("casa", "~/x.md"), ("unidad", "C:x.md")], hallados
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

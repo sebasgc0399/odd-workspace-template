@@ -23,6 +23,7 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 - La carpeta se encuentra con el glob recursivo `tickets/**/<id>-*`: un ticket archivado puede estar en una subcarpeta. La herramienta Glob lista archivos, no carpetas: usá `tickets/**/<id>-*/CLAUDE.md`. Si el glob encuentra más de una carpeta, listalas y preguntale al usuario cuál es; nunca elijas una por tu cuenta, porque con ids que llevan guion la carpeta de un ticket puede coincidir también con el glob de otro id.
 - Leé su `CLAUDE.md`: Decisiones, Gotchas, **Candidatos a graduar** y Bitácora. Confirmá que los criterios de aceptación están marcados; si falta alguno, decilo antes de seguir.
 - **Comprobá cada `Fuente:` externa** (una transcripción, un documento, una ruta fuera de la instancia): tiene que seguir resolviendo. Si una ruta ya no existe, se corrige o se anota **antes** de promover: lo destilado no vale si su fuente dejó de ser localizable.
+- **Revisá sus enlaces** con `python3 "<S>/ticket.py" --enlaces <id>` (si el glob encontró varias carpetas, pasale la ruta del `CLAUDE.md` que eligió el usuario). Si hay rotos, o enlaces con una ruta de la máquina (`C:\…`, `/home/…`, `~/…`), que se rompen en el clon de otra persona, mostráselos al usuario y proponé cómo arreglar cada uno: un enlace relativo a la carpeta del ticket, o sacarlo si ya no sirve. El arreglo va en la propuesta del paso 4 y se escribe con su sí, nunca antes. Si están todos bien, no digas nada.
 
 ## 2. Triaje de cada aprendizaje
 
@@ -52,7 +53,8 @@ Mostrá, **antes de escribir nada**, todo lo que este cierre va a escribir, ya c
 1. **Los aprendizajes:** una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Para cada fila de la matriz mostrá todos sus campos (paso 5).
 2. **Los dos relojes** del `CLAUDE.md` del ticket (paso 6): el valor y la fecha exactos de `Conocimiento`, y `Estado`, sin cambio o con su valor nuevo y por qué.
 3. **La entrada de la bitácora** (paso 6), con su texto: lo graduado y a dónde, lo pendiente, lo de motor y la foto de la entrega por repo, que mirás antes con git de solo lectura.
-4. **El commit de cierre** (paso 9): los archivos que irían al `git add` y el mensaje. Marcá los que ya venían modificados antes del cierre: entran enteros, con los cambios que no son de este cierre.
+4. **Los enlaces que se arreglan** (paso 1), si hay: cada uno con el enlace de hoy y el que lo reemplaza, o que se saca. Se escriben en el paso 6, junto con los relojes.
+5. **El commit de cierre** (paso 9): los archivos que irían al `git add` y el mensaje. Marcá los que ya venían modificados antes del cierre: entran enteros, con los cambios que no son de este cierre.
 
 Después pedí un sí explícito. Sin sí, no se escribe nada. Si el usuario corrige un destino o cualquier otra línea, ajustá la propuesta y volvé a mostrarla.
 
