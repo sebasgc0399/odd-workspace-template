@@ -32,8 +32,8 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T0 | S1, S6, S8 | Las decisiones en el estudio y el roadmap, I46 anotada, y este documento | inline | hecho | este commit |
-| T1 | S2 | El costo por corrida en `rescatar.py`, con su lector en `odd_ws/transcripcion.py`; el `costo.json` opcional, el triaje guardado en la revisión y el anuncio con el último costo | delegada: corre en paralelo con T2, con superficies disjuntas | pendiente | |
-| T2 | S7 | La clave de «sin capa» en el triaje, y el aviso de `capas-cobertura` compartido en `odd_ws/`, que repiten el triaje y `abrir` | delegada: corre en paralelo con T1 | pendiente | |
+| T1 | S2 | El costo por corrida en `rescatar.py`, con su lector en `odd_ws/transcripcion.py`; el `costo.json` opcional, el triaje guardado en la revisión y el anuncio con el último costo | delegada: corre en paralelo con T2, con superficies disjuntas | hecho (L5) | `9a03892` |
+| T2 | S7 | La clave de «sin capa» en el triaje, y el aviso de `capas-cobertura` compartido en `config_loader`, que repiten el triaje y `abrir` | delegada: corre en paralelo con T1 | hecho (L5) | `e2ffcff` |
 | T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | inline. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | pendiente | |
 | T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | inline | pendiente | |
 
@@ -49,3 +49,8 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
   - **Rescate.** `rescatar.py` no lee `usage`, `message.id` ni `timestamp`, y sus tests fijan las claves y las líneas exactas de lo que escribe. Además, lo comparte con `eval-reviewers`, así que el `costo.json` va opcional.
   - **Rechequeo.** La regla del rechequeo (`revisar/SKILL.md:196`) haría de cada rechequeo posterior a una bajada una revisión completa.
 - **L4** (2026-11-18) Plan. T1 y T2 son unidades independientes con superficies disjuntas, así que corren en paralelo con dos writers en este worktree; los commits los hace el orquestador. T3 depende de la clave de T2 y del triaje guardado de T1. T4 es texto de `revisar`. Siguiente paso: lanzar T1 y T2.
+- **L5** (2026-11-18) T1 y T2 hechos, cada uno con RED antes de GREEN, la suite completa en verde y un diferencial contra `f6afa50`. El orquestador revisó cada diff contra sus superficies, volvió a correr `rescatar.tests.py` (41/41) y vio que `rescatar.py -h` sigue andando.
+  - **T1 (`9a03892`).** El costo de cada corrida va en `costo` de su `.lecturas.json`; con un transcript viejo, sin `usage`, queda en `null`. `--costo` escribe `corridas/costo.json` solo con el destino de una revisión, así que `eval-reviewers` no cambia. `--ultimo-costo` busca en el ticket y después en la instancia. El diferencial dio igual salvo la línea `usage:` de argparse, que ahora muestra las dos formas.
+    - Queda abierto: `costo.json` no guarda el modo que propuso el triaje, que importa después de una bajada (T3); el anuncio cita tokens y no minutos; `CARPETA_RE` y `MODOS` están copiados de `recibo.py`, con un test que los mantiene iguales.
+  - **T2 (`e2ffcff`).** La clave `sin_capa` vale `null` o `{archivos, unico_motivo_de_capas, aviso}`. Una positiva real es una señal `positiva` que no sea la de `capas` con `unico_motivo_de_capas`. La cuenta compartida quedó en `config_loader` y no en `odd_ws/`, por el ciclo de importación `config_loader` → `odd_ws.hosts` → `odd_ws.comun` → `odd_ws.capas`. La salida del doctor es idéntica byte a byte.
+  - Risk: none en los dos. Suman una clave opcional y opciones nuevas, que pidió la spec, y la salida existente quedó fijada por tests y por el diferencial.
