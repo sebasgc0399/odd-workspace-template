@@ -365,13 +365,13 @@ def con_uso(id_, usado, ts, *bloques):
     return registro
 
 
-def medida(reporte="r", handback=True):
+def medida(reporte="r", handback=True, hora="10"):
     lineas = [
-        dict(usuario("Revisa."), timestamp="2026-11-18T10:00:00.000Z"),
-        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T10:00:05.000Z", {"type": "text", "text": "leo"}),
-        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T10:00:05.100Z", uso("Read", {"file_path": "x"})),
-        dict(resultado_de("t_Read", "x"), timestamp="2026-11-18T10:00:06.000Z"),
-        con_uso("m2", tokens(2, 5000, 40000, 300), "2026-11-18T10:02:06.000Z",
+        dict(usuario("Revisa."), timestamp="2026-11-18T%s:00:00.000Z" % hora),
+        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T%s:00:05.000Z" % hora, {"type": "text", "text": "leo"}),
+        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T%s:00:05.100Z" % hora, uso("Read", {"file_path": "x"})),
+        dict(resultado_de("t_Read", "x"), timestamp="2026-11-18T%s:00:06.000Z" % hora),
+        con_uso("m2", tokens(2, 5000, 40000, 300), "2026-11-18T%s:02:06.000Z" % hora,
                 uso("SubagentHandback", {"message": reporte}) if handback else {"type": "text", "text": ""}),
     ]
     return lineas
@@ -434,7 +434,7 @@ def test_cli_costo_escribe_el_costo_de_la_revision():
         agente(base / "s", "a2", tipica(), meta={"agentType": "revisor-capa-a", "model": "sonnet"})
         codigo, salida, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1",
                                     "--corrida", "c2=agent-a2", "--costo")
-        assert codigo == 0 and error == "", (codigo, error)
+        assert codigo == 0 and error == SIN_PRINCIPAL % (base / "s.jsonl"), (codigo, error)
         assert salida.splitlines() == [
             "ok   c1: 1 car., 1 lecturas, revisor-x/opus",
             "ok   c2: 32 car., 3 lecturas, revisor-capa-a/sonnet  (herramientas NO auditadas: Bash x1)  (comandos Bash/PowerShell: 1 en c2.comandos.json)",
@@ -445,8 +445,8 @@ def test_cli_costo_escribe_el_costo_de_la_revision():
         assert costo == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
             {"corrida": "c1", "agente": "a1", "estado": "ok", "agentType": "revisor-x", "model": "opus", "costo": COSTO_MEDIDA},
             {"corrida": "c2", "agente": "a2", "estado": "ok", "agentType": "revisor-capa-a", "model": "sonnet", "costo": None}],
-            "lineas_diff": 4}, costo
-        assert list(costo) == ["modo", "motivos", "corridas", "lineas_diff"], list(costo)
+            "lineas_diff": 4, "orquestador": None, "en_serie": None}, costo
+        assert list(costo) == ["modo", "motivos", "corridas", "lineas_diff", "orquestador", "en_serie"], list(costo)
 
 
 def test_cli_costo_cuenta_las_lineas_agregadas_y_quitadas_de_todos_los_diffs():
@@ -457,7 +457,7 @@ def test_cli_costo_cuenta_las_lineas_agregadas_y_quitadas_de_todos_los_diffs():
             "binario.diff": b"diff --git a/i.png b/i.png\nBinary files a/i.png and b/i.png differ\n", "notas.txt": b"+no\n"})
         agente(base / "s", "a1", medida())
         codigo, _, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
-        assert (codigo, error) == (0, ""), (codigo, error)
+        assert (codigo, error) == (0, SIN_PRINCIPAL % (base / "s.jsonl")), (codigo, error)
         costo = leer_json(rev / "corridas" / "costo.json")
         assert (costo["modo"], costo["lineas_diff"]) == ("rapido", 8), costo
 
@@ -469,7 +469,7 @@ def test_cli_costo_suma_la_corrida_cortada_y_junta_los_rescates_por_agente():
         agente(sub, "a1", medida())
         agente(sub, "a2", medida(handback=False))
         codigo, salida, error = cli("--sesion", sub, "--destino", dest, "--corrida", "c1=a1", "--corrida", "c2=a2", "--costo")
-        assert codigo == 1 and error == "", (codigo, error)
+        assert codigo == 1 and error == SIN_PRINCIPAL % (base / "s.jsonl"), (codigo, error)
         assert salida.splitlines()[1:] == ["FAIL c2: sin SubagentHandback (corrida cortada), 1 lecturas, no se escribio nada",
                                            "costo: 2 corrida(s) en %s" % (dest / "costo.json")], salida
         assert [(c["corrida"], c["agente"], c["estado"], c["costo"]) for c in leer_json(dest / "costo.json")["corridas"]] == [
@@ -490,7 +490,8 @@ def test_cli_costo_sin_triaje_ni_diff_deja_null_y_lo_avisa():
         assert codigo == 0, (codigo, error)
         assert error.splitlines() == [
             "aviso costo: no hay motivos en %s; quedan en null" % (rev / "entrada" / "triaje.json"),
-            "aviso costo: no hay diffs en %s; lineas_diff queda en null" % (rev / "entrada")], error
+            "aviso costo: no hay diffs en %s; lineas_diff queda en null" % (rev / "entrada"),
+            (SIN_PRINCIPAL % (base / "s.jsonl")).rstrip("\n")], error
         costo = leer_json(rev / "corridas" / "costo.json")
         assert (costo["motivos"], costo["lineas_diff"], len(costo["corridas"])) == (None, None, 1), costo
         for roto, previo in (("{no es json", "{roto"), (json.dumps({"modo": "rapido"}), json.dumps({"corridas": [{"agente": ["x"]}]})),
@@ -600,6 +601,172 @@ def test_cli_ultimo_costo_es_un_uso_aparte():
                 2, "rescatar: --ultimo-costo no se combina con --sesion, --destino, --corrida ni --costo\n", ""), extra
         assert cli("--ultimo-costo", base / "nada") == (2, "rescatar: no existe la carpeta del ticket %s\n" % (base / "nada"), "")
         assert not (base / "d").exists()
+
+
+def lanzado(id_, agente_, ts):
+    return {"type": "user", "timestamp": ts, "toolUseResult": {"agentId": agente_, "status": "async_launched"},
+            "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id_, "content": [
+                {"type": "text", "text": "Async agent launched successfully.\nagentId: %s" % agente_}]}]}}
+
+
+def bash(id_, comando):
+    return uso("Bash", {"command": comando}, id_)
+
+
+TRIAJE_DEL_ANUNCIO = 'python3 "/plugin/scripts/triaje.py" --ticket "T1-a" --repo "/repo#main"'
+TRIAJE_DE_LA_ENTRADA = TRIAJE_DEL_ANUNCIO + ' --json > "/inst/tickets/T1-a/revision/2026-11-18-completo/entrada/triaje.json"'
+RECIBO = 'python3 "/plugin/scripts/recibo.py" --write --ticket "T1-a" --repo "/repo#main" --modo completo'
+
+
+def principal(agentes=("a1", "a2"), triajes=(TRIAJE_DEL_ANUNCIO, TRIAJE_DE_LA_ENTRADA), recibo=False):
+    lineas = [
+        dict(usuario("Revisa el cambio."), timestamp="2026-11-18T09:50:00.000Z"),
+        con_uso("p0", tokens(5, 2000, 10000, 40), "2026-11-18T09:50:05.000Z", uso("Agent", {"prompt": "otra"}, "l0")),
+        lanzado("l0", "viejo", "2026-11-18T09:50:06.000Z"),
+    ]
+    for i, comando in enumerate(triajes):
+        lineas += [con_uso("p1-%d" % i, tokens(5, 1000, 12000, 60), "2026-11-18T09:5%d:00.000Z" % (5 + i),
+                           {"type": "text", "text": "triaje"}),
+                   con_uso("p1-%d" % i, tokens(4, 3000, 13000, 80), "2026-11-18T09:5%d:00.100Z" % (5 + i), bash("x%d" % i, comando)),
+                   dict(resultado_de("x%d" % i, "modo completo"), timestamp="2026-11-18T09:5%d:01.000Z" % (5 + i))]
+    lineas += [con_uso("p3", tokens(3, 2500, 16000, 900), "2026-11-18T10:00:00.000Z", uso("Agent", {"prompt": "r1"}, "l1")),
+               con_uso("p3", tokens(3, 2500, 16000, 900), "2026-11-18T10:00:00.100Z", uso("Agent", {"prompt": "r2"}, "l2"))]
+    lineas += [lanzado("l%d" % (i + 1), a, "2026-11-18T10:00:0%d.500Z" % (i + 1)) for i, a in enumerate(agentes)]
+    lineas += [con_uso("p4", tokens(2, 1500, 18500, 30), "2026-11-18T10:03:00.000Z", bash("x9", TRIAJE_DEL_ANUNCIO)),
+               dict(resultado_de("x9", "modo completo"), timestamp="2026-11-18T10:03:01.000Z"),
+               con_uso("p5", tokens(2, 600, 20000, 120), "2026-11-18T10:05:00.000Z", bash("r1", "python3 rescatar.py --costo"))]
+    if recibo:
+        lineas += [dict(resultado_de("r1", "ok"), timestamp="2026-11-18T10:05:02.000Z"),
+                   con_uso("p6", tokens(2, 400, 20600, 200), "2026-11-18T10:20:00.000Z", bash("w1", RECIBO)),
+                   dict(resultado_de("w1", "escrito"), timestamp="2026-11-18T10:20:01.000Z"),
+                   con_uso("p7", tokens(2, 300, 21000, 70), "2026-11-18T10:30:00.000Z", {"type": "text", "text": "listo"})]
+    return lineas
+
+
+ORQUESTADOR = {"turnos": 4, "contexto_inicial": 16004, "contexto_final": 20602, "salida": 1130, "cache_escrita": 7600,
+               "cache_leida": 67500, "inicio": "2026-11-18T09:56:00.100Z", "fin": "2026-11-18T10:05:00.000Z",
+               "pausa_mayor": 239.0, "contexto_dejado": 4598}
+SIN_PRINCIPAL = "aviso costo: no hay transcript de la sesion principal en %s; orquestador queda en null\n"
+
+
+def sesion_con_principal(base, lineas, corridas=(("a1", "10"), ("a2", "10"))):
+    sub = base / "proyecto" / "sesion-1" / "subagents"
+    for agente_, hora in corridas:
+        agente(sub, agente_, medida(hora=hora))
+    if lineas is not None:
+        (base / "proyecto" / "sesion-1.jsonl").write_bytes(
+            ("\n".join(json.dumps(l, ensure_ascii=False) for l in lineas) + "\n").encode("utf-8"))
+    return sub
+
+
+def rescate_con_costo(base, sesion, rev, *corridas):
+    return cli("--sesion", sesion, "--destino", rev / "corridas", *[x for c in corridas for x in ("--corrida", c)], "--costo")
+
+
+def test_cli_costo_mide_al_orquestador_desde_el_ultimo_triaje_y_una_vez_por_mensaje():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, principal())
+        for sesion in (sub, sub.parent):
+            codigo, salida, error = rescate_con_costo(base, sesion, rev, "c1=a1", "c2=a2")
+            assert (codigo, error) == (0, ""), (codigo, salida, error)
+            assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+            costo = leer_json(rev / "corridas" / "costo.json")
+            assert list(costo) == ["modo", "motivos", "corridas", "lineas_diff", "orquestador", "en_serie"], list(costo)
+            assert costo["orquestador"] == ORQUESTADOR, costo["orquestador"]
+            assert list(costo["orquestador"]) == list(ORQUESTADOR), list(costo["orquestador"])
+
+
+def test_cli_costo_corta_el_tramo_del_orquestador_en_el_recibo_de_la_ronda():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, principal(recibo=True))
+        codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert leer_json(rev / "corridas" / "costo.json")["orquestador"] == dict(
+            ORQUESTADOR, turnos=5, contexto_final=21002, salida=1330, cache_escrita=8000, cache_leida=88100,
+            fin="2026-11-18T10:20:00.000Z", pausa_mayor=898.0, contexto_dejado=4998)
+
+
+def test_cli_costo_sin_transcript_principal_deja_al_orquestador_en_null_y_lo_avisa():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, None)
+        codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+        assert codigo == 0, (codigo, salida, error)
+        assert error == SIN_PRINCIPAL % (base / "proyecto" / "sesion-1.jsonl"), repr(error)
+        assert leer_json(rev / "corridas" / "costo.json")["orquestador"] is None
+
+
+def test_cli_costo_sin_ancla_deja_al_orquestador_en_null_y_lo_avisa():
+    with Temporal() as base:
+        principal_ = base / "proyecto" / "sesion-1.jsonl"
+        casos = ((principal(triajes=()), "no hay un triaje.py antes del primer lanzamiento de las corridas en %s" % principal_),
+                 (principal(agentes=("otro", "otro2")), "no se encontro el lanzamiento de ninguna corrida en %s" % principal_),
+                 ([usuario("p"), asistente({"type": "text", "text": "sin uso"})],
+                  "no se encontro el lanzamiento de ninguna corrida en %s" % principal_),
+                 ([dict(l, message={k: v for k, v in l["message"].items() if k != "usage"}) for l in principal()],
+                  "el tramo de %s no tiene datos de uso" % principal_))
+        for i, (lineas, aviso) in enumerate(casos):
+            rev = revision(base, carpeta="2026-11-1%d-completo" % i)
+            sub = sesion_con_principal(base, lineas)
+            codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+            assert codigo == 0, (codigo, salida, error)
+            assert error == "aviso costo: %s; orquestador queda en null\n" % aviso, (i, error)
+            assert leer_json(rev / "corridas" / "costo.json")["orquestador"] is None
+
+
+def test_cli_costo_dice_si_las_corridas_de_la_ronda_corrieron_en_serie():
+    with Temporal() as base:
+        casos = (((("a1", "10"), ("a2", "10")), ("c1=a1", "c2=a2"), False),
+                 ((("a1", "10"), ("a2", "11")), ("c1=a1", "c2=a2"), True),
+                 ((("a1", "10"),), ("c1=a1",), None))
+        for i, (corridas, argumentos, esperado) in enumerate(casos):
+            rev = revision(base, carpeta="2026-11-1%d-completo" % i)
+            sub = sesion_con_principal(base / str(i), principal(), corridas=corridas)
+            assert rescate_con_costo(base, sub, rev, *argumentos)[0] == 0
+            assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is esperado, (i, esperado)
+        rev = revision(base, carpeta="2026-11-18-rapido")
+        sub = sesion_con_principal(base / "3", principal(), corridas=(("a1", "10"), ("a2", "11")))
+        agente(sub, "a3", tipica())
+        assert rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2", "c3=a3")[0] == 0
+        assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is None, "una corrida sin tiempos no deja afirmar la serie"
+        agente(sub, "a4", medida(hora="10"))
+        assert rescate_con_costo(base, sub, rev, "c4=a4")[0] == 0
+        assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is False, "la ronda junta los rescates de la carpeta"
+
+
+def test_cli_ultimo_costo_menciona_la_serie_solo_si_es_cierta():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T1-a"
+        linea = ("último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), "
+                 "40 líneas de diff; por corrida, en promedio: 2 turnos, contexto final 45 002, salida 400, caché escrita "
+                 "45 000 y caché leída 40 000 tokens")
+        ruta = escribir_costo(base, "T1-a", "2026-11-18-completo", [medido("2026-11-18T08:30:00.000Z")])
+        for en_serie, sufijo in ((True, "; las corridas corrieron en serie"), (False, ""), (None, ""), ("si", "")):
+            datos = leer_json(ruta)
+            datos["en_serie"] = en_serie
+            ruta.write_text(json.dumps(datos), encoding="utf-8")
+            assert cli("--ultimo-costo", ticket) == (0, linea + sufijo + "\n", ""), en_serie
+
+
+def test_cli_costo_sin_datos_nuevos_conserva_las_claves_y_el_anuncio():
+    with Temporal() as base:
+        rev = revision(base)
+        agente(base / "s", "a1", medida())
+        codigo, salida, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
+        assert (codigo, salida) == (0, "ok   c1: 1 car., 1 lecturas, revisor-x/opus\ncosto: 1 corrida(s) en %s\n" % (
+            rev / "corridas" / "costo.json")), (codigo, salida)
+        assert error == SIN_PRINCIPAL % (base / "s.jsonl"), repr(error)
+        costo = leer_json(rev / "corridas" / "costo.json")
+        assert costo == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": "a1", "estado": "ok", "agentType": "revisor-x", "model": "opus", "costo": COSTO_MEDIDA}],
+            "lineas_diff": 4, "orquestador": None, "en_serie": None}, costo
+        assert leer_json(rev / "corridas" / "c1.lecturas.json")["costo"] == COSTO_MEDIDA
+        assert cli("--ultimo-costo", base / "inst" / "tickets" / "T1-a") == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), "
+            "4 líneas de diff; por corrida, en promedio: 2 turnos, contexto final 45 002, salida 400, caché escrita "
+            "45 000 y caché leída 40 000 tokens\n"), "")
 
 
 def test_cli_sin_sesion_ni_corrida_conserva_el_error_de_los_obligatorios():

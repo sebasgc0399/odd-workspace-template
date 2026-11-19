@@ -179,6 +179,56 @@ def test_costo_sin_tiempos_o_con_uno_solo():
     assert (c["inicio"], c["fin"], c["pausa_mayor"]) == ("2026-11-18T10:00:00.000Z", "2026-11-18T10:00:00.000Z", None), c
 
 
+def lanzamiento(id_, nombre="Agent"):
+    return {"type": "assistant", "message": {"id": "m-" + id_, "content": [{"type": "tool_use", "id": id_, "name": nombre, "input": {}}]}}
+
+
+def resultado(id_, agente):
+    return {"type": "user", "toolUseResult": {"agentId": agente} if agente else "texto",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": id_, "content": "ok"}]}}
+
+
+def test_constantes_del_lanzamiento_de_claude_code():
+    assert (m().LANZAR, m().RESULTADO, m().ID_DEL_AGENTE) == ("Agent", "toolUseResult", "agentId")
+
+
+def test_lanzamientos_da_el_registro_del_tool_use_de_cada_agente_la_primera_vez():
+    registros = [lanzamiento("t1"), lanzamiento("t2"), resultado("t2", "b"), resultado("t1", "a"),
+                 lanzamiento("t3"), resultado("t3", "a"), lanzamiento("t4", "Read"), resultado("t4", "c"),
+                 lanzamiento("t5"), resultado("t5", None), resultado("t9", "d")]
+    assert m().lanzamientos(registros) == {"a": 0, "b": 1}, m().lanzamientos(registros)
+    assert m().lanzamientos([]) == {}
+
+
+def test_comandos_da_cada_comando_de_texto_con_su_registro():
+    registros = [{"type": "assistant", "message": {"content": [
+                     {"type": "tool_use", "name": "Bash", "input": {"command": "uno"}},
+                     {"type": "tool_use", "name": "PowerShell", "input": {"command": "dos"}}]}},
+                 {"type": "user", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "no"}}]}},
+                 {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": 5}},
+                                                               {"type": "tool_use", "name": "Read", "input": {"file_path": "x"}},
+                                                               {"type": "text", "text": "tres"}]}},
+                 {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "cuatro"}}]}}]
+    assert list(m().comandos(registros)) == [(0, "uno"), (0, "dos"), (3, "cuatro")], list(m().comandos(registros))
+
+
+def intervalo(inicio, fin):
+    return {"inicio": "2026-11-18T%sZ" % inicio, "fin": "2026-11-18T%sZ" % fin}
+
+
+def test_en_serie_si_ningun_par_de_corridas_se_solapa():
+    assert m().en_serie([intervalo("11:00:00", "11:05:00"), intervalo("10:00:00", "10:59:00"), intervalo("11:05:00", "11:06:00")]) is True
+    assert m().en_serie([intervalo("10:00:00", "10:30:00"), intervalo("10:10:00", "10:20:00"), intervalo("10:40:00", "10:50:00")]) is False
+    assert m().en_serie([intervalo("10:00:00", "10:30:00"), None, intervalo("10:29:00", "10:31:00")]) is False
+
+
+def test_en_serie_es_none_sin_datos_suficientes():
+    for medidas in ([], [intervalo("10:00:00", "10:05:00")], [intervalo("10:00:00", "10:05:00"), None],
+                    [intervalo("10:00:00", "10:05:00"), {"inicio": "no es una fecha", "fin": None}],
+                    [intervalo("10:00:00", "10:05:00"), intervalo("11:00:00", "11:05:00"), "texto"]):
+        assert m().en_serie(medidas) is None, medidas
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

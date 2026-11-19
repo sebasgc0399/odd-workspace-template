@@ -9,6 +9,9 @@ ENTRADA = "input_tokens"
 CACHE_ESCRITA = "cache_creation_input_tokens"
 CACHE_LEIDA = "cache_read_input_tokens"
 SALIDA = "output_tokens"
+LANZAR = "Agent"
+RESULTADO = "toolUseResult"
+ID_DEL_AGENTE = "agentId"
 
 
 def leer(transcript):
@@ -87,3 +90,41 @@ def costo(registros):
         "fin": instantes[-1][1] if instantes else None,
         "pausa_mayor": round(max(pausas), 3) if pausas else None,
     }
+
+
+def lanzamientos(registros):
+    usos, lanzados = {}, {}
+    for i, registro in enumerate(registros):
+        for b in bloques(registro):
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("name") == LANZAR and b.get("id"):
+                usos[b["id"]] = i
+            elif b.get("type") == "tool_result" and b.get("tool_use_id") in usos:
+                resultado = registro.get(RESULTADO)
+                agente = resultado.get(ID_DEL_AGENTE) if isinstance(resultado, dict) else None
+                if isinstance(agente, str) and agente:
+                    lanzados.setdefault(agente, usos[b["tool_use_id"]])
+    return lanzados
+
+
+def comandos(registros):
+    for i, registro in enumerate(registros):
+        if registro.get("type") != "assistant":
+            continue
+        for b in bloques(registro):
+            entrada = b.get("input") if isinstance(b, dict) and b.get("type") == "tool_use" else None
+            if isinstance(entrada, dict) and isinstance(entrada.get("command"), str):
+                yield i, entrada["command"]
+
+
+def en_serie(medidas):
+    intervalos = []
+    for medida in medidas:
+        inicio, fin = (_instante(medida.get("inicio")), _instante(medida.get("fin"))) if isinstance(medida, dict) else (None, None)
+        if inicio and fin:
+            intervalos.append((inicio, fin))
+    intervalos.sort()
+    if any(siguiente[0] < anterior[1] for anterior, siguiente in zip(intervalos, intervalos[1:])):
+        return False
+    return True if len(intervalos) >= 2 and len(intervalos) == len(medidas) else None
