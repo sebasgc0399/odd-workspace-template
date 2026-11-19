@@ -67,8 +67,9 @@ MANIFIESTO = {
                       "(Read a read, Glob a find, Grep a grep, Edit a edit, Write a write, Bash a bash y PowerShell a "
                       "powershell), que gentle-shell le da al hijo con --tools; sin skills precargadas: el agente abre sus SKILL.md "
                       "con read al arrancar; sin model, thinking ni mode, así que rigen los de subagents.json; gentle-shell lee "
-                      "solo <cwd>/.pi/agents y no sube a los padres, así que se abre en la raíz de la instancia; con Pi a secas no "
-                      "hay subagentes"),
+                      "solo <cwd>/.pi/agents y no sube a los padres, así que se abre en la raíz de la instancia; el doctor no ve "
+                      "los overlays de herramientas de gentle-shell (#3223), que pueden cambiar las herramientas de un agente al "
+                      "cargarlo, sin tocar su .md; con Pi a secas no hay subagentes"),
     "P8": (SOPORTADO, "las skills del plugin llegan por el paquete de Pi: pi.skills del package.json de la raíz del repositorio "
                       "apunta a plugin/skills, y Pi carga cada SKILL.md que trae description, sin namespace, con los nombres que "
                       "valida su regla, sin chocar con las de gentle-pi, que se llaman gentle-, y respetando "
@@ -242,6 +243,7 @@ CONTROL_O_ESPACIO = "".join(map(chr, range(0x21)))
 TAB_O_SALTO = re.compile("[\t\n\r]")
 ID_VERSION = "pi"
 ID_AGENTES = "pi-agentes"
+TAREAS_DE_GENTLE_AGENTS = Path("gentle-agents", "tasks")
 ARCHIVO_DE_HOOKS = "hooks/hooks.pi.json"
 PYTHON = "python3"
 PYTHON_EN_WINDOWS = "python"
@@ -572,6 +574,11 @@ def _expandida(ctx, valor):
 def _home_de_pi(ctx):
     valor = ctx.entorno.get("PI_CODING_AGENT_DIR")
     return _expandida(ctx, valor) if valor else Path(ctx.home) / ".pi" / "agent"
+
+
+def home_de_gentle_agents(ctx):
+    valor = ctx.entorno.get("GENTLE_PI_AGENT_HOME")
+    return _expandida(ctx, valor) if valor else _home_de_pi(ctx)
 
 
 def _misma(a, b):

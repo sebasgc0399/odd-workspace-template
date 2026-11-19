@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -776,6 +777,226 @@ def test_cli_sin_sesion_ni_corrida_conserva_el_error_de_los_obligatorios():
         assert error.splitlines()[-1] == "rescatar.py: error: the following arguments are required: --sesion, --corrida", error
         codigo, salida, error = cli()
         assert error.splitlines()[-1] == "rescatar.py: error: the following arguments are required: --sesion, --destino, --corrida", error
+
+
+def test_sin_host_el_rescate_de_claude_code_no_cambia():
+    with Temporal() as base:
+        vistos = []
+        for nombre, extra in (("sin", ()), ("con", ("--host", "claude-code"))):
+            raiz = base / nombre
+            rev = revision(raiz)
+            sub = sesion_con_principal(raiz, principal())
+            agente(sub, "a3", con_comandos())
+            codigo, salida, error = cli(*extra, "--sesion", sub, "--destino", rev / "corridas", "--corrida", "c1=a1",
+                                        "--corrida", "c3=agent-a3", "--corrida", "c4=nada", "--costo")
+            archivos = {p.name: p.read_bytes() for p in sorted((rev / "corridas").iterdir())}
+            vistos.append((codigo, salida.replace(str(raiz), "<raiz>"), error.replace(str(raiz), "<raiz>"), archivos))
+        assert vistos[0] == vistos[1], vistos
+        codigo, salida, error, archivos = vistos[0]
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert salida.splitlines() == [
+            "ok   c1: 1 car., 1 lecturas, revisor-x/opus",
+            "ok   c3: 1 car., 0 lecturas, revisor-x/opus  (herramientas NO auditadas: Bash x2, PowerShell x1)  (comandos Bash/PowerShell: 3 en c3.comandos.json)",
+            "FAIL c4: no existe agent-nada.jsonl en %s" % Path("<raiz>", "proyecto", "sesion-1", "subagents"),
+            "costo: 2 corrida(s) en %s (1 sin datos de uso)" % Path("<raiz>", "inst", "tickets", "T1-a", "revision",
+                                                                   "2026-11-18-completo", "corridas", "costo.json")], salida
+        assert sorted(archivos) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt", "c3.comandos.json", "c3.lecturas.json", "c3.md",
+                                    "c3.prompt.txt", "costo.json"], sorted(archivos)
+
+
+MODELO_PI = "proveedor/modelo-x"
+PROMPT_PI = "Revisá el diseño del ticket T1 antes del commit."
+INICIO_PI, FIN_PI = 1794996000250, 1794996270007
+USO_PI = {"input": 900, "output": 1200, "cacheRead": 50000, "cacheWrite": 8000, "reasoning": 300}
+COSTO_PI = {"turnos": 3, "contexto_inicial": None, "contexto_final": None, "salida": 1200, "cache_escrita": 8000,
+            "cache_leida": 50000, "inicio": "2026-11-18T10:00:00.250Z", "fin": "2026-11-18T10:04:30.007Z", "pausa_mayor": None}
+SIN_ORQUESTADOR_PI = "aviso costo: el costo del orquestador solo se mide en Claude Code; orquestador queda en null\n"
+
+
+def herramienta_pi(nombre, args, salida="", error=False, corriendo=False, llamada=None):
+    return {"kind": "tool", "callId": llamada or "c-" + nombre, "name": nombre, "args": args, "output": salida,
+            "running": corriendo, "isError": error}
+
+
+def hilo_pi():
+    return [{"kind": "text", "text": "voy a leer"}, herramienta_pi("read", {"path": "C:\\x\\a.sql"}, "contenido"),
+            {"kind": "thinking", "text": "pienso"}, herramienta_pi("grep", {"pattern": "foo", "path": "C:\\x"}),
+            herramienta_pi("find", {"pattern": "**/*.sql"}), {"kind": "note", "text": "retrying (1/3)"}]
+
+
+def tarea_pi(id_="t1", status="completed", resultado="Reporte de Pi.", items=None, dropped=0, uso=USO_PI, inicio=INICIO_PI,
+             fin=FIN_PI, agente_="revisor-diseno"):
+    tarea = {"id": id_, "agent": agente_, "mode": "background", "prompt": PROMPT_PI, "label": "Revisá el diseño",
+             "cwd": "C:\\inst", "parentSessionId": "s1", "status": status, "createdAt": INICIO_PI - 50, "startedAt": inicio,
+             "endedAt": fin, "model": MODELO_PI, "thinking": None, "sessionPath": None, "error": None, "result": resultado,
+             "lastStep": "responded", "lastActivityAt": FIN_PI, "turns": 3, "toolCalls": 3, "tokens": 60100, "cost": 0.42}
+    if uso is not None:
+        tarea["usage"] = uso
+    return {"task": tarea, "thread": {"items": hilo_pi() if items is None else items, "dropped": dropped, "version": 9,
+                                      "limits": {"maxItems": 400, "maxOutputChars": 16000}}}
+
+
+def guardar_tarea(home, datos):
+    carpeta = home / "gentle-agents" / "tasks"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / ("%s.json" % datos["task"]["id"])).write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    return carpeta
+
+
+def cli_pi(base, *args, entorno=None):
+    env = {k: v for k, v in os.environ.items() if k not in ("GENTLE_PI_AGENT_HOME", "PI_CODING_AGENT_DIR")}
+    env.update({"HOME": str(base / "casa"), "USERPROFILE": str(base / "casa")})
+    env.update(entorno if entorno is not None else {"GENTLE_PI_AGENT_HOME": str(base / "agente")})
+    r = subprocess.run([sys.executable, "-W", "error", str(SCRIPT), "--host", "pi", *map(str, args)], capture_output=True, env=env)
+    return r.returncode, r.stdout.decode("utf-8").replace("\r\n", "\n"), r.stderr.decode("utf-8").replace("\r\n", "\n")
+
+
+def test_pi_un_reporte_de_30_kb_llega_entero_con_su_prompt_y_sus_lecturas():
+    with Temporal() as base:
+        reporte = "".join("[WARNING] sin ID a.sql:%d — revisión número %d\n" % (i, i) for i in range(700))
+        assert len(reporte.encode("utf-8")) > 30000, len(reporte.encode("utf-8"))
+        guardar_tarea(base / "agente", tarea_pi(resultado=reporte))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "revisor-diseno-r1=t1")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == "ok   revisor-diseno-r1: %d car., 3 lecturas, revisor-diseno/%s\n" % (len(reporte), MODELO_PI), repr(salida)
+        assert (base / "d" / "revisor-diseno-r1.md").read_bytes() == reporte.encode("utf-8")
+        assert (base / "d" / "revisor-diseno-r1.prompt.txt").read_text(encoding="utf-8") == PROMPT_PI
+        lecturas = leer_json(base / "d" / "revisor-diseno-r1.lecturas.json")
+        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas", "costo"], list(lecturas)
+        assert (lecturas["agente"], lecturas["meta"]) == ("t1", {"agentType": "revisor-diseno", "model": MODELO_PI}), lecturas
+        assert lecturas["lecturas"] == [{"tool": "read", "input": {"path": "C:\\x\\a.sql"}},
+                                        {"tool": "grep", "input": {"pattern": "foo", "path": "C:\\x"}},
+                                        {"tool": "find", "input": {"pattern": "**/*.sql"}}], lecturas["lecturas"]
+        assert lecturas["no_auditadas"] == {} and lecturas["costo"] == COSTO_PI, lecturas
+        assert sorted(p.name for p in (base / "d").iterdir()) == [
+            "revisor-diseno-r1.lecturas.json", "revisor-diseno-r1.md", "revisor-diseno-r1.prompt.txt"]
+
+
+def test_pi_una_tarea_que_no_termino_bien_da_sin_reporte_y_no_escribe_nada():
+    with Temporal() as base:
+        casos = (("failed", None), ("cancelled", None), ("timed_out", None), ("running", None), ("queued", None),
+                 ("completed", None), ("completed", ""), ("failed", "texto parcial"))
+        for i, (status, resultado) in enumerate(casos):
+            guardar_tarea(base / "agente", tarea_pi(id_="t%d" % i, status=status, resultado=resultado))
+            codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c=t%d" % i)
+            assert (codigo, error) == (1, ""), (status, codigo, error)
+            assert salida == ("FAIL c: tarea t%d en estado %s, sin reporte (corrida cortada), 3 lecturas, no se escribio nada\n"
+                              % (i, status)), repr(salida)
+        assert not (base / "d").exists()
+
+
+def test_pi_las_herramientas_que_no_son_lecturas_van_a_no_auditadas_y_los_comandos_se_guardan():
+    with Temporal() as base:
+        items = hilo_pi() + [herramienta_pi("edit", {"path": "a.sql", "edits": []}),
+                             herramienta_pi("bash", {"command": "ls"}, "a.sql\n"),
+                             herramienta_pi("bash", {"command": "git status"}, "fatal: no es un repo", error=True, llamada="c2"),
+                             herramienta_pi("powershell", {"command": "sleep 9"}, corriendo=True), herramienta_pi("ls", {"path": "."})]
+        guardar_tarea(base / "agente", tarea_pi(items=items))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == ("ok   c1: 14 car., 3 lecturas, revisor-diseno/%s  (herramientas NO auditadas: bash x2, edit x1, ls x1, "
+                          "powershell x1)  (comandos Bash/PowerShell: 3 en c1.comandos.json)\n" % MODELO_PI), repr(salida)
+        assert leer_json(base / "d" / "c1.lecturas.json")["no_auditadas"] == {"edit": 1, "bash": 2, "powershell": 1, "ls": 1}
+        assert leer_json(base / "d" / "c1.comandos.json") == {"agente": "t1", "meta": {"agentType": "revisor-diseno", "model": MODELO_PI},
+                                                             "comandos": [
+            {"tool": "bash", "comando": "ls", "exit": 0, "error": None, "salida": "a.sql\n"},
+            {"tool": "bash", "comando": "git status", "exit": 1, "error": "fatal: no es un repo", "salida": "fatal: no es un repo"},
+            {"tool": "powershell", "comando": "sleep 9", "exit": None, "error": None, "salida": None}]}
+
+
+def test_pi_un_hilo_con_elementos_descartados_da_un_aviso():
+    with Temporal() as base:
+        guardar_tarea(base / "agente", tarea_pi(dropped=7))
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", status="failed", resultado=None, dropped=1))
+        guardar_tarea(base / "agente", tarea_pi(id_="t3"))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1", "--corrida", "c2=t2", "--corrida", "c3=t3")
+        assert codigo == 1 and salida.startswith("ok   c1: 14 car., 3 lecturas"), (codigo, salida)
+        aviso = ("aviso %s: gentle-shell descarto %d elemento(s) del hilo de la tarea %s (dropped): las lecturas y las "
+                 "herramientas pueden estar incompletas")
+        assert error.splitlines() == [aviso % ("c1", 7, "t1"), aviso % ("c2", 1, "t2")], error
+
+
+def test_pi_el_home_de_los_agentes_sigue_la_precedencia_del_entorno_y_sesion_lo_reemplaza():
+    with Temporal() as base:
+        for carpeta in ("g", "p", "casa/.pi/agent", "casa/otro"):
+            guardar_tarea(base / carpeta, tarea_pi(resultado="desde " + carpeta))
+        casos = (({"GENTLE_PI_AGENT_HOME": str(base / "g"), "PI_CODING_AGENT_DIR": str(base / "p")}, "g"),
+                 ({"GENTLE_PI_AGENT_HOME": "", "PI_CODING_AGENT_DIR": str(base / "p")}, "p"),
+                 ({"PI_CODING_AGENT_DIR": "~/otro"}, "casa/otro"),
+                 ({}, "casa/.pi/agent"))
+        for i, (entorno, carpeta) in enumerate(casos):
+            destino = base / ("d%d" % i)
+            codigo, salida, error = cli_pi(base, "--destino", destino, "--corrida", "c=t1", entorno=entorno)
+            assert (codigo, error) == (0, ""), (entorno, codigo, salida, error)
+            assert (destino / "c.md").read_text(encoding="utf-8") == "desde " + carpeta, (entorno, carpeta)
+        for i, sesion in enumerate((base / "p", base / "p" / "gentle-agents" / "tasks")):
+            destino = base / ("s%d" % i)
+            assert cli_pi(base, "--sesion", sesion, "--destino", destino, "--corrida", "c=t1")[0] == 0, sesion
+            assert (destino / "c.md").read_text(encoding="utf-8") == "desde p", sesion
+
+
+def test_pi_una_tarea_que_no_existe_o_no_se_lee_es_un_fail_y_sin_carpeta_o_con_un_id_raro_sale_con_2():
+    with Temporal() as base:
+        tareas = guardar_tarea(base / "agente", tarea_pi())
+        (tareas / "roto.json").write_text("{roto", encoding="utf-8")
+        (tareas / "ajeno.json").write_text(json.dumps({"task": {"id": 1}}), encoding="utf-8")
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1", "--corrida", "c2=nada",
+                                       "--corrida", "c3=roto", "--corrida", "c4=ajeno")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        assert salida.splitlines() == [
+            "ok   c1: 14 car., 3 lecturas, revisor-diseno/%s" % MODELO_PI,
+            "FAIL c2: no existe nada.json en %s" % tareas,
+            "FAIL c3: roto.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada",
+            "FAIL c4: ajeno.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada"], salida
+        assert sorted(p.name for p in (base / "d").iterdir()) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt"]
+        vacio = base / "vacio"
+        assert cli_pi(base, "--destino", base / "d2", "--corrida", "c=t1", entorno={"GENTLE_PI_AGENT_HOME": str(vacio)}) == (
+            2, "rescatar: no existe la carpeta de tareas de gentle-shell %s\n" % (vacio / "gentle-agents" / "tasks"), "")
+        for corrida in ("c=../t1", "c=t1.json", "c=a b", "c=", "sin-igual"):
+            assert cli_pi(base, "--destino", base / "d3", "--corrida", corrida) == (
+                2, "rescatar: --corrida espera <nombre>=<task_id>, recibio %r\n" % corrida, ""), corrida
+        assert not (base / "d2").exists() and not (base / "d3").exists()
+        codigo, salida, error = cli_pi(base)
+        assert (codigo, salida) == (2, "") and error.splitlines()[-1] == (
+            "rescatar.py: error: the following arguments are required: --destino, --corrida"), error
+
+
+def test_pi_costo_escribe_el_costo_de_la_revision_sin_orquestador_y_el_anuncio_no_inventa_lo_que_falta():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_tarea(base / "agente", tarea_pi())
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", agente_="revisor-capa-a", uso=None, inicio=1794996300000, fin=1794996360999))
+        codigo, salida, error = cli_pi(base, "--destino", rev / "corridas", "--corrida", "c1=t1", "--corrida", "c2=t2", "--costo")
+        assert (codigo, error) == (0, SIN_ORQUESTADOR_PI), (codigo, salida, error)
+        assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+        segunda = dict(COSTO_PI, salida=None, cache_escrita=None, cache_leida=None, inicio="2026-11-18T10:05:00.000Z",
+                       fin="2026-11-18T10:06:00.999Z")
+        assert leer_json(rev / "corridas" / "costo.json") == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": "t1", "estado": "ok", "agentType": "revisor-diseno", "model": MODELO_PI, "costo": COSTO_PI},
+            {"corrida": "c2", "agente": "t2", "estado": "ok", "agentType": "revisor-capa-a", "model": MODELO_PI, "costo": segunda}],
+            "lineas_diff": 4, "orquestador": None, "en_serie": True}
+        assert leer_json(rev / "corridas" / "c1.lecturas.json")["costo"] == COSTO_PI
+        assert cli("--ultimo-costo", base / "inst" / "tickets" / "T1-a") == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 2 corrida(s), 4 líneas "
+            "de diff; por corrida, en promedio: 3 turnos, contexto final sin medir, salida 1 200, caché escrita 8 000 y caché "
+            "leída 50 000 tokens; las corridas corrieron en serie\n"), "")
+
+
+OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+
+
+def test_los_rescates_que_da_la_skill_revisar_usan_opciones_que_existen_y_traen_el_de_pi():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    lineas = [l.split("rescatar.py", 1)[1] for l in texto.split("\n") if "rescatar.py\"" in l and "--destino" in l]
+    assert len(lineas) == 2, lineas
+    opciones = {o for accion in m()._parser()._actions for o in accion.option_strings}
+    for linea in lineas:
+        assert set(OPCION_RE.findall(linea)) <= opciones, (linea, set(OPCION_RE.findall(linea)) - opciones)
+    assert any("--host pi" in l and "--sesion" not in l and "<task_id>" in l for l in lineas), lineas
+    assert any("--host" not in l and "--sesion" in l and "<agentId>" in l for l in lineas), lineas
+    for frase in ("subagent_run", "background", "task_id", "subagent_result", "16 KB"):
+        assert frase in texto, frase
 
 
 def main():

@@ -649,6 +649,28 @@ def test_p7_dice_el_mecanismo_de_los_agentes_de_pi_y_su_fallback_y_p8_las_skills
     assert "el modelo saca la carpeta" not in p8, p8
 
 
+def test_p7_dice_que_el_doctor_no_ve_los_overlays_de_herramientas():
+    p7 = m().MANIFIESTO["P7"][1]
+    for frase in ("overlays de herramientas", "#3223", "al cargarlo", "sin tocar su .md"):
+        assert frase in p7, (frase, p7)
+
+
+def test_el_home_de_gentle_agents_sigue_la_regla_de_gentle_shell():
+    home = Path(CWD) / "home"
+    casos = (({"GENTLE_PI_AGENT_HOME": "/g", "PI_CODING_AGENT_DIR": "/p"}, Path("/g")),
+             ({"GENTLE_PI_AGENT_HOME": "", "PI_CODING_AGENT_DIR": "/p"}, Path("/p")),
+             ({"PI_CODING_AGENT_DIR": "~/otro"}, home / "otro"),
+             ({"GENTLE_PI_AGENT_HOME": "~"}, home),
+             ({"PI_CODING_AGENT_DIR": ""}, home / ".pi" / "agent"),
+             ({}, home / ".pi" / "agent"))
+    for entorno, esperado in casos:
+        ctx_ = types.SimpleNamespace(home=home, entorno=entorno, windows=False)
+        assert m().home_de_gentle_agents(ctx_) == esperado, (entorno, m().home_de_gentle_agents(ctx_))
+    ctx_ = types.SimpleNamespace(home=home, entorno={"GENTLE_PI_AGENT_HOME": "~\\w"}, windows=True)
+    assert m().home_de_gentle_agents(ctx_) == home / "w"
+    assert m().TAREAS_DE_GENTLE_AGENTS == Path("gentle-agents", "tasks")
+
+
 def test_el_glob_decide_el_segmento_vacio_de_una_ruta_absoluta_de_posix():
     absoluta = "/tmp/d/plugin-instalado/shim/pi.ts"
     for patron in ("s*.ts", "?", "s*/pi.ts", "**/.*/pi.ts", "**/otro/*.ts"):

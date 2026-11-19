@@ -95,7 +95,7 @@ python3 "<S>/triaje.py" <los argumentos del paso 2> --json > "<entrada>/triaje.j
 
 ## 4. Las corridas
 
-Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**. Si el agente no existe (por ejemplo, `revisor-diseno` en una instancia que se generó antes de que el plugin lo trajera), no lo reemplaces con otro: decile al usuario que complete la instancia con `/odd-ws:bootstrap`, y que si el agente es nuevo en esta sesión hace falta reabrirla.
+Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**. **En Pi (gentle-shell)**, cada corrida es un `subagent_run` con `mode: "background"`, uno por corrida y todos en el mismo mensaje, y cada lanzamiento devuelve su `task_id` («as task <id>»). Cuando una corrida termina, gentle-shell te entrega una copia de su reporte que puede venir cortada (a 16 KB por defecto): no la uses, porque el reporte entero sale del rescate (paso 6). Si el agente no existe (por ejemplo, `revisor-diseno` en una instancia que se generó antes de que el plugin lo trajera), no lo reemplaces con otro: decile al usuario que complete la instancia con `/odd-ws:bootstrap`, y que si el agente es nuevo en esta sesión hace falta reabrirla.
 
 | Modo | Corridas |
 |---|---|
@@ -129,7 +129,7 @@ Entregá el reporte con tu contrato. En cada hallazgo, justo después de la seve
 - **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
 - **El ID de la regla también va en el prompt**, y no en las plantillas de los revisores: un cambio de plantilla no llega a los revisores ya generados. `revisor-diseno` solo ve los IDs de `criterios`, así que `sin ID` es una respuesta normal. Nunca pongas un ID de ejemplo en el prompt: el revisor lo copiaría.
 
-- Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento.
+- Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento; en Pi, la tabla lleva el `task_id`.
 - **No leas reportes parciales:** esperá a que terminen todas. Nunca lances otra revisión mientras tanto.
 
 ## 5. El modo 0
@@ -148,6 +148,16 @@ python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --desti
 - Por cada corrida escribe `<nombre>.md` (el reporte), `.prompt.txt`, `.lecturas.json`, con el costo de la corrida en `costo`, y, si hubo comandos, `.comandos.json`. El reporte sale del `SubagentHandback` o, si no hubo, del último texto.
 - Con `--costo` escribe también `corridas/costo.json`: el modo, los motivos de `entrada/triaje.json`, cada corrida con su costo (también la cortada, que se pagó igual), las líneas de los diffs de `entrada/`, el costo de esta sesión desde el último `triaje.py` antes de lanzar las corridas (`orquestador`, leído de `<sesión>.jsonl`, junto a la carpeta de la sesión) y si las corridas corrieron en serie (`en_serie`). Es lo que lee `--ultimo-costo` en el anuncio (paso 2). Un rescate posterior en la misma carpeta, por ejemplo el de una corrida relanzada, suma sus corridas sin pisar las anteriores. Si falta `triaje.json` o los diffs, lo avisa y deja ese campo en `null`; si no encuentra el tramo de esta sesión, deja `orquestador` en `null`, también con aviso, y no es una falla del rescate. `--costo` va solo con el `--destino` de una revisión (`<ticket>/revision/<fecha>-<modo>[-<n>]/corridas`); con otro sale con 2 sin escribir nada.
 - Sale con 0 si todas están bien, con 1 si alguna corrida no dejó reporte (`FAIL … sin SubagentHandback` o `no existe agent-…`) y con 2 por error de uso.
+- **En Pi**, el rescate lee la tarea que gentle-shell guarda por corrida, con el reporte entero, y escribe los mismos archivos:
+
+  ```bash
+  python3 "<S>/rescatar.py" --host pi --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<task_id> --corrida … --costo
+  ```
+
+  - La tarea es `<agentHome>/gentle-agents/tasks/<task_id>.json`, y `agentHome` es `GENTLE_PI_AGENT_HOME`, si no `PI_CODING_AGENT_DIR`, si no `~/.pi/agent`. gentle-shell define las dos variables en su sesión, así que corré el rescate desde ahí; `--sesion <carpeta>` las reemplaza con la carpeta de tareas o con el `agentHome`.
+  - Las lecturas son `read`, `grep` y `find`; cualquier otra herramienta sale como «NO auditada». En `costo.json`, `orquestador` queda en `null` con un aviso, porque solo se mide en Claude Code.
+  - Una tarea que no terminó en `completed` es una corrida cortada: `FAIL … tarea <task_id> en estado <estado>, sin reporte`.
+  - **Si el rescate de una corrida falla** (`FAIL … no existe <task_id>.json`, `no es una tarea de gentle-shell`, o la carpeta de tareas no existe), pedí su reporte con `subagent_result` y su `task_id`, que lo devuelve entero, y guardalo en `corridas/<nombre>.md`. Decile al usuario que esa corrida salió de `subagent_result`, sin lecturas ni costo.
 - **Una corrida cortada se informa y no se reintenta en silencio.** Decile al usuario cuál falló y preguntá: relanzar solo esa o seguir sin ella. Si se sigue sin ella, la frecuencia se cuenta sobre las corridas que sí hay (k/2) y se dice.
 - Una herramienta «NO auditada» en la salida (`Bash`, `PowerShell`) en un revisor que solo debería leer se informa: no es una corrida limpia.
 
@@ -257,5 +267,5 @@ Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste 
 | Script | Para qué | Salidas |
 |---|---|---|
 | `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
-| `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
+| `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente o, con `--host pi`, desde la tarea que guarda gentle-shell; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
 | `recibo.py` | `--write` escribe el recibo, con `--previo` el de un rechequeo, que hereda lo que no cambió, y con `--bajada` la bajada de un escalón que pidió el usuario; `--check` lo compara con el diff actual; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió, no se puede sellar o el rechequeo no puede heredar · 2 error de uso o de entorno |

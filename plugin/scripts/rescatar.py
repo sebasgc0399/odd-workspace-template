@@ -4,15 +4,25 @@ sys.dont_write_bytecode = True
 
 import argparse
 import codecs
+import datetime
 import json
 import os
 import re
+import types
 from pathlib import Path
 
 from odd_ws.capas import TICKETS
+from odd_ws.hosts import pi
 from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, comandos, costo, en_serie, lanzamientos, leer
 
+HOSTS = ("claude-code", "pi")
+CLAUDE_CODE, PI = HOSTS
 SHELL = ("Bash", "PowerShell")
+LECTURA_PI = tuple(pi.HERRAMIENTAS[h] for h in LECTURA)
+SHELL_PI = tuple(pi.DIALECTOS)
+COMPLETADA = "completed"
+TAREA_RE = re.compile(r"[A-Za-z0-9-]+")
+USO_PI = {"salida": "output", "cache_escrita": "cacheWrite", "cache_leida": "cacheRead"}
 MAX_SALIDA = 2000
 CODIGO_DE_SALIDA_RE = re.compile(r"Exit code (-?[0-9]+)")
 CLAVES_REPORTE = ("message", "result", "report")
@@ -120,6 +130,29 @@ def resolver_dir_subagents(sesion):
     return sesion
 
 
+def _guardar(destino, nombre, agente, meta, datos, costos):
+    if costos is not None:
+        costos.append({"corrida": nombre, "agente": agente, "estado": "ok" if datos["reporte"] else "sin_reporte",
+                       "agentType": meta.get("agentType"), "model": meta.get("model"), "costo": datos["costo"]})
+    if not datos["reporte"]:
+        return {"corrida": nombre, "agente": agente, "estado": "sin_reporte",
+                "lecturas": len(datos["lecturas"]), "salteadas": datos["salteadas"]}
+    destino.mkdir(parents=True, exist_ok=True)
+    (destino / ("%s.md" % nombre)).write_text(datos["reporte"], encoding="utf-8", newline="\n")
+    (destino / ("%s.prompt.txt" % nombre)).write_text(datos["prompt"] or "", encoding="utf-8", newline="\n")
+    (destino / ("%s.lecturas.json" % nombre)).write_text(
+        json.dumps({"agente": agente, "meta": meta, "lecturas": datos["lecturas"], "no_auditadas": datos["no_auditadas"],
+                    "costo": datos["costo"]}, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    if datos["comandos"]:
+        (destino / ("%s.comandos.json" % nombre)).write_text(
+            json.dumps({"agente": agente, "meta": meta, "comandos": datos["comandos"]},
+                       ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    return {"corrida": nombre, "agente": agente, "estado": "ok", "comandos": len(datos["comandos"]),
+            "caracteres": len(datos["reporte"]), "lecturas": len(datos["lecturas"]),
+            "agentType": meta.get("agentType"), "model": meta.get("model"),
+            "no_auditadas": datos["no_auditadas"], "salteadas": datos["salteadas"]}
+
+
 def rescatar(sesion, destino, corridas, costos=None):
     sub = resolver_dir_subagents(sesion)
     destino = Path(destino)
@@ -131,28 +164,96 @@ def rescatar(sesion, destino, corridas, costos=None):
             continue
         meta_ruta = sub / ("agent-%s.meta.json" % agente)
         meta = json.loads(meta_ruta.read_text(encoding="utf-8")) if meta_ruta.is_file() else {}
-        datos = extraer_corrida(jsonl)
-        if costos is not None:
-            costos.append({"corrida": nombre, "agente": agente, "estado": "ok" if datos["reporte"] else "sin_reporte",
-                           "agentType": meta.get("agentType"), "model": meta.get("model"), "costo": datos["costo"]})
-        if not datos["reporte"]:
-            resultados.append({"corrida": nombre, "agente": agente, "estado": "sin_reporte",
-                               "lecturas": len(datos["lecturas"]), "salteadas": datos["salteadas"]})
+        resultados.append(_guardar(destino, nombre, agente, meta, extraer_corrida(jsonl), costos))
+    return resultados
+
+
+def _tarea(ruta):
+    try:
+        datos = json.loads(Path(ruta).read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    tarea = datos.get("task") if isinstance(datos, dict) else None
+    if not isinstance(tarea, dict) or not all(isinstance(tarea.get(clave), str) for clave in ("id", "agent", "status")):
+        return None
+    hilo = datos.get("thread")
+    return tarea, hilo if isinstance(hilo, dict) else {}
+
+
+def _instante_pi(ms):
+    if not _es_entero(ms) or ms < 0:
+        return None
+    try:
+        instante = datetime.datetime.fromtimestamp(ms // 1000, datetime.timezone.utc) + datetime.timedelta(milliseconds=ms % 1000)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return instante.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _costo_pi(tarea):
+    uso = tarea.get("usage") if isinstance(tarea.get("usage"), dict) else {}
+    medida = {"turnos": tarea.get("turns") if _es_entero(tarea.get("turns")) else None,
+              "contexto_inicial": None, "contexto_final": None}
+    medida.update({campo: uso.get(clave) if _es_entero(uso.get(clave)) else None for campo, clave in USO_PI.items()})
+    medida.update({"inicio": _instante_pi(tarea.get("startedAt")), "fin": _instante_pi(tarea.get("endedAt")), "pausa_mayor": None})
+    return medida if any(valor is not None for valor in medida.values()) else None
+
+
+def _corrida_de_tarea(tarea, hilo):
+    lecturas, corridos, no_auditadas = [], [], {}
+    items = hilo.get("items") if isinstance(hilo.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict) or item.get("kind") != "tool":
             continue
-        destino.mkdir(parents=True, exist_ok=True)
-        (destino / ("%s.md" % nombre)).write_text(datos["reporte"], encoding="utf-8", newline="\n")
-        (destino / ("%s.prompt.txt" % nombre)).write_text(datos["prompt"] or "", encoding="utf-8", newline="\n")
-        (destino / ("%s.lecturas.json" % nombre)).write_text(
-            json.dumps({"agente": agente, "meta": meta, "lecturas": datos["lecturas"], "no_auditadas": datos["no_auditadas"],
-                        "costo": datos["costo"]}, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
-        if datos["comandos"]:
-            (destino / ("%s.comandos.json" % nombre)).write_text(
-                json.dumps({"agente": agente, "meta": meta, "comandos": datos["comandos"]},
-                           ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
-        resultados.append({"corrida": nombre, "agente": agente, "estado": "ok", "comandos": len(datos["comandos"]),
-                           "caracteres": len(datos["reporte"]), "lecturas": len(datos["lecturas"]),
-                           "agentType": meta.get("agentType"), "model": meta.get("model"),
-                           "no_auditadas": datos["no_auditadas"], "salteadas": datos["salteadas"]})
+        nombre = item.get("name")
+        args = item.get("args") if isinstance(item.get("args"), dict) else {}
+        if nombre in LECTURA_PI:
+            lecturas.append({"tool": nombre, "input": args})
+            continue
+        no_auditadas[nombre] = no_auditadas.get(nombre, 0) + 1
+        if nombre in SHELL_PI:
+            comando = {"tool": nombre, "comando": args.get("command"), "exit": None, "error": None, "salida": None}
+            if item.get("running") is False:
+                _cerrar_comando(comando, {"content": item.get("output"), "is_error": item.get("isError") is True})
+            corridos.append(comando)
+    resultado = tarea.get("result")
+    reporte = resultado if tarea.get("status") == COMPLETADA and isinstance(resultado, str) and resultado else None
+    prompt = tarea.get("prompt")
+    descartados = hilo.get("dropped")
+    return {"prompt": prompt if isinstance(prompt, str) else None, "reporte": reporte, "origen": "resultado" if reporte else None,
+            "lecturas": lecturas, "comandos": corridos, "no_auditadas": no_auditadas,
+            "salteadas": descartados if _es_entero(descartados) and descartados > 0 else 0, "costo": _costo_pi(tarea)}
+
+
+def extraer_corrida_pi(ruta):
+    leida = _tarea(ruta)
+    if leida is None:
+        raise OSError("%s no es una tarea de gentle-shell que se pueda leer" % ruta)
+    return _corrida_de_tarea(*leida)
+
+
+def carpeta_de_tareas(sesion=None):
+    if sesion is not None:
+        sesion = Path(sesion)
+        return sesion / pi.TAREAS_DE_GENTLE_AGENTS if (sesion / pi.TAREAS_DE_GENTLE_AGENTS).is_dir() else sesion
+    ctx = types.SimpleNamespace(home=Path.home(), entorno=os.environ, windows=os.name == "nt")
+    return pi.home_de_gentle_agents(ctx) / pi.TAREAS_DE_GENTLE_AGENTS
+
+
+def rescatar_pi(tareas, destino, corridas, costos=None):
+    tareas, destino = Path(tareas), Path(destino)
+    resultados = []
+    for nombre, id_ in corridas.items():
+        ruta = tareas / ("%s.json" % id_)
+        leida = _tarea(ruta) if ruta.is_file() else None
+        if leida is None:
+            resultados.append({"corrida": nombre, "agente": id_, "estado": "ilegible" if ruta.is_file() else "no_encontrado"})
+            continue
+        tarea, hilo = leida
+        meta = {"agentType": tarea.get("agent"), "model": tarea.get("model")}
+        resultado = _guardar(destino, nombre, id_, meta, _corrida_de_tarea(tarea, hilo), costos)
+        resultado["tarea"] = tarea["status"]
+        resultados.append(resultado)
     return resultados
 
 
@@ -246,7 +347,7 @@ def costo_del_orquestador(sub, agentes, avisos):
     return medida
 
 
-def escribir_costo(destino, costos, sub, agentes):
+def escribir_costo(destino, costos, sub, agentes, host=CLAUDE_CODE):
     destino = Path(destino)
     revision = revision_del_destino(destino)
     entrada = revision / "entrada"
@@ -257,7 +358,8 @@ def escribir_costo(destino, costos, sub, agentes):
         por_agente[c["agente"]] = c
     datos = {"modo": CARPETA_RE.fullmatch(revision.name).group(2), "motivos": _motivos(entrada, avisos),
              "corridas": list(por_agente.values()), "lineas_diff": _lineas_de_la_entrada(entrada, avisos)}
-    datos["orquestador"] = costo_del_orquestador(sub, agentes, avisos)
+    datos["orquestador"] = (costo_del_orquestador(sub, agentes, avisos) if host == CLAUDE_CODE
+                            else _sin_orquestador(avisos, "el costo del orquestador solo se mide en Claude Code"))
     datos["en_serie"] = en_serie([c.get("costo") for c in datos["corridas"]])
     destino.mkdir(parents=True, exist_ok=True)
     ruta.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
@@ -268,8 +370,9 @@ def _es_entero(valor):
     return isinstance(valor, int) and not isinstance(valor, bool)
 
 
-def _entero(valor):
-    return valor if _es_entero(valor) else 0
+def _promedio(medidas, clave):
+    valores = [m[clave] for m in medidas if _es_entero(m.get(clave))]
+    return "{:,}".format(round(sum(valores) / len(valores))).replace(",", " ") if valores else "sin medir"
 
 
 def _medida(ruta, avisos):
@@ -324,7 +427,7 @@ def ultimo_costo(ticket):
     n = len(medida["medidas"])
     corridas = "%d corrida(s)" % n if n == medida["total"] else "%d de %d corrida(s) con datos de uso" % (n, medida["total"])
     lineas = "líneas de diff sin medir" if medida["lineas"] is None else "%d líneas de diff" % medida["lineas"]
-    promedio = {clave: "{:,}".format(round(sum(_entero(m.get(clave)) for m in medida["medidas"]) / n)).replace(",", " ")
+    promedio = {clave: _promedio(medida["medidas"], clave)
                 for clave in ("turnos", "contexto_final", "salida", "cache_escrita", "cache_leida")}
     return ("último costo medido, %s: %s: modo %s, %s, %s; por corrida, en promedio: %s turnos, contexto final %s, "
             "salida %s, caché escrita %s y caché leída %s tokens%s" % (
@@ -333,16 +436,15 @@ def ultimo_costo(ticket):
                 "; las corridas corrieron en serie" if medida["en_serie"] else "")), avisos
 
 
-def _parsear_corridas(crudas):
+def _parsear_corridas(crudas, host=CLAUDE_CODE):
+    forma = "<nombre>=<task_id>" if host == PI else "<nombre>=<agentId>"
     corridas = {}
     for c in crudas:
-        if "=" not in c:
-            raise ValueError("--corrida espera <nombre>=<agentId>, recibio %r" % c)
-        nombre, agente = c.split("=", 1)
+        nombre, igual, agente = c.partition("=")
         nombre, agente = nombre.strip(), agente.strip()
-        if not nombre or not agente:
-            raise ValueError("--corrida espera <nombre>=<agentId>, recibio %r" % c)
-        if agente.startswith("agent-"):
+        if not igual or not nombre or not agente or (host == PI and not TAREA_RE.fullmatch(agente)):
+            raise ValueError("--corrida espera %s, recibio %r" % (forma, c))
+        if host == CLAUDE_CODE and agente.startswith("agent-"):
             agente = agente[len("agent-"):]
         corridas[nombre] = agente
     return corridas
@@ -362,46 +464,75 @@ def _main_ultimo_costo(args):
     return 0 if linea else 1
 
 
-def main(argv=None):
+def _parser():
     parser = argparse.ArgumentParser(
         usage="%(prog)s --sesion SESION --destino DESTINO --corrida NOMBRE=AGENTID [--corrida ...] [--costo]\n"
+              "       %(prog)s --host pi --destino DESTINO --corrida NOMBRE=TASK_ID [--corrida ...] [--sesion CARPETA] [--costo]\n"
               "       %(prog)s --ultimo-costo TICKET",
-        description="Rescata reporte, prompt, lecturas y costo de corridas de subagentes desde su JSONL.")
-    parser.add_argument("--sesion", help="carpeta subagents (o la de la sesion que la contiene)")
+        description="Rescata reporte, prompt, lecturas y costo de corridas de subagentes desde su JSONL de Claude Code o "
+                    "desde la tarea que guarda gentle-shell.")
+    parser.add_argument("--host", choices=HOSTS, default=CLAUDE_CODE,
+                        help="claude-code (por defecto) lee subagents/agent-<agentId>.jsonl; pi lee la tarea que guarda "
+                             "gentle-shell, <agentHome>/gentle-agents/tasks/<task_id>.json, con agentHome "
+                             "GENTLE_PI_AGENT_HOME, si no PI_CODING_AGENT_DIR, si no ~/.pi/agent")
+    parser.add_argument("--sesion", help="carpeta subagents (o la de la sesion que la contiene); con --host pi es opcional: "
+                                         "la carpeta de tareas de gentle-shell, o el agentHome que la contiene")
     parser.add_argument("--destino", help="carpeta donde se escriben los archivos de cada corrida")
     parser.add_argument("--corrida", action="append", metavar="NOMBRE=AGENTID",
-                        help="repetible; el nombre es el de los archivos a escribir")
+                        help="repetible; el nombre es el de los archivos a escribir; con --host pi va el task_id")
     parser.add_argument("--costo", action="store_true",
                         help="escribe tambien costo.json en --destino, que tiene que ser %s: el modo de la carpeta, "
                              "los motivos de entrada/triaje.json, el costo de cada corrida, las lineas de entrada/*.diff, "
-                             "el costo del orquestador desde el ultimo triaje.py, leido de <sesion>.jsonl, y si las "
-                             "corridas corrieron en serie" % DESTINO_DE_COSTO)
+                             "el costo del orquestador desde el ultimo triaje.py, leido de <sesion>.jsonl (en Pi queda en "
+                             "null), y si las corridas corrieron en serie" % DESTINO_DE_COSTO)
     parser.add_argument("--ultimo-costo", metavar="TICKET",
                         help="imprime en una linea el ultimo costo medido del ticket o, si no tiene, de la instancia; "
                              "sale con 1 si no hay ninguno")
+    return parser
+
+
+def _avisar_fallo(r, sub, host):
+    if r["estado"] == "sin_reporte" and host == PI:
+        print("FAIL %s: tarea %s en estado %s, sin reporte (corrida cortada), %d lecturas, no se escribio nada" % (
+            r["corrida"], r["agente"], r["tarea"], r.get("lecturas", 0)))
+    elif r["estado"] == "sin_reporte":
+        print("FAIL %s: sin SubagentHandback (corrida cortada), %d lecturas, no se escribio nada" % (
+            r["corrida"], r.get("lecturas", 0)))
+    elif r["estado"] == "ilegible":
+        print("FAIL %s: %s.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada" % (r["corrida"], r["agente"]))
+    elif host == PI:
+        print("FAIL %s: no existe %s.json en %s" % (r["corrida"], r["agente"], sub))
+    else:
+        print("FAIL %s: no existe agent-%s.jsonl en %s" % (r["corrida"], r["agente"], sub))
+
+
+def main(argv=None):
+    parser = _parser()
     args = parser.parse_args(argv)
     if args.ultimo_costo is not None:
         return _main_ultimo_costo(args)
-    faltan = [o for o, v in (("--sesion", args.sesion), ("--destino", args.destino), ("--corrida", args.corrida)) if v is None]
+    obligatorias = (("--sesion", args.sesion),) if args.host == CLAUDE_CODE else ()
+    faltan = [o for o, v in obligatorias + (("--destino", args.destino), ("--corrida", args.corrida)) if v is None]
     if faltan:
         parser.error("the following arguments are required: %s" % ", ".join(faltan))
 
     try:
-        corridas = _parsear_corridas(args.corrida)
+        corridas = _parsear_corridas(args.corrida, args.host)
     except ValueError as exc:
         print("rescatar: %s" % exc)
         return 2
     if args.costo and revision_del_destino(args.destino) is None:
         print("rescatar: --costo espera --destino %s, recibio %s" % (DESTINO_DE_COSTO, args.destino))
         return 2
-    sub = resolver_dir_subagents(args.sesion)
+    sub = carpeta_de_tareas(args.sesion) if args.host == PI else resolver_dir_subagents(args.sesion)
     if not sub.is_dir():
-        print("rescatar: no existe la carpeta de subagentes %s" % sub)
+        print("rescatar: no existe la carpeta de %s %s" % ("tareas de gentle-shell" if args.host == PI else "subagentes", sub))
         return 2
 
     fallos = 0
     costos = [] if args.costo else None
-    for r in rescatar(sub, args.destino, corridas, costos):
+    rescate = rescatar_pi if args.host == PI else rescatar
+    for r in rescate(sub, args.destino, corridas, costos):
         if r["estado"] == "ok":
             extra = ""
             if r["no_auditadas"]:
@@ -411,18 +542,17 @@ def main(argv=None):
                 extra += "  (comandos Bash/PowerShell: %d en %s.comandos.json)" % (r["comandos"], r["corrida"])
             print("ok   %s: %d car., %d lecturas, %s/%s%s" % (
                 r["corrida"], r["caracteres"], r["lecturas"], r["agentType"], r["model"], extra))
-        elif r["estado"] == "sin_reporte":
-            fallos += 1
-            print("FAIL %s: sin SubagentHandback (corrida cortada), %d lecturas, no se escribio nada" % (
-                r["corrida"], r.get("lecturas", 0)))
         else:
             fallos += 1
-            print("FAIL %s: no existe agent-%s.jsonl en %s" % (r["corrida"], r["agente"], sub))
-        if r.get("salteadas"):
+            _avisar_fallo(r, sub, args.host)
+        if r.get("salteadas") and args.host == PI:
+            print("aviso %s: gentle-shell descarto %d elemento(s) del hilo de la tarea %s (dropped): las lecturas y las "
+                  "herramientas pueden estar incompletas" % (r["corrida"], r["salteadas"], r["agente"]), file=sys.stderr)
+        elif r.get("salteadas"):
             print("aviso %s: %d linea(s) de agent-%s.jsonl no se pudieron leer y se saltearon" % (
                 r["corrida"], r["salteadas"], r["agente"]), file=sys.stderr)
     if costos is not None:
-        ruta, datos, avisos = escribir_costo(args.destino, costos, sub, list(corridas.values()))
+        ruta, datos, avisos = escribir_costo(args.destino, costos, sub, list(corridas.values()), args.host)
         for aviso in avisos:
             print("aviso costo: %s" % aviso, file=sys.stderr)
         sin_uso = sum(1 for c in datos["corridas"] if c.get("costo") is None)
