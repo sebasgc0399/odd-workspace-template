@@ -1200,7 +1200,49 @@ def test_ticket_que_no_existe_es_error_de_uso():
         assert codigo == 2 and salida == "" and "la carpeta del ticket no existe" in error and "no-existe" in error, (codigo, salida, error)
 
 
-PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
+# ---------------------------------------------------------------- la bajada de un escalón en recibo.py (I34)
+
+def bajar_con_el_triaje_real(w, ticket, fecha, repos, archivos):
+    argv = ["--raiz", str(w.raiz), "--ticket", str(ticket), "--json"]
+    for repo in repos:
+        argv += ["--repo", str(repo)]
+    codigo, salida, error = correr(argv)
+    assert codigo == 0 and json.loads(salida)["modo"] == "completo", (codigo, error)
+    entrada = ticket / "revision" / ("%s-rapido" % fecha) / "entrada"
+    entrada.mkdir(parents=True)
+    (entrada / "triaje.json").write_text(salida, encoding="utf-8")
+    argv = ["--write", "--ticket", str(ticket), "--modo", "rapido", "--fecha", fecha, "--bajada", "un json sin capa", "--va-a-lider", "no"]
+    for repo in repos:
+        argv += ["--repo", str(repo)]
+    for archivo in archivos:
+        argv += ["--archivo", str(archivo)]
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        try:
+            codigo = M.recibo.main(argv)
+        except SystemExit as exc:
+            codigo = exc.code if isinstance(exc.code, int) else 2
+    return codigo, salida.getvalue(), error.getvalue()
+
+
+def test_la_bajada_de_recibo_lee_el_json_que_guarda_el_triaje():
+    with Mundo() as w:
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-18", [w.web], [w.web / "appsettings.json"])
+        assert codigo == 0 and "bajado de completo a rapido" in salida, (codigo, salida, error)
+        recibo = json.loads((ticket / "revision" / "2026-11-18-rapido" / "recibo.json").read_text(encoding="utf-8"))
+        assert recibo["bajada"] == {"de": "completo", "a": "rapido", "motivo": "un json sin capa", "va_a_lider": False}, recibo
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        escribir(w.web, {CS_SVC: "class Servicio { int y; }\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-19", [w.db, w.web],
+                                                         [w.db / SQL_ALFA, w.web / CS_SVC, w.web / "appsettings.json"])
+        assert codigo == 2 and salida == "" and "senal capas: positiva" in error, (codigo, salida, error)
+        assert not (ticket / "revision" / "2026-11-19-rapido" / "recibo.json").exists()
+
+
+PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 
 def main():

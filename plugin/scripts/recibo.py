@@ -3,6 +3,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import codecs
 import datetime
 import hashlib
 import json
@@ -20,7 +21,12 @@ CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([
 RONDA_RE = re.compile(r"[1-9][0-9]*")
 ESTADOS = ("limpio", "con-hallazgos", "pendiente")
 AJENAS_A_SELLAR = ("ticket", "repo", "archivo", "modo", "recibo", "reviewer", "verificacion", "estado", "fecha", "ronda",
-                   "previo", "derivado")
+                   "previo", "derivado", "bajada", "va_a_lider")
+SOLO_DE_WRITE = ("previo", "derivado", "bajada", "va_a_lider")
+BAJADA = ("completo", "rapido")
+TRIAJE = ("entrada", "triaje.json")
+MODOS_DEL_TRIAJE = ("sin-cambios",) + MODOS
+NIVELES = ("positiva", "negativa", "invalida")
 AUSENTE = hashlib.sha256(b"<ausente>").hexdigest()
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 OPCIONES_DIFF = (
@@ -252,7 +258,7 @@ def armar_rechequeo(args, carpeta):
              if previa and base != previa["base"]]
     if otras:
         return None, _informar_sin_escribir(archivo, "la base no es la del recibo previo", otras,
-                                            "un rechequeo parte de la base del recibo previo; con otra base, revisa la unidad entera sin --previo")
+                                            "un rechequeo parte de la base del recibo previo; con otra base, revisa la unidad entera sin --previo"), None
     partes, cambiados = [], []
     for raiz, base, rutas, previa in plan:
         nombres = sorted({normalizar(raiz, r) for r in rutas})
@@ -268,14 +274,66 @@ def armar_rechequeo(args, carpeta):
         partes.append((raiz, base, [a for a in nombres if a not in retirados], heredados, retirados))
     if cambiados:
         return None, _informar_sin_escribir(archivo, "cambiaron archivos del recibo previo que esta ronda no rechequeo", cambiados,
-                                            "rechequealos (van con --archivo) o revisa por que cambiaron")
+                                            "rechequealos (van con --archivo) o revisa por que cambiaron"), None
     entradas = []
     for raiz, base, rechequeados, heredados, retirados in partes:
         entrada = _entrada(raiz, calcular(raiz, base, rechequeados + heredados), args)
         entrada.update(rechequeados=rechequeados, heredados=heredados, retirados=retirados)
         entradas.append(entrada)
     return {"version": VERSION, "fecha": args.fecha, "ticket": os.path.basename(os.path.abspath(args.ticket)),
-            "previo": nombre, "repos": entradas}, 0
+            "previo": nombre, "repos": entradas}, 0, previo.get("bajada")
+
+
+def leer_triaje(carpeta):
+    ruta = os.path.join(carpeta, *TRIAJE)
+    nombre = ruta.replace("\\", "/")
+    if not os.path.isfile(ruta):
+        raise ErrorUso("la bajada se valida contra el triaje de la revision, y no esta: %s (guardalo con triaje.py --json)" % nombre)
+    try:
+        with open(ruta, "rb") as f:
+            crudo = f.read()
+        utf16 = crudo.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+        datos = json.loads(crudo.decode("utf-16" if utf16 else "utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise ErrorUso("triaje ilegible (%s): %s" % (nombre, exc))
+    senales = datos.get("senales") if isinstance(datos, dict) else None
+    if not (isinstance(senales, dict) and senales and datos.get("modo") in MODOS_DEL_TRIAJE
+            and all(isinstance(s, dict) and s.get("nivel") in NIVELES for s in senales.values())):
+        raise ErrorUso("triaje con forma invalida (%s): le faltan el modo o las senales con su nivel" % nombre)
+    return datos
+
+
+def riesgos_reales(triaje):
+    sin_capa = triaje.get("sin_capa")
+    solo_sin_capa = isinstance(sin_capa, dict) and sin_capa.get("unico_motivo_de_capas") is True
+    return [id_ for id_, senal in triaje["senales"].items()
+            if senal["nivel"] == "positiva" and not (id_ == "capas" and solo_sin_capa)]
+
+
+def _sin_riesgo_real(carpeta, triaje):
+    reales = riesgos_reales(triaje)
+    if reales:
+        raise ErrorUso("el triaje de %s vio un riesgo real (%s): no se baja, la revision va en completo"
+                       % (os.path.join(carpeta, *TRIAJE).replace("\\", "/"), ", ".join("senal %s: positiva" % r for r in reales)))
+
+
+def bajada_de_la_ronda(args, carpeta, heredada):
+    if args.bajada is not None:
+        triaje = leer_triaje(carpeta)
+        if (triaje["modo"], args.modo) != BAJADA:
+            raise ErrorUso("una bajada es un solo escalon, de completo a rapido (nunca a 0): el triaje propuso %s y --modo es %s"
+                           % (triaje["modo"], args.modo))
+        _sin_riesgo_real(carpeta, triaje)
+        return {"de": triaje["modo"], "a": args.modo, "motivo": args.bajada, "va_a_lider": False}
+    if heredada is None:
+        return None
+    if not (isinstance(heredada, dict) and (heredada.get("de"), heredada.get("a")) == BAJADA
+            and isinstance(heredada.get("motivo"), str) and heredada.get("va_a_lider") is False):
+        raise ErrorUso("el recibo previo trae una bajada con forma invalida: %s" % json.dumps(heredada, ensure_ascii=False))
+    if args.modo != heredada["a"]:
+        return None
+    _sin_riesgo_real(carpeta, leer_triaje(carpeta))
+    return heredada
 
 
 def _avisar_si_pisa(destino, datos):
@@ -308,20 +366,26 @@ def _detalle(datos):
             detalle += ", %d retirado(s)" % cuenta["retirados"]
     if "derivados" in datos:
         detalle += "; %d derivado(s)" % len(datos["derivados"])
+    if "bajada" in datos:
+        detalle += "; bajado de %s a %s" % (datos["bajada"]["de"], datos["bajada"]["a"])
     return detalle
 
 
 def escribir_recibo(args):
     sufijo = "-%d" % args.ronda if args.ronda and args.ronda > 1 else ""
     carpeta = os.path.join(args.ticket, "revision", "%s-%s%s" % (args.fecha, args.modo, sufijo))
+    heredada = None
     if args.previo is not None:
-        datos, codigo = armar_rechequeo(args, carpeta)
+        datos, codigo, heredada = armar_rechequeo(args, carpeta)
         if datos is None:
             return codigo
     else:
         datos = armar_recibo(args)
+    bajada = bajada_de_la_ronda(args, carpeta, heredada)
     if args.derivado:
         datos["derivados"] = list(args.derivado)
+    if bajada is not None:
+        datos["bajada"] = bajada
     os.makedirs(carpeta, exist_ok=True)
     destino = os.path.join(carpeta, "recibo.json")
     _avisar_si_pisa(destino, datos)
@@ -493,6 +557,16 @@ def _derivado(texto):
     return {"hallazgo": hallazgo.strip(), "destino": destino.strip()}
 
 
+def _motivo(texto):
+    if not texto.strip():
+        raise argparse.ArgumentTypeError("la bajada necesita su motivo, no un texto vacio")
+    return texto.strip()
+
+
+def _opcion(nombre):
+    return "--" + nombre.replace("_", "-")
+
+
 def _parser():
     p = argparse.ArgumentParser(prog="recibo.py", description="Recibo de la revision atado al diff.")
     modo = p.add_mutually_exclusive_group(required=True)
@@ -516,6 +590,11 @@ def _parser():
                         "los archivos que no cambiaron")
     p.add_argument("--derivado", action="append", type=_derivado, metavar="HALLAZGO=DESTINO",
                    help="con --write: hallazgo que se deriva a otra tarea, otro ticket o el backlog; repetible")
+    p.add_argument("--bajada", type=_motivo, metavar="MOTIVO",
+                   help="con --write y --modo rapido: el usuario baja un escalon lo que propuso el triaje guardado en "
+                        "<carpeta>/entrada/triaje.json (completo, sin un riesgo real); el motivo queda en el recibo")
+    p.add_argument("--va-a-lider", dest="va_a_lider", choices=("si", "no"), default=None,
+                   help="con --bajada, obligatorio: si el cambio va a un lider antes del commit; con si, no se baja")
     return p
 
 
@@ -523,16 +602,16 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         if args.sellar:
-            sobran = ["--" + o for o in AJENAS_A_SELLAR if getattr(args, o) is not None]
+            sobran = [_opcion(o) for o in AJENAS_A_SELLAR if getattr(args, o) is not None]
             if sobran:
                 raise ErrorUso("--sellar solo toma la ruta del recibo, de su carpeta o del ticket: sobra %s" % ", ".join(sobran))
             return sellar_recibo(args.sellar)
         if args.check:
             if args.ronda is not None:
                 raise ErrorUso("--ronda es de --write: --check toma la ronda mas alta, o la de --recibo")
-            for opcion in ("previo", "derivado"):
+            for opcion in SOLO_DE_WRITE:
                 if getattr(args, opcion) is not None:
-                    raise ErrorUso("--%s es de --write: --check no escribe el recibo" % opcion)
+                    raise ErrorUso("%s es de --write: --check no escribe el recibo" % _opcion(opcion))
             return chequear_recibo(args.check, args.modo, args.recibo)
         if args.recibo:
             raise ErrorUso("--recibo es de --check: --write escribe el recibo en revision/<fecha>-<modo>/")
@@ -540,6 +619,12 @@ def main(argv=None):
             raise ErrorUso("--write necesita --ticket")
         if not args.modo:
             raise ErrorUso("--write necesita --modo (0, rapido o completo)")
+        if args.bajada is None and args.va_a_lider is not None:
+            raise ErrorUso("--va-a-lider va con --bajada: es la respuesta a si el cambio que se baja va a un lider")
+        if args.bajada is not None and args.va_a_lider is None:
+            raise ErrorUso("--bajada necesita --va-a-lider no: solo se baja un cambio que no va a un lider, y el recibo guarda la respuesta")
+        if args.va_a_lider == "si":
+            raise ErrorUso("nunca se baja un cambio que va a un lider: revisalo en completo")
         args.fecha = args.fecha or datetime.date.today().isoformat()
         args.estado = args.estado or "pendiente"
         return escribir_recibo(args)
