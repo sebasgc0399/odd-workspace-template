@@ -131,6 +131,7 @@ Entregá el reporte con tu contrato. En cada hallazgo, justo después de la seve
 
 - Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento; en Pi, la tabla lleva el `task_id`.
 - **No leas reportes parciales:** esperá a que terminen todas. Nunca lances otra revisión mientras tanto.
+- **Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.** Codex responde «agent thread limit reached» cuando se pasa de `agents.max_threads`, que Gentle AI pone en 4, o, en V2, de `max_concurrent_threads_per_session - 1`, que es 3, y un `completo` con 2 capas o más lanza 5 corridas o más. Ante ese rechazo, esperá a que termine una corrida en marcha, cerrala (en Codex, `close_agent` libera su lugar), relanzá la rechazada y decile al usuario que la revisión va por tandas. La regla es la misma en todos los hosts.
 
 ## 5. El modo 0
 
@@ -159,6 +160,7 @@ python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --desti
   - Una tarea que no terminó en `completed` es una corrida cortada: `FAIL … tarea <task_id> en estado <estado>, sin reporte`.
   - **Si el rescate de una corrida falla** (`FAIL … no existe <task_id>.json`, `no es una tarea de gentle-shell`, o la carpeta de tareas no existe), pedí su reporte con `subagent_result` y su `task_id`, que lo devuelve entero, y guardalo en `corridas/<nombre>.md`. Decile al usuario que esa corrida salió de `subagent_result`, sin lecturas ni costo.
 - **Una corrida cortada se informa y no se reintenta en silencio.** Decile al usuario cuál falló y preguntá: relanzar solo esa o seguir sin ella. Si se sigue sin ella, la frecuencia se cuenta sobre las corridas que sí hay (k/2) y se dice.
+- Un lanzamiento que el host rechazó por su límite de concurrencia no es una corrida cortada: se relanzó por tandas (paso 4) y se rescata con las demás.
 - Una herramienta «NO auditada» en la salida (`Bash`, `PowerShell`) en un revisor que solo debería leer se informa: no es una corrida limpia.
 
 ## 7. La consolidación

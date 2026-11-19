@@ -1304,6 +1304,23 @@ def test_las_opciones_de_recibo_que_da_la_skill_revisar_existen_y_traen_la_bajad
     assert mutada - opciones == {"--va-al-lider"}, "control positivo: una opción que no existe se detecta"
 
 
+LIMITE_DE_CONCURRENCIA = ("**Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.**",
+                          "«agent thread limit reached»", "`agents.max_threads`", "`max_concurrent_threads_per_session - 1`",
+                          "5 corridas o más", "en todos los hosts")
+PASOS_DE_LA_TANDA = ("esperá a que termine una corrida en marcha", "cerrala", "`close_agent`", "relanzá la rechazada",
+                     "la revisión va por tandas")
+
+
+def test_revisar_relanza_por_tandas_lo_que_el_host_rechaza_por_su_limite_de_concurrencia():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    corridas, rescate = seccion_de(texto, "## 4."), seccion_de(texto, "## 6.")
+    for frase in LIMITE_DE_CONCURRENCIA + PASOS_DE_LA_TANDA:
+        assert frase in corridas, (frase, corridas)
+    posiciones = [corridas.index(paso) for paso in PASOS_DE_LA_TANDA]
+    assert posiciones == sorted(posiciones), "los pasos de la tanda van en orden: %s" % posiciones
+    assert "límite de concurrencia" in rescate and "no es una corrida cortada" in rescate, rescate
+
+
 SENALES_DEL_TRIAJE = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 CLAVES_DEL_REPO = ["ruta", "base", "archivos", "sha256", "sha256_por_archivo", "modo", "reviewers", "verificacion", "estado"]
 
