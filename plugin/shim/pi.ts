@@ -18,6 +18,7 @@ export const AGENTES_POR_EVENTO: Readonly<Record<string, readonly string[]>> = {
 const CONFIG_DE_LA_INSTANCIA = "workspace.config.json";
 const SKILLS_DE_LA_INSTANCIA = join(".claude", "skills");
 const MARCA_DE_GIT = ".git";
+const UTF8_ESTRICTO = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const LANZAR = "subagent_run";
 const SUBAGENTES: readonly string[] = [LANZAR, "subagent_continue", "subagent_send_message"];
 const CAMPOS_DE_RAIZ: readonly ("repository_root" | "workspace_root")[] = ["repository_root", "workspace_root"];
@@ -184,16 +185,16 @@ function comoLaLeeGentleShell(valor: string): string {
   return escrita === "~" || escrita.startsWith("~/") ? homedir() + escrita.slice(1) : escrita;
 }
 
-function cwdDelHijo(entrada: Lanzamiento, desde: string): CwdDelHijo {
+function cwdDelHijo(entrada: Lanzamiento, desde: string, instancia: string): CwdDelHijo {
   for (const campo of CAMPOS_DE_RAIZ) {
     const valor = entrada[campo];
     if (typeof valor === "string" && valor !== "") {
       const ruta = canonica(resolve(desde, campo === "workspace_root" ? comoLaLeeGentleShell(valor) : valor));
-      return { cwd: campo === "workspace_root" ? raizDeGit(ruta) ?? ruta : ruta, campo, valor };
+      return { cwd: campo === "workspace_root" ? raizDeGit(ruta, instancia) ?? ruta : ruta, campo, valor };
     }
   }
   const propio = canonica(desde);
-  return { cwd: raizDeGit(propio) ?? propio };
+  return { cwd: raizDeGit(propio, instancia) ?? propio };
 }
 
 function fueraDeLaInstancia(nombre: string, entrada: Lanzamiento, desde: unknown): string | undefined {
@@ -205,7 +206,7 @@ function fueraDeLaInstancia(nombre: string, entrada: Lanzamiento, desde: unknown
     return undefined;
   }
   const canonicaDeLaRaiz = canonica(raiz);
-  const hijo = cwdDelHijo(entrada, desde);
+  const hijo = cwdDelHijo(entrada, desde, canonicaDeLaRaiz);
   const delHijo = raizDeLaInstancia(hijo.cwd);
   const otra = delHijo === null ? null : canonica(delHijo);
   if (otra !== null && comparable(otra) === comparable(canonicaDeLaRaiz)) {
@@ -499,29 +500,44 @@ function existeSegunLaPlataforma(ruta: string): boolean {
   return es(ruta, "carpeta");
 }
 
+function laNombraComoGit(ruta: string): boolean {
+  return process.platform !== "win32" || !/[. ](?:\\|$)/.test(resolve(ruta));
+}
+
 function carpetaComun(ruta: string): string | null {
   const commondir = join(ruta, "commondir");
   if (!es(commondir, "archivo")) {
     return ruta;
   }
+  let destino: string;
   try {
-    const nombrada = readFileSync(commondir, "utf8").replace(/[\r\n]+$/, "");
-    return realpathSync.native(isAbsolute(nombrada) ? nombrada : `${ruta}/${nombrada}`);
+    const nombrada = UTF8_ESTRICTO.decode(readFileSync(commondir)).replace(/[\r\n]+$/, "").split("\0")[0];
+    destino = isAbsolute(nombrada) ? nombrada : `${ruta}/${nombrada}`;
   } catch {
     return null;
   }
+  try {
+    return realpathSync.native(destino);
+  } catch (error) {
+    return (error as { code?: unknown }).code === "ENOENT" && laNombraComoGit(destino) ? destino : null;
+  }
 }
 
-function esCarpetaDeGit(ruta: string): boolean {
+function esCarpetaDeGit(ruta: string): boolean | null {
   if (!existeComoArchivoOEnlace(join(ruta, "HEAD"))) {
     return false;
   }
   const comun = carpetaComun(ruta);
-  return comun !== null && existeSegunLaPlataforma(join(comun, "objects")) && existeSegunLaPlataforma(join(comun, "refs"));
+  return comun === null ? null : existeSegunLaPlataforma(join(comun, "objects")) && existeSegunLaPlataforma(join(comun, "refs"));
 }
 
-function raizDeGit(desde: string): string | null {
-  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo") || esCarpetaDeGit(join(carpeta, MARCA_DE_GIT)));
+function encimaDe(instancia: string, carpeta: string): boolean {
+  return dentro(carpeta, instancia) && comparable(carpeta) !== comparable(instancia);
+}
+
+function raizDeGit(desde: string, instancia: string): string | null {
+  return subir(desde, (carpeta) => es(join(carpeta, MARCA_DE_GIT), "archivo")
+    || (esCarpetaDeGit(join(carpeta, MARCA_DE_GIT)) ?? encimaDe(instancia, carpeta)));
 }
 
 function canonica(ruta: string): string {
