@@ -604,15 +604,36 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6),
 - **Transcripciones (`odd_ws/transcripcion.py`):**
   - Es el lector único de los `.jsonl` de Claude Code, compartido con la compuerta de cierre (`writer_stop._usos`).
   - Saltea y cuenta la línea que no es JSON (la última, a medio escribir) o que no es un objeto, y reemplaza los bytes que no son UTF-8.
-  - Le pone nombre a lo interno de Claude Code: la herramienta de handback y las de lectura. Ese formato no es una API estable; si cambia, se arregla en un solo lugar.
-- **`rescatar.py --sesion <dir> --destino <dir> --corrida <nombre>=<agentId>…`:**
+  - Le pone nombre a lo interno de Claude Code: la herramienta de handback, las de lectura y el uso de cada mensaje (`usage`, el `id` del mensaje y el `timestamp` de cada línea). Ese formato no es una API estable; si cambia, se arregla en un solo lugar.
+  - **El costo de una corrida (`costo`, I28).** Claude Code repite el mismo mensaje del asistente en varias líneas, una por bloque, así que cada mensaje cuenta una vez por `id`, con el `usage` de su última línea y en el lugar de la primera; uno sin `id` cuenta solo. El contexto de un mensaje es `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, como en «Cómo se midió» del [estudio](../odd/estudios/costo-de-revisar.md). Los campos:
+    - `turnos`: los mensajes del asistente con `usage`;
+    - `contexto_inicial` y `contexto_final`: el contexto del primer mensaje y el del último. El final, más la última salida, es el número que Claude Code muestra por subagente;
+    - `salida`, `cache_escrita` y `cache_leida`: la suma de `output_tokens`, `cache_creation_input_tokens` y `cache_read_input_tokens`;
+    - `inicio` y `fin`: el `timestamp` más temprano y el más tardío de todas las líneas, tal como vienen;
+    - `pausa_mayor`: el hueco más largo entre dos `timestamp` seguidos, ya ordenados, en segundos. Separa el trabajo de una espera por límite.
+
+    Un token que no es un entero cuenta 0, y un `timestamp` que no se lee se saltea; sin zona, se toma como UTC. Una transcripción sin ningún `usage` (una vieja) da `null`, y con menos de dos `timestamp` la pausa es `null`.
+- **`rescatar.py --sesion <dir> --destino <dir> --corrida <nombre>=<agentId>… [--costo]`:**
   - Lee `subagents/agent-<id>.jsonl` y su `.meta.json`.
   - Escribe, en LF:
     - `<nombre>.md`: el reporte del handback o, si no hay handback, el texto final;
     - `.prompt.txt`;
-    - `.lecturas.json`, con `{agente, meta, lecturas, no_auditadas}`: los `Read`, `Grep` y `Glob`, y la cuenta de las demás herramientas;
+    - `.lecturas.json`, con `{agente, meta, lecturas, no_auditadas, costo}`: los `Read`, `Grep` y `Glob`, la cuenta de las demás herramientas y el costo de la corrida;
     - `.comandos.json`, solo si hubo `Bash` o `PowerShell`, con el exit y la salida cortada a 2 000 caracteres.
   - Sale con 0; con 1 si alguna corrida no tiene reporte o no existe (esa corrida no escribe nada); y con 2 ante un error. Avisa por stderr las líneas salteadas.
+  - **`--costo` (I28)** es opcional porque `eval-reviewers` rescata a un scratch. Escribe también `costo.json` en `--destino`, que tiene que ser la carpeta `corridas` de una revisión (`<ticket>/revision/<fecha>-<modo>[-<n>]/corridas`, con el `CARPETA_RE` de `recibo.py`); con otra, sale con 2 sin escribir nada. Guarda `{modo, motivos, corridas, lineas_diff}`:
+    - `modo`: el de la carpeta;
+    - `motivos`: los de `entrada/triaje.json`, que `revisar` guarda con `triaje.py --json`. El rescate lee el archivo y no importa `triaje`;
+    - `corridas`: una por agente, con `corrida`, `agente`, `estado`, `agentType`, `model` y `costo`. Entra también la corrida sin reporte, porque se pagó. Un rescate posterior en la misma carpeta (el de una corrida relanzada) suma sus agentes y reemplaza los que repite: relanzar no borra lo pagado y repetir el rescate no duplica;
+    - `lineas_diff`: las líneas agregadas y quitadas dentro de los hunks de `entrada/*.diff` (un `--- ` dentro de un hunk es una línea quitada, no un encabezado). Lee UTF-8 o, con BOM, UTF-16, que es lo que deja la redirección de Windows PowerShell 5.1.
+
+    Sin `triaje.json` o sin diffs, ese campo queda en `null` y lo avisa por stderr; un `costo.json` previo ilegible se reescribe, también con aviso. La salida suma la línea `costo: <n> corrida(s) en <ruta>`, con las que no tienen datos de uso.
+- **`rescatar.py --ultimo-costo <ticket>`:**
+  - Imprime en una línea el último costo medido, para el anuncio de `revisar`: el modo, las corridas, las líneas del diff y el promedio por corrida de turnos, contexto final, salida y caché.
+  - Busca `revision/<carpeta>/corridas/costo.json` en el ticket y, si no tiene ninguno, en toda la carpeta `tickets/` que lo contiene. Solo cuentan las carpetas que cumplen `CARPETA_RE` (un fixture `-sombra` no) y los `costo.json` con al menos una corrida con datos de uso; uno ilegible se ignora con aviso.
+  - El más nuevo es el de la fecha más nueva y, en la misma fecha, el del `fin` más tardío: el orden de `recibo.py`, que pone primero el modo más fuerte, no es el cronológico.
+  - Sale con 0; con 1 si no hay ninguno; y con 2 si el ticket no existe o si se combina con el rescate.
+  - `CARPETA_RE` y `MODOS` van copiados de `recibo.py`, por la regla de no importar otro script, y un test fija que no se separen.
 - **`auditar_lecturas.py <lecturas.json | jsonl>… [--manifest] [--scratch] [--prohibida] [--permitida] [--ceguera-fisica] [--cwd] [--json] [--salida]`:**
   - Cruza cada `Read` con las rutas prohibidas (contaminado) y el alcance de cada `Grep` o `Glob` (exposición: «pudo ver», no «vio»).
   - Gana la regla más larga y, en empate, la prohibida.
@@ -635,7 +656,7 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6),
   - **Salidas:** 0 ok, 1 filas pendientes y 2 error.
 - **Diferencias con el origen:**
   - la línea rota se tolera, donde el origen salía con 2;
-  - `.lecturas.json` guarda `no_auditadas`, que el origen perdía;
+  - `.lecturas.json` guarda `no_auditadas`, que el origen perdía, y el costo de la corrida;
   - la raíz sale de la instancia;
   - los archivos van en LF.
   - `puntuar`:
@@ -900,6 +921,7 @@ Orquesta la revisión de un cambio de un ticket antes del commit, con los agente
 
 - **El modo lo propone `triaje.py`** (`sin-cambios`, `0`, `rapido` o `completo`), y las señales solo escalan. Como el triaje no puede detectar si el cambio va a un líder, la skill lo pregunta, y si va, el modo es `completo`.
 - **Antes de lanzar nada**, anuncia el modo, las señales, las capas y el costo en corridas (`0`, `1 + capas` o `3 + capas`), y espera el sí. Lo espera aunque la haya invocado el modelo.
+- **El último costo medido (I28).** Fuera del modo `0`, el anuncio cita la línea de `rescatar.py --ultimo-costo <ticket>`: el costo de la última revisión medida del ticket o, si no tiene, de la instancia. Sin ninguna, anuncia solo las corridas. Se cita tal cual y no se ajusta al diff, porque el costo de una corrida no sigue al tamaño del cambio. Para medirlo, la entrada guarda el triaje en `entrada/triaje.json` y el rescate corre con `--costo`. El porqué: el número que Claude Code muestra por corrida es su contexto final, cerca de un tercio de lo que cuesta ([estudio](../odd/estudios/costo-de-revisar.md)).
 - **Menos síes (I25).** Hay dos excepciones al sí, y en las dos el modo se anuncia igual. El modo `0` corre sin pedirlo, porque cuesta cero corridas. Un rechequeo tampoco lo pide si el mensaje del lote de corrección lo anunció con su costo: aprobar el lote lo aprueba. El porqué: en un ticket real, cada revisión pedía un sí, también el modo `0`, que costó cero corridas, y el sí del rechequeo repetía uno que el usuario ya había dado al aprobar la corrección. Todos los demás síes siguen.
 - **Nunca corre dos revisiones a la vez** ni hace un bucle automático de corrección.
 - **La entrada** va en `<ticket>/revision/<fecha>-<modo>/entrada/`, con un diff por repo. Un archivo sin trackear entra con `--no-index`, nunca con `git add -N`.

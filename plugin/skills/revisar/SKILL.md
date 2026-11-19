@@ -68,6 +68,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
    - el modo y las señales que lo decidieron (o «va a un líder»);
    - las capas tocadas, que salen de la columna `[capa]` del triaje. Un archivo `sin capa` no tiene revisor de capa: lo lee el de diseño, y se avisa;
    - el costo, en corridas, sin inventar cifras: `modo 0` son 0 corridas; `rapido` son `1 + <capas tocadas>`; `completo` son `3 + <capas tocadas>`. Cada una cuesta lo que una corrida de revisor sobre este diff.
+   - salvo en modo `0`, el último costo medido, porque las corridas no dicen cuánto cuesta cada una. Corré `python3 "<S>/rescatar.py" --ultimo-costo "<ticket>"` y citá su línea tal cual: es el `costo.json` más nuevo del ticket o, si el ticket no tiene, el de la instancia (las carpetas `-sombra` no cuentan). Es una referencia, no una estimación: no la multipliques ni la ajustes a este diff. Si sale con 1, no hay ningún costo medido: anunciá solo las corridas.
 6. **Esperá el sí del usuario.** Sin sí explícito, no se lanza ni se escribe nada. Las dos excepciones de la regla 1:
    - **modo `0`:** no hay nada que lanzar. Anunciá el modo y los archivos que vas a leer, y seguí con la sección 5 sin esperar;
    - **un rechequeo** que el usuario aprobó junto con su lote de corrección: seguí sin volver a pedirlo.
@@ -76,16 +77,18 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 
 **La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. **Si ya existe** (otra ronda del mismo día y modo, por ejemplo el rechequeo después de una corrección), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, y en todo lo que sigue `<fecha>-<modo>` quiere decir esa carpeta con su número. El recibo de esa ronda se escribe con `--ronda <n>`.
 
-Con el sí, creá `<ticket>/revision/<fecha>-<modo>/entrada/` y guardá ahí un diff por repo, `<repo>.diff`, solo con los archivos del ticket:
+Con el sí, creá `<ticket>/revision/<fecha>-<modo>/entrada/` y guardá ahí un diff por repo, `<repo>.diff`, solo con los archivos del ticket, y el triaje en `triaje.json`:
 
 ```bash
 git -C <repo> diff --no-color <base> -- <archivo> [<archivo>…] > "<entrada>/<repo>.diff"
 git -C <repo> diff --no-color --no-index -- /dev/null <archivo nuevo sin trackear> >> "<entrada>/<repo>.diff"
+python3 "<S>/triaje.py" <los argumentos del paso 2> --json > "<entrada>/triaje.json"
 ```
 
 - La primera línea cubre los archivos trackeados (commiteados o no); la segunda se repite por cada archivo nuevo sin trackear y sale con 1, que es lo normal en `--no-index`.
 - `<base>` es la base completa del triaje.
 - Si el diff sale vacío, pará: algo de la lista no cuadra.
+- `triaje.json` es el triaje del paso 2 con `--json`, con los mismos argumentos. De ahí saca el rescate los motivos del modo para el costo de la revisión (paso 6).
 
 ## 4. Las corridas
 
@@ -133,11 +136,12 @@ No hay corridas, así que no se pide el sí: se anuncia el modo y se sigue. Leé
 Cuando terminan todas las corridas:
 
 ```bash
-python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<agentId> --corrida …
+python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<agentId> --corrida … --costo
 ```
 
 - `--sesion` es la carpeta `subagents` de esta sesión, bajo `~/.claude/projects/<proyecto>/<sesión>/`. También acepta la carpeta de la sesión que la contiene. Si no la encontrás, buscala con Glob: `~/.claude/projects/*/*/subagents/agent-<agentId>.jsonl`.
-- Por cada corrida escribe `<nombre>.md` (el reporte), `.prompt.txt`, `.lecturas.json` y, si hubo comandos, `.comandos.json`. El reporte sale del `SubagentHandback` o, si no hubo, del último texto.
+- Por cada corrida escribe `<nombre>.md` (el reporte), `.prompt.txt`, `.lecturas.json`, con el costo de la corrida en `costo`, y, si hubo comandos, `.comandos.json`. El reporte sale del `SubagentHandback` o, si no hubo, del último texto.
+- Con `--costo` escribe también `corridas/costo.json`: el modo, los motivos de `entrada/triaje.json`, cada corrida con su costo (también la cortada, que se pagó igual) y las líneas de los diffs de `entrada/`. Es lo que lee `--ultimo-costo` en el anuncio (paso 2). Un rescate posterior en la misma carpeta, por ejemplo el de una corrida relanzada, suma sus corridas sin pisar las anteriores. Si falta `triaje.json` o los diffs, lo avisa y deja ese campo en `null`. `--costo` va solo con el `--destino` de una revisión (`<ticket>/revision/<fecha>-<modo>[-<n>]/corridas`); con otro sale con 2 sin escribir nada.
 - Sale con 0 si todas están bien, con 1 si alguna corrida no dejó reporte (`FAIL … sin SubagentHandback` o `no existe agent-…`) y con 2 por error de uso.
 - **Una corrida cortada se informa y no se reintenta en silencio.** Decile al usuario cuál falló y preguntá: relanzar solo esa o seguir sin ella. Si se sigue sin ella, la frecuencia se cuenta sobre las corridas que sí hay (k/2) y se dice.
 - Una herramienta «NO auditada» en la salida (`Bash`, `PowerShell`) en un revisor que solo debería leer se informa: no es una corrida limpia.
@@ -190,11 +194,11 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
 
 Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste una revisión entera por vuelta. En un ticket real, la re-revisión después de una corrección volvió a revisar la unidad entera, al mismo costo que la primera, y no se podía sellar una parcial; los hallazgos que quedaron para después terminaron dentro de la tabla de Tareas, y la rompieron.
 
-1. **Una sola corrección.** Con la consolidación, el usuario elige qué se corrige, y eso es un lote. El mensaje que propone el lote anuncia también el rechequeo y su costo en corridas (abajo): si el usuario aprueba el lote, aprueba el rechequeo.
+1. **Una sola corrección.** Con la consolidación, el usuario elige qué se corrige, y eso es un lote. El mensaje que propone el lote anuncia también el rechequeo y su costo en corridas (abajo), con el último costo medido como en el paso 2: si el usuario aprueba el lote, aprueba el rechequeo.
 2. **Un rechequeo** cuando termina el lote. Verifica los hallazgos anteriores y revisa solo lo que cambió desde la ronda anterior:
    - **Qué entra.** Los rechequeados son los archivos que nombra `recibo.py --check "<carpeta de la ronda anterior>"` cuando sale con 1 (los que cambiaron), más los que el triaje lista y el recibo anterior no tiene (los que sumó la corrección, como un test nuevo). Si `--check` sale con 0 y la corrección no sumó archivos, no hay nada que rechequear. Un archivo sumado nunca se salta: sin su rechequeo queda sin revisar y `--sellar` rechaza el commit que lo trae.
    - **La base** es la del recibo anterior, y el triaje con `--ticket` da esa misma mientras la unidad no se selle. **El modo** es el de la ronda anterior, y la carpeta es la ronda siguiente (`<fecha>-<modo>-<n>`). Si el triaje de ahora da otra base o propone un modo más alto, no es un rechequeo: es una revisión nueva de la unidad entera, que pide su sí.
-   - **Las corridas** son una de `revisor-diseno` más una por cada capa de los archivos rechequeados, `1 + <capas>`, tanto en `rapido` como en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. El rechequeo verifica una corrección acotada y no repite las tres corridas de `completo`: en un ticket real, dos rechequeos de una corrida, con los hallazgos anteriores en el prompt, cerraron bien. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo y pedí el sí.
+   - **Las corridas** son una de `revisor-diseno` más una por cada capa de los archivos rechequeados, `1 + <capas>`, tanto en `rapido` como en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. El rechequeo verifica una corrección acotada y no repite las tres corridas de `completo`: en un ticket real, dos rechequeos de una corrida, con los hallazgos anteriores en el prompt, cerraron bien. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo, con las corridas y el último costo medido, y pedí el sí.
    - **La entrada** es el diff de los rechequeados contra la base (paso 3). El prompt suma los hallazgos de la ronda anterior, con su ubicación, su regla y su severidad, copiados del `consolidado.md`, y pide decir de cada uno si quedó resuelto. La regla de no leer `revision/` sigue.
    - **El recibo** hereda lo que no cambió:
 
@@ -233,5 +237,5 @@ Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste 
 | Script | Para qué | Salidas |
 |---|---|---|
 | `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
-| `rescatar.py` | reporte, prompt y lecturas de cada corrida desde el `.jsonl` del subagente | 0 ok · 1 corrida sin reporte · 2 error |
+| `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
 | `recibo.py` | `--write` escribe el recibo, y con `--previo` el de un rechequeo, que hereda lo que no cambió; `--check` lo compara con el diff actual; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió, no se puede sellar o el rechequeo no puede heredar · 2 error de uso o de entorno |

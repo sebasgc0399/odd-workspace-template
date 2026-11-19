@@ -95,6 +95,90 @@ def test_bloques_solo_de_un_mensaje_con_contenido_en_lista():
         assert m().bloques(registro) == [], registro
 
 
+def mensaje(id_, entrada, escrita, leida, salida, ts=None):
+    registro = {"type": "assistant", "message": {"id": id_, "role": "assistant", "content": [], "usage": {
+        "input_tokens": entrada, "cache_creation_input_tokens": escrita, "cache_read_input_tokens": leida,
+        "output_tokens": salida}}}
+    if ts:
+        registro["timestamp"] = ts
+    return registro
+
+
+def test_constantes_del_uso_de_claude_code():
+    assert m().USO == "usage"
+    assert (m().ENTRADA, m().CACHE_ESCRITA, m().CACHE_LEIDA, m().SALIDA) == (
+        "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+
+
+def test_costo_cuenta_cada_mensaje_una_vez_por_id():
+    registros = [
+        {"type": "user", "timestamp": "2026-11-18T10:00:00.000Z", "message": {"content": "p"}},
+        mensaje("m1", 3, 40000, 0, 100, "2026-11-18T10:00:05.000Z"),
+        mensaje("m1", 3, 40000, 0, 100, "2026-11-18T10:00:05.500Z"),
+        {"type": "user", "timestamp": "2026-11-18T10:00:06.000Z", "message": {"content": []}},
+        mensaje("m2", 2, 5000, 40000, 300, "2026-11-18T10:00:09.000Z"),
+        mensaje("m2", 2, 5000, 40000, 300, "2026-11-18T10:00:09.100Z"),
+        mensaje("m2", 2, 5000, 40000, 300, "2026-11-18T10:00:09.200Z"),
+        mensaje("m3", 1, 700, 45000, 50, "2026-11-18T10:01:30.000Z"),
+    ]
+    assert m().costo(registros) == {
+        "turnos": 3, "contexto_inicial": 40003, "contexto_final": 45701, "salida": 450,
+        "cache_escrita": 45700, "cache_leida": 85000, "inicio": "2026-11-18T10:00:00.000Z",
+        "fin": "2026-11-18T10:01:30.000Z", "pausa_mayor": 80.8}, m().costo(registros)
+    assert list(m().costo(registros)) == ["turnos", "contexto_inicial", "contexto_final", "salida", "cache_escrita",
+                                          "cache_leida", "inicio", "fin", "pausa_mayor"]
+
+
+def test_costo_de_una_transcripcion_sin_uso_es_none():
+    viejos = [{"type": "user", "timestamp": "2026-11-18T10:00:00.000Z", "message": {"content": "p"}},
+              {"type": "assistant", "timestamp": "2026-11-18T10:00:01.000Z", "message": {"id": "m1", "content": []}},
+              {"type": "assistant", "message": {"id": "m2", "content": [], "usage": None}},
+              {"type": "assistant", "message": "texto"}, {"type": "user", "message": {"usage": {"output_tokens": 9}}}]
+    assert m().costo(viejos) is None
+    assert m().costo([]) is None
+
+
+def test_costo_toma_la_ultima_linea_de_cada_id_en_el_lugar_de_la_primera():
+    registros = [mensaje("m1", 1, 10, 0, 1), mensaje("m2", 1, 20, 0, 5), mensaje("m1", 1, 10, 0, 7)]
+    c = m().costo(registros)
+    assert (c["turnos"], c["salida"], c["contexto_inicial"], c["contexto_final"]) == (2, 12, 11, 21), c
+
+
+def test_costo_cuenta_aparte_cada_mensaje_sin_id():
+    registros = [mensaje(None, 1, 10, 0, 1), mensaje(None, 1, 10, 0, 1), mensaje("", 1, 10, 0, 1)]
+    c = m().costo(registros)
+    assert (c["turnos"], c["salida"], c["cache_escrita"]) == (3, 3, 30), c
+
+
+def test_costo_toma_como_cero_los_tokens_que_no_son_un_entero():
+    registros = [{"type": "assistant", "message": {"id": "m1", "usage": {
+        "input_tokens": None, "cache_creation_input_tokens": "9", "cache_read_input_tokens": True, "output_tokens": -4}}},
+        {"type": "assistant", "message": {"id": "m2", "usage": {"output_tokens": 6}}}]
+    c = m().costo(registros)
+    assert (c["turnos"], c["contexto_inicial"], c["contexto_final"], c["salida"], c["cache_escrita"], c["cache_leida"]) == (
+        2, 0, 0, 6, 0, 0), c
+
+
+def test_costo_ordena_los_tiempos_y_saltea_los_que_no_se_leen():
+    registros = [
+        mensaje("m1", 1, 1, 1, 1, "2026-11-18T10:05:00.000Z"),
+        {"type": "user", "timestamp": "2026-11-18T10:00:00.000Z"},
+        {"type": "user", "timestamp": "no es una fecha"},
+        {"type": "user", "timestamp": 1731924000},
+        {"type": "user", "timestamp": "2026-11-18T10:06:00"},
+        {"type": "attachment", "timestamp": "2026-11-18T05:02:00-05:00"},
+    ]
+    c = m().costo(registros)
+    assert (c["inicio"], c["fin"], c["pausa_mayor"]) == ("2026-11-18T10:00:00.000Z", "2026-11-18T10:06:00", 180.0), c
+
+
+def test_costo_sin_tiempos_o_con_uno_solo():
+    c = m().costo([mensaje("m1", 1, 1, 1, 1)])
+    assert (c["inicio"], c["fin"], c["pausa_mayor"]) == (None, None, None), c
+    c = m().costo([mensaje("m1", 1, 1, 1, 1, "2026-11-18T10:00:00.000Z")])
+    assert (c["inicio"], c["fin"], c["pausa_mayor"]) == ("2026-11-18T10:00:00.000Z", "2026-11-18T10:00:00.000Z", None), c
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
