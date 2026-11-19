@@ -505,6 +505,73 @@ def test_lo_que_rescatar_guarda_llega_al_informe_de_auditar():
         assert codigo == 0 and json.loads(salida)["archivos"][0]["no_auditadas"] == {"Bash": 2}, (codigo, salida)
 
 
+LECTURAS_CLAUDE_CODE = [lectura("Read", file_path=SECRETO + "\\x.md"), lectura("Read", file_path="C:\\inst\\a.md"),
+                        lectura("Grep", pattern="x", path=CWD, glob="*.sql"), lectura("Glob", pattern="**/*.md", path=SECRETO),
+                        lectura("Glob", pattern="secreto/*.md"), lectura("Grep", pattern="x", path="C:\\inst\\docs")]
+LECTURAS_PI = [lectura("read", path=SECRETO + "\\x.md", offset=1, limit=40), lectura("read", path="C:\\inst\\a.md"),
+               lectura("grep", pattern="x", path=CWD, glob="*.sql"), lectura("find", pattern="**/*.md", path=SECRETO),
+               lectura("find", pattern="secreto/*.md"), lectura("grep", pattern="x", path="C:\\inst\\docs")]
+
+
+def _sin_herramienta(hallazgo):
+    return {k: v for k, v in hallazgo.items() if k not in ("tool", "entrada")}
+
+
+def test_cli_las_lecturas_de_pi_se_clasifican_como_las_de_claude_code():
+    with Temporal() as base:
+        claude = lecturas_json(base, "cc.lecturas.json", LECTURAS_CLAUDE_CODE)
+        pi = lecturas_json(base, "pi.lecturas.json", LECTURAS_PI, agente="t1", no_auditadas={"bash": 1})
+        codigo, salida, error = cli(claude, pi, "--prohibida", SECRETO, "--cwd", CWD, "--json")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        cc, de_pi = json.loads(salida)["archivos"]
+        assert de_pi["estado"] == "contaminado" and len(de_pi["hallazgos"]) == len(cc["hallazgos"]) == 4, de_pi
+        nombres = {"Read": "read", "Grep": "grep", "Glob": "find"}
+        for h_cc, h_pi in zip(cc["hallazgos"], de_pi["hallazgos"]):
+            assert h_pi["tool"] == nombres[h_cc["tool"]] and _sin_herramienta(h_pi) == _sin_herramienta(h_cc), (h_cc, h_pi)
+        assert [(h["tool"], h["nivel"], h.get("revela")) for h in de_pi["hallazgos"]] == [
+            ("read", "contaminado", None), ("grep", "exposicion", "contenido"), ("find", "exposicion", "nombres"),
+            ("find", "exposicion", "nombres")], de_pi["hallazgos"]
+        codigo, salida, _ = cli(pi, "--prohibida", SECRETO, "--cwd", CWD)
+        assert codigo == 1 and salida.splitlines()[2:10] == [
+            "[CONTAMINADO] %s  (agente t1, 6 lecturas auditadas)" % pi,
+            "   aviso: herramientas NO auditadas: bash x1",
+            "   #0 read   CONTAMINADO %s\\x.md" % SECRETO,
+            "        regla: %s" % SECRETO,
+            "   #2 grep   EXPOSICION  C:\\inst  glob=*.sql  [revela contenido]",
+            "        regla: %s" % SECRETO,
+            "   #3 find   EXPOSICION  %s  [revela nombres]" % SECRETO,
+            "        regla: %s" % SECRETO], salida.splitlines()
+
+
+def test_cli_una_corrida_de_pi_que_lee_una_ruta_prohibida_no_sale_limpia_despues_del_rescate():
+    with Temporal() as base:
+        tareas = base / "agente" / "gentle-agents" / "tasks"
+        tareas.mkdir(parents=True)
+        items = [{"kind": "tool", "name": "read", "args": {"path": SECRETO + "\\x.md"}, "running": False, "isError": False},
+                 {"kind": "tool", "name": "bash", "args": {"command": "ls"}, "running": False, "isError": False}]
+        tarea = {"id": "t1", "agent": "revisor-diseno", "status": "completed", "prompt": "p", "result": "r", "model": "m"}
+        (tareas / "t1.json").write_text(json.dumps({"task": tarea, "thread": {"items": items}}), encoding="utf-8")
+        env = {k: v for k, v in entorno().items() if k != "PI_CODING_AGENT_DIR"}
+        env["GENTLE_PI_AGENT_HOME"] = str(base / "agente")
+        r = subprocess.run([sys.executable, "-W", "error", str(RESCATAR), "--host", "pi", "--destino", str(base / "c"),
+                            "--corrida", "c1=t1"], capture_output=True, env=env)
+        assert r.returncode == 0, r
+        codigo, salida, _ = cli(base / "c" / "c1.lecturas.json", "--prohibida", SECRETO, "--cwd", CWD, "--json")
+        a = json.loads(salida)["archivos"][0]
+        assert codigo == 1 and a["estado"] == "contaminado" and a["no_auditadas"] == {"bash": 1}, (codigo, a)
+
+
+def test_cli_las_lecturas_de_claude_code_se_clasifican_como_antes():
+    with Temporal() as base:
+        claude = lecturas_json(base, "cc.lecturas.json", LECTURAS_CLAUDE_CODE)
+        codigo, salida, error = cli(claude, "--prohibida", SECRETO, "--cwd", CWD, "--json")
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert [(h["indice"], h["tool"], h["nivel"], h.get("revela"), h["alcance"])
+                for h in json.loads(salida)["archivos"][0]["hallazgos"]] == [
+            (0, "Read", "contaminado", None, SECRETO + "\\x.md"), (2, "Grep", "exposicion", "contenido", CWD),
+            (3, "Glob", "exposicion", "nombres", SECRETO), (4, "Glob", "exposicion", "nombres", "(cwd %s)" % CWD)], salida
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

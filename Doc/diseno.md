@@ -653,6 +653,7 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6),
   - `CARPETA_RE` y `MODOS` van copiados de `recibo.py`, por la regla de no importar otro script, y un test fija que no se separen.
 - **`auditar_lecturas.py <lecturas.json | jsonl>… [--manifest] [--scratch] [--prohibida] [--permitida] [--ceguera-fisica] [--cwd] [--json] [--salida]`:**
   - Cruza cada `Read` con las rutas prohibidas (contaminado) y el alcance de cada `Grep` o `Glob` (exposición: «pudo ver», no «vio»).
+  - Las lecturas de Pi que guarda `rescatar.py --host pi` se clasifican igual, con su equivalente de `pi.HERRAMIENTAS`: `read` como `Read` (su ruta va en `path`), `grep` como `Grep` y `find` como `Glob` (`pattern` y `path`). El informe las nombra con su nombre de Pi. Antes de F3 de R6, una corrida de Pi salía limpia aunque leyera una ruta prohibida.
   - Gana la regla más larga y, en empate, la prohibida.
   - Compara la carpeta real: una ruta de esta máquina (`X:/` en Windows, `/` fuera) pasa por `config_loader.canonica` antes de compararse, así que una lectura por un enlace (`/var` → `/private/var` en macOS, una junction o un nombre corto 8.3) cae bajo la regla escrita por el otro camino. Una ruta de otro sistema, como una `C:\…` auditada en Linux, se compara como texto (P2 de M3).
   - Con `--scratch` también prohíbe la carpeta oculta, hermana del scratch (`capas.CARPETA_OCULTA`).
