@@ -58,7 +58,7 @@ class Escenario:
         self.plantilla = plantilla
 
     def __enter__(self):
-        self.base = Path(tempfile.mkdtemp(prefix="ticket-ñ-"))
+        self.base = Path(os.path.realpath(tempfile.mkdtemp(prefix="ticket-ñ-")))
         self.repo = self.base / "repo-a"
         self.repo.mkdir()
         self.raiz = self.base / "instancia"
