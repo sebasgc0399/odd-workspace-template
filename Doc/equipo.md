@@ -26,7 +26,7 @@ Cada dev hace esto una vez por clon:
    claude plugin install odd-ws@odd-workspace-template --scope project
    ```
 
-   No cambia ningún archivo del repo: `git status` sigue limpio.
+   No cambia ningún archivo del repo: `git status` sigue limpio. Si `marketplace add` falla con «its source doesn't match its extraKnownMarketplaces entry», el marketplace ya está registrado con otra fuente: sigue con `plugin install`.
 2. **Abre `claude` en la raíz y corre `/odd-ws:doctor`.** En un clon recién hecho marca tres FALTA:
 
    | Ítem | Qué falta | Cómo se arregla |

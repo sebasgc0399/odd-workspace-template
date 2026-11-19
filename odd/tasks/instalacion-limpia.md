@@ -23,10 +23,10 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T0 | S1 | Este documento y la fila de R7 en el roadmap | inline, va en el primer commit del writer | hecho | |
-| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | pendiente | |
-| T2 | S4 | La raíz de un repo de código: preguntar siempre, y `workspace.local.json` nunca en un commit | delegada, después de T1, porque toca la misma función. Risk: item 1; lleva verificador | pendiente | |
-| T3 | S5 | La propuesta de extensiones del mismo lenguaje | delegada, con T1 y T2 | pendiente | |
-| T4 | S6, S7 | `Doc/uso.md:9` y la nota del README | delegada, con T1 a T3 | pendiente | |
+| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | hecho; verificador en curso (L4) | `bb003bf` |
+| T2 | S4 | La raíz de un repo de código: preguntar siempre, y `workspace.local.json` nunca en un commit | delegada, después de T1, porque toca la misma función. Risk: item 1; lleva verificador | hecho; verificador en curso (L4) | `d26d82e` |
+| T3 | S5 | La propuesta de extensiones del mismo lenguaje | delegada, con T1 y T2 | hecho | `550a7fe` |
+| T4 | S6, S7 | `Doc/uso.md:9` y la nota del README | inline: el writer se cortó antes, y son solo docs (L4). Risk: none | hecho; la línea del CHANGELOG va con la entrega | este commit |
 
 ## Log
 
@@ -38,3 +38,8 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
   - El repo de código quedó intacto.
   - `marketplace add` falló porque el marketplace ya estaba registrado con la URL git completa.
 - **L3** (2026-11-19) Plan. Un writer hace T1 a T4 en orden, porque T1 y T2 cambian la misma función (`commitear` del bootstrap). En paralelo, otro carril cierra los seguimientos de R5 y R6 en `fix/seguimientos-0-10`. T1 y T2 llevan verificador independiente.
+- **L4** (2026-11-19) T1 a T3 quedaron commiteados por el writer; el autor pidió parar antes de T4, y T4 se hizo inline al retomar.
+  - **Los docs.** `Doc/uso.md` distingue la subcarpeta de la raíz de un repo de código (S6) y explica lo que entra al primer commit, la pregunta en la raíz de un repo, la propuesta del mismo lenguaje y el `.code-workspace` relativo. `Doc/diseno.md` §Bootstrap suma `--confirmar-repo`, `repo_de_codigo`, `mismo_lenguaje`, las reglas del primer commit con sus líneas tal cual y los casos nuevos de la prueba de punta a punta.
+  - **La nota del marketplace (S7)** va en el README y también en `Doc/equipo.md`, que repite el mismo comando para quien clona la instancia.
+  - **Lo que falta de I57:** la línea del CHANGELOG que distingue la subcarpeta de la raíz. La sección de la `0.9.1` ya se publicó, así que la aclaración va en la de la `0.10.0`, al armar la entrega.
+  - **El verificador de T1 y T2** se lanzó al retomar, contra `de07bf8`.
