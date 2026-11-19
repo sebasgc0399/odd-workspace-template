@@ -475,6 +475,15 @@ def claves_de_busqueda(carpeta, windows):
     return [canonica] if canonica == original else [canonica, original]
 
 
+def _claves_del_repo(raiz, repo, windows):
+    canonica = claves_de_busqueda(repo, windows)[0]
+    for carpeta in (Path(raiz), *Path(raiz).parents):
+        claves = claves_de_busqueda(carpeta, windows)
+        if claves[0] == canonica:
+            return claves
+    return [canonica]
+
+
 def confianza_del_proyecto(proyectos, claves, windows):
     for clave in claves:
         if clave in proyectos:
@@ -502,7 +511,8 @@ def _proyecto(ctx, raiz, nucleo, usuario, datos, error):
     claves = claves_de_busqueda(raiz, ctx.windows)
     repo = nucleo.raiz_del_repo_de(ctx, raiz)
     if repo is not None:
-        claves += [clave for clave in claves_de_busqueda(repo, ctx.windows) if clave not in claves]
+        claves += [clave for clave in claves_de_busqueda(repo, ctx.windows) + _claves_del_repo(raiz, repo, ctx.windows)
+                   if clave not in claves]
     ayuda = AYUDA_PROYECTO % (usuario, _tabla_de_confianza(raiz))
     encontrada = confianza_del_proyecto(niveles, claves, ctx.windows)
     if encontrada is None:

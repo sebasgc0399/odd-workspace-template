@@ -674,6 +674,80 @@ def test_la_memoria_de_claude_code_no_esta_disponible_en_codex_y_su_nota_lo_dice
     assert not hasattr(m(), "directorio_de_memorias"), "un puerto no disponible no resuelve nada"
 
 
+class DoctorFalso:
+    def __init__(self, base):
+        self.entorno = {}
+        self.home = base / "home"
+        self.plugin = PLUGIN
+        self.windows = os.name == "nt"
+        self.config = base / "gitconfig"
+        self.config.write_text("", encoding="utf-8")
+
+    def ejecutar(self, args, cwd=None):
+        entorno = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+        entorno.update(GIT_CONFIG_GLOBAL=str(self.config), GIT_CONFIG_SYSTEM=str(self.config), GIT_CONFIG_NOSYSTEM="1")
+        r = subprocess.run(args, cwd=cwd, capture_output=True, env=entorno)
+        return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
+
+    def which(self, nombre):
+        return None
+
+
+def confianza_del_proyecto_en(ctx, raiz, *proyectos):
+    carpeta = ctx.home / ".codex"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    texto = "".join('[projects.%s]\ntrust_level = "%s"\n\n' % (json.dumps(clave), nivel) for clave, nivel in proyectos)
+    (carpeta / "config.toml").write_text(texto, encoding="utf-8")
+    nucleo = importlib.import_module("doctor")
+    return next(r for r in m().chequeos(ctx, raiz, nucleo, nucleo.CLI_INSTALADO) if r.id == "codex-proyecto")
+
+
+@contextlib.contextmanager
+def repo_con_alias():
+    with temporal() as base:
+        repo = base / "repo"
+        (repo / "inst").mkdir(parents=True)
+        ctx = DoctorFalso(base)
+        assert ctx.ejecutar(["git", "init", "-q", str(repo)])[0] == 0
+        alias = base / "alias"
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(repo), str(alias))
+        else:
+            os.symlink(repo, alias, target_is_directory=True)
+        try:
+            yield ctx, repo, alias
+        finally:
+            os.rmdir(alias) if os.name == "nt" else os.unlink(alias)
+
+
+def test_codex_proyecto_acepta_la_raiz_del_repo_escrita_con_el_alias_por_el_que_se_llega_a_la_instancia():
+    with repo_con_alias() as (ctx, repo, alias):
+        raiz = alias / "inst"
+        r = confianza_del_proyecto_en(ctx, raiz, (str(alias), "trusted"))
+        assert r.estado == "OK" and str(alias) in r.detalle, r
+        r = confianza_del_proyecto_en(ctx, raiz, (str(alias), "untrusted"))
+        assert r.estado == "AVISO" and "%s tiene trust_level = untrusted" % alias in r.detalle and r.ayuda, r
+        if os.name == "nt":
+            assert confianza_del_proyecto_en(ctx, raiz, (str(alias).upper(), "trusted")).estado == "OK"
+
+
+def test_codex_proyecto_con_un_alias_sigue_dando_la_misma_respuesta_a_la_clave_canonica_y_a_las_que_codex_no_reconoce():
+    with repo_con_alias() as (ctx, repo, alias):
+        raiz = alias / "inst"
+        canonica = os.path.realpath(repo)
+        assert confianza_del_proyecto_en(ctx, raiz, (canonica, "trusted")).estado == "OK"
+        assert confianza_del_proyecto_en(ctx, raiz, (str(raiz), "trusted")).estado == "OK"
+        r = confianza_del_proyecto_en(ctx, raiz, (canonica, "untrusted"), (str(alias), "trusted"))
+        assert r.estado == "AVISO" and "untrusted" in r.detalle, "como en Codex, la canónica va antes que el alias"
+        malas = [str(alias) + os.sep, str(repo.parent / "otra")] + ([str(alias).replace("\\", "/")] if os.name == "nt" else [])
+        for clave in malas:
+            r = confianza_del_proyecto_en(ctx, raiz, (clave, "trusted"))
+            assert r.estado == "AVISO" and "ni la instancia ni su repo" in r.detalle, (clave, r)
+        r = confianza_del_proyecto_en(ctx, repo / "inst", (str(alias), "trusted"))
+        assert r.estado == "AVISO", "sin llegar por el alias, Codex no lo prueba"
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
