@@ -1399,7 +1399,10 @@ test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, 
   let hayEnlaces = true;
   try {
     symlinkSync("refs/heads/no-existe", join(headEnlace, ".git", "HEAD"));
-  } catch {
+  } catch (error) {
+    if ((error as { code?: string }).code !== "EPERM") {
+      throw error;
+    }
     hayEnlaces = false;
   }
   if (hayEnlaces) {
@@ -1411,6 +1414,64 @@ test("una carpeta .git cuenta como raiz git solo si tiene HEAD, objects y refs, 
   const archivo = instancia(join(repo, "archivo"), false);
   writeFileSync(join(archivo, ".git"), "gitdir: ../.git/worktrees/archivo\n");
   await pasa(archivo);
+});
+
+test("un commondir cuenta solo si la carpeta que nombra tiene objects y refs, como git; si no, gentle-shell corre al writer en el repo de arriba", async () => {
+  const repo = join(BASE, "monorepo-commondir");
+  mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q");
+  git(repo, "commit", "-q", "--allow-empty", "-m", "base");
+  const bloqueado = async (inst: string) => {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+    const bloqueo = await conPi().emitir(lanzamiento(entrada), ctxFalso(inst));
+    assert.equal(bloqueo?.block, true, inst);
+    assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(repo)}, la raíz del repo git que contiene la instancia, `), bloqueo.reason);
+    assert.equal(entrada.task, "x");
+  };
+  const pasa = async (inst: string) => {
+    const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+    assert.equal(await conPi().emitir(lanzamiento(entrada), ctxFalso(inst)), undefined, inst);
+    assert.equal(entrada.task, `x\n${MARCA_SQL}`);
+  };
+  const conCommondir = (nombre: string, contenido: string) => {
+    const inst = instancia(join(repo, nombre), false);
+    mkdirSync(join(inst, ".git"), { recursive: true });
+    writeFileSync(join(inst, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(inst, ".git", "commondir"), contenido);
+    return inst;
+  };
+  await bloqueado(conCommondir("a-una-que-no-existe", join(repo, "no-existe")));
+  const vacia = join(repo, "comun-vacia");
+  mkdirSync(vacia);
+  await bloqueado(conCommondir("a-una-vacia", vacia));
+  const sinRefs = join(repo, "comun-sin-refs");
+  mkdirSync(join(sinRefs, "objects"), { recursive: true });
+  await bloqueado(conCommondir("a-una-sin-refs", sinRefs));
+  const sinObjects = join(repo, "comun-sin-objects");
+  mkdirSync(join(sinObjects, "refs"), { recursive: true });
+  await bloqueado(conCommondir("a-una-sin-objects", sinObjects));
+  const conLosPropios = conCommondir("con-objects-y-refs-propios", vacia);
+  mkdirSync(join(conLosPropios, ".git", "objects"));
+  mkdirSync(join(conLosPropios, ".git", "refs"));
+  await bloqueado(conLosPropios);
+  await bloqueado(conCommondir("a-una-que-no-existe-con-espacio", `${join(repo, "no-existe")} `));
+  await bloqueado(conCommondir("salto-antes-del-nul", `${join(repo, ".git")}\n\0basura`));
+  await pasa(conCommondir("relativo-con-salto", "../../.git\n"));
+  await pasa(conCommondir("absoluto-con-crlf", `${join(repo, ".git")}\r\n`));
+  await pasa(conCommondir("cortado-en-el-nul", `${join(repo, ".git")}\0basura\n`));
+  const valida = instancia(join(repo, "valida"), false);
+  git(valida, "init", "-q");
+  await pasa(valida);
+  const worktree = join(repo, "worktree-real");
+  git(repo, "worktree", "add", "-q", "-b", "rama-x18", worktree);
+  await pasa(instancia(worktree, false));
+  if (!hayGitArriba(BASE)) {
+    const arriba = join(BASE, "arriba-commondir-roto");
+    mkdirSync(join(arriba, ".git"), { recursive: true });
+    writeFileSync(join(arriba, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(arriba, ".git", "commondir"), join(BASE, "no-existe"));
+    await pasa(instancia(join(arriba, "inst"), false));
+  }
 });
 
 test("un repo de arriba que git acepta con commondir, con objects como archivo o con HEAD como enlace no deja pasar al writer", async () => {
@@ -1445,6 +1506,59 @@ test("un repo de arriba que git acepta con commondir, con objects como archivo o
     }
   }
 });
+
+function arribaConCommondir(nombre: string, contenido: string | Buffer): string {
+  const arriba = join(BASE, "arriba-commondir-dudoso", nombre);
+  mkdirSync(join(arriba, ".git"), { recursive: true });
+  writeFileSync(join(arriba, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(arriba, ".git", "commondir"), contenido);
+  return instancia(join(arriba, "inst"), false);
+}
+
+async function bloqueaPorElRepoDeArriba(inst: string): Promise<void> {
+  const entrada: Record<string, unknown> = { agent: "writer-sql", task: "x" };
+  const bloqueo = await conPi().emitir(lanzamiento(entrada), ctxFalso(inst));
+  assert.equal(bloqueo?.block, true, inst);
+  assert.ok(bloqueo.reason.startsWith(`odd-ws: gentle-shell correría este writer (writer-sql) en ${realpathSync.native(dirname(inst))}, la raíz del repo git `
+    + "que contiene la instancia, "), bloqueo.reason);
+  assert.equal(entrada.task, "x");
+}
+
+test("arriba de la instancia, un commondir con un NUL se corta ahi, como en git, y el repo de arriba bloquea al writer", { skip: hayGitArriba(BASE) }, async () => {
+  const real = join(BASE, "arriba-commondir-dudoso", "real");
+  mkdirSync(real, { recursive: true });
+  git(real, "init", "-q");
+  await bloqueaPorElRepoDeArriba(arribaConCommondir("nul-y-basura", `${join(real, ".git")}\0basura`));
+  await bloqueaPorElRepoDeArriba(arribaConCommondir("nul-y-salto", `${join(real, ".git")}\0basura\n`));
+});
+
+test("arriba de la instancia, un commondir que no es UTF-8 bloquea al writer: el shim no sabe que carpeta lee git", { skip: hayGitArriba(BASE) }, async (t) => {
+  const carpeta = join(BASE, "arriba-commondir-dudoso", "no-utf8");
+  const bytes = Buffer.concat([Buffer.from(join(carpeta, "comun")), Buffer.from([0xff])]);
+  try {
+    for (const sub of ["objects", "refs"]) {
+      mkdirSync(process.platform === "win32" ? join(carpeta, "comunÿ", sub) : Buffer.concat([bytes, Buffer.from(`/${sub}`)]), { recursive: true });
+    }
+  } catch (error) {
+    t.skip(`este sistema de archivos no acepta un nombre que no es UTF-8: ${(error as Error).message}`);
+    return;
+  }
+  await bloqueaPorElRepoDeArriba(arribaConCommondir("no-utf8", bytes));
+});
+
+test("en Windows, arriba de la instancia, un commondir con espacios o un punto al final bloquea al writer: git los quita y el shim no puede",
+  { skip: process.platform !== "win32" ? "solo Windows quita los espacios y los puntos del final de un nombre; en otro sistema git tampoco encuentra esa carpeta" : hayGitArriba(BASE) },
+  async () => {
+    const real = join(BASE, "arriba-commondir-dudoso", "real-windows");
+    mkdirSync(real, { recursive: true });
+    git(real, "init", "-q");
+    const comun = join(real, ".git");
+    const casos: [string, string][] = [["espacio-y-crlf", `${comun} \r\n`], ["dos-espacios", `${comun}  `], ["punto", `${comun}.`],
+      ["espacio-y-salto", `${comun} \n`], ["separador-y-espacio", `${comun}\\ `]];
+    for (const [nombre, contenido] of casos) {
+      await bloqueaPorElRepoDeArriba(arribaConCommondir(nombre, contenido));
+    }
+  });
 
 test("una instancia fuera de todo repo git: el writer sin selector corre en ctx.cwd y pasa", { skip: hayGitArriba(BASE) }, async () => {
   const inst = instancia(join(BASE, "sin-git", "inst"), false);
