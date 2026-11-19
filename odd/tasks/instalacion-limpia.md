@@ -23,14 +23,15 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T0 | S1 | Este documento y la fila de R7 en el roadmap | inline, va en el primer commit del writer | hecho | |
-| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | hecho; verificador: S2 PASS, S3 con B1 corregido en C1 (L5) | `bb003bf` |
+| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | hecho; verificador: S2 PASS, y S3 PASS después de C1 (L5, L6) | `bb003bf` |
 | T2 | S4 | La raíz de un repo de código: preguntar siempre, y `workspace.local.json` nunca en un commit | delegada, después de T1, porque toca la misma función. Risk: item 1; lleva verificador | hecho; verificador: PASS (L5) | `d26d82e` |
 | T3 | S5 | La propuesta de extensiones del mismo lenguaje | delegada, con T1 y T2 | hecho | `550a7fe` |
 | T4 | S6, S7 | `Doc/uso.md:9` y la nota del README | inline: el writer se cortó antes, y son solo docs (L4). Risk: none | hecho; la línea del CHANGELOG va con la entrega | `69e524c` |
-| C1 | S3 | Corrección del bloqueante B1 del verificador: un `.code-workspace` ignorado con nombre no ASCII hacía fallar el primer commit (L5) | inline. Risk: item 1 | hecho; rechequeo de B1 en curso | este commit |
+| C1 | S3 | Corrección del bloqueante B1 del verificador: un `.code-workspace` ignorado con nombre no ASCII hacía fallar el primer commit (L5) | inline. Risk: item 1 | hecho; rechequeo de B1: PASS (L6) | `f76b592` |
 | F1 | S2, S3 | Seguimiento (A1 del verificador): sin repo git todavía, el ensayo no mira un `.gitignore` que ya existía, y promete en el commit un `settings.json` o un `.code-workspace` que la aplicación deja afuera. Va en la dirección segura (L5) | aparte | anotado | |
 | F2 | S3 | Seguimiento (A2): un `.code-workspace` con comentarios o comas finales (el JSONC de VS Code) queda afuera aunque sus rutas sean relativas; la salida lo explica. Es el mismo límite de `--proponer` (L5) | aparte | anotado | |
 | F3 | S2, S3 | Seguimiento (A4): la línea `commit: falló …` dice que quedaron en el índice «los archivos nuevos», y también quedan los que ya existían (L5) | aparte | anotado | |
+| F4 | S3 | Seguimiento (aviso del rechequeo): un `*.code-workspace` ignorado cuyo nombre empieza con espacio todavía hace fallar el primer commit, porque `_git` aplica `.strip()` a la salida y le quita el espacio al primer nombre de `check-ignore -z`. Es entrada fuera de dominio (L6) | aparte | anotado | |
 
 ## Log
 
@@ -64,3 +65,8 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
     - El test nuevo `test_un_code_workspace_ignorado_con_nombre_no_ascii_no_frena_el_primer_commit` dio RED antes del arreglo (`commit: falló (hint: …)`) y GREEN después.
     - Las suites dan 183/183 y 27/27.
   - **Avisos.** A1, A2 y A4 quedan como F1 a F3. A3 (entradas de `folders` fuera del esquema de VS Code) es entrada fuera de dominio y no se anota.
+- **L6** (2026-11-19) El rechequeo de B1 sobre `f76b592`: PASS.
+  - **Las reproducciones.** Con `facturación.code-workspace` ignorado, en una carpeta nueva y en un repo de código con `--confirmar-repo`, el commit sale con 16 archivos y el índice queda limpio. Lo mismo pasa con `diseño.code-workspace`, y con `café.code-workspace` más el `settings.json` de L2, que entra.
+  - **Los controles.** El caso ASCII ignorado y el no ASCII sin ignorar no cambiaron. Los nombres ignorados con un espacio interno o con corchetes dan igual que la base.
+  - **El resto.** Un nombre que empieza con espacio todavía falla: es F4, entrada fuera de dominio.
+  - R7 queda lista para la `0.10.0`. Falta la línea de I57 en el CHANGELOG, que va con la entrega.
