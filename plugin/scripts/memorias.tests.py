@@ -781,13 +781,25 @@ def test_las_claves_del_json_que_nombra_la_skill_existen_en_la_salida_real():
     assert mutada != texto and len(problemas_del_json(mutada, datos, codex)) == 2, "control positivo: dos claves que no existen se detectan"
 
 
+def problemas_de_la_evidencia(texto):
+    numeradas = numeradas_de(seccion_de(texto, "### Reglas duras del modo"))
+    regla_2 = numeradas.get("2", "")
+    problemas = [] if "evidencia" in oraciones_de(regla_2)[0] else ["la primera oración de la regla 2 no nombra la evidencia: %r" % regla_2]
+    problemas += [] if "`descripcion`" in regla_2 else ["la regla 2 no nombra `descripcion`: %r" % regla_2]
+    problemas += [] if "evidencia.md" in numeradas.get("4", "") else ["la regla 4 no nombra evidencia.md: %r" % numeradas.get("4")]
+    problemas += [] if "evidencia.md" in seccion_de(texto, "### M3.") else ["la propuesta no muestra la entrada de evidencia.md"]
+    paso = numeradas_de(seccion_de(texto, "### M4.")).get("1", "")
+    problemas += [] if "evidencia.md" in paso and "la misma que mostró la propuesta" in paso else ["M4.1 no escribe en evidencia.md la misma entrada que mostró la propuesta: %r" % paso]
+    return problemas
+
+
 def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
     texto = SKILL_CERRAR.read_text(encoding="utf-8")
-    reglas = seccion_de(texto, "### Reglas duras del modo")
-    numeradas = {linea.split(".", 1)[0]: linea for linea in reglas.split("\n") if re.match(r"\d+\. ", linea)}
-    assert "evidencia" in numeradas.get("2", "") and "`descripcion`" in numeradas.get("2", ""), numeradas.get("2")
-    assert "evidencia.md" in numeradas.get("4", ""), numeradas.get("4")
-    assert "evidencia.md" in seccion_de(texto, "### M3."), "la propuesta muestra la entrada de evidencia.md"
+    assert problemas_de_la_evidencia(texto) == [], problemas_de_la_evidencia(texto)
+    for viejo, nuevo in (("**La fila, el destino y la evidencia parafrasean la regla.**", "**La fila y el destino parafrasean la regla.**"),
+                         (", la misma que mostró la propuesta,", ",")):
+        mutada = texto.replace(viejo, nuevo, 1)
+        assert mutada != texto and problemas_de_la_evidencia(mutada), "control positivo: %r → %r se detecta" % (viejo, nuevo)
 
 
 def problemas_de_la_correccion(texto):
