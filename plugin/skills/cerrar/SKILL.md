@@ -276,7 +276,7 @@ Después pedí un sí explícito. Si el usuario aprueba solo algunos, descarta o
 
 ### M4. Con el sí
 
-1. **Lo aprobado se escribe como en el paso 5:** la fila con su script, con `memoria:<slug>` como `origen` y sin hash; la regla en su destino, con su ID, su severidad y sus números; la evidencia en `.claude/reglas/evidencia.md`, la misma que mostró la propuesta, que cita el ID y dice que sale de la memoria `<slug>`, sin copiarla; y los dos chequeos de `matriz.py` por capa, con 0 fallas. Rigen las excepciones del paso 5: con destino `evidencia`, el ID aparece una sola vez en `evidencia.md`, y un `descarte` no lleva evidencia ni aparece en ningún destino.
+1. **Lo aprobado se escribe como en el paso 5:** la fila con su script, con `memoria:<slug>` como `origen` y sin hash; la regla en su destino, con su ID, su severidad y sus números; la evidencia en `.claude/reglas/evidencia.md`, la misma que mostró la propuesta, que cita el ID y dice que sale de la memoria `<slug>`, sin copiarla; y los dos chequeos de `matriz.py` por capa, con 0 fallas. Rigen las excepciones del paso 5: con destino `evidencia`, el ID aparece una sola vez en `evidencia.md`, y un `descarte` no lleva evidencia ni aparece en ningún destino. Si un chequeo de `matriz.py` pide corregir la fila, la regla o la evidencia, mostrá la corrección tal como va a quedar escrita y pedí el sí antes de escribirla.
 2. **El registro, solo de slugs de archivos y con el mismo `--memorias` de M1:**
 
    ```bash

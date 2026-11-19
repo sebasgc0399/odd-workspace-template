@@ -695,6 +695,14 @@ def zona_de_memorias(texto):
     return seccion_de(texto, "## 10.") + "\n" + seccion_de(texto, "## Modo memorias")
 
 
+def numeradas_de(seccion):
+    return {linea.split(".", 1)[0]: linea for linea in seccion.split("\n") if re.match(r"\d+\. ", linea)}
+
+
+def oraciones_de(linea):
+    return re.split(r"(?<=\.)\**\s+", re.sub(r"^\d+\. ", "", linea))
+
+
 def comandos_de_memorias(zona):
     comandos, en_bloque = [], False
     for linea in zona.split("\n"):
@@ -780,6 +788,20 @@ def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
     assert "evidencia" in numeradas.get("2", "") and "`descripcion`" in numeradas.get("2", ""), numeradas.get("2")
     assert "evidencia.md" in numeradas.get("4", ""), numeradas.get("4")
     assert "evidencia.md" in seccion_de(texto, "### M3."), "la propuesta muestra la entrada de evidencia.md"
+
+
+def problemas_de_la_correccion(texto):
+    paso = numeradas_de(seccion_de(texto, "### M4.")).get("1", "")
+    oracion = next((oracion for oracion in oraciones_de(paso) if "corregir" in oracion), "")
+    faltan = [palabra for palabra in ("`matriz.py`", "la fila", "la regla", "la evidencia", "mostrá", "pedí el sí") if palabra not in oracion]
+    return ["M4.1 no dice que la corrección que pide matriz.py se muestra antes del sí: falta %r" % palabra for palabra in faltan]
+
+
+def test_la_correccion_que_pide_matriz_py_se_muestra_y_espera_el_si():
+    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    assert problemas_de_la_correccion(texto) == [], problemas_de_la_correccion(texto)
+    sin_si = texto.replace("y pedí el sí antes de escribirla", "y escribila", 1)
+    assert sin_si != texto and problemas_de_la_correccion(sin_si), "control positivo: una corrección escrita sin el sí se detecta"
 
 
 def test_de_punta_a_punta_solo_un_origen_exacto_y_valido_gradua():
