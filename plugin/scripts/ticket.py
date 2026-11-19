@@ -1,18 +1,21 @@
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 import bootstrap
 import config_loader
 from odd_ws import capas
-from odd_ws.comun import id_valido, raiz_de_instancia
+from odd_ws.comun import entorno_git, id_valido, raiz_de_instancia
 
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
        "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
        "     ticket.py --activar <id> [--raiz <carpeta>]\n"
-       "     ticket.py --desactivar <id> [--raiz <carpeta>]")
-MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar"}
+       "     ticket.py --desactivar <id> [--raiz <carpeta>]\n"
+       "     ticket.py --cobertura [--raiz <carpeta>]")
+MODOS = {"--siguiente": "siguiente", "--activar": "activar", "--desactivar": "desactivar", "--cobertura": "cobertura"}
+COBERTURA_COMPLETA = "todo lo versionado en los repos tiene capa o es doc"
 SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasá el prefijo (ticket.py --siguiente <prefijo>) "
                f"o fijalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -160,6 +163,10 @@ def _argumentos(argv):
         if ensayo or len(posicionales) > 1:
             return None
         return "siguiente", (posicionales[0] if posicionales else None), raiz
+    if modo == "cobertura":
+        if ensayo or posicionales:
+            return None
+        return "cobertura", raiz
     if modo is not None:
         if ensayo or len(posicionales) != 1:
             return None
@@ -242,6 +249,32 @@ def _marcar(modo, id, texto_de_raiz):
     return 0
 
 
+def versionados(ruta):
+    try:
+        resultado = subprocess.run(["git", "-C", ruta, "ls-files", "-z"], capture_output=True, timeout=120, env=entorno_git())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if resultado.returncode != 0:
+        return None
+    return list(filter(None, resultado.stdout.decode("utf-8", "replace").split("\0")))
+
+
+def _cobertura(texto_de_raiz):
+    try:
+        raiz = _raiz(texto_de_raiz)
+        detalle = config_loader.cobertura_de_los_repos(config_loader.cargar(raiz), versionados)
+    except ErrorDeEntorno as error:
+        return _error(str(error), 2)
+    except Exception as error:
+        return _error(f"error interno: {type(error).__name__}: {error}", 2)
+    if detalle is None:
+        print(f"{config_loader.ID_COBERTURA}: {COBERTURA_COMPLETA}")
+    else:
+        print(f"aviso {config_loader.ID_COBERTURA}: {detalle}")
+        print(f"  cómo: {config_loader.AYUDA_COBERTURA}")
+    return 0
+
+
 def principal(argv):
     for flujo in (sys.stdout, sys.stderr):
         if hasattr(flujo, "reconfigure"):
@@ -252,6 +285,8 @@ def principal(argv):
         return 2
     if argumentos[0] == "siguiente":
         return _siguiente(*argumentos[1:])
+    if argumentos[0] == "cobertura":
+        return _cobertura(argumentos[1])
     if argumentos[0] in ("activar", "desactivar"):
         return _marcar(*argumentos)
     _, id, slug, texto_de_raiz, ensayo = argumentos

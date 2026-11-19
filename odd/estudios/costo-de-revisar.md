@@ -181,6 +181,8 @@ El tradeoff, sin vueltas: cada corrida de diseño que se quita ahorra un tercio 
 4. **¿«Sin capa» es un límite del instrumento (como una inválida) o un riesgo visto?** Propuesta: un límite; se arregla declarando la capa y, con O6, pide 2 corridas y no 3.
 5. **¿Cuántas revisiones medidas antes de decidir O6?** Propuesta: 10 `completo` con el mismo modelo, o el próximo ticket entero, lo que llegue primero.
 
+**Decidido el 2026-11-18.** El autor aprobó las cinco propuestas («si apruebo») sobre un cuadro que las resumía, y la 1 suma el ID de la regla de cada hallazgo, el requisito de I46. Pasan a R5, con su documento en [costo-de-revisar](../tasks/costo-de-revisar.md).
+
 ## Cómo se midió
 
 - **Costo:** las 35 corridas de `revisor-diseno` de la sesión de SM-1 (`agent-<id>.jsonl` y su `.meta.json`). Por mensaje del asistente, contado una vez por id: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` y `output_tokens`. Los tokens y minutos por corrida son los del aviso de fin de cada subagente en la transcripción principal (`subagent_tokens`, `duration_ms`).

@@ -1168,9 +1168,31 @@ def test_capas_cobertura_no_aplica_sin_repos_o_con_la_config_rota():
         assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].estado == "NO APLICA"
 
 
+def test_capas_cobertura_sale_igual_que_antes_con_la_ayuda_compartida():
+    import config_loader
+    with Escenario() as e:
+        archivos = {"a.sql": "x", "scripts/x.mjs": "x", "scripts/y.mjs": "x", "package.json": "{}", "Makefile": "x", "README.md": "x"}
+        archivos.update({"otros/a%d.e%d" % (n, n): "x" for n in range(8)})
+        raiz = instancia_con_repo_versionado(e, archivos)
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["capas-cobertura"]
+        assert r.detalle == ("extensiones versionadas sin capa: .mjs (2), (sin extensión) (1), .e0 (1), .e1 (1), .e2 (1), .e3 (1), "
+                             ".e4 (1), .e5 (1) y 3 más"), r.detalle
+        assert r.ayuda == config_loader.AYUDA_COBERTURA and r.comando is None and r.arreglo is None, r
+        resultados = d().diagnosticar(ctx)
+        sangria = " " * (max(len(x.id) for x in resultados) + 13)
+        salida = correr([], ctx)[1].splitlines()
+        linea = next(i for i, l in enumerate(salida) if l.startswith("capas-cobertura "))
+        assert salida[linea].split()[:2] == ["capas-cobertura", "AVISO"] and salida[linea].endswith(r.detalle), salida[linea]
+        assert salida[linea + 1] == sangria + "cómo: Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no " \
+            "puede clasificarlos. Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus " \
+            "extensions en workspace.config.json; si no, es esperado y el aviso queda.", salida[linea + 1]
+
+
 def test_las_extensiones_de_docs_del_doctor_son_las_del_triaje():
+    import config_loader
     import triaje
-    assert d().EXTENSIONES_DE_DOCS == triaje.DOC_EXT
+    assert config_loader.EXTENSIONES_DE_DOCS == triaje.DOC_EXT
 
 
 def test_instancia_eol_no_aplica_si_la_raiz_no_esta_en_un_repo_git():

@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -197,7 +198,7 @@ def test_rescatar_escribe_los_archivos_y_las_lecturas_traen_no_auditadas():
         assert (dest / "c1.md").read_bytes().decode("utf-8") == "Reporte con tildes: revisión ok."
         assert (dest / "c1.prompt.txt").read_text(encoding="utf-8") == "Revisa el cambio antes del commit."
         lecturas = leer_json(dest / "c1.lecturas.json")
-        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas"], list(lecturas)
+        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas", "costo"], list(lecturas)
         assert lecturas["agente"] == "abc" and lecturas["meta"] == META and lecturas["no_auditadas"] == {"Bash": 1}
         assert lecturas["lecturas"][0] == {"tool": "Read", "input": {"file_path": "C:\\x\\a.sql"}}
 
@@ -351,6 +352,651 @@ def test_cli_sin_linea_rota_no_escribe_nada_en_stderr():
         sub = base / "subagents"
         agente(sub, "abc", tipica())
         assert cli("--sesion", sub, "--destino", base / "d", "--corrida", "c=abc")[2] == ""
+
+
+def tokens(entrada, escrita, leida, salida):
+    return {"input_tokens": entrada, "cache_creation_input_tokens": escrita, "cache_read_input_tokens": leida,
+            "output_tokens": salida}
+
+
+def con_uso(id_, usado, ts, *bloques):
+    registro = asistente(*bloques)
+    registro["message"].update({"id": id_, "usage": usado})
+    registro["timestamp"] = ts
+    return registro
+
+
+def medida(reporte="r", handback=True, hora="10"):
+    lineas = [
+        dict(usuario("Revisa."), timestamp="2026-11-18T%s:00:00.000Z" % hora),
+        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T%s:00:05.000Z" % hora, {"type": "text", "text": "leo"}),
+        con_uso("m1", tokens(3, 40000, 0, 100), "2026-11-18T%s:00:05.100Z" % hora, uso("Read", {"file_path": "x"})),
+        dict(resultado_de("t_Read", "x"), timestamp="2026-11-18T%s:00:06.000Z" % hora),
+        con_uso("m2", tokens(2, 5000, 40000, 300), "2026-11-18T%s:02:06.000Z" % hora,
+                uso("SubagentHandback", {"message": reporte}) if handback else {"type": "text", "text": ""}),
+    ]
+    return lineas
+
+
+COSTO_MEDIDA = {"turnos": 2, "contexto_inicial": 40003, "contexto_final": 45002, "salida": 400, "cache_escrita": 45000,
+                "cache_leida": 40000, "inicio": "2026-11-18T10:00:00.000Z", "fin": "2026-11-18T10:02:06.000Z",
+                "pausa_mayor": 120.0}
+TRIAJE = {"modo": "completo", "motivos": ["señal capas: positiva", "señal consumidores: invalida"], "senales": {}}
+DIFF = ("diff --git a/x.sql b/x.sql\n--- a/x.sql\n+++ b/x.sql\n@@ -1,4 +1,4 @@\n contexto\n-viejo\n+nuevo\n"
+        "--- comentario quitado\n+++ linea agregada\n\\ No newline at end of file\n")
+DIFF_NUEVO = "diff --git a/dev/null b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n"
+
+
+def revision(base, carpeta="2026-11-18-completo", triaje=TRIAJE, diffs=None):
+    rev = base / "inst" / "tickets" / "T1-a" / "revision" / carpeta
+    (rev / "entrada").mkdir(parents=True)
+    if triaje is not None:
+        (rev / "entrada" / "triaje.json").write_text(json.dumps(triaje, ensure_ascii=False), encoding="utf-8")
+    for nombre, crudo in (diffs if diffs is not None else {"repo-a.diff": DIFF.encode("utf-8")}).items():
+        (rev / "entrada" / nombre).write_bytes(crudo)
+    return rev
+
+
+def test_las_lecturas_guardan_el_costo_de_la_corrida_contado_una_vez_por_mensaje():
+    with Temporal() as base:
+        sub, dest = base / "subagents", base / "corridas"
+        agente(sub, "a1", medida())
+        codigo, salida, error = cli("--sesion", sub, "--destino", dest, "--corrida", "c1=a1")
+        assert (codigo, salida, error) == (0, "ok   c1: 1 car., 1 lecturas, revisor-x/opus\n", ""), (codigo, salida, error)
+        lecturas = leer_json(dest / "c1.lecturas.json")
+        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas", "costo"], list(lecturas)
+        assert lecturas["costo"] == COSTO_MEDIDA, lecturas["costo"]
+        assert lecturas["lecturas"] == [{"tool": "Read", "input": {"file_path": "x"}}] and lecturas["no_auditadas"] == {}
+        assert sorted(p.name for p in dest.iterdir()) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt"]
+
+
+def test_las_lecturas_de_una_transcripcion_sin_uso_guardan_el_costo_en_null():
+    with Temporal() as base:
+        agente(base / "s", "a", tipica())
+        codigo, salida, _ = cli("--sesion", base / "s", "--destino", base / "d", "--corrida", "c=a")
+        assert codigo == 0 and salida.startswith("ok   c: 32 car., 3 lecturas"), (codigo, salida)
+        lecturas = leer_json(base / "d" / "c.lecturas.json")
+        assert lecturas["costo"] is None and lecturas["meta"] == META and len(lecturas["lecturas"]) == 3, lecturas
+
+
+def test_sin_costo_no_escribe_costo_json_aunque_el_destino_sea_una_revision():
+    with Temporal() as base:
+        rev = revision(base)
+        agente(base / "s", "a1", medida())
+        codigo, salida, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1")
+        assert (codigo, salida, error) == (0, "ok   c1: 1 car., 1 lecturas, revisor-x/opus\n", ""), (codigo, salida, error)
+        assert sorted(p.name for p in (rev / "corridas").iterdir()) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt"]
+
+
+def test_cli_costo_escribe_el_costo_de_la_revision():
+    with Temporal() as base:
+        rev = revision(base)
+        agente(base / "s", "a1", medida())
+        agente(base / "s", "a2", tipica(), meta={"agentType": "revisor-capa-a", "model": "sonnet"})
+        codigo, salida, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1",
+                                    "--corrida", "c2=agent-a2", "--costo")
+        assert codigo == 0 and error == SIN_PRINCIPAL % (base / "s.jsonl"), (codigo, error)
+        assert salida.splitlines() == [
+            "ok   c1: 1 car., 1 lecturas, revisor-x/opus",
+            "ok   c2: 32 car., 3 lecturas, revisor-capa-a/sonnet  (herramientas NO auditadas: Bash x1)  (comandos Bash/PowerShell: 1 en c2.comandos.json)",
+            "costo: 2 corrida(s) en %s (1 sin datos de uso)" % (rev / "corridas" / "costo.json")], salida
+        crudo = (rev / "corridas" / "costo.json").read_bytes()
+        assert b"\r\n" not in crudo and not crudo.startswith(b"\xef\xbb\xbf"), crudo[:80]
+        costo = json.loads(crudo.decode("utf-8"))
+        assert costo == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": "a1", "estado": "ok", "agentType": "revisor-x", "model": "opus", "costo": COSTO_MEDIDA},
+            {"corrida": "c2", "agente": "a2", "estado": "ok", "agentType": "revisor-capa-a", "model": "sonnet", "costo": None}],
+            "lineas_diff": 4, "orquestador": None, "en_serie": None}, costo
+        assert list(costo) == ["modo", "motivos", "corridas", "lineas_diff", "orquestador", "en_serie"], list(costo)
+
+
+def test_cli_costo_cuenta_las_lineas_agregadas_y_quitadas_de_todos_los_diffs():
+    with Temporal() as base:
+        utf16 = "﻿diff --git a/u.txt b/u.txt\n--- a/u.txt\n+++ b/u.txt\n@@ -1 +1 @@\n-x\n+y\n".encode("utf-16-le")
+        rev = revision(base, carpeta="2026-11-18-rapido-2", diffs={
+            "repo-a.diff": DIFF.encode("utf-8"), "repo-b.diff": DIFF_NUEVO.encode("utf-8"), "repo-c.diff": utf16,
+            "binario.diff": b"diff --git a/i.png b/i.png\nBinary files a/i.png and b/i.png differ\n", "notas.txt": b"+no\n"})
+        agente(base / "s", "a1", medida())
+        codigo, _, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
+        assert (codigo, error) == (0, SIN_PRINCIPAL % (base / "s.jsonl")), (codigo, error)
+        costo = leer_json(rev / "corridas" / "costo.json")
+        assert (costo["modo"], costo["lineas_diff"]) == ("rapido", 8), costo
+
+
+def test_cli_costo_suma_la_corrida_cortada_y_junta_los_rescates_por_agente():
+    with Temporal() as base:
+        rev = revision(base)
+        sub, dest = base / "s", rev / "corridas"
+        agente(sub, "a1", medida())
+        agente(sub, "a2", medida(handback=False))
+        codigo, salida, error = cli("--sesion", sub, "--destino", dest, "--corrida", "c1=a1", "--corrida", "c2=a2", "--costo")
+        assert codigo == 1 and error == SIN_PRINCIPAL % (base / "s.jsonl"), (codigo, error)
+        assert salida.splitlines()[1:] == ["FAIL c2: sin SubagentHandback (corrida cortada), 1 lecturas, no se escribio nada",
+                                           "costo: 2 corrida(s) en %s" % (dest / "costo.json")], salida
+        assert [(c["corrida"], c["agente"], c["estado"], c["costo"]) for c in leer_json(dest / "costo.json")["corridas"]] == [
+            ("c1", "a1", "ok", COSTO_MEDIDA), ("c2", "a2", "sin_reporte", COSTO_MEDIDA)]
+        assert not (dest / "c2.md").exists() and not (dest / "c2.lecturas.json").exists()
+        agente(sub, "a3", medida())
+        assert cli("--sesion", sub, "--destino", dest, "--corrida", "c2=a3", "--costo")[0] == 0
+        assert cli("--sesion", sub, "--destino", dest, "--corrida", "c1=a1", "--corrida", "c9=nada", "--costo")[0] == 1
+        assert [(c["corrida"], c["agente"], c["estado"]) for c in leer_json(dest / "costo.json")["corridas"]] == [
+            ("c1", "a1", "ok"), ("c2", "a2", "sin_reporte"), ("c2", "a3", "ok")]
+
+
+def test_cli_costo_sin_triaje_ni_diff_deja_null_y_lo_avisa():
+    with Temporal() as base:
+        rev = revision(base, triaje=None, diffs={})
+        agente(base / "s", "a1", medida())
+        codigo, _, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
+        assert codigo == 0, (codigo, error)
+        assert error.splitlines() == [
+            "aviso costo: no hay motivos en %s; quedan en null" % (rev / "entrada" / "triaje.json"),
+            "aviso costo: no hay diffs en %s; lineas_diff queda en null" % (rev / "entrada"),
+            (SIN_PRINCIPAL % (base / "s.jsonl")).rstrip("\n")], error
+        costo = leer_json(rev / "corridas" / "costo.json")
+        assert (costo["motivos"], costo["lineas_diff"], len(costo["corridas"])) == (None, None, 1), costo
+        for roto, previo in (("{no es json", "{roto"), (json.dumps({"modo": "rapido"}), json.dumps({"corridas": [{"agente": ["x"]}]})),
+                             (json.dumps({"motivos": "texto"}), json.dumps([1]))):
+            (rev / "entrada" / "triaje.json").write_text(roto, encoding="utf-8")
+            (rev / "corridas" / "costo.json").write_text(previo, encoding="utf-8")
+            codigo, _, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
+            assert codigo == 0 and error.splitlines()[0] == (
+                "aviso costo: %s no se pudo leer; se reescribe con las corridas de este rescate" % (rev / "corridas" / "costo.json")), error
+            assert "aviso costo: no hay motivos en" in error, error
+            assert leer_json(rev / "corridas" / "costo.json")["motivos"] is None
+
+
+def test_cli_costo_rechaza_un_destino_que_no_es_una_revision():
+    with Temporal() as base:
+        agente(base / "s", "a1", medida())
+        sombra = base / "inst" / "tickets" / "T1-a" / "revision" / "2026-11-18-sombra" / "corridas"
+        for dest in (base / "scratch" / "corridas", sombra, base / "scratch" / "2026-11-18-completo" / "corridas",
+                     base / "inst" / "tickets" / "T1-a" / "revision" / "2026-11-18-completo-1" / "corridas"):
+            codigo, salida, error = cli("--sesion", base / "s", "--destino", dest, "--corrida", "c1=a1", "--costo")
+            assert (codigo, salida, error) == (2, "rescatar: --costo espera --destino <ticket>/revision/<fecha>-<modo>[-<n>]/corridas, recibio %s\n" % dest, ""), (codigo, salida, error)
+            assert not dest.exists()
+
+
+def test_carpeta_de_revision_y_modos_son_los_de_recibo():
+    recibo = importlib.import_module("recibo")
+    assert m().CARPETA_RE.pattern == recibo.CARPETA_RE.pattern
+    assert m().MODOS == recibo.MODOS
+
+
+def escribir_costo(base, ticket, carpeta, corridas, lineas=40, modo=None, crudo=None):
+    ruta = base / "inst" / "tickets" / ticket / "revision" / carpeta / "corridas" / "costo.json"
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    datos = {"modo": modo or carpeta.split("-")[3], "motivos": [], "corridas": [
+        {"corrida": "c%d" % i, "agente": "a%d" % i, "estado": "ok", "agentType": "x", "model": "opus", "costo": c}
+        for i, c in enumerate(corridas)], "lineas_diff": lineas}
+    ruta.write_text(crudo if crudo is not None else json.dumps(datos), encoding="utf-8")
+    return ruta
+
+
+def medido(fin, turnos=2, final=45002, salida=400, escrita=45000, leida=40000):
+    return {"turnos": turnos, "contexto_inicial": 40003, "contexto_final": final, "salida": salida, "cache_escrita": escrita,
+            "cache_leida": leida, "inicio": "2026-11-18T08:00:00.000Z", "fin": fin, "pausa_mayor": 1.0}
+
+
+def test_cli_ultimo_costo_cita_la_revision_mas_nueva_del_ticket():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T1-a"
+        escribir_costo(base, "T1-a", "2026-11-17-completo", [medido("2026-11-17T23:00:00.000Z")])
+        escribir_costo(base, "T1-a", "2026-11-18-completo", [medido("2026-11-18T08:30:00.000Z")])
+        escribir_costo(base, "T1-a", "2026-11-18-rapido", [
+            medido("2026-11-18T09:00:00.000Z"), None,
+            medido("2026-11-18T09:01:00.000Z", turnos=4, final=55000, salida=600, escrita=15000, leida=160000)])
+        escribir_costo(base, "T1-a", "2026-11-19-sombra", [medido("2026-11-19T09:00:00.000Z")], modo="completo")
+        escribir_costo(base, "T1-a", "2026-11-20-completo", [None, None])
+        roto = escribir_costo(base, "T1-a", "2026-11-21-rapido", [], crudo="{roto")
+        escribir_costo(base, "T2-b", "2026-11-22-completo", [medido("2026-11-22T09:00:00.000Z")])
+        codigo, salida, error = cli("--ultimo-costo", ticket)
+        assert codigo == 0, (codigo, salida, error)
+        assert salida == ("último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-rapido: modo rapido, "
+                          "2 de 3 corrida(s) con datos de uso, 40 líneas de diff; por corrida, en promedio: 3 turnos, "
+                          "contexto final 50 001, salida 500, caché escrita 30 000 y caché leída 100 000 tokens\n"), repr(salida)
+        assert error == "aviso costo: se ignora %s (no es un costo.json legible)\n" % roto, repr(error)
+
+
+def test_cli_ultimo_costo_sin_costo_en_el_ticket_cita_el_de_la_instancia():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T3-c"
+        (ticket / "revision" / "2026-11-23-completo" / "corridas").mkdir(parents=True)
+        escribir_costo(base, "archivo/T1-a", "2026-11-17-completo", [medido("2026-11-17T09:00:00.000Z")], lineas=None)
+        escribir_costo(base, "T2-b", "2026-11-16-completo", [medido("2026-11-16T09:00:00.000Z")])
+        codigo, salida, error = cli("--ultimo-costo", ticket)
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == ("último costo medido, de la instancia (el ticket no tiene): tickets/archivo/T1-a/revision/"
+                          "2026-11-17-completo: modo completo, 1 corrida(s), líneas de diff sin medir; por corrida, en "
+                          "promedio: 2 turnos, contexto final 45 002, salida 400, caché escrita 45 000 y caché leída 40 000 tokens\n"), repr(salida)
+
+
+def test_cli_ultimo_costo_sin_ninguno_sale_con_1():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T1-a"
+        ticket.mkdir(parents=True)
+        escribir_costo(base, "T2-b", "2026-11-19-sombra", [medido("2026-11-19T09:00:00.000Z")], modo="completo")
+        assert cli("--ultimo-costo", ticket) == (1, "sin costo medido en el ticket ni en la instancia\n", "")
+        suelto = base / "suelto" / "T9-z"
+        suelto.mkdir(parents=True)
+        assert cli("--ultimo-costo", suelto) == (1, "sin costo medido en el ticket ni en la instancia\n", "")
+
+
+def test_cli_ultimo_costo_lee_lo_que_escribe_el_rescate():
+    with Temporal() as base:
+        rev = revision(base)
+        agente(base / "s", "a1", medida())
+        assert cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")[0] == 0
+        codigo, salida, error = cli("--ultimo-costo", base / "inst" / "tickets" / "T1-a")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida.startswith("último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, "
+                                 "1 corrida(s), 4 líneas de diff; por corrida, en promedio: 2 turnos, contexto final 45 002,"), salida
+
+
+def test_cli_ultimo_costo_es_un_uso_aparte():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T1-a"
+        ticket.mkdir(parents=True)
+        for extra in (("--sesion", base), ("--destino", base / "d"), ("--corrida", "c=a"), ("--costo",)):
+            assert cli("--ultimo-costo", ticket, *extra) == (
+                2, "rescatar: --ultimo-costo no se combina con --sesion, --destino, --corrida ni --costo\n", ""), extra
+        assert cli("--ultimo-costo", base / "nada") == (2, "rescatar: no existe la carpeta del ticket %s\n" % (base / "nada"), "")
+        assert not (base / "d").exists()
+
+
+def lanzado(id_, agente_, ts):
+    return {"type": "user", "timestamp": ts, "toolUseResult": {"agentId": agente_, "status": "async_launched"},
+            "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id_, "content": [
+                {"type": "text", "text": "Async agent launched successfully.\nagentId: %s" % agente_}]}]}}
+
+
+def bash(id_, comando):
+    return uso("Bash", {"command": comando}, id_)
+
+
+TRIAJE_DEL_ANUNCIO = 'python3 "/plugin/scripts/triaje.py" --ticket "T1-a" --repo "/repo#main"'
+TRIAJE_DE_LA_ENTRADA = TRIAJE_DEL_ANUNCIO + ' --json > "/inst/tickets/T1-a/revision/2026-11-18-completo/entrada/triaje.json"'
+RECIBO = 'python3 "/plugin/scripts/recibo.py" --write --ticket "T1-a" --repo "/repo#main" --modo completo'
+
+
+def principal(agentes=("a1", "a2"), triajes=(TRIAJE_DEL_ANUNCIO, TRIAJE_DE_LA_ENTRADA), recibo=False):
+    lineas = [
+        dict(usuario("Revisa el cambio."), timestamp="2026-11-18T09:50:00.000Z"),
+        con_uso("p0", tokens(5, 2000, 10000, 40), "2026-11-18T09:50:05.000Z", uso("Agent", {"prompt": "otra"}, "l0")),
+        lanzado("l0", "viejo", "2026-11-18T09:50:06.000Z"),
+    ]
+    for i, comando in enumerate(triajes):
+        lineas += [con_uso("p1-%d" % i, tokens(5, 1000, 12000, 60), "2026-11-18T09:5%d:00.000Z" % (5 + i),
+                           {"type": "text", "text": "triaje"}),
+                   con_uso("p1-%d" % i, tokens(4, 3000, 13000, 80), "2026-11-18T09:5%d:00.100Z" % (5 + i), bash("x%d" % i, comando)),
+                   dict(resultado_de("x%d" % i, "modo completo"), timestamp="2026-11-18T09:5%d:01.000Z" % (5 + i))]
+    lineas += [con_uso("p3", tokens(3, 2500, 16000, 900), "2026-11-18T10:00:00.000Z", uso("Agent", {"prompt": "r1"}, "l1")),
+               con_uso("p3", tokens(3, 2500, 16000, 900), "2026-11-18T10:00:00.100Z", uso("Agent", {"prompt": "r2"}, "l2"))]
+    lineas += [lanzado("l%d" % (i + 1), a, "2026-11-18T10:00:0%d.500Z" % (i + 1)) for i, a in enumerate(agentes)]
+    lineas += [con_uso("p4", tokens(2, 1500, 18500, 30), "2026-11-18T10:03:00.000Z", bash("x9", TRIAJE_DEL_ANUNCIO)),
+               dict(resultado_de("x9", "modo completo"), timestamp="2026-11-18T10:03:01.000Z"),
+               con_uso("p5", tokens(2, 600, 20000, 120), "2026-11-18T10:05:00.000Z", bash("r1", "python3 rescatar.py --costo"))]
+    if recibo:
+        lineas += [dict(resultado_de("r1", "ok"), timestamp="2026-11-18T10:05:02.000Z"),
+                   con_uso("p6", tokens(2, 400, 20600, 200), "2026-11-18T10:20:00.000Z", bash("w1", RECIBO)),
+                   dict(resultado_de("w1", "escrito"), timestamp="2026-11-18T10:20:01.000Z"),
+                   con_uso("p7", tokens(2, 300, 21000, 70), "2026-11-18T10:30:00.000Z", {"type": "text", "text": "listo"})]
+    return lineas
+
+
+ORQUESTADOR = {"turnos": 4, "contexto_inicial": 16004, "contexto_final": 20602, "salida": 1130, "cache_escrita": 7600,
+               "cache_leida": 67500, "inicio": "2026-11-18T09:56:00.100Z", "fin": "2026-11-18T10:05:00.000Z",
+               "pausa_mayor": 239.0, "contexto_dejado": 4598}
+SIN_PRINCIPAL = "aviso costo: no hay transcript de la sesion principal en %s; orquestador queda en null\n"
+
+
+def sesion_con_principal(base, lineas, corridas=(("a1", "10"), ("a2", "10"))):
+    sub = base / "proyecto" / "sesion-1" / "subagents"
+    for agente_, hora in corridas:
+        agente(sub, agente_, medida(hora=hora))
+    if lineas is not None:
+        (base / "proyecto" / "sesion-1.jsonl").write_bytes(
+            ("\n".join(json.dumps(l, ensure_ascii=False) for l in lineas) + "\n").encode("utf-8"))
+    return sub
+
+
+def rescate_con_costo(base, sesion, rev, *corridas):
+    return cli("--sesion", sesion, "--destino", rev / "corridas", *[x for c in corridas for x in ("--corrida", c)], "--costo")
+
+
+def test_cli_costo_mide_al_orquestador_desde_el_ultimo_triaje_y_una_vez_por_mensaje():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, principal())
+        for sesion in (sub, sub.parent):
+            codigo, salida, error = rescate_con_costo(base, sesion, rev, "c1=a1", "c2=a2")
+            assert (codigo, error) == (0, ""), (codigo, salida, error)
+            assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+            costo = leer_json(rev / "corridas" / "costo.json")
+            assert list(costo) == ["modo", "motivos", "corridas", "lineas_diff", "orquestador", "en_serie"], list(costo)
+            assert costo["orquestador"] == ORQUESTADOR, costo["orquestador"]
+            assert list(costo["orquestador"]) == list(ORQUESTADOR), list(costo["orquestador"])
+
+
+def test_cli_costo_corta_el_tramo_del_orquestador_en_el_recibo_de_la_ronda():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, principal(recibo=True))
+        codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert leer_json(rev / "corridas" / "costo.json")["orquestador"] == dict(
+            ORQUESTADOR, turnos=5, contexto_final=21002, salida=1330, cache_escrita=8000, cache_leida=88100,
+            fin="2026-11-18T10:20:00.000Z", pausa_mayor=898.0, contexto_dejado=4998)
+
+
+def test_cli_costo_sin_transcript_principal_deja_al_orquestador_en_null_y_lo_avisa():
+    with Temporal() as base:
+        rev = revision(base)
+        sub = sesion_con_principal(base, None)
+        codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+        assert codigo == 0, (codigo, salida, error)
+        assert error == SIN_PRINCIPAL % (base / "proyecto" / "sesion-1.jsonl"), repr(error)
+        assert leer_json(rev / "corridas" / "costo.json")["orquestador"] is None
+
+
+def test_cli_costo_sin_ancla_deja_al_orquestador_en_null_y_lo_avisa():
+    with Temporal() as base:
+        principal_ = base / "proyecto" / "sesion-1.jsonl"
+        casos = ((principal(triajes=()), "no hay un triaje.py antes del primer lanzamiento de las corridas en %s" % principal_),
+                 (principal(agentes=("otro", "otro2")), "no se encontro el lanzamiento de ninguna corrida en %s" % principal_),
+                 ([usuario("p"), asistente({"type": "text", "text": "sin uso"})],
+                  "no se encontro el lanzamiento de ninguna corrida en %s" % principal_),
+                 ([dict(l, message={k: v for k, v in l["message"].items() if k != "usage"}) for l in principal()],
+                  "el tramo de %s no tiene datos de uso" % principal_))
+        for i, (lineas, aviso) in enumerate(casos):
+            rev = revision(base, carpeta="2026-11-1%d-completo" % i)
+            sub = sesion_con_principal(base, lineas)
+            codigo, salida, error = rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2")
+            assert codigo == 0, (codigo, salida, error)
+            assert error == "aviso costo: %s; orquestador queda en null\n" % aviso, (i, error)
+            assert leer_json(rev / "corridas" / "costo.json")["orquestador"] is None
+
+
+def test_cli_costo_dice_si_las_corridas_de_la_ronda_corrieron_en_serie():
+    with Temporal() as base:
+        casos = (((("a1", "10"), ("a2", "10")), ("c1=a1", "c2=a2"), False),
+                 ((("a1", "10"), ("a2", "11")), ("c1=a1", "c2=a2"), True),
+                 ((("a1", "10"),), ("c1=a1",), None))
+        for i, (corridas, argumentos, esperado) in enumerate(casos):
+            rev = revision(base, carpeta="2026-11-1%d-completo" % i)
+            sub = sesion_con_principal(base / str(i), principal(), corridas=corridas)
+            assert rescate_con_costo(base, sub, rev, *argumentos)[0] == 0
+            assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is esperado, (i, esperado)
+        rev = revision(base, carpeta="2026-11-18-rapido")
+        sub = sesion_con_principal(base / "3", principal(), corridas=(("a1", "10"), ("a2", "11")))
+        agente(sub, "a3", tipica())
+        assert rescate_con_costo(base, sub, rev, "c1=a1", "c2=a2", "c3=a3")[0] == 0
+        assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is None, "una corrida sin tiempos no deja afirmar la serie"
+        agente(sub, "a4", medida(hora="10"))
+        assert rescate_con_costo(base, sub, rev, "c4=a4")[0] == 0
+        assert leer_json(rev / "corridas" / "costo.json")["en_serie"] is False, "la ronda junta los rescates de la carpeta"
+
+
+def test_cli_ultimo_costo_menciona_la_serie_solo_si_es_cierta():
+    with Temporal() as base:
+        ticket = base / "inst" / "tickets" / "T1-a"
+        linea = ("último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), "
+                 "40 líneas de diff; por corrida, en promedio: 2 turnos, contexto final 45 002, salida 400, caché escrita "
+                 "45 000 y caché leída 40 000 tokens")
+        ruta = escribir_costo(base, "T1-a", "2026-11-18-completo", [medido("2026-11-18T08:30:00.000Z")])
+        for en_serie, sufijo in ((True, "; las corridas corrieron en serie"), (False, ""), (None, ""), ("si", "")):
+            datos = leer_json(ruta)
+            datos["en_serie"] = en_serie
+            ruta.write_text(json.dumps(datos), encoding="utf-8")
+            assert cli("--ultimo-costo", ticket) == (0, linea + sufijo + "\n", ""), en_serie
+
+
+def test_cli_costo_sin_datos_nuevos_conserva_las_claves_y_el_anuncio():
+    with Temporal() as base:
+        rev = revision(base)
+        agente(base / "s", "a1", medida())
+        codigo, salida, error = cli("--sesion", base / "s", "--destino", rev / "corridas", "--corrida", "c1=a1", "--costo")
+        assert (codigo, salida) == (0, "ok   c1: 1 car., 1 lecturas, revisor-x/opus\ncosto: 1 corrida(s) en %s\n" % (
+            rev / "corridas" / "costo.json")), (codigo, salida)
+        assert error == SIN_PRINCIPAL % (base / "s.jsonl"), repr(error)
+        costo = leer_json(rev / "corridas" / "costo.json")
+        assert costo == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": "a1", "estado": "ok", "agentType": "revisor-x", "model": "opus", "costo": COSTO_MEDIDA}],
+            "lineas_diff": 4, "orquestador": None, "en_serie": None}, costo
+        assert leer_json(rev / "corridas" / "c1.lecturas.json")["costo"] == COSTO_MEDIDA
+        assert cli("--ultimo-costo", base / "inst" / "tickets" / "T1-a") == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), "
+            "4 líneas de diff; por corrida, en promedio: 2 turnos, contexto final 45 002, salida 400, caché escrita "
+            "45 000 y caché leída 40 000 tokens\n"), "")
+
+
+def test_cli_sin_sesion_ni_corrida_conserva_el_error_de_los_obligatorios():
+    with Temporal() as base:
+        codigo, salida, error = cli("--destino", base / "d")
+        assert (codigo, salida) == (2, ""), (codigo, salida)
+        assert error.splitlines()[-1] == "rescatar.py: error: the following arguments are required: --sesion, --corrida", error
+        codigo, salida, error = cli()
+        assert error.splitlines()[-1] == "rescatar.py: error: the following arguments are required: --sesion, --destino, --corrida", error
+
+
+def test_sin_host_el_rescate_de_claude_code_no_cambia():
+    with Temporal() as base:
+        vistos = []
+        for nombre, extra in (("sin", ()), ("con", ("--host", "claude-code"))):
+            raiz = base / nombre
+            rev = revision(raiz)
+            sub = sesion_con_principal(raiz, principal())
+            agente(sub, "a3", con_comandos())
+            codigo, salida, error = cli(*extra, "--sesion", sub, "--destino", rev / "corridas", "--corrida", "c1=a1",
+                                        "--corrida", "c3=agent-a3", "--corrida", "c4=nada", "--costo")
+            archivos = {p.name: p.read_bytes() for p in sorted((rev / "corridas").iterdir())}
+            vistos.append((codigo, salida.replace(str(raiz), "<raiz>"), error.replace(str(raiz), "<raiz>"), archivos))
+        assert vistos[0] == vistos[1], vistos
+        codigo, salida, error, archivos = vistos[0]
+        assert (codigo, error) == (1, ""), (codigo, error)
+        assert salida.splitlines() == [
+            "ok   c1: 1 car., 1 lecturas, revisor-x/opus",
+            "ok   c3: 1 car., 0 lecturas, revisor-x/opus  (herramientas NO auditadas: Bash x2, PowerShell x1)  (comandos Bash/PowerShell: 3 en c3.comandos.json)",
+            "FAIL c4: no existe agent-nada.jsonl en %s" % Path("<raiz>", "proyecto", "sesion-1", "subagents"),
+            "costo: 2 corrida(s) en %s (1 sin datos de uso)" % Path("<raiz>", "inst", "tickets", "T1-a", "revision",
+                                                                   "2026-11-18-completo", "corridas", "costo.json")], salida
+        assert sorted(archivos) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt", "c3.comandos.json", "c3.lecturas.json", "c3.md",
+                                    "c3.prompt.txt", "costo.json"], sorted(archivos)
+
+
+MODELO_PI = "proveedor/modelo-x"
+PROMPT_PI = "Revisá el diseño del ticket T1 antes del commit."
+INICIO_PI, FIN_PI = 1794996000250, 1794996270007
+USO_PI = {"input": 900, "output": 1200, "cacheRead": 50000, "cacheWrite": 8000, "reasoning": 300}
+COSTO_PI = {"turnos": 3, "contexto_inicial": None, "contexto_final": None, "salida": 1200, "cache_escrita": 8000,
+            "cache_leida": 50000, "inicio": "2026-11-18T10:00:00.250Z", "fin": "2026-11-18T10:04:30.007Z", "pausa_mayor": None}
+SIN_ORQUESTADOR_PI = "aviso costo: el costo del orquestador solo se mide en Claude Code; orquestador queda en null\n"
+
+
+def herramienta_pi(nombre, args, salida="", error=False, corriendo=False, llamada=None):
+    return {"kind": "tool", "callId": llamada or "c-" + nombre, "name": nombre, "args": args, "output": salida,
+            "running": corriendo, "isError": error}
+
+
+def hilo_pi():
+    return [{"kind": "text", "text": "voy a leer"}, herramienta_pi("read", {"path": "C:\\x\\a.sql"}, "contenido"),
+            {"kind": "thinking", "text": "pienso"}, herramienta_pi("grep", {"pattern": "foo", "path": "C:\\x"}),
+            herramienta_pi("find", {"pattern": "**/*.sql"}), {"kind": "note", "text": "retrying (1/3)"}]
+
+
+def tarea_pi(id_="t1", status="completed", resultado="Reporte de Pi.", items=None, dropped=0, uso=USO_PI, inicio=INICIO_PI,
+             fin=FIN_PI, agente_="revisor-diseno"):
+    tarea = {"id": id_, "agent": agente_, "mode": "background", "prompt": PROMPT_PI, "label": "Revisá el diseño",
+             "cwd": "C:\\inst", "parentSessionId": "s1", "status": status, "createdAt": INICIO_PI - 50, "startedAt": inicio,
+             "endedAt": fin, "model": MODELO_PI, "thinking": None, "sessionPath": None, "error": None, "result": resultado,
+             "lastStep": "responded", "lastActivityAt": FIN_PI, "turns": 3, "toolCalls": 3, "tokens": 60100, "cost": 0.42}
+    if uso is not None:
+        tarea["usage"] = uso
+    return {"task": tarea, "thread": {"items": hilo_pi() if items is None else items, "dropped": dropped, "version": 9,
+                                      "limits": {"maxItems": 400, "maxOutputChars": 16000}}}
+
+
+def guardar_tarea(home, datos):
+    carpeta = home / "gentle-agents" / "tasks"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / ("%s.json" % datos["task"]["id"])).write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    return carpeta
+
+
+def cli_pi(base, *args, entorno=None):
+    env = {k: v for k, v in os.environ.items() if k not in ("GENTLE_PI_AGENT_HOME", "PI_CODING_AGENT_DIR")}
+    env.update({"HOME": str(base / "casa"), "USERPROFILE": str(base / "casa")})
+    env.update(entorno if entorno is not None else {"GENTLE_PI_AGENT_HOME": str(base / "agente")})
+    r = subprocess.run([sys.executable, "-W", "error", str(SCRIPT), "--host", "pi", *map(str, args)], capture_output=True, env=env)
+    return r.returncode, r.stdout.decode("utf-8").replace("\r\n", "\n"), r.stderr.decode("utf-8").replace("\r\n", "\n")
+
+
+def test_pi_un_reporte_de_30_kb_llega_entero_con_su_prompt_y_sus_lecturas():
+    with Temporal() as base:
+        reporte = "".join("[WARNING] sin ID a.sql:%d — revisión número %d\n" % (i, i) for i in range(700))
+        assert len(reporte.encode("utf-8")) > 30000, len(reporte.encode("utf-8"))
+        guardar_tarea(base / "agente", tarea_pi(resultado=reporte))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "revisor-diseno-r1=t1")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == "ok   revisor-diseno-r1: %d car., 3 lecturas, revisor-diseno/%s\n" % (len(reporte), MODELO_PI), repr(salida)
+        assert (base / "d" / "revisor-diseno-r1.md").read_bytes() == reporte.encode("utf-8")
+        assert (base / "d" / "revisor-diseno-r1.prompt.txt").read_text(encoding="utf-8") == PROMPT_PI
+        lecturas = leer_json(base / "d" / "revisor-diseno-r1.lecturas.json")
+        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas", "costo"], list(lecturas)
+        assert (lecturas["agente"], lecturas["meta"]) == ("t1", {"agentType": "revisor-diseno", "model": MODELO_PI}), lecturas
+        assert lecturas["lecturas"] == [{"tool": "read", "input": {"path": "C:\\x\\a.sql"}},
+                                        {"tool": "grep", "input": {"pattern": "foo", "path": "C:\\x"}},
+                                        {"tool": "find", "input": {"pattern": "**/*.sql"}}], lecturas["lecturas"]
+        assert lecturas["no_auditadas"] == {} and lecturas["costo"] == COSTO_PI, lecturas
+        assert sorted(p.name for p in (base / "d").iterdir()) == [
+            "revisor-diseno-r1.lecturas.json", "revisor-diseno-r1.md", "revisor-diseno-r1.prompt.txt"]
+
+
+def test_pi_una_tarea_que_no_termino_bien_da_sin_reporte_y_no_escribe_nada():
+    with Temporal() as base:
+        casos = (("failed", None), ("cancelled", None), ("timed_out", None), ("running", None), ("queued", None),
+                 ("completed", None), ("completed", ""), ("failed", "texto parcial"))
+        for i, (status, resultado) in enumerate(casos):
+            guardar_tarea(base / "agente", tarea_pi(id_="t%d" % i, status=status, resultado=resultado))
+            codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c=t%d" % i)
+            assert (codigo, error) == (1, ""), (status, codigo, error)
+            assert salida == ("FAIL c: tarea t%d en estado %s, sin reporte (corrida cortada), 3 lecturas, no se escribio nada\n"
+                              % (i, status)), repr(salida)
+        assert not (base / "d").exists()
+
+
+def test_pi_las_herramientas_que_no_son_lecturas_van_a_no_auditadas_y_los_comandos_se_guardan():
+    with Temporal() as base:
+        items = hilo_pi() + [herramienta_pi("edit", {"path": "a.sql", "edits": []}),
+                             herramienta_pi("bash", {"command": "ls"}, "a.sql\n"),
+                             herramienta_pi("bash", {"command": "git status"}, "fatal: no es un repo", error=True, llamada="c2"),
+                             herramienta_pi("powershell", {"command": "sleep 9"}, corriendo=True), herramienta_pi("ls", {"path": "."})]
+        guardar_tarea(base / "agente", tarea_pi(items=items))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1")
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == ("ok   c1: 14 car., 3 lecturas, revisor-diseno/%s  (herramientas NO auditadas: bash x2, edit x1, ls x1, "
+                          "powershell x1)  (comandos Bash/PowerShell: 3 en c1.comandos.json)\n" % MODELO_PI), repr(salida)
+        assert leer_json(base / "d" / "c1.lecturas.json")["no_auditadas"] == {"edit": 1, "bash": 2, "powershell": 1, "ls": 1}
+        assert leer_json(base / "d" / "c1.comandos.json") == {"agente": "t1", "meta": {"agentType": "revisor-diseno", "model": MODELO_PI},
+                                                             "comandos": [
+            {"tool": "bash", "comando": "ls", "exit": 0, "error": None, "salida": "a.sql\n"},
+            {"tool": "bash", "comando": "git status", "exit": 1, "error": "fatal: no es un repo", "salida": "fatal: no es un repo"},
+            {"tool": "powershell", "comando": "sleep 9", "exit": None, "error": None, "salida": None}]}
+
+
+def test_pi_un_hilo_con_elementos_descartados_da_un_aviso():
+    with Temporal() as base:
+        guardar_tarea(base / "agente", tarea_pi(dropped=7))
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", status="failed", resultado=None, dropped=1))
+        guardar_tarea(base / "agente", tarea_pi(id_="t3"))
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1", "--corrida", "c2=t2", "--corrida", "c3=t3")
+        assert codigo == 1 and salida.startswith("ok   c1: 14 car., 3 lecturas"), (codigo, salida)
+        aviso = ("aviso %s: gentle-shell descarto %d elemento(s) del hilo de la tarea %s (dropped): las lecturas y las "
+                 "herramientas pueden estar incompletas")
+        assert error.splitlines() == [aviso % ("c1", 7, "t1"), aviso % ("c2", 1, "t2")], error
+
+
+def test_pi_el_home_de_los_agentes_sigue_la_precedencia_del_entorno_y_sesion_lo_reemplaza():
+    with Temporal() as base:
+        for carpeta in ("g", "p", "casa/.pi/agent", "casa/otro"):
+            guardar_tarea(base / carpeta, tarea_pi(resultado="desde " + carpeta))
+        casos = (({"GENTLE_PI_AGENT_HOME": str(base / "g"), "PI_CODING_AGENT_DIR": str(base / "p")}, "g"),
+                 ({"GENTLE_PI_AGENT_HOME": "", "PI_CODING_AGENT_DIR": str(base / "p")}, "p"),
+                 ({"PI_CODING_AGENT_DIR": "~/otro"}, "casa/otro"),
+                 ({}, "casa/.pi/agent"))
+        for i, (entorno, carpeta) in enumerate(casos):
+            destino = base / ("d%d" % i)
+            codigo, salida, error = cli_pi(base, "--destino", destino, "--corrida", "c=t1", entorno=entorno)
+            assert (codigo, error) == (0, ""), (entorno, codigo, salida, error)
+            assert (destino / "c.md").read_text(encoding="utf-8") == "desde " + carpeta, (entorno, carpeta)
+        for i, sesion in enumerate((base / "p", base / "p" / "gentle-agents" / "tasks")):
+            destino = base / ("s%d" % i)
+            assert cli_pi(base, "--sesion", sesion, "--destino", destino, "--corrida", "c=t1")[0] == 0, sesion
+            assert (destino / "c.md").read_text(encoding="utf-8") == "desde p", sesion
+
+
+def test_pi_una_tarea_que_no_existe_o_no_se_lee_es_un_fail_y_sin_carpeta_o_con_un_id_raro_sale_con_2():
+    with Temporal() as base:
+        tareas = guardar_tarea(base / "agente", tarea_pi())
+        (tareas / "roto.json").write_text("{roto", encoding="utf-8")
+        (tareas / "ajeno.json").write_text(json.dumps({"task": {"id": 1}}), encoding="utf-8")
+        codigo, salida, error = cli_pi(base, "--destino", base / "d", "--corrida", "c1=t1", "--corrida", "c2=nada",
+                                       "--corrida", "c3=roto", "--corrida", "c4=ajeno")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        assert salida.splitlines() == [
+            "ok   c1: 14 car., 3 lecturas, revisor-diseno/%s" % MODELO_PI,
+            "FAIL c2: no existe nada.json en %s" % tareas,
+            "FAIL c3: roto.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada",
+            "FAIL c4: ajeno.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada"], salida
+        assert sorted(p.name for p in (base / "d").iterdir()) == ["c1.lecturas.json", "c1.md", "c1.prompt.txt"]
+        vacio = base / "vacio"
+        assert cli_pi(base, "--destino", base / "d2", "--corrida", "c=t1", entorno={"GENTLE_PI_AGENT_HOME": str(vacio)}) == (
+            2, "rescatar: no existe la carpeta de tareas de gentle-shell %s\n" % (vacio / "gentle-agents" / "tasks"), "")
+        for corrida in ("c=../t1", "c=t1.json", "c=a b", "c=", "sin-igual"):
+            assert cli_pi(base, "--destino", base / "d3", "--corrida", corrida) == (
+                2, "rescatar: --corrida espera <nombre>=<task_id>, recibio %r\n" % corrida, ""), corrida
+        assert not (base / "d2").exists() and not (base / "d3").exists()
+        codigo, salida, error = cli_pi(base)
+        assert (codigo, salida) == (2, "") and error.splitlines()[-1] == (
+            "rescatar.py: error: the following arguments are required: --destino, --corrida"), error
+
+
+def test_pi_costo_escribe_el_costo_de_la_revision_sin_orquestador_y_el_anuncio_no_inventa_lo_que_falta():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_tarea(base / "agente", tarea_pi())
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", agente_="revisor-capa-a", uso=None, inicio=1794996300000, fin=1794996360999))
+        codigo, salida, error = cli_pi(base, "--destino", rev / "corridas", "--corrida", "c1=t1", "--corrida", "c2=t2", "--costo")
+        assert (codigo, error) == (0, SIN_ORQUESTADOR_PI), (codigo, salida, error)
+        assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+        segunda = dict(COSTO_PI, salida=None, cache_escrita=None, cache_leida=None, inicio="2026-11-18T10:05:00.000Z",
+                       fin="2026-11-18T10:06:00.999Z")
+        assert leer_json(rev / "corridas" / "costo.json") == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": "t1", "estado": "ok", "agentType": "revisor-diseno", "model": MODELO_PI, "costo": COSTO_PI},
+            {"corrida": "c2", "agente": "t2", "estado": "ok", "agentType": "revisor-capa-a", "model": MODELO_PI, "costo": segunda}],
+            "lineas_diff": 4, "orquestador": None, "en_serie": True}
+        assert leer_json(rev / "corridas" / "c1.lecturas.json")["costo"] == COSTO_PI
+        assert cli("--ultimo-costo", base / "inst" / "tickets" / "T1-a") == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 2 corrida(s), 4 líneas "
+            "de diff; por corrida, en promedio: 3 turnos, contexto final sin medir, salida 1 200, caché escrita 8 000 y caché "
+            "leída 50 000 tokens; las corridas corrieron en serie\n"), "")
+
+
+OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+
+
+def test_los_rescates_que_da_la_skill_revisar_usan_opciones_que_existen_y_traen_el_de_pi():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    lineas = [l.split("rescatar.py", 1)[1] for l in texto.split("\n") if "rescatar.py\"" in l and "--destino" in l]
+    assert len(lineas) == 2, lineas
+    opciones = {o for accion in m()._parser()._actions for o in accion.option_strings}
+    for linea in lineas:
+        assert set(OPCION_RE.findall(linea)) <= opciones, (linea, set(OPCION_RE.findall(linea)) - opciones)
+    assert any("--host pi" in l and "--sesion" not in l and "<task_id>" in l for l in lineas), lineas
+    assert any("--host" not in l and "--sesion" in l and "<agentId>" in l for l in lineas), lineas
+    for frase in ("subagent_run", "background", "task_id", "subagent_result", "16 KB"):
+        assert frase in texto, frase
 
 
 def main():

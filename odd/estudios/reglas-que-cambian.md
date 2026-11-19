@@ -1,7 +1,7 @@
 # I22: las reglas que cambian
 
 > Borrador de estudio para que el autor decida. No trae cambios de código. Base: odd-ws 0.9.0 (`0400cf8`).
-> La idea está en `odd/roadmap.md:57`.
+> La idea está en `odd/roadmap.md:56`.
 
 Lo planteaste así: «hoy dicen algo y entra en el chequeo pero meses despues lo cambian [...] pueden
 superponer los chequeos». Y pediste analizarlo con rigor antes de implementar nada.
@@ -156,7 +156,8 @@ Orden de pasos:
 5. **O4 para memorias.** El aviso «graduada y cambiada» en `memorias.py` y en la línea de `cerrar` que
    cuenta las memorias sin triar.
 6. **Con un caso real:** O5 (`--desde`), y que los hallazgos de los revisores citen el ID de la regla. Esto
-   último puede ir con I17, que ya trata la calidad de la revisión (`odd/roadmap.md:52`).
+   último puede ir con I17, que ya trata la calidad de la revisión (`odd/roadmap.md:51`), y es el requisito de I46, las
+   métricas de fricción por regla.
 
 Mientras el paso 1 no exista, el caso real del proyecto de origen (una fila editada en su lugar) puede
 repetirse en cualquier instancia.
@@ -174,3 +175,7 @@ repetirse en cualquier instancia.
    conserva bajo «Retiradas».
 5. **Si una regla vigente y el hermano vigente se contradicen, ¿cuál gana?** Propuesta: la regla. El hermano
    que la contradice deja de ser molde y se anota en el Paso 0. Se decide junto con I21.
+6. **¿El doctor avisa cuando una capa crece demasiado?** Propuesta: sí, con un aviso y no una falla, cuando
+   una capa pasa de cierto número de reglas vivas en la matriz; el umbral se fija con la primera capa real
+   que lo roce. Viene de una revisión externa del 2026-11-18: la carga ya es por capa, porque solo el revisor
+   y el writer de una capa tocada leen su skill, pero nada le pone tope a una capa.

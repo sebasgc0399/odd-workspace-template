@@ -703,6 +703,88 @@ def test_un_repo_fuera_del_config_no_tiene_capa():
         assert r["repos"][0]["archivos"][0]["capa"] is None and nivel(r, "capas") == "positiva"
 
 
+def aviso_de_cobertura(detalle_):
+    import config_loader
+    return {"id": "capas-cobertura", "detalle": detalle_, "ayuda": config_loader.AYUDA_COBERTURA}
+
+
+def test_sin_capa_tiene_clave_propia_cuando_es_el_unico_motivo_de_capas():
+    with Mundo() as w:
+        escribir(w.web, {"appsettings.json": "{}\n", "Makefile": "x\n", "Data/README.md": "nota\n"})
+        r = w.analizar(repos=[w.web])
+        assert r["modo"] == "completo" and r["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"], r["motivos"]
+        assert r["sin_capa"] == {"archivos": ["Makefile", "appsettings.json"], "unico_motivo_de_capas": True,
+                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: (sin extensión) (1), .json (1)")}, r["sin_capa"]
+
+
+def test_sin_capa_junto_a_mas_de_una_capa_no_es_el_unico_motivo_y_sin_ella_la_clave_es_nula():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        escribir(w.web, {CS_SVC: "class Servicio { int y; }\n"})
+        solo_capas = w.analizar(repos=[w.db, w.web])
+        assert nivel(solo_capas, "capas") == "positiva" and solo_capas["sin_capa"] is None, solo_capas["sin_capa"]
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        r = w.analizar(repos=[w.db, w.web])
+        assert r["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"], r["motivos"]
+        assert r["sin_capa"] == {"archivos": ["appsettings.json"], "unico_motivo_de_capas": False,
+                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)")}, r["sin_capa"]
+    with Mundo() as w:
+        assert w.analizar()["sin_capa"] is None, "sin cambios"
+        escribir(w.db, {"README.md": "# db\nnota\n"})
+        assert w.analizar()["sin_capa"] is None, "modo 0"
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        r = w.analizar()
+        assert r["modo"] == "rapido" and r["sin_capa"] is None, r["sin_capa"]
+
+
+def test_sin_capa_cuenta_los_archivos_del_taller():
+    with Mundo() as w:
+        nota = w.raiz / "tickets" / "T-1-x" / "SQL" / "carga.csv"
+        escribir(w.raiz, {"tickets/T-1-x/SQL/carga.csv": "a;b\n"})
+        r = w.analizar(repos=[], taller=[nota])
+        assert r["sin_capa"]["archivos"] == ["carga.csv"] and r["sin_capa"]["unico_motivo_de_capas"] is True, r["sin_capa"]
+        assert r["sin_capa"]["aviso"]["detalle"] == "extensiones sin capa en el cambio: .csv (1)", r["sin_capa"]
+
+
+def test_el_aviso_de_cobertura_sale_en_el_texto_despues_de_los_motivos_y_en_el_json():
+    import config_loader
+    with Mundo() as w:
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        args = ["--repo", str(w.web), "--raiz", str(w.raiz)]
+        codigo, salida, error = correr(args)
+        assert codigo == 0 and error == "", error
+        assert salida.splitlines()[:6] == [
+            "triaje — modo: COMPLETO",
+            "  señal consumidores: invalida",
+            "  señal capas: positiva",
+            "aviso capas-cobertura: extensiones sin capa en el cambio: .json (1)",
+            "  cómo: " + config_loader.AYUDA_COBERTURA,
+            "instancia: %s" % w.raiz,
+        ], salida
+        assert salida.count("capas-cobertura") == 1, salida
+        codigo, salida, error = correr(args + ["--json"])
+        assert codigo == 0 and error == "", error
+        datos = json.loads(salida)
+        assert datos["sin_capa"]["aviso"] == aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)"), datos["sin_capa"]
+        assert datos["modo"] == "completo" and datos["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"]
+
+
+def test_sin_archivos_sin_capa_el_texto_y_el_json_salen_como_antes():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        args = ["--repo", str(w.db), "--raiz", str(w.raiz)]
+        codigo, salida, error = correr(args)
+        assert codigo == 0 and error == "", error
+        lineas_ = salida.splitlines()
+        assert lineas_[:3] == ["triaje — modo: RAPIDO", "  todas las señales en negativo y el instrumento verificado",
+                               "instancia: %s" % w.raiz], lineas_[:3]
+        assert "capas-cobertura" not in salida and "cómo:" not in salida, salida
+        codigo, salida, error = correr(args + ["--json"])
+        datos = json.loads(salida)
+        assert list(datos) == ["raiz", "origin_head", "repos", "taller", "senales", "modo", "motivos", "sin_capa", "no_detectable"], list(datos)
+        assert datos["sin_capa"] is None
+
+
 # ---------------------------------------------------------------- entrada: sin trackear, índice, base
 
 def test_incluye_archivos_sin_trackear_sin_tocar_el_indice():
@@ -1118,7 +1200,49 @@ def test_ticket_que_no_existe_es_error_de_uso():
         assert codigo == 2 and salida == "" and "la carpeta del ticket no existe" in error and "no-existe" in error, (codigo, salida, error)
 
 
-PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
+# ---------------------------------------------------------------- la bajada de un escalón en recibo.py (I34)
+
+def bajar_con_el_triaje_real(w, ticket, fecha, repos, archivos):
+    argv = ["--raiz", str(w.raiz), "--ticket", str(ticket), "--json"]
+    for repo in repos:
+        argv += ["--repo", str(repo)]
+    codigo, salida, error = correr(argv)
+    assert codigo == 0 and json.loads(salida)["modo"] == "completo", (codigo, error)
+    entrada = ticket / "revision" / ("%s-rapido" % fecha) / "entrada"
+    entrada.mkdir(parents=True)
+    (entrada / "triaje.json").write_text(salida, encoding="utf-8")
+    argv = ["--write", "--ticket", str(ticket), "--modo", "rapido", "--fecha", fecha, "--bajada", "un json sin capa", "--va-a-lider", "no"]
+    for repo in repos:
+        argv += ["--repo", str(repo)]
+    for archivo in archivos:
+        argv += ["--archivo", str(archivo)]
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        try:
+            codigo = M.recibo.main(argv)
+        except SystemExit as exc:
+            codigo = exc.code if isinstance(exc.code, int) else 2
+    return codigo, salida.getvalue(), error.getvalue()
+
+
+def test_la_bajada_de_recibo_lee_el_json_que_guarda_el_triaje():
+    with Mundo() as w:
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-18", [w.web], [w.web / "appsettings.json"])
+        assert codigo == 0 and "bajado de completo a rapido" in salida, (codigo, salida, error)
+        recibo = json.loads((ticket / "revision" / "2026-11-18-rapido" / "recibo.json").read_text(encoding="utf-8"))
+        assert recibo["bajada"] == {"de": "completo", "a": "rapido", "motivo": "un json sin capa", "va_a_lider": False}, recibo
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        escribir(w.web, {CS_SVC: "class Servicio { int y; }\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-19", [w.db, w.web],
+                                                         [w.db / SQL_ALFA, w.web / CS_SVC, w.web / "appsettings.json"])
+        assert codigo == 2 and salida == "" and "senal capas: positiva" in error, (codigo, salida, error)
+        assert not (ticket / "revision" / "2026-11-19-rapido" / "recibo.json").exists()
+
+
+PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 
 def main():

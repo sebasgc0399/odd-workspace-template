@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -1218,6 +1219,286 @@ def test_previo_y_derivado_con_check_o_sellar_son_error_de_uso():
                 codigo, salida, error = correr(modo + extra)
                 assert codigo == 2 and salida == "" and extra[0] in error, (modo, extra, codigo, salida, error)
         assert recibo.read_bytes() == crudo
+
+
+SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+ID_LITERAL_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[0-9]{2,}\b")
+FORMATO_CON_ID = "[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar"
+RENDIMIENTO = ("Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · "
+               "CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente")
+DESTINO = "destino: corregidos <c>, derivados <d>, descartados <e>"
+
+
+def seccion_de(texto, titulo):
+    nivel = len(titulo) - len(titulo.lstrip("#"))
+    partes, dentro, en_bloque = [], False, False
+    for linea in texto.split("\n"):
+        if linea.lstrip().startswith("```"):
+            en_bloque = not en_bloque
+        elif not en_bloque and linea.startswith("#"):
+            if dentro and len(linea) - len(linea.lstrip("#")) <= nivel:
+                break
+            dentro = dentro or linea.startswith(titulo)
+        if dentro:
+            partes.append(linea)
+    assert partes, "la skill no tiene la sección %r" % titulo
+    return "\n".join(partes)
+
+
+def bloques_de_codigo(texto):
+    bloques, actual = [], None
+    for linea in texto.split("\n"):
+        if linea.lstrip().startswith("```"):
+            if actual is None:
+                actual = []
+            else:
+                bloques.append("\n".join(actual))
+                actual = None
+        elif actual is not None:
+            actual.append(linea.strip())
+    return bloques
+
+
+def test_el_prompt_de_revisar_pide_el_id_de_la_regla_sin_un_id_literal():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    prompts = [b for b in bloques_de_codigo(seccion_de(texto, "## 4.")) if b.startswith("Revisá ")]
+    assert len(prompts) == 1, prompts
+    prompt = prompts[0]
+    assert FORMATO_CON_ID in prompt and "sin ID" in prompt, prompt
+    literal = ID_LITERAL_RE.search(prompt)
+    assert literal is None, "el prompt nombra un ID literal: %s" % (literal and literal.group(0))
+    assert ID_LITERAL_RE.search(prompt.replace("<ID de la regla | sin ID>", "SQL-01")), "control positivo: un ID literal se detecta"
+    consolidacion = seccion_de(texto, "## 7.")
+    assert "unidos por ubicación y regla" in consolidacion and "con ID, la regla es su ID" in consolidacion, consolidacion
+
+
+def test_la_consolidacion_abre_con_el_rendimiento_y_el_recibo_completa_su_destino():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    consolidacion = seccion_de(texto, "## 7.")
+    assert RENDIMIENTO in bloques_de_codigo(consolidacion), bloques_de_codigo(consolidacion)
+    assert "solo en `completo`" in consolidacion and "primera línea de `consolidado.md`" in consolidacion, consolidacion
+    recibo = seccion_de(texto, "## 8.")
+    assert DESTINO in recibo and "`con-hallazgos` o `limpio`" in recibo, recibo
+
+
+OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+
+
+def opciones_de_recibo_en(texto):
+    nombradas = set()
+    for bloque in bloques_de_codigo(texto):
+        for linea in bloque.split("\n"):
+            if "recibo.py" in linea:
+                nombradas |= set(OPCION_RE.findall(linea.split("recibo.py", 1)[1]))
+    return nombradas
+
+
+def test_las_opciones_de_recibo_que_da_la_skill_revisar_existen_y_traen_la_bajada():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    opciones = {o for accion in M._parser()._actions for o in accion.option_strings}
+    nombradas = opciones_de_recibo_en(texto)
+    assert nombradas <= opciones, "la skill da opciones que recibo.py no tiene: %s" % sorted(nombradas - opciones)
+    paso_8 = opciones_de_recibo_en(seccion_de(texto, "## 8."))
+    assert {"--write", "--check", "--bajada", "--va-a-lider"} <= paso_8, sorted(paso_8)
+    mutada = opciones_de_recibo_en(texto.replace("--va-a-lider", "--va-al-lider", 1))
+    assert mutada - opciones == {"--va-al-lider"}, "control positivo: una opción que no existe se detecta"
+
+
+LIMITE_DE_CONCURRENCIA = ("**Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.**",
+                          "«agent thread limit reached»", "`agents.max_threads`", "`max_concurrent_threads_per_session - 1`",
+                          "5 corridas o más", "en todos los hosts")
+PASOS_DE_LA_TANDA = ("esperá a que termine una corrida en marcha", "cerrala", "`close_agent`", "relanzá la rechazada",
+                     "la revisión va por tandas")
+
+
+def test_revisar_relanza_por_tandas_lo_que_el_host_rechaza_por_su_limite_de_concurrencia():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    corridas, rescate = seccion_de(texto, "## 4."), seccion_de(texto, "## 6.")
+    for frase in LIMITE_DE_CONCURRENCIA + PASOS_DE_LA_TANDA:
+        assert frase in corridas, (frase, corridas)
+    posiciones = [corridas.index(paso) for paso in PASOS_DE_LA_TANDA]
+    assert posiciones == sorted(posiciones), "los pasos de la tanda van en orden: %s" % posiciones
+    assert "límite de concurrencia" in rescate and "no es una corrida cortada" in rescate, rescate
+
+
+SENALES_DEL_TRIAJE = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
+CLAVES_DEL_REPO = ["ruta", "base", "archivos", "sha256", "sha256_por_archivo", "modo", "reviewers", "verificacion", "estado"]
+
+
+def triaje_con(modo="completo", positivas=("capas",), invalidas=("consumidores",), sin_capa=True, unico=True):
+    senales = {s: {"nivel": "positiva" if s in positivas else "invalida" if s in invalidas else "negativa", "detalle": []}
+               for s in SENALES_DEL_TRIAJE}
+    motivos = ["señal %s: %s" % (s, senales[s]["nivel"]) for s in SENALES_DEL_TRIAJE if senales[s]["nivel"] != "negativa"]
+    aviso = {"id": "capas-cobertura", "detalle": "extensiones sin capa en el cambio: .txt (1)", "ayuda": "declara la capa"}
+    return {"senales": senales, "modo": modo, "motivos": motivos,
+            "sin_capa": {"archivos": ["c.txt"], "unico_motivo_de_capas": unico, "aviso": aviso} if sin_capa else None}
+
+
+def guardar_triaje(carpeta, datos, codificacion="utf-8"):
+    entrada = Path(carpeta) / "entrada"
+    entrada.mkdir(parents=True, exist_ok=True)
+    texto = datos if isinstance(datos, str) else json.dumps(datos, ensure_ascii=False, indent=2)
+    (entrada / "triaje.json").write_bytes(texto.encode(codificacion))
+
+
+def bajar(motivo="solo c.txt sin capa", lider="no"):
+    return ["--bajada", motivo, "--va-a-lider", lider]
+
+
+def unidad_bajada(t, nombre="T-30-b"):
+    repo, base = repo_con_principal(t, ARCHIVOS)
+    escribir(repo, {"a.sql": "linea 1\nCAMBIO\nlinea 3\n", "c.txt": "ajeno cambiado\n"})
+    ticket = Path(t) / nombre
+    ticket.mkdir()
+    return repo, base, ticket, ticket / "revision" / "2026-10-21-rapido"
+
+
+def recibos_de(ticket):
+    revision = Path(ticket) / "revision"
+    return sorted(p.relative_to(revision).as_posix() for p in revision.rglob("recibo.json")) if revision.is_dir() else []
+
+
+def bytes_de(ticket):
+    revision = Path(ticket) / "revision"
+    return {p.relative_to(revision).as_posix(): p.read_bytes() for p in revision.rglob("*") if p.is_file()} if revision.is_dir() else {}
+
+
+def test_bajada_de_completo_a_rapido_guarda_el_motivo_y_la_respuesta_del_lider():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        guardar_triaje(carpeta, triaje_con())
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], [
+            "--fecha", "2026-10-21", "--derivado", "h en a.sql:2=T9", *bajar("  solo c.txt, sin capa: config de la instancia  ")]))
+        assert codigo == 0 and error == "", (salida, error)
+        assert salida.endswith("(1 repo(s), 2 archivo(s); 1 derivado(s); bajado de completo a rapido)\n"), salida
+        datos = json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "repos", "derivados", "bajada"], list(datos)
+        assert datos["bajada"] == {"de": "completo", "a": "rapido", "motivo": "solo c.txt, sin capa: config de la instancia",
+                                   "va_a_lider": False}, datos["bajada"]
+        assert list(datos["repos"][0]) == CLAVES_DEL_REPO and datos["repos"][0]["modo"] == "rapido", datos["repos"][0]
+        assert datos["repos"][0]["sha256"] == calc(repo, base, ["a.sql", "c.txt"])["sha256"]
+        guardar_triaje(carpeta, triaje_con(positivas=(), invalidas=("consumidores", "efecto"), sin_capa=False), "utf-16")
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", *bajar("solo inválidas")]))
+        assert codigo == 0 and salida.endswith("(1 repo(s), 1 archivo(s); bajado de completo a rapido)\n"), (salida, error)
+        datos = json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "repos", "bajada"] and datos["bajada"]["motivo"] == "solo inválidas", datos
+
+
+def test_una_bajada_que_no_vale_es_error_de_uso_y_no_escribe_nada():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        rapido, completo, cero = (["--fecha", "2026-10-21", "--modo", m] for m in ("rapido", "completo", "0"))
+        limpio = dict(positivas=(), invalidas=(), sin_capa=False)
+        casos = [
+            ("rapido a rapido", triaje_con(modo="rapido", **limpio), rapido, bajar(), "escalon"),
+            ("completo a completo", triaje_con(), completo, bajar(), "escalon"),
+            ("completo a 0", triaje_con(), cero, bajar(), "escalon"),
+            ("0 a 0", triaje_con(modo="0", **limpio), cero, bajar(), "escalon"),
+            ("efecto positiva", triaje_con(positivas=("efecto", "capas")), rapido, bajar(), "efecto"),
+            ("consumidores positiva", triaje_con(positivas=("consumidores",), invalidas=(), sin_capa=False), rapido, bajar(), "consumidores"),
+            ("sin capa junto a mas de una capa", triaje_con(unico=False), rapido, bajar(), "capas"),
+            ("mas de una capa", triaje_con(sin_capa=False), rapido, bajar(), "capas"),
+            ("sin --va-a-lider", triaje_con(), rapido, ["--bajada", "motivo"], "--va-a-lider"),
+            ("va a un lider", triaje_con(), rapido, bajar(lider="si"), "lider"),
+            ("--va-a-lider sin --bajada", triaje_con(), rapido, ["--va-a-lider", "no"], "--va-a-lider"),
+            ("motivo vacio", triaje_con(), rapido, bajar(motivo=""), "--bajada"),
+            ("motivo en blanco", triaje_con(), rapido, bajar(motivo="   "), "--bajada"),
+            ("lider invalido", triaje_con(), rapido, bajar(lider="tal vez"), "--va-a-lider"),
+            ("sin triaje", None, rapido, bajar(), "entrada/triaje.json"),
+            ("triaje roto", "{roto", rapido, bajar(), "entrada/triaje.json"),
+            ("triaje sin senales", {"modo": "completo"}, rapido, bajar(), "entrada/triaje.json"),
+            ("triaje que es una lista", "[]", rapido, bajar(), "entrada/triaje.json"),
+            ("nivel desconocido", {"modo": "completo", "senales": {"capas": {"nivel": "alta"}}}, rapido, bajar(), "entrada/triaje.json"),
+        ]
+        for nombre, triaje, modo, extra, esperado in casos:
+            for vieja in (ticket / "revision").glob("*") if (ticket / "revision").is_dir() else []:
+                shutil.rmtree(vieja, onexc=_quitar)
+            if triaje is not None:
+                guardar_triaje(ticket / "revision" / ("2026-10-21-" + modo[-1]), triaje)
+            antes = bytes_de(ticket)
+            codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], [*modo, *extra]))
+            assert codigo == 2 and salida == "" and esperado in error.replace("\\", "/"), (nombre, codigo, salida, error)
+            assert recibos_de(ticket) == [] and bytes_de(ticket) == antes, (nombre, recibos_de(ticket))
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21"]))
+        assert codigo == 0 and "bajado" not in salida, "sin --bajada, --write no lee el triaje roto: %s" % error
+
+
+def test_sin_bajada_el_recibo_no_lee_el_triaje_y_sale_con_los_mismos_bytes():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        argv = args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], ["--fecha", "2026-10-21", "--estado", "limpio"])
+        codigo, salida_sin, _ = correr(argv)
+        assert codigo == 0
+        sin_triaje = (carpeta / "recibo.json").read_bytes()
+        for triaje in (triaje_con(), "{roto"):
+            guardar_triaje(carpeta, triaje)
+            codigo, salida, error = correr(argv)
+            assert codigo == 0 and error == "" and salida == salida_sin, (salida, error)
+            assert (carpeta / "recibo.json").read_bytes() == sin_triaje
+
+
+def test_check_y_sellar_valen_con_un_recibo_bajado_y_la_bajada_no_es_suya():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        guardar_triaje(carpeta, triaje_con())
+        assert correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], ["--fecha", "2026-10-21", *bajar()]))[0] == 0
+        recibo = carpeta / "recibo.json"
+        codigo, salida, error = correr(["--check", str(carpeta)])
+        assert codigo == 0 and error == "", (salida, error)
+        assert salida == "recibo vale: 1 repo(s), 2 archivo(s) (%s)\n" % str(recibo).replace("\\", "/"), salida
+        assert correr(["--check", str(ticket), "--modo", "rapido"])[0] == 0
+        assert correr(["--check", str(ticket), "--modo", "completo"])[0] == 2, "el recibo es de rapido aunque el triaje propuso completo"
+        crudo = recibo.read_bytes()
+        for modo in (["--check", str(carpeta)], ["--sellar", str(carpeta)]):
+            for extra in (["--bajada", "motivo"], ["--va-a-lider", "no"]):
+                codigo, salida, error = correr(modo + extra)
+                assert codigo == 2 and salida == "" and extra[0] in error, (modo, extra, codigo, salida, error)
+        assert recibo.read_bytes() == crudo
+        _git(repo, "add", "a.sql", "c.txt")
+        _git(repo, "commit", "-q", "-m", "unidad")
+        head = _git(repo, "rev-parse", "HEAD")
+        codigo, salida, error = correr(["--sellar", str(carpeta)])
+        assert codigo == 0, (salida, error)
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "repos", "bajada"] and datos["repos"][0]["sellado"] == head, datos
+        assert datos["bajada"] == json.loads(crudo.decode("utf-8"))["bajada"]
+        assert correr(["--check", str(carpeta)])[0] == 0
+
+
+def test_un_rechequeo_despues_de_una_bajada_la_hereda_y_un_riesgo_real_nuevo_no_baja():
+    with temporal() as t:
+        repo, base, ticket, primera = unidad_bajada(t)
+        guardar_triaje(primera, triaje_con())
+        assert correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"],
+                                 ["--fecha", "2026-10-21", "--estado", "pendiente", *bajar("c.txt sin capa")]))[0] == 0
+        escribir(repo, {"a.sql": "linea 1\nCORREGIDO\nlinea 3\n"})
+        segunda = ticket / "revision" / "2026-10-21-rapido-2"
+        argv = args_write(ticket, [repo], [repo / "a.sql"], ["--fecha", "2026-10-21", "--ronda", "2", "--previo", str(primera)])
+        codigo, salida, error = correr(argv)
+        assert codigo == 2 and salida == "" and "entrada/triaje.json" in error.replace("\\", "/"), (codigo, salida, error)
+        assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"], recibos_de(ticket)
+        guardar_triaje(segunda, triaje_con(positivas=("migracion", "capas")))
+        codigo, salida, error = correr(argv)
+        assert codigo == 2 and salida == "" and "migracion" in error, (codigo, salida, error)
+        assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"], recibos_de(ticket)
+        guardar_triaje(segunda, triaje_con())
+        codigo, salida, error = correr(argv + ["--estado", "limpio"])
+        assert codigo == 0 and error == "", (salida, error)
+        assert salida.endswith("; 1 rechequeado(s) y 1 heredado(s) de revision/2026-10-21-rapido; bajado de completo a rapido)\n"), salida
+        datos = json.loads((segunda / "recibo.json").read_text(encoding="utf-8"))
+        assert list(datos) == ["version", "fecha", "ticket", "previo", "repos", "bajada"], list(datos)
+        assert datos["bajada"] == {"de": "completo", "a": "rapido", "motivo": "c.txt sin capa", "va_a_lider": False}, datos["bajada"]
+        assert correr(["--check", str(ticket)])[0] == 0
+        tercera = ticket / "revision" / "2026-10-21-rapido-3"
+        guardar_triaje(tercera, triaje_con())
+        codigo, salida, error = correr(argv + ["--ronda", "3", *bajar("otro motivo")])
+        assert codigo == 0, (salida, error)
+        assert json.loads((tercera / "recibo.json").read_text(encoding="utf-8"))["bajada"]["motivo"] == "otro motivo"
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql"],
+                                                  ["--fecha", "2026-10-22", "--modo", "completo", "--previo", str(primera)]))
+        assert codigo == 0 and "bajado" not in salida, (salida, error)
+        datos = json.loads((ticket / "revision" / "2026-10-22-completo" / "recibo.json").read_text(encoding="utf-8"))
+        assert "bajada" not in datos, "un rechequeo en completo no está bajado"
 
 
 def main():
