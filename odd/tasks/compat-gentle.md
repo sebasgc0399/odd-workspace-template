@@ -30,7 +30,7 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
 | F5 | S5 | Seguimiento: la línea de `pi-agentes` que muestra el doctor no dice lo de los overlays: solo lo dicen la nota del manifiesto y los docs (L4) | aparte | anotado | |
 | F6 | S2 | Seguimiento: los límites de gentle-shell que los docs no nombran (L4): <ul><li>la historia se poda a 200 tareas;</li><li>`usage` suma solo las primeras 128 respuestas;</li><li>el guardado final es asíncrono, así que un rescate que llega antes ve `running`;</li><li>un reporte cortado por `stopReason: length` queda `completed`, y en Claude Code pasa lo mismo.</li></ul> | aparte | anotado | |
 | F7 | S2 | Seguimiento: fuera de una sesión de gentle-shell, la regla cae en `~/.pi/agent`, pero el hogar aislado por defecto es `~/.gentle-shell/agent`. Dentro de la sesión, el lanzador fija las dos variables (L4) | aparte | anotado | |
-| F9 | S2 | La prueba en vivo: en esta máquina no hay archivos de tarea de Pi, así que falta una revisión real en gentle-shell con `--host pi`. La corre el autor | con el autor | pendiente | |
+| F9 | S2 | La prueba en vivo: en esta máquina no hay archivos de tarea de Pi, así que falta una revisión real en gentle-shell con `--host pi`. La corre el autor | con el autor | hecho (L5): el formato coincide; el hallazgo de `tokens` y `cost` va a `fix/seguimientos-0-10` | |
 
 ## Log
 
@@ -64,3 +64,11 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
     - **Avisos:** F3 a F7.
   - **T3 (`11bdb89`).** Una corrida que el host rechaza por concurrencia no cuenta como cortada: se espera a otra, se cierra con `close_agent` en Codex, se relanza y se avisa que va por tandas. Está fijado por un test con control por mutación.
   - R6 queda lista para salir con la próxima versión. Antes falta F9, que corre el autor.
+- **L5** (2026-11-19) F9, la prueba en vivo.
+  - **La corrida.** El autor corrió en gentle-shell un subagente `gentle-ai-explore` (tarea `mwnovi54-1-khqk`) que leyó `README.md` con `read` e hizo un `grep`. El orquestador corrió `rescatar.py --host pi --sesion ~/.gentle-shell/agent` desde `de07bf8`, en modo solo lectura.
+  - **Lo que coincidió:**
+    - el reporte se rescató entero: 181 bytes, idéntico a `task.result`;
+    - las 2 lecturas se detectaron con sus argumentos (`read` con `path`, `offset` y `limit`; `grep` con `pattern`, `path` y `literal`);
+    - `no_auditadas` quedó vacío y `dropped` en 0.
+  - **El hallazgo.** La tarea real no trae `usage`: llega en `None`. Solo trae `tokens`, un total entero, y `cost`, en dólares. Por eso el costo de Pi queda casi vacío: solo `turnos`, `inicio` y `fin`.
+  - **El arreglo.** Va a la unidad de F4 en `fix/seguimientos-0-10`: guardar `tokens` y `cost` como claves opcionales, y contar la corrida como medida si existe alguno de los dos.
