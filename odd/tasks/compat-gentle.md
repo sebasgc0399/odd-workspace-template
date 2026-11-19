@@ -23,13 +23,13 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
 | T1 | S4 | El chequeo de marcadores en `.githooks/pre-commit`, con su helper y sus tests | delegada: no comparte archivos con R5. Risk: item 5, porque es la compuerta de commit del repo; lleva verificador | hecho; verificador: PASS (L4) | `a179a8e` |
 | T2 | S2, S5 | `rescatar.py --host pi`, su helper en `hosts/pi.py`, los pasos 4 y 6 de `revisar` y los docs | delegada, después de T3 de R5. Risk: item 6, porque el archivo de tarea es interno de Gentle; lleva una prueba real en Pi | hecho; verificador: PASS (L4). Falta la prueba en vivo (F9) | `b4a5eb9` |
 | T3 | S3 | La regla del límite de concurrencia en `revisar` | con T2: los mismos pasos de la skill. Risk: none | hecho (L4) | `11bdb89` |
-| F1 | S4 | Seguimiento: el ejemplo de exclusión del mensaje de bloqueo no sirve para una ruta con espacios; en `.gitattributes` va entre comillas, con escapes de C (L4) | aparte | anotado | |
-| F2 | S4 | Seguimiento: `git rebase --continue` no corre el pre-commit, ni antes ni ahora, así que un conflicto que quedó con marcadores entra. Se documenta en §8 (L4) | aparte | anotado | |
-| F3 | S2 | Seguimiento: `auditar_lecturas.py` solo clasifica `Read`, `Grep` y `Glob`, así que una corrida de Pi sale limpia aunque lea una ruta prohibida. Va antes de que `eval-reviewers` soporte Pi (L4) | aparte | anotado | |
-| F4 | S2 | Seguimiento: una corrida de Pi sin `task.usage` cuenta como medida. Además, `--sesion` con una carpeta sin `gentle-agents/tasks` sale con 1, y el doc dice 2 (L4) | aparte | anotado | |
-| F5 | S5 | Seguimiento: la línea de `pi-agentes` que muestra el doctor no dice lo de los overlays: solo lo dicen la nota del manifiesto y los docs (L4) | aparte | anotado | |
-| F6 | S2 | Seguimiento: los límites de gentle-shell que los docs no nombran (L4): <ul><li>la historia se poda a 200 tareas;</li><li>`usage` suma solo las primeras 128 respuestas;</li><li>el guardado final es asíncrono, así que un rescate que llega antes ve `running`;</li><li>un reporte cortado por `stopReason: length` queda `completed`, y en Claude Code pasa lo mismo.</li></ul> | aparte | anotado | |
-| F7 | S2 | Seguimiento: fuera de una sesión de gentle-shell, la regla cae en `~/.pi/agent`, pero el hogar aislado por defecto es `~/.gentle-shell/agent`. Dentro de la sesión, el lanzador fija las dos variables (L4) | aparte | anotado | |
+| F1 | S4 | Seguimiento: el ejemplo de exclusión del mensaje de bloqueo no sirve para una ruta con espacios; en `.gitattributes` va entre comillas, con escapes de C (L4) | en `fix/seguimientos-0-10` | hecho (L6) | `f5e6f35` |
+| F2 | S4 | Seguimiento: `git rebase --continue` no corre el pre-commit, ni antes ni ahora, así que un conflicto que quedó con marcadores entra. Se documenta en §8 (L4) | en `fix/seguimientos-0-10`, solo docs | hecho (L6) | `198b565` |
+| F3 | S2 | Seguimiento: `auditar_lecturas.py` solo clasifica `Read`, `Grep` y `Glob`, así que una corrida de Pi sale limpia aunque lea una ruta prohibida. Va antes de que `eval-reviewers` soporte Pi (L4) | en `fix/seguimientos-0-10` | hecho (L6) | `60d4cd8` |
+| F4 | S2 | Seguimiento: una corrida de Pi sin `task.usage` cuenta como medida. Además, `--sesion` con una carpeta sin `gentle-agents/tasks` sale con 1, y el doc dice 2 (L4) | en `fix/seguimientos-0-10`, con el hallazgo de F9 | hecho (L6) | `f640ae5` |
+| F5 | S5 | Seguimiento: la línea de `pi-agentes` que muestra el doctor no dice lo de los overlays: solo lo dicen la nota del manifiesto y los docs (L4) | en `fix/seguimientos-0-10` | hecho (L6) | `0b2ff56` |
+| F6 | S2 | Seguimiento: los límites de gentle-shell que los docs no nombran (L4): <ul><li>la historia se poda a 200 tareas;</li><li>`usage` suma solo las primeras 128 respuestas;</li><li>el guardado final es asíncrono, así que un rescate que llega antes ve `running`;</li><li>un reporte cortado por `stopReason: length` queda `completed`, y en Claude Code pasa lo mismo.</li></ul> | en `fix/seguimientos-0-10`, solo docs | hecho (L6) | `198b565` |
+| F7 | S2 | Seguimiento: fuera de una sesión de gentle-shell, la regla cae en `~/.pi/agent`, pero el hogar aislado por defecto es `~/.gentle-shell/agent`. Dentro de la sesión, el lanzador fija las dos variables (L4) | en `fix/seguimientos-0-10`, solo docs | hecho (L6) | `198b565` |
 | F9 | S2 | La prueba en vivo: en esta máquina no hay archivos de tarea de Pi, así que falta una revisión real en gentle-shell con `--host pi`. La corre el autor | con el autor | hecho (L5): el formato coincide; el hallazgo de `tokens` y `cost` va a `fix/seguimientos-0-10` | |
 
 ## Log
@@ -72,3 +72,13 @@ Cada spec cita al autor tal cual. El diseño de cada una es la fila del plan que
     - `no_auditadas` quedó vacío y `dropped` en 0.
   - **El hallazgo.** La tarea real no trae `usage`: llega en `None`. Solo trae `tokens`, un total entero, y `cost`, en dólares. Por eso el costo de Pi queda casi vacío: solo `turnos`, `inicio` y `fin`.
   - **El arreglo.** Va a la unidad de F4 en `fix/seguimientos-0-10`: guardar `tokens` y `cost` como claves opcionales, y contar la corrida como medida si existe alguno de los dos.
+- **L6** (2026-11-19) Los seguimientos F1 a F7, cerrados en `fix/seguimientos-0-10` (desde `de07bf8`). Cada commit pasó todas las suites en el pre-commit.
+  - **F1 (`f5e6f35`).** El ejemplo de exclusión del mensaje de bloqueo es un patrón válido para cualquier ruta: comodines y `!` inicial escapados, y entre comillas con escapes de C cuando hay espacios, comillas o un `#` inicial. El test aplica la línea sugerida y comprueba que saca ese archivo, y solo ese.
+  - **F3 (`60d4cd8`).** `auditar_lecturas.py` pasa cada herramienta de Pi por su equivalente de `pi.HERRAMIENTAS`, así que una lectura prohibida en Pi ya no sale limpia. Lo de Claude Code da idéntico contra la base, salvo la descripción de `--help`, que ahora nombra las dos familias.
+  - **F4 (`f640ae5`).** El costo de Pi suma `tokens_total` y `costo_usd` (`task.tokens` y `task.cost`), y una corrida cuenta como medida si trae algún campo de tokens o alguno de esos totales. `--sesion` sin carpeta de tareas sale con 2.
+  - **F5 (`0b2ff56`).** La línea de `pi-agentes` del doctor, en OK, AVISO y FALTA, dice que no ve los overlays.
+  - **F2, F6 y F7 (`198b565`), solo docs.**
+    - **F2.** `CONTRIBUTING.md` pide correr `git commit` en la parada de un rebase antes de `--continue`, y §8 lo explica junto al merge.
+    - **F6.** Los cuatro límites de gentle-shell están en el diseño del rescate de Pi, y la skill vuelve a rescatar una tarea que todavía figura `running`.
+    - **F7.** La skill y el diseño piden `--sesion ~/.gentle-shell/agent` fuera de una sesión de gentle-shell.
+  - R6 queda completa para la `0.10.0`.
