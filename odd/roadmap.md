@@ -113,6 +113,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 
 | Versión | Qué |
 |---|---|
+| `0.10.1` | Las pruebas de los enlaces pasan también en macOS ([enlaces-del-ticket](tasks/enlaces-del-ticket.md)) |
 | `0.10.0` | La instalación limpia para el video (R7: I55 a I60 de [instalacion-limpia](tasks/instalacion-limpia.md)), el costo de revisar medido y la bajada de un escalón (R5: I28, I34 y el requisito de I46, de [costo-de-revisar](tasks/costo-de-revisar.md)), Pi y Codex completos con Gentle 4.8 (R6, [compat-gentle](tasks/compat-gentle.md)), los enlaces del ticket por escenario (I61, [enlaces-del-ticket](tasks/enlaces-del-ticket.md)), y los seguimientos X3, X8 y X18 de [multi-host](tasks/multi-host.md) y X3 a X5 de [graduar-memorias](tasks/graduar-memorias.md) |
 | `0.9.1` | El doctor de Pi sin OK falsos, el `.git` del shim como lo mira git y los tests de plazo deterministas (R2: X14, X15 y X16 de [multi-host](tasks/multi-host.md)), y la instancia en una carpeta aparte en el README |
 | `0.9.0` | La experiencia de uso, vista en un ciclo real que fue de la instalación al cierre de un ticket (R4): el bootstrap en una parada, los commits en la instancia, el ticket activo como resumen, el rechequeo y el cierre de una revisión, y el cierre con la entrega después ([experiencia-de-uso](tasks/experiencia-de-uso.md); ideas I7 a I16, I18 a I20, I23 a I27, I30 a I33 e I39 a I42) |

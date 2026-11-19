@@ -2,6 +2,18 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.10.1
+
+**Un parche de pruebas: los tests de los enlaces pasan también en macOS. No cambia nada para ti.**
+
+### Lo que cambia para ti
+
+- **Nada.** El plugin hace lo mismo que en la `0.10.0`. Si ya la tienes, no hace falta actualizar; si actualizas, usa los dos comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **`ticket.tests.py`** resuelve con `realpath` la carpeta temporal de sus pruebas, como ya hacía `abridor.tests.py`. En macOS, el temporal `/var/folders/...` es un enlace a `/private/var/...`. Las rutas que calcula `ticket.py` desde la carpeta actual, o con `realpath` al abrir, salen como `/private/var`, y siete pruebas de los enlaces las esperaban como `/var`. Fallaban solo en el CI de macOS, después de publicar la `0.10.0`.
+
 ## 0.10.0
 
 **La instalación sale limpia, `revisar` mide y explica lo que cuesta, Pi y Codex funcionan completos con Gentle 4.8, y los enlaces de un ticket se depuran y se abren desde cualquier cliente.**
