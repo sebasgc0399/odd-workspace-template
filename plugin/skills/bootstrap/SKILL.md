@@ -32,6 +32,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --proponer --raiz "<raíz>"
   - Solo si te dice que la quiere en el repo, pasá `--confirmar-repo` al ensayo y a la aplicación. Sin la bandera, el script sale con 2 sin escribir nada: nunca la pases sin ese sí.
 - **`proyecto`:** el nombre de la carpeta raíz, que es tu propuesta para `proyecto.nombre`.
 - **`repos`:** los repos git que lista algún `.code-workspace` de la raíz, con un nombre corto, su ruta y las extensiones de sus archivos versionados, de la más usada a la menos.
+- **`mismo_lenguaje`:** los grupos de extensiones de esos repos que son de un mismo lenguaje, como `[".ts", ".mjs"]`. Son lo único que se ofrece sumar a una capa (paso 3).
 - **`avisos`:** una carpeta del workspace que no es repo, un workspace que no se pudo leer. Pasáselos al usuario.
 - **Sin `repos`** (no hay `.code-workspace`, o no lista repos), preguntá aparte qué repos de código trabaja y en qué ruta. Comprobá que cada ruta exista: si no, el script rechaza la spec.
 
@@ -43,7 +44,7 @@ Armá la propuesta completa en una tabla. Cada término que aparezca lleva su ex
 
 - **El nombre del proyecto** (`proyecto.nombre`).
 - **Los repos:** su nombre corto, que es la clave en `config.repos`, y su ruta, que va a `local.repos.<repo>.path`. Proponé cada uno como del equipo y explicá `own` en una línea: un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`.
-- **Las capas.** El criterio es **una capa por tecnología**, es decir, por un juego de extensiones con convenciones propias: la config separa capas por extensión, no por carpeta ni por plataforma. Lo que genera una herramienta (por ejemplo, el proyecto nativo que arma un framework móvil) no lleva capa. **Los scripts del mismo lenguaje van en la misma capa:** en un proyecto TypeScript, `.js`, `.mjs` y `.cjs` van en la capa `ts`. Todo archivo que no sea doc (`.md`, `.txt` o `.rst`) y que ninguna capa cubra lleva el triaje de `/odd-ws:revisar` a modo `completo`, así que en la propuesta nombrá las extensiones de `--proponer` que quedan sin capa y por qué. Lo que cuesta una capa, dicho tal cual: mantener su writer, su revisor, su skill y su regla, y una corrida de revisor más **solo cuando un cambio toca esa capa** (`/odd-ws:revisar` corre el revisor de cada capa tocada). Por cada capa:
+- **Las capas.** El criterio es **una capa por tecnología**, es decir, por un juego de extensiones con convenciones propias: la config separa capas por extensión, no por carpeta ni por plataforma. Lo que genera una herramienta (por ejemplo, el proyecto nativo que arma un framework móvil) no lleva capa. **Los scripts del mismo lenguaje van en la misma capa:** en un proyecto TypeScript, `.js`, `.mjs` y `.cjs` van en la capa `ts`. Todo archivo que no sea doc (`.md`, `.txt` o `.rst`) y que ninguna capa cubra lleva el triaje de `/odd-ws:revisar` a modo `completo`, así que en la propuesta nombrá las extensiones de `--proponer` que quedan sin capa y por qué. **A una capa solo se le ofrece sumar extensiones de su mismo lenguaje:** las del grupo de `mismo_lenguaje` que comparte alguna de sus extensiones. Ninguna otra se ofrece para esa capa: un `.json` o un `.yml` en un repo TypeScript queda sin capa, y es esperado. Lo que cuesta una capa, dicho tal cual: mantener su writer, su revisor, su skill y su regla, y una corrida de revisor más **solo cuando un cambio toca esa capa** (`/odd-ws:revisar` corre el revisor de cada capa tocada). Por cada capa:
   - el nombre, en minúsculas y con guiones. `diseno` está reservado para el revisor de diseño;
   - las extensiones, como `.sql`, y los repos que la usan;
   - el `rule_prefix`: el prefijo de los ids de las reglas de esa capa en la matriz (`TS-01`, `TS-02`…). Sale del nombre, en mayúsculas y dígitos, empezando por letra: `sql` da `SQL`, `capa-web` da `CW`. Tiene que ser único entre las capas.
@@ -117,6 +118,8 @@ Corré el doctor y presentalo como dice `/odd-ws:doctor`, con los arreglos de a 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
+
+En `capas-cobertura` vale la regla del paso 3: solo ofrecé sumar a una capa las extensiones de su grupo de `mismo_lenguaje`, y las demás quedan con el aviso.
 
 ## 6. El siguiente paso
 

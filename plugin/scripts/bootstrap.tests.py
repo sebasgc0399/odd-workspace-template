@@ -295,6 +295,41 @@ def test_proponer_no_se_combina_con_spec_ensayo_ni_commitear():
 CLAVES_DE_LA_PROPUESTA = {"raiz", "proyecto", "instancia_existente", "workspaces", "repos", "avisos"}
 
 
+def proponer_con_repos(e, repos):
+    raiz = e.crear_raiz()
+    for nombre, archivos in repos.items():
+        repo_con_archivos(e.base / nombre, archivos)
+    carpetas = [{"path": "."}] + [{"path": f"../{nombre}"} for nombre in repos]
+    (raiz / "p.code-workspace").write_text(json.dumps({"folders": carpetas}), encoding="utf-8")
+    codigo, datos, errores = proponer(raiz)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    return datos
+
+
+def test_proponer_agrupa_las_extensiones_del_mismo_lenguaje_y_no_ofrece_el_json_a_una_capa_ts():
+    with Escenario() as e:
+        datos = proponer_con_repos(e, {"web": {"src/a.ts": b"a", "src/b.ts": b"b", "src/c.tsx": b"c", "scripts/x.mjs": b"x",
+                                               "package.json": b"{}", "tsconfig.json": b"{}", "README.md": b"r"}})
+        assert ".json" in datos["repos"][0]["extensiones"], datos
+        assert datos["mismo_lenguaje"] == [[".ts", ".mjs", ".tsx"]], datos
+        assert not any(".json" in grupo for grupo in datos["mismo_lenguaje"]), datos
+
+
+def test_proponer_junta_el_lenguaje_entre_repos_y_cuenta_tambien_lo_que_queda_fuera_del_tope():
+    with Escenario() as e:
+        varias = {f"f{n}.e{n:02d}": b"x" for n in range(25)}
+        varias.update({f"g{n}.e{n:02d}": b"x" for n in range(25)})
+        datos = proponer_con_repos(e, {"api": {**varias, "a.ts": b"a", "b.ts": b"b", "c.cjs": b"c"}, "front": {"x.js": b"x", "y.js": b"y"}})
+        assert ".cjs" not in datos["repos"][0]["extensiones"], datos["repos"][0]["extensiones"]
+        assert datos["mismo_lenguaje"] == [[".js", ".ts", ".cjs"]], datos["mismo_lenguaje"]
+
+
+def test_proponer_sin_dos_extensiones_de_un_mismo_lenguaje_no_agrupa_nada():
+    with Escenario() as e:
+        datos = proponer_con_repos(e, {"db": {"a.sql": b"a", "b.py": b"b", "c.json": b"c"}, "web": {"a.ts": b"a"}})
+        assert datos["mismo_lenguaje"] == [], datos
+
+
 def test_proponer_dice_si_la_raiz_es_un_repo_de_codigo():
     with Escenario() as e:
         if hay_repo_arriba(e.base):
@@ -318,8 +353,9 @@ def test_proponer_fuera_de_un_repo_de_codigo_da_lo_de_antes_y_repo_de_codigo_fal
         raiz = e.crear_raiz()
         codigo, datos, errores = proponer(raiz)
         assert codigo == 0 and errores == "", (codigo, errores)
-        assert set(datos) == CLAVES_DE_LA_PROPUESTA | {"repo_de_codigo"}, sorted(datos)
+        assert set(datos) == CLAVES_DE_LA_PROPUESTA | {"repo_de_codigo", "mismo_lenguaje"}, sorted(datos)
         assert datos["repo_de_codigo"] is False and datos["repos"] == [] and datos["avisos"] == [] and datos["workspaces"] == [], datos
+        assert datos["mismo_lenguaje"] == [], datos
         assert datos["proyecto"] == "instancia" and datos["instancia_existente"] is False, datos
 
 

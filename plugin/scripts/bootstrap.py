@@ -20,6 +20,7 @@ REPO_DE_CODIGO = ("la raíz {} es la raíz de un repo de código (tiene archivos
                   "si igual la querés acá, confirmalo con --confirmar-repo")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 20
+MISMO_LENGUAJE = (frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),)
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
@@ -683,6 +684,10 @@ def _nombre_corto(carpeta):
     return re.sub(r"[^a-z0-9]+", "-", carpeta.name.lower()).strip("-") or "repo"
 
 
+def _por_uso(cuenta):
+    return [extension for extension, _ in sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))]
+
+
 def _extensiones(repo):
     respuesta = _git(["-C", str(repo), "ls-files", "-z"])
     if respuesta is None or respuesta[0] != 0:
@@ -691,7 +696,17 @@ def _extensiones(repo):
     for nombre in filter(None, respuesta[1].split("\0")):
         extension = Path(nombre).suffix.lower() or SIN_EXTENSION
         cuenta[extension] = cuenta.get(extension, 0) + 1
-    return dict(sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))[:TOPE_DE_EXTENSIONES])
+    return cuenta
+
+
+def _mismo_lenguaje(cuentas):
+    total = {}
+    for cuenta in cuentas:
+        for extension, n in cuenta.items():
+            total[extension] = total.get(extension, 0) + n
+    ordenadas = _por_uso(total)
+    grupos = [[extension for extension in ordenadas if extension in familia] for familia in MISMO_LENGUAJE]
+    return [grupo for grupo in grupos if len(grupo) > 1]
 
 
 def _workspaces(raiz):
@@ -713,7 +728,7 @@ def _carpetas_del_workspace(archivo):
 def proponer(raiz):
     raiz = Path(raiz)
     real = raiz.resolve()
-    avisos, repos, vistos, workspaces = [], [], set(), []
+    avisos, repos, vistos, workspaces, cuentas = [], [], set(), [], []
     for archivo in _workspaces(raiz):
         workspaces.append(archivo.name)
         try:
@@ -738,9 +753,13 @@ def proponer(raiz):
             if estado.toplevel is None or not _es_la_raiz(estado.toplevel, carpeta):
                 avisos.append(f"{archivo.name}: {ruta} no es la raíz de un repo git")
                 continue
-            repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": _extensiones(carpeta)})
+            cuenta = _extensiones(carpeta)
+            cuentas.append(cuenta)
+            extensiones = {extension: cuenta[extension] for extension in _por_uso(cuenta)[:TOPE_DE_EXTENSIONES]}
+            repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": extensiones})
     return {"raiz": str(real), "proyecto": real.name, "instancia_existente": (raiz / config_loader.NOMBRE).is_file(),
-            "repo_de_codigo": es_repo_de_codigo(raiz), "workspaces": workspaces, "repos": repos, "avisos": avisos}
+            "repo_de_codigo": es_repo_de_codigo(raiz), "workspaces": workspaces, "repos": repos,
+            "mismo_lenguaje": _mismo_lenguaje(cuentas), "avisos": avisos}
 
 
 def _confirmar(raiz, ruta, referencia):
