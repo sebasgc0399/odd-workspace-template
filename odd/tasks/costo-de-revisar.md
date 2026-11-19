@@ -25,6 +25,7 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
   - el triaje distingue «sin capa» de una positiva real con una clave propia.
 
   Las 2 corridas llegan cuando se decida O6.
+- **S9. El costo del orquestador y las corridas en serie (el punto 3 del plan de R6).** El autor: «Si apruebo el plan» ([compat-gentle](compat-gentle.md), L3). `costo.json` suma el costo del orquestador entre el triaje y el rescate, leído del transcript de la sesión principal con el mismo lector de T1. Suma también `contexto_final − contexto_inicial`, que es lo que la revisión le deja al resto de la sesión. Además avisa si las corridas que se lanzaron juntas corrieron en serie, porque sus intervalos no se solapan. Solo en Claude Code, como T1. Supuesto: sin ese tramo del transcript, el campo queda en `null` con un aviso.
 - **S8. Cuándo se decide O6 (pregunta 5).** Fila aprobada: «**10 revisiones `completo` con el mismo modelo, o el próximo ticket entero**, lo que llegue primero.» Con esos datos se deciden O6 y O5; R5 no trae código para eso.
 
 ## Tareas
@@ -34,8 +35,9 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
 | T0 | S1, S6, S8 | Las decisiones en el estudio y el roadmap, I46 anotada, y este documento | inline | hecho | este commit |
 | T1 | S2 | El costo por corrida en `rescatar.py`, con su lector en `odd_ws/transcripcion.py`; el `costo.json` opcional, el triaje guardado en la revisión y el anuncio con el último costo | delegada: corre en paralelo con T2, con superficies disjuntas | hecho (L5) | `9a03892` |
 | T2 | S7 | La clave de «sin capa» en el triaje, y el aviso de `capas-cobertura` compartido en `config_loader`, que repiten el triaje y `abrir` | delegada: corre en paralelo con T1 | hecho (L5) | `e2ffcff` |
-| T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | inline. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | pendiente | |
-| T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | inline | pendiente | |
+| T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | delegada con T4. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecho, en verificación (L6) | `a7ac88d` |
+| T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | delegada con T3, por el contexto del orquestador | hecho (L6) | `2c3689f` |
+| T5 | S9 | El costo del orquestador y el aviso de corridas en serie en `costo.json` | delegada, por el contexto del orquestador. Risk: none | pendiente | |
 
 ## Log
 
@@ -54,3 +56,16 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
     - Queda abierto: `costo.json` no guarda el modo que propuso el triaje, que importa después de una bajada (T3); el anuncio cita tokens y no minutos; `CARPETA_RE` y `MODOS` están copiados de `recibo.py`, con un test que los mantiene iguales.
   - **T2 (`e2ffcff`).** La clave `sin_capa` vale `null` o `{archivos, unico_motivo_de_capas, aviso}`. Una positiva real es una señal `positiva` que no sea la de `capas` con `unico_motivo_de_capas`. La cuenta compartida quedó en `config_loader` y no en `odd_ws/`, por el ciclo de importación `config_loader` → `odd_ws.hosts` → `odd_ws.comun` → `odd_ws.capas`. La salida del doctor es idéntica byte a byte.
   - Risk: none en los dos. Suman una clave opcional y opciones nuevas, que pidió la spec, y la salida existente quedó fijada por tests y por el diferencial.
+- **L6** (2026-11-18) T4 y T3 hechos por un writer, con RED antes de GREEN, las 46 suites en verde y un diferencial contra `8a4b44d`: los 8 recibos dieron idénticos byte a byte, y lo único que cambió fue la línea `usage:` de argparse.
+  - **T4 (`2c3689f`).**
+    - El prompt pide `[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — …`, sin un ID literal, y las plantillas de los revisores no cambian.
+    - `consolidado.md` abre con `Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente`, y el destino se completa al escribir el recibo.
+  - **T3 (`a7ac88d`).**
+    - La bajada se pide con `--modo rapido --bajada "<motivo>" --va-a-lider no`, y `recibo.py` la valida contra `entrada/triaje.json`.
+    - El recibo guarda `"bajada": {"de": "completo", "a": "rapido", "motivo": …, "va_a_lider": false}`.
+    - El rechequeo hereda la bajada mientras siga en `rapido`, y una positiva real nueva lo convierte en una revisión nueva.
+    - **Diseño de «va a un líder».** Ningún script puede saberlo, así que `--bajada` exige `--va-a-lider` explícito y rechaza `si`.
+    - **Queda abierto:**
+      - un recibo `rapido` sin `--bajada`, cuando el triaje propuso `completo`, no se detecta, porque sin la opción los recibos no cambian;
+      - `recibo.py` confía en el `triaje.json` de la carpeta y no comprueba que sea de este diff.
+  - Con T3 se cierra I34. Siguiente paso: el verificador de T3 y, en paralelo, T5.

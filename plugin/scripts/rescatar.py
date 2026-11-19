@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from odd_ws.capas import TICKETS
-from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, costo, leer
+from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, comandos, costo, en_serie, lanzamientos, leer
 
 SHELL = ("Bash", "PowerShell")
 MAX_SALIDA = 2000
@@ -20,6 +20,9 @@ MODOS = ("0", "rapido", "completo")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 COSTO = "costo.json"
 DESTINO_DE_COSTO = "<ticket>/revision/<fecha>-<modo>[-<n>]/corridas"
+TRIAJE_RE = re.compile(r"(?<![\w.-])triaje\.py(?![\w.])")
+RECIBO_RE = re.compile(r"(?<![\w.-])recibo\.py(?![\w.])")
+ESCRIBIR_RE = re.compile(r"(?<!\S)--write(?!\S)")
 
 
 def texto_usuario(obj):
@@ -211,7 +214,39 @@ def _lineas_de_la_entrada(entrada, avisos):
     return sum(lineas_del_diff(_leer_texto(d)) for d in diffs)
 
 
-def escribir_costo(destino, costos):
+def transcript_principal(sub):
+    sub = Path(os.path.abspath(sub))
+    sesion = sub.parent if sub.name == "subagents" else sub
+    return sesion.parent / (sesion.name + ".jsonl")
+
+
+def _sin_orquestador(avisos, motivo):
+    avisos.append("%s; orquestador queda en null" % motivo)
+
+
+def costo_del_orquestador(sub, agentes, avisos):
+    ruta = transcript_principal(sub)
+    leidos = leer(ruta)
+    if leidos is None:
+        return _sin_orquestador(avisos, "no hay transcript de la sesion principal en %s" % ruta)
+    registros = leidos[0]
+    lanzados = lanzamientos(registros)
+    primero = min((lanzados[a] for a in agentes if a in lanzados), default=None)
+    if primero is None:
+        return _sin_orquestador(avisos, "no se encontro el lanzamiento de ninguna corrida en %s" % ruta)
+    llamadas = list(comandos(registros))
+    triajes = [i for i, c in llamadas if i < primero and TRIAJE_RE.search(c)]
+    if not triajes:
+        return _sin_orquestador(avisos, "no hay un triaje.py antes del primer lanzamiento de las corridas en %s" % ruta)
+    recibos = [i for i, c in llamadas if i > primero and RECIBO_RE.search(c) and ESCRIBIR_RE.search(c)]
+    medida = costo(registros[triajes[-1]:recibos[0] + 1 if recibos else None])
+    if medida is None:
+        return _sin_orquestador(avisos, "el tramo de %s no tiene datos de uso" % ruta)
+    medida["contexto_dejado"] = medida["contexto_final"] - medida["contexto_inicial"]
+    return medida
+
+
+def escribir_costo(destino, costos, sub, agentes):
     destino = Path(destino)
     revision = revision_del_destino(destino)
     entrada = revision / "entrada"
@@ -222,6 +257,8 @@ def escribir_costo(destino, costos):
         por_agente[c["agente"]] = c
     datos = {"modo": CARPETA_RE.fullmatch(revision.name).group(2), "motivos": _motivos(entrada, avisos),
              "corridas": list(por_agente.values()), "lineas_diff": _lineas_de_la_entrada(entrada, avisos)}
+    datos["orquestador"] = costo_del_orquestador(sub, agentes, avisos)
+    datos["en_serie"] = en_serie([c.get("costo") for c in datos["corridas"]])
     destino.mkdir(parents=True, exist_ok=True)
     ruta.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     return ruta, datos, avisos
@@ -248,7 +285,7 @@ def _medida(ruta, avisos):
     fines = [m["fin"] for m in medidas if isinstance(m.get("fin"), str)]
     lineas = datos.get("lineas_diff")
     return {"medidas": medidas, "total": len(corridas), "fin": max(fines) if fines else "",
-            "lineas": lineas if _es_entero(lineas) else None}
+            "lineas": lineas if _es_entero(lineas) else None, "en_serie": datos.get("en_serie") is True}
 
 
 def _mas_nueva(carpeta, patron, avisos, excluir=None):
@@ -290,9 +327,10 @@ def ultimo_costo(ticket):
     promedio = {clave: "{:,}".format(round(sum(_entero(m.get(clave)) for m in medida["medidas"]) / n)).replace(",", " ")
                 for clave in ("turnos", "contexto_final", "salida", "cache_escrita", "cache_leida")}
     return ("último costo medido, %s: %s: modo %s, %s, %s; por corrida, en promedio: %s turnos, contexto final %s, "
-            "salida %s, caché escrita %s y caché leída %s tokens" % (
+            "salida %s, caché escrita %s y caché leída %s tokens%s" % (
                 origen, relativa, modo, corridas, lineas, promedio["turnos"], promedio["contexto_final"],
-                promedio["salida"], promedio["cache_escrita"], promedio["cache_leida"])), avisos
+                promedio["salida"], promedio["cache_escrita"], promedio["cache_leida"],
+                "; las corridas corrieron en serie" if medida["en_serie"] else "")), avisos
 
 
 def _parsear_corridas(crudas):
@@ -335,8 +373,9 @@ def main(argv=None):
                         help="repetible; el nombre es el de los archivos a escribir")
     parser.add_argument("--costo", action="store_true",
                         help="escribe tambien costo.json en --destino, que tiene que ser %s: el modo de la carpeta, "
-                             "los motivos de entrada/triaje.json, el costo de cada corrida y las lineas de entrada/*.diff"
-                             % DESTINO_DE_COSTO)
+                             "los motivos de entrada/triaje.json, el costo de cada corrida, las lineas de entrada/*.diff, "
+                             "el costo del orquestador desde el ultimo triaje.py, leido de <sesion>.jsonl, y si las "
+                             "corridas corrieron en serie" % DESTINO_DE_COSTO)
     parser.add_argument("--ultimo-costo", metavar="TICKET",
                         help="imprime en una linea el ultimo costo medido del ticket o, si no tiene, de la instancia; "
                              "sale con 1 si no hay ninguno")
@@ -383,7 +422,7 @@ def main(argv=None):
             print("aviso %s: %d linea(s) de agent-%s.jsonl no se pudieron leer y se saltearon" % (
                 r["corrida"], r["salteadas"], r["agente"]), file=sys.stderr)
     if costos is not None:
-        ruta, datos, avisos = escribir_costo(args.destino, costos)
+        ruta, datos, avisos = escribir_costo(args.destino, costos, sub, list(corridas.values()))
         for aviso in avisos:
             print("aviso costo: %s" % aviso, file=sys.stderr)
         sin_uso = sum(1 for c in datos["corridas"] if c.get("costo") is None)
