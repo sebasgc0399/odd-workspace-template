@@ -292,6 +292,46 @@ def test_proponer_no_se_combina_con_spec_ensayo_ni_commitear():
         assert not e.raiz.exists()
 
 
+CLAVES_DE_LA_PROPUESTA = {"raiz", "proyecto", "instancia_existente", "workspaces", "repos", "avisos"}
+
+
+def test_proponer_dice_si_la_raiz_es_un_repo_de_codigo():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        de_codigo = repo_con_archivos(e.base / "codigo", {"src/a.ts": b"a"})
+        assert commit_aislado(de_codigo, "base")[0] == 0
+        sin_commits = repo_con_archivos(e.base / "sin-commits", {"a.ts": b"a"})
+        con_instancia = repo_con_archivos(e.base / "con-instancia", {"a.ts": b"a"})
+        assert commit_aislado(con_instancia, "base")[0] == 0
+        (con_instancia / "workspace.config.json").write_text("{}", encoding="utf-8")
+        (e.base / "vacia").mkdir()
+        casos = {de_codigo: True, de_codigo / "src": False, sin_commits: False, con_instancia: False, e.base / "vacia": False}
+        for raiz, esperado in casos.items():
+            codigo, datos, errores = proponer(raiz)
+            assert codigo == 0 and errores == "" and datos["repo_de_codigo"] is esperado, (raiz, datos, errores)
+
+
+def test_proponer_fuera_de_un_repo_de_codigo_da_lo_de_antes_y_repo_de_codigo_falso():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        codigo, datos, errores = proponer(raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert set(datos) == CLAVES_DE_LA_PROPUESTA | {"repo_de_codigo"}, sorted(datos)
+        assert datos["repo_de_codigo"] is False and datos["repos"] == [] and datos["avisos"] == [] and datos["workspaces"] == [], datos
+        assert datos["proyecto"] == "instancia" and datos["instancia_existente"] is False, datos
+
+
+def test_confirmar_repo_no_se_combina_con_proponer_ni_se_repite():
+    with Escenario() as e:
+        spec = str(e.archivo_spec())
+        for argv in (["--proponer", "--confirmar-repo"], ["--spec", spec, "--confirmar-repo", "--confirmar-repo"], ["--confirmar-repo"]):
+            codigo, salida, errores = correr(argv)
+            assert codigo == 2 and "[--confirmar-repo]" in errores and salida == "", (argv, errores)
+        assert not e.raiz.exists()
+
+
 def test_tickets_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
     with Escenario() as e:
         for valor in ({"prefix": "S-M"}, {"prefix": ""}, "SM", {"prefix": "SM", "otra": 1}):
@@ -2511,7 +2551,7 @@ def test_unos_hooks_propios_no_se_apagan_y_se_informa():
             assert hooks_que_corrieron(marcador) == ["commit-msg", "pre-commit"]
             marcador.unlink()
             antes = (raiz / ".git" / "config").read_bytes()
-            codigo, salida, errores = correr_con_git(e, raiz, *ensayo)
+            codigo, salida, errores = correr_con_git(e, raiz, "--confirmar-repo", *ensayo)
             assert codigo == 0 and errores == "", (codigo, errores)
             carpeta = os.path.normpath(str(raiz / ".git" / "hooks"))
             esperada = f"core.hooksPath: no se tocó; hay hooks propios en {carpeta} (commit-msg, pre-commit), que dejarían de correr"
@@ -2554,7 +2594,7 @@ def test_un_worktree_enlazado_no_se_toca_y_el_repo_principal_queda_igual():
             wt = e.base / "wt"
             assert git_aislado("worktree", "add", "-q", str(wt), cwd=principal)[0] == 0
             antes = (principal / ".git" / "config").read_bytes()
-            codigo, salida, errores = correr_con_git(e, wt, *ensayo)
+            codigo, salida, errores = correr_con_git(e, wt, "--confirmar-repo", *ensayo)
             assert codigo == 0 and errores == "", (codigo, errores)
             assert "core.hooksPath: no se tocó; la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts" in salida.splitlines(), salida
             assert (principal / ".git" / "config").read_bytes() == antes

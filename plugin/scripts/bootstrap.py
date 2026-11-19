@@ -13,8 +13,11 @@ from odd_ws import capas as convencion
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
-USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear]\n"
+USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear] [--confirmar-repo]\n"
        "     bootstrap.py --proponer [--raiz <carpeta>]")
+REPO_DE_CODIGO = ("la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
+                  "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
+                  "si igual la querés acá, confirmalo con --confirmar-repo")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 20
 CREAR, YA_EXISTE = "crear", "ya_existe"
@@ -59,7 +62,7 @@ AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente arreglo", d
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
-Opciones = namedtuple("Opciones", "spec raiz ensayo commitear proponer")
+Opciones = namedtuple("Opciones", "spec raiz ensayo commitear proponer confirmar_repo")
 
 GENERADORES = []
 
@@ -434,6 +437,17 @@ def _es_la_raiz(toplevel, raiz):
     return config_loader.canonica(toplevel) == config_loader.canonica(raiz)
 
 
+def es_repo_de_codigo(raiz):
+    raiz = Path(raiz)
+    if not os.path.isdir(raiz) or os.path.lexists(raiz / config_loader.NOMBRE):
+        return False
+    estado = _consultar_repo(raiz)
+    if estado.toplevel is None or not _es_la_raiz(estado.toplevel, raiz):
+        return False
+    respuesta = _git(["-C", str(raiz), "ls-tree", "--name-only", "HEAD"])
+    return respuesta is not None and respuesta[0] == 0 and respuesta[1] != ""
+
+
 def _decidir_init(raiz, estado):
     if not estado.disponible:
         return PasoDeGit(GIT_INIT, None, "no_disponible", "git init: no se hizo; git no está instalado")
@@ -641,6 +655,9 @@ def commitear(spec, plan, resultados, raiz):
     rutas = [ruta for ruta in nuevos if ruta not in ignorados]
     if not rutas:
         return ["commit: no hace falta; lo que se creó lo ignora git"], False
+    rutas = [ruta for ruta in rutas if ruta != config_loader.NOMBRE_LOCAL]
+    if not rutas:
+        return [f"commit: no hace falta; lo que se creó lo ignora git o es {config_loader.NOMBRE_LOCAL}, que nunca entra a un commit"], False
     previos, quedan = _previos_del_commit(plan, raiz, {r.ruta for r in resultados if r.estado == YA_EXISTIA}, True)
     con_hook = HOOK_DE_LA_INSTANCIA in rutas
     pasos = [["add", "--", *rutas, *previos]]
@@ -723,7 +740,7 @@ def proponer(raiz):
                 continue
             repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": _extensiones(carpeta)})
     return {"raiz": str(real), "proyecto": real.name, "instancia_existente": (raiz / config_loader.NOMBRE).is_file(),
-            "workspaces": workspaces, "repos": repos, "avisos": avisos}
+            "repo_de_codigo": es_repo_de_codigo(raiz), "workspaces": workspaces, "repos": repos, "avisos": avisos}
 
 
 def _confirmar(raiz, ruta, referencia):
@@ -884,6 +901,7 @@ def _argumentos(argv):
     ensayo = False
     commitear_pedido = False
     proponer_pedido = False
+    confirmar_repo = False
     i = 0
     while i < len(argv):
         argumento = argv[i]
@@ -896,18 +914,21 @@ def _argumentos(argv):
         elif argumento == "--proponer" and not proponer_pedido:
             proponer_pedido = True
             i += 1
+        elif argumento == "--confirmar-repo" and not confirmar_repo:
+            confirmar_repo = True
+            i += 1
         elif argumento in ("--spec", "--raiz") and argumento not in valores and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             valores[argumento] = argv[i + 1]
             i += 2
         else:
             return None
     if proponer_pedido:
-        if "--spec" in valores or ensayo or commitear_pedido:
+        if "--spec" in valores or ensayo or commitear_pedido or confirmar_repo:
             return None
-        return Opciones(None, valores.get("--raiz"), False, False, True)
+        return Opciones(None, valores.get("--raiz"), False, False, True, False)
     if "--spec" not in valores:
         return None
-    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido, False)
+    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido, False, confirmar_repo)
 
 
 def resolver_raiz(texto, cwd):
@@ -948,6 +969,8 @@ def principal(argv):
         return 0
     try:
         raiz = resolver_raiz(opciones.raiz, Path(os.getcwd()))
+        if not opciones.confirmar_repo and es_repo_de_codigo(raiz):
+            return _error(REPO_DE_CODIGO.format(raiz))
         spec = leer_spec(opciones.spec)
         validar_spec(spec, raiz)
         plan = planificar(spec, raiz)

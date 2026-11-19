@@ -518,6 +518,93 @@ def test_el_ensayo_dice_que_entraria_lo_que_ya_existia_igual_y_relativo_y_que_no
     assert caja.arbol() == antes and not (caja.raiz / ".git").exists()
 
 
+REPO_DE_CODIGO = ("error: la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
+                  "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
+                  "si igual la querés acá, confirmalo con --confirmar-repo\n")
+
+
+def repo_de_codigo(caja, carpeta):
+    carpeta.mkdir(parents=True)
+    caja.git(carpeta, "init", "-q")
+    (carpeta / "src").mkdir()
+    (carpeta / "src" / "app.ts").write_bytes(b"export const a = 1;\n")
+    (carpeta / ".gitignore").write_bytes(b"node_modules/\n")
+    caja.git(carpeta, "add", "-A")
+    caja.git(carpeta, *IDENTIDAD, "commit", "-q", "-m", "base")
+    return carpeta
+
+
+def foto_del_repo(caja, carpeta):
+    return caja.arbol(), (carpeta / ".git" / "config").read_bytes(), caja.git(carpeta, "rev-parse", "HEAD")
+
+
+def test_en_la_raiz_de_un_repo_de_codigo_sin_confirmar_se_rechaza_sin_escribir_nada():
+    caja = Caja()
+    repo_de_codigo(caja, caja.raiz)
+    antes = foto_del_repo(caja, caja.raiz)
+    for extra in (("--ensayo", "--commitear"), ("--commitear",), ()):
+        codigo, salida, errores = caja.cli(caja.spec(), *extra, entorno=IDENTIDAD_ENV)
+        assert codigo == 2 and salida == "", (extra, codigo, salida, errores)
+        assert errores == REPO_DE_CODIGO.format(caja.raiz), (extra, errores)
+        assert foto_del_repo(caja, caja.raiz) == antes, extra
+    assert caja.git(caja.raiz, "status", "--porcelain") == ""
+
+
+def test_en_la_raiz_de_un_repo_de_codigo_con_confirmacion_se_aplica_sin_commitear_workspace_local():
+    caja = Caja()
+    repo_de_codigo(caja, caja.raiz)
+    codigo, salida, errores = caja.cli(caja.spec(), "--commitear", "--confirmar-repo", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    assert "ya existía .gitignore" in lineas and "falta en .gitignore: workspace.local.json" in lineas, lineas
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % (len(sin_lo_local()) - 1), commit[0]), commit
+    assert caja.git(caja.raiz, "log", "--format=%s") == "chore: crea la instancia con odd-ws\nbase"
+    assert "workspace.local.json" not in rastreados(caja)
+    assert caja.git(caja.raiz, "status", "--porcelain") == "?? workspace.local.json"
+
+
+def test_workspace_local_nunca_entra_al_commit_aunque_el_gitignore_no_lo_excluya():
+    caja, (codigo, salida, errores) = primer_commit(lambda c: (c.raiz / ".gitignore").write_bytes(b"*.log\n"))
+    assert codigo == 0 and errores == "", (codigo, errores)
+    assert "falta en .gitignore: workspace.local.json" in salida.splitlines(), salida
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % (len(sin_lo_local()) - 1), commit[0]), commit
+    assert "workspace.local.json" not in rastreados(caja)
+    (caja.raiz / "workspace.local.json").unlink()
+    codigo, salida, errores = caja.cli(caja.spec(), "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    assert lineas_de_commit(salida) == ["commit: no hace falta; lo que se creó lo ignora git o es workspace.local.json, "
+                                        "que nunca entra a un commit"], salida
+    assert caja.git(caja.raiz, "rev-list", "--count", "HEAD") == "1"
+    assert caja.git(caja.raiz, "status", "--porcelain") == "?? .gitignore\n?? workspace.local.json"
+
+
+def test_una_subcarpeta_de_un_repo_de_codigo_sigue_sin_preguntar_y_sin_tocar_su_git():
+    caja = Caja()
+    externo = repo_de_codigo(caja, caja.base / "externo")
+    antes = (externo / ".git" / "config").read_bytes(), caja.git(externo, "rev-parse", "HEAD")
+    caja.raiz = externo / "sub" / "instancia"
+    codigo, salida, errores = caja.cli(caja.spec(), "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    assert any(l.startswith("commit: no se hizo; la raíz está dentro del repo ") for l in salida.splitlines()), salida
+    assert ((externo / ".git" / "config").read_bytes(), caja.git(externo, "rev-parse", "HEAD")) == antes
+    assert (caja.raiz / "workspace.config.json").is_file()
+
+
+def test_completar_una_instancia_que_vive_en_la_raiz_de_un_repo_no_pide_confirmacion():
+    caja = Caja()
+    repo_de_codigo(caja, caja.raiz)
+    assert caja.cli(caja.spec(), "--commitear", "--confirmar-repo", entorno=IDENTIDAD_ENV)[0] == 0
+    caja.git(caja.raiz, "rm", "-q", "CLAUDE.md")
+    caja.git(caja.raiz, *IDENTIDAD, "commit", "-q", "-m", "sin indice")
+    codigo, salida, errores = caja.cli(caja.spec(), "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    assert "creado CLAUDE.md" in salida.splitlines(), salida
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(r"commit: [0-9a-f]{7,} con 1 archivos", commit[0]), commit
+
+
 def test_el_aislamiento_de_git_dejo_vacias_las_config_global_y_del_sistema():
     assert CAJAS
     for caja in CAJAS:
