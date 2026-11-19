@@ -1223,6 +1223,15 @@ def test_el_resumen_marca_las_rutas_de_la_maquina_aunque_existan():
             "- ruta de la máquina: raíz -> /home/yo/x.md", "- ruta de la máquina: casa -> ~/x.md")), texto[-500:]
 
 
+def test_el_resumen_trata_como_relativo_un_destino_con_virgulilla_sin_barra():
+    with Toque() as w:
+        escribir(w.raiz, "tickets/T-7-algo/~notas.md", "x\n")
+        texto = resumen_del_ticket(w, "# T-7\n\n## Notas\n\n[nota](~notas.md) [falta](~falta.md) [casa](~/x.md) [sola](~)\n")
+        assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar(
+            "- no existe: falta -> ~falta.md", "- ruta de la máquina: casa -> ~/x.md", "- ruta de la máquina: sola -> ~")), texto[-500:]
+        assert "nota ->" not in texto, texto[-500:]
+
+
 def test_el_resumen_lista_rotos_y_rutas_de_la_maquina_en_el_orden_del_ticket():
     with Toque() as w:
         texto = resumen_del_ticket(w, "# T-7\n\n## Objetivo\n\n[falta](nada.md)\n\n## Gotchas\n\n- [unidad](D:/x.md)\n- [otra](otra/nada/)\n")

@@ -783,7 +783,7 @@ def argumentos_del_abridor(ruta, abre):
     if abre:
         return [destino]
     if sys.platform == "win32":
-        return ["/select," + destino]
+        return ["/select,", destino]
     if sys.platform == "darwin":
         return ["-R", destino]
     return [os.path.dirname(destino)]
@@ -860,6 +860,7 @@ def test_abrir_sin_un_entero_con_copiar_o_fuera_de_enlaces_es_error_de_uso():
             ("--enlaces", "12", "--abrir", "1", "--abrir", "2"), ("--enlaces", "12", "--abrir", "1", "--ensayo"),
             ("--abrir", "1"), ("--abrir", "1", "12"), ("--siguiente", "T", "--abrir", "1"), ("--activar", "12", "--abrir", "1"),
             ("--desactivar", "12", "--abrir", "1"), ("--cobertura", "--abrir", "1"), ("12", "x", "--abrir", "1"),
+            ("--enlaces", "12", "--abrir", "9" * 5000), ("--enlaces", "12", "--abrir", "-" + "1" * 5000),
         ]
         for argv in casos:
             assert e.correr(*argv, "--raiz", str(e.raiz), entorno=entorno) == (2, "", USO), argv
@@ -887,6 +888,54 @@ def test_abrir_sin_el_abridor_del_sistema_no_abre_lo_nombra_y_sale_con_uno():
         assert e.correr("--enlaces", "12", "--abrir", "1", "--raiz", str(e.raiz), entorno={**entorno, "PATH": str(vacio)}) == (
             1, listado, f"ticket: no se abrió {rutas[0]}: no encontré {ABRIDOR_DEL_SISTEMA} en el PATH\n")
         assert arbol(e.base) == antes
+
+
+def test_abrir_una_ruta_con_coma_en_windows_no_la_abre_y_sale_con_uno_y_en_los_demas_la_abre():
+    with Escenario() as e:
+        e.escribir({"docs/comas.md": b"[coma](q,evil.bat,y.md)\n", "docs/q,evil.bat,y.md": b"x"}, raiz=e.base)
+        coma = e.base / "docs" / "q,evil.bat,y.md"
+        entorno, registro = abridor_falso(e)
+        listado = f"enlaces de {absoluta(e.base / 'docs' / 'comas.md')}: 1\n  1  archivo  coma -> {absoluta(coma)}\n"
+        antes = sin_registro(e)
+        resultado = e.correr("--enlaces", "docs/comas.md", "--abrir", "1", cwd=e.base, entorno=entorno)
+        if sys.platform == "win32":
+            assert resultado == (1, listado, f"ticket: no se abrió {absoluta(coma)}: explorer separa las rutas en las comas y podría "
+                                             "abrir otra cosa: abrila a mano\n"), resultado
+            assert llamadas(registro) == [], llamadas(registro)
+        else:
+            assert resultado == (0, listado + f"abierto con su programa: {real(coma)} ({ABRIDOR_DEL_SISTEMA})\n", ""), resultado
+            assert llamadas(registro) == [argumentos_del_abridor(coma, True)], llamadas(registro)
+        assert sin_registro(e) == antes
+
+
+def test_enlaces_no_marca_un_destino_que_empieza_con_virgulilla_sin_barra():
+    with Escenario() as e:
+        e.escribir({"~notas.md": b"x", "doc.md": b"[nota](~notas.md) [falta](~falta.md) [casa](~/x.md)\n"}, raiz=e.base)
+        codigo, salida, errores = e.correr("--enlaces", "doc.md", cwd=e.base)
+        assert (codigo, errores) == (0, ""), (codigo, errores)
+        assert salida == (
+            f"enlaces de {absoluta(e.base / 'doc.md')}: 3\n"
+            f"  1  archivo  nota -> {absoluta(e.base / '~notas.md')}\n"
+            "rotos: 2\n"
+            f"  no existe  falta -> {absoluta(e.base / '~falta.md')}\n"
+            f"  no existe  casa -> {absoluta(e.base / '~' / 'x.md')}  (ruta de la máquina)\n"
+        ), salida
+
+
+SKILLS = AQUI.parent / "skills"
+
+
+def test_la_skill_enlaces_la_puede_invocar_el_modelo_y_abrir_solo_apunta_a_ella():
+    doctor = importlib.import_module("doctor")
+    enlaces = (SKILLS / "enlaces" / "SKILL.md").read_text(encoding="utf-8")
+    abrir = (SKILLS / "abrir" / "SKILL.md").read_text(encoding="utf-8")
+    cabecera = doctor.frontmatter(enlaces)
+    assert not doctor.declara(cabecera, doctor.SIN_INVOCACION), cabecera
+    assert doctor.declara(doctor.frontmatter(abrir), doctor.SIN_INVOCACION), "control: abrir sigue siendo solo del usuario"
+    for opcion in ("--enlaces", "--abrir <n>", "--copiar"):
+        assert opcion in enlaces and opcion in USO, opcion
+    assert '"<S>/ticket.py"' in enlaces and "`<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`" in enlaces, enlaces[:600]
+    assert "/odd-ws:enlaces" in abrir and "--abrir" not in abrir, "el procedimiento de abrir un enlace vive solo en la skill enlaces"
 
 
 def test_sin_abrir_ni_la_lista_ni_copiar_lanzan_el_abridor_y_copiar_sigue_igual():

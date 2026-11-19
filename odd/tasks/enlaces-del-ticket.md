@@ -37,9 +37,10 @@ Pruebas: `python3 plugin/scripts/<script>.tests.py`, todas con el bucle de `CONT
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T1 | S1 a S5 | `ticket.py --enlaces` y `--copiar`, sobre el criterio compartido con `conocimiento.py`, con sus tests y sus docs | delegada, en un carril propio. Risk: none, porque solo lee y el portapapeles se toca a pedido | hecho (L2) | `8315dc9` |
-| T2 | S8, S9 | La lista numerada, `--abrir <n>` con el abridor de cada escenario, y la skill `abrir` que pregunta antes | delegada, en paralelo con T3 por el contexto del orquestador. Risk: item 2, porque lanza un programa del sistema; lleva verificador | hecho; verificador en curso (L4) | este commit |
-| T3 | S7 | Los rotos y los no portables en el resumen del ticket activo y en `cerrar` | delegada, en paralelo con T2, con superficies disjuntas. Risk: none | hecho (L4) | este commit |
-| T4 | S7, S8 | La costura: la lista de `--enlaces` marca los no portables de T3, y los docs de las dos | inline, al final. Risk: item 2, porque el portapapeles buscaba su herramienta en la carpeta actual | hecho (L4) | este commit |
+| T2 | S8, S9 | La lista numerada, `--abrir <n>` con el abridor de cada escenario, y la skill `abrir` que pregunta antes | delegada, en paralelo con T3 por el contexto del orquestador. Risk: item 2, porque lanza un programa del sistema; lleva verificador | hecho; verificador: sin bloqueantes, y sus avisos corregidos en C1 (L5) | `b72ae44` |
+| T3 | S7 | Los rotos y los no portables en el resumen del ticket activo y en `cerrar` | delegada, en paralelo con T2, con superficies disjuntas. Risk: none | hecho (L4) | `b72ae44` |
+| T4 | S7, S8 | La costura: la lista de `--enlaces` marca los no portables de T3, y los docs de las dos | inline, al final. Risk: item 2, porque el portapapeles buscaba su herramienta en la carpeta actual | hecho (L4) | `b72ae44` |
+| C1 | S8, S9 | Corrección de los avisos del verificador: la coma en Windows y WSL, `/select,` en dos argumentos, un número enorme, `~` sin barra, y la skill `enlaces`, que el agente puede usar por su cuenta (L5) | delegada. Risk: item 2 | hecho; rechequeo en curso | este commit |
 
 ## Log
 
@@ -69,7 +70,27 @@ Pruebas: `python3 plugin/scripts/<script>.tests.py`, todas con el bucle de `CONT
     - **La costura.** La lista marca `(ruta de la máquina)` en los sanos y en los rotos.
     - **Un defecto de T1 que encontró el writer de T2.** `--copiar` buscaba su herramienta con `shutil.which`, que en Windows mira primero la carpeta actual, salvo que esté definida `NoDefaultCurrentDirectoryInExePath`. El entorno de Claude Code la define, así que el riesgo no se veía. Ahora busca con `abridor.buscar`.
     - **Pruebas.** Las dos dieron RED. El de la herramienta plantada, solo después de quitar esa variable: el falso copió las 8 rutas. Después, GREEN: `ticket.tests.py` 58/58, `abridor` 17/17, `enlaces` 6/6, `verificar_capa` 107/107 y `conocimiento` 113/113.
-  - **Avisos del writer de T3, sin acción:**
+  - **Avisos del writer de T3, sin acción en esta tanda:**
     - un `file:///C:/…` se ignora como esquema;
     - un `/docs/x.md` se marca como ruta de la máquina, aunque en GitHub es relativo a la raíz del repo;
     - los enlaces dentro de bloques de código también cuentan, como en `--enlaces`.
+- **L5** (2026-11-19) El verificador independiente de `b72ae44` contra `7ea37f6`: sin bloqueantes.
+  - **Veredictos:**
+    - S7 PASS: 8 tickets, 4 orígenes y 3 hosts; con enlaces sanos, idéntico byte a byte. 10 hosts UNC en 0.31 s, contra 1.27 s de un solo `stat` de control.
+    - S8 PASS.
+    - S9 PASS en lo reproducible: 54 destinos en 4 escenarios, con symlinks, junctions, doble extensión y mayúsculas.
+    - El arreglo de `--copiar` PASS: el defecto se reproduce en la base sin `NoDefaultCurrentDirectoryInExePath`, y no en el candidato.
+  - **Los avisos que se corrigieron en C1, porque la versión tiene que salir bien:**
+    1. una ruta con coma en Windows y WSL, que `explorer` separa;
+    2. `/select,` con espacios;
+    3. **el agente no veía el procedimiento:** vivía en `abrir`, que es solo del usuario, y por eso nace la skill `enlaces`, que el modelo puede invocar;
+    4. un número de más de 4300 cifras;
+    5. `~notas.md` marcado como ruta de la máquina;
+    6. una frase del diseño que prometía de más.
+  - **Avisos sin acción, fuera de dominio o informativos:** un flujo alternativo de NTFS (`f.bat:.md`), un `xdg-open` que bloquea y se informa como no abierto, y metadatos del sistema que la extensión no ve.
+  - **C1, por un writer.** Cada ítem dio RED antes y GREEN después: `abridor` 19/19, `ticket` 61/61, `enlaces` 7/7, `verificar_capa` 108/108, `bootstrap_textos` 29/29, `pi` 68/68, `doctor` 202/202 y `conocimiento` 113/113.
+    - **Diferencial contra `b72ae44`.** Solo cambian:
+      - los destinos con `~` sin barra;
+      - el argv de `/select,`;
+      - la ruta con coma.
+    - **Las skills, donde se enumeran.** Suma `enlaces` en la plantilla del `CLAUDE.md`, en `Doc/uso.md` y en `bootstrap_textos.tests.py`. P8 de Pi ahora cuenta nueve skills y nombra `paquetes`, que le faltaba.

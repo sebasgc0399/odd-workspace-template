@@ -160,7 +160,10 @@ def _argumentos(argv):
             copiar = True
             i += 1
         elif argumento == "--abrir" and numero is None and i + 1 < len(argv) and NUMERO_RE.fullmatch(argv[i + 1]):
-            numero = int(argv[i + 1])
+            try:
+                numero = int(argv[i + 1])
+            except ValueError:
+                return None
             i += 2
         elif argumento in MODOS and modo is None:
             modo = MODOS[argumento]

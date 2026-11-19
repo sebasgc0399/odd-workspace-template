@@ -6,7 +6,7 @@ from pathlib import Path
 ESQUEMA_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]+:")
 LINK_MD_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)(#[^)\s]*)?\)")
 ENLACE_RE = re.compile(r"\[([^\]]*)\]\((?:<([^<>\n]*)>|([^)\s]+))\)")
-RUTA_DE_LA_MAQUINA_RE = re.compile(r"[a-zA-Z]:|[/\\~]")
+RUTA_DE_LA_MAQUINA_RE = re.compile(r"[a-zA-Z]:|[/\\]|~(?:[/\\]|\Z)")
 ARCHIVO, CARPETA = "archivo", "carpeta"
 NO_EXISTE, DE_LA_MAQUINA = "no existe", "ruta de la máquina"
 

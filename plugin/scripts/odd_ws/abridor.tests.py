@@ -39,6 +39,7 @@ REVELAR = {"windows": "explorer /select", "macos": "open -R", "linux": "xdg-open
 ABRE_UNA_CARPETA = "abierto en el gestor de archivos"
 ABRE_UN_ARCHIVO = "abierto con su programa"
 MUESTRA = "mostrado en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo"
+SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: abrila a mano"
 EJECUTABLES = (".py", ".js", ".ps1", ".bat", ".cmd", ".exe", ".sh", ".command", ".lnk", ".url", ".desktop", ".app", ".html", "")
 DOCUMENTOS = (".md", ".markdown", ".txt", ".rst", ".log", ".csv", ".tsv", ".json", ".jsonc", ".yml", ".yaml", ".toml", ".ini",
               ".cfg", ".xml", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
@@ -112,7 +113,7 @@ def esperado(escenario, ruta, abre):
     if abre:
         argumentos = [destino]
     elif escenario in ("windows", "wsl"):
-        argumentos = ["/select," + destino]
+        argumentos = ["/select,", destino]
     elif escenario == "macos":
         argumentos = ["-R", destino]
     else:
@@ -187,7 +188,7 @@ def test_solo_los_documentos_datos_e_imagenes_de_la_lista_se_abren():
             ejecutable = c.archivo(f"ejecutable{i}{extension}")
             c.limpiar_registro()
             assert c.abrir(ejecutable, "windows") == (True, f"{MUESTRA}: {posix(ejecutable)} (explorer /select)"), extension
-            assert c.registro() == [["explorer", ["/select," + real(ejecutable)]]], (extension, c.registro())
+            assert c.registro() == [["explorer", ["/select,", real(ejecutable)]]], (extension, c.registro())
 
 
 def test_un_enlace_simbolico_se_decide_por_su_destino_real():
@@ -231,6 +232,44 @@ def test_la_ruta_va_como_un_solo_argumento_y_nunca_por_una_shell():
             c.limpiar_registro()
             assert c.abrir(raro, escenario)[0] is True, escenario
             assert c.registro() == [[ABRIDOR[escenario], [real(raro)]]], (escenario, c.registro())
+
+
+def test_en_windows_y_wsl_una_ruta_con_coma_no_se_abre_ni_se_muestra_y_en_los_demas_sigue_igual():
+    with Caja() as c:
+        c.falsos("explorer", "open", "xdg-open", "explorer.exe", "wslpath")
+        carpeta = c.docs / "notas,viejas"
+        carpeta.mkdir()
+        for ruta in (c.archivo("q,evil.bat,y.md"), c.archivo("a,b.py"), c.archivo("guía.md", c.docs / "con,coma"), carpeta):
+            for escenario in ("windows", "wsl"):
+                c.limpiar_registro()
+                motivo = f"{ABRIDOR[escenario]} {SEPARA_EN_LAS_COMAS}"
+                assert c.abrir(ruta, escenario) == (False, f"no se abrió {ruta.as_posix()}: {motivo}"), (escenario, ruta)
+                assert c.registro() == [], (escenario, ruta, c.registro())
+            for escenario in ("macos", "linux", "wayland"):
+                c.limpiar_registro()
+                abre = ruta.suffix != ".py"
+                que = ABRE_UNA_CARPETA if ruta.is_dir() else ABRE_UN_ARCHIVO if abre else MUESTRA
+                como = ABRIDOR[escenario] if abre else REVELAR[escenario]
+                assert c.abrir(ruta, escenario) == (True, f"{que}: {posix(ruta)} ({como})"), (escenario, ruta)
+                assert c.registro() == esperado(escenario, ruta, abre), (escenario, ruta, c.registro())
+
+
+def test_la_coma_se_mira_en_la_ruta_real_que_recibiria_explorer():
+    with Caja() as c:
+        c.falsos("explorer")
+        con_coma = c.archivo("q,evil.bat,y.md", c.base / "otra carpeta")
+        sin_coma = c.archivo("doc.md", c.base / "otra carpeta")
+        atajo, nombre_con_coma = c.docs / "atajo.md", c.docs / "a,b.md"
+        try:
+            os.symlink(con_coma, atajo)
+            os.symlink(sin_coma, nombre_con_coma)
+        except (OSError, NotImplementedError):
+            print("      (sin permiso para crear enlaces: prueba omitida)")
+            return
+        assert c.abrir(atajo, "windows") == (False, f"no se abrió {atajo.as_posix()}: explorer {SEPARA_EN_LAS_COMAS}")
+        assert c.registro() == [], c.registro()
+        assert c.abrir(nombre_con_coma, "windows") == (True, f"{ABRE_UN_ARCHIVO}: {posix(sin_coma)} (explorer)")
+        assert c.registro() == [["explorer", [real(sin_coma)]]], c.registro()
 
 
 def test_explorer_que_sale_con_uno_cuenta_como_abierto():
