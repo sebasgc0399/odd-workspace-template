@@ -355,7 +355,7 @@ Con `pi` en `hosts`, el bootstrap suma los agentes de gentle-shell y la extensi�
   - **gentle-shell lee solo `<cwd>/.pi/agents`** y no sube a los padres (`lib/agents-config.ts:214-222`, con `ctx.sessionManager.getCwd()` de `extensions/gentle-agents.ts:2273`). Para tener los writers y los revisores de la instancia, gentle-shell se abre en la raíz de la instancia; desde una subcarpeta no los ve, aunque las skills sí lleguen.
   - **Sin skills precargadas:** el agente abre sus `SKILL.md` con `read` al arrancar, como pide su arranque. Por eso P7 queda `degradado`.
   - **Con Pi a secas** no hay subagentes: los `.pi/agents` solo los usa gentle-shell.
-  - **Los overlays de herramientas** (gentle-shell #3223) cambian las herramientas de un agente por su nombre al cargarlo, sin tocar su `.md`, y el doctor no los ve: `pi-agentes` compara el `.md` con el que sale de `.claude/agents`, no las herramientas con las que corre el agente (S5 de R6).
+  - **Los overlays de herramientas** (gentle-shell #3223) cambian las herramientas de un agente por su nombre al cargarlo, sin tocar su `.md`, y el doctor no los ve: `pi-agentes` compara el `.md` con el que sale de `.claude/agents`, no las herramientas con las que corre el agente (S5 de R6). Desde F5 de R6, la línea de `pi-agentes` que muestra el doctor también lo dice, en OK, AVISO y FALTA (`pi.SIN_OVERLAYS`), y no solo la nota de P7 y los docs.
   - **En un gentle-shell real** (L53): cargaron las skills del plugin y las de la instancia, y gentle-shell encontró al writer en `.pi/agents`.
 
 ### Doctor por host (F1d2)

@@ -243,6 +243,8 @@ CONTROL_O_ESPACIO = "".join(map(chr, range(0x21)))
 TAB_O_SALTO = re.compile("[\t\n\r]")
 ID_VERSION = "pi"
 ID_AGENTES = "pi-agentes"
+SIN_OVERLAYS = ("el doctor no ve los overlays de herramientas de gentle-shell (#3223), que pueden cambiar las herramientas de "
+                "un agente al cargarlo")
 TAREAS_DE_GENTLE_AGENTS = Path("gentle-agents", "tasks")
 ARCHIVO_DE_HOOKS = "hooks/hooks.pi.json"
 PYTHON = "python3"
@@ -1213,9 +1215,10 @@ def _agentes(raiz, nucleo):
         return nucleo.resultado(id, nucleo.NO_APLICA, f"no hay agentes de la plantilla en {capas.AGENTES} que derivar")
     problemas = [revision for revision in revisiones if revision.codigo != "ok"]
     if not problemas:
-        return nucleo.resultado(id, nucleo.OK, f"{len(revisiones)} .md de {capas.PI_AGENTES} al día con su .md de {capas.AGENTES}")
+        return nucleo.resultado(id, nucleo.OK, f"{len(revisiones)} .md de {capas.PI_AGENTES} al día con su .md de {capas.AGENTES}; "
+                                               f"{SIN_OVERLAYS}")
     a_mano = any(revision.codigo not in ("falta", "atrasado") for revision in problemas)
-    detalle = "; ".join(map(_problema, problemas))
+    detalle = "; ".join([*map(_problema, problemas), SIN_OVERLAYS])
     ayuda = AYUDA_AGENTES if a_mano else ""
     if any(revision.codigo in ("falta", "atrasado") for revision in problemas):
         return nucleo.resultado(id, nucleo.FALTA, detalle, None, ayuda, lambda: _escribir_agentes(raiz))
