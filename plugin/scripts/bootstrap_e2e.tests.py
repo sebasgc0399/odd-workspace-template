@@ -480,6 +480,21 @@ def test_lo_que_ignora_el_gitignore_no_entra_al_commit_aunque_ya_existiera_igual
     assert not {".claude/settings.json", "mi-proyecto.code-workspace", ".gitignore"} & rastreados(caja), rastreados(caja)
 
 
+def test_un_code_workspace_ignorado_con_nombre_no_ascii_no_frena_el_primer_commit():
+    def preparar(c):
+        (c.raiz / ".gitignore").write_bytes(b"workspace.local.json\n.claude/estado/\n*.code-workspace\n")
+        escribir_workspace(c, "facturación.code-workspace", ".")
+
+    caja, (codigo, salida, errores) = primer_commit(preparar)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % (len(sin_lo_local()) - 1), commit[0]), commit
+    assert "no entró al commit" not in salida, salida
+    assert caja.git(caja.raiz, "diff", "--cached", "--name-only") == "", "el índice quedó con archivos sin commitear"
+    estado = caja.git(caja.raiz, "-c", "core.quotePath=false", "status", "--porcelain", "--ignored").splitlines()
+    assert "!! facturación.code-workspace" in estado, estado
+
+
 def test_un_settings_ya_trackeado_y_cambiado_no_se_stagea_ni_se_nombra_al_completar_la_instancia():
     caja = Caja()
     spec = caja.spec()

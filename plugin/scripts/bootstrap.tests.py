@@ -2524,10 +2524,10 @@ def test_un_git_que_falla_se_informa_sin_cambiar_la_salida():
             return
         original = b()._git
 
-        def roto(argumentos):
+        def roto(argumentos, **opciones):
             if "init" in argumentos:
                 return 1, "", "fatal: no se puede crear el repo"
-            return original(argumentos)
+            return original(argumentos, **opciones)
 
         b()._git = roto
         try:
@@ -3024,10 +3024,10 @@ def test_si_git_desaparece_entre_la_consulta_y_la_escritura_se_informa_sin_rompe
             return
         original = b()._git
 
-        def desaparece(argumentos):
+        def desaparece(argumentos, **opciones):
             if "init" in argumentos or "--get" not in argumentos and "config" in argumentos:
                 return None
-            return original(argumentos)
+            return original(argumentos, **opciones)
 
         b()._git = desaparece
         try:

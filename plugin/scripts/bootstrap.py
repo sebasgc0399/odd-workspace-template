@@ -399,10 +399,11 @@ def planificar_archivos(raiz, archivos, generador="archivos"):
 EstadoGit = namedtuple("EstadoGit", "disponible toplevel ilegible detalle")
 
 
-def _git(argumentos, plazo=None):
+def _git(argumentos, plazo=None, entrada=None):
     plazo = PLAZO_DE_GIT if plazo is None else plazo
+    flujo = {"stdin": subprocess.DEVNULL} if entrada is None else {"input": entrada}
     try:
-        resultado = subprocess.run(["git", *argumentos], capture_output=True, stdin=subprocess.DEVNULL, env=entorno_git(), timeout=plazo)
+        resultado = subprocess.run(["git", *argumentos], capture_output=True, env=entorno_git(), timeout=plazo, **flujo)
     except (FileNotFoundError, PermissionError):
         return None
     except subprocess.TimeoutExpired:
@@ -580,8 +581,9 @@ def _decidir_commit(spec, plan, raiz):
 
 
 def _ignorados(raiz, rutas):
-    respuesta = _git(["-C", str(raiz), "check-ignore", "--", *rutas])
-    return set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
+    entrada = "".join(ruta + "\0" for ruta in rutas).encode("utf-8")
+    respuesta = _git(["-C", str(raiz), "check-ignore", "-z", "--stdin"], entrada=entrada)
+    return set(filter(None, respuesta[1].split("\0"))) if respuesta is not None and respuesta[0] == 0 else set()
 
 
 def _sin_trackear_ni_ignorar(raiz, rutas):

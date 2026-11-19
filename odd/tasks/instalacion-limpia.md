@@ -23,10 +23,14 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
 | T0 | S1 | Este documento y la fila de R7 en el roadmap | inline, va en el primer commit del writer | hecho | |
-| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | hecho; verificador en curso (L4) | `bb003bf` |
-| T2 | S4 | La raíz de un repo de código: preguntar siempre, y `workspace.local.json` nunca en un commit | delegada, después de T1, porque toca la misma función. Risk: item 1; lleva verificador | hecho; verificador en curso (L4) | `d26d82e` |
+| T1 | S2, S3 | Lo que entra al primer commit: el `settings.json` y el `.code-workspace` | delegada. Risk: item 1, porque decide qué se commitea; lleva verificador | hecho; verificador: S2 PASS, S3 con B1 corregido en C1 (L5) | `bb003bf` |
+| T2 | S4 | La raíz de un repo de código: preguntar siempre, y `workspace.local.json` nunca en un commit | delegada, después de T1, porque toca la misma función. Risk: item 1; lleva verificador | hecho; verificador: PASS (L5) | `d26d82e` |
 | T3 | S5 | La propuesta de extensiones del mismo lenguaje | delegada, con T1 y T2 | hecho | `550a7fe` |
-| T4 | S6, S7 | `Doc/uso.md:9` y la nota del README | inline: el writer se cortó antes, y son solo docs (L4). Risk: none | hecho; la línea del CHANGELOG va con la entrega | este commit |
+| T4 | S6, S7 | `Doc/uso.md:9` y la nota del README | inline: el writer se cortó antes, y son solo docs (L4). Risk: none | hecho; la línea del CHANGELOG va con la entrega | `69e524c` |
+| C1 | S3 | Corrección del bloqueante B1 del verificador: un `.code-workspace` ignorado con nombre no ASCII hacía fallar el primer commit (L5) | inline. Risk: item 1 | hecho; rechequeo de B1 en curso | este commit |
+| F1 | S2, S3 | Seguimiento (A1 del verificador): sin repo git todavía, el ensayo no mira un `.gitignore` que ya existía, y promete en el commit un `settings.json` o un `.code-workspace` que la aplicación deja afuera. Va en la dirección segura (L5) | aparte | anotado | |
+| F2 | S3 | Seguimiento (A2): un `.code-workspace` con comentarios o comas finales (el JSONC de VS Code) queda afuera aunque sus rutas sean relativas; la salida lo explica. Es el mismo límite de `--proponer` (L5) | aparte | anotado | |
+| F3 | S2, S3 | Seguimiento (A4): la línea `commit: falló …` dice que quedaron en el índice «los archivos nuevos», y también quedan los que ya existían (L5) | aparte | anotado | |
 
 ## Log
 
@@ -43,3 +47,20 @@ Cada spec cita al autor tal cual. La evidencia de cada idea es su fila del [road
   - **La nota del marketplace (S7)** va en el README y también en `Doc/equipo.md`, que repite el mismo comando para quien clona la instancia.
   - **Lo que falta de I57:** la línea del CHANGELOG que distingue la subcarpeta de la raíz. La sección de la `0.9.1` ya se publicó, así que la aclaración va en la de la `0.10.0`, al armar la entrega.
   - **El verificador de T1 y T2** se lanzó al retomar, contra `de07bf8`.
+- **L5** (2026-11-19) El verificador de T1 y T2: S2 PASS, S4 PASS y S3 FAIL por un bloqueante.
+  - **Lo que probó.** Corrió más de 60 sondas sobre copias de `de07bf8` y `d26d82e`:
+    - el `settings.json` real de L2 con varios formatos;
+    - workspaces con rutas absolutas de todas las formas;
+    - la raíz de un repo de código con worktrees, HEAD separado y la ruta escrita de varias maneras;
+    - `workspace.local.json` con `!workspace.local.json` en el `.gitignore`;
+    - las invariantes contra la base.
+
+    `bootstrap.tests.py` dio 183/183 y `bootstrap_e2e.tests.py` 26/26.
+  - **B1.** Un `*.code-workspace` de la raíz con nombre no ASCII que el `.gitignore` ignora hacía fallar el primer commit entero, y en la base se commiteaba bien.
+    - **Causa.** `_ignorados` leía `git check-ignore` sin `-z`, y git cita esos nombres (`"dise\303\261o.code-workspace"`), así que el archivo pasaba por no ignorado y `git add` lo rechazaba.
+    - **Daño.** En un repo de código confirmado, además, dejaba 16 archivos stageados en el índice del usuario.
+  - **La corrección (C1).**
+    - `_ignorados` usa ahora `check-ignore -z --stdin`, y `_git` acepta una `entrada` opcional. Los dos tests que reemplazan `_git` la reenvían.
+    - El test nuevo `test_un_code_workspace_ignorado_con_nombre_no_ascii_no_frena_el_primer_commit` dio RED antes del arreglo (`commit: falló (hint: …)`) y GREEN después.
+    - Las suites dan 183/183 y 27/27.
+  - **Avisos.** A1, A2 y A4 quedan como F1 a F3. A3 (entradas de `folders` fuera del esquema de VS Code) es entrada fuera de dominio y no se anota.
