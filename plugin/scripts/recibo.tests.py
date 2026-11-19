@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -1218,6 +1219,66 @@ def test_previo_y_derivado_con_check_o_sellar_son_error_de_uso():
                 codigo, salida, error = correr(modo + extra)
                 assert codigo == 2 and salida == "" and extra[0] in error, (modo, extra, codigo, salida, error)
         assert recibo.read_bytes() == crudo
+
+
+SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+ID_LITERAL_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[0-9]{2,}\b")
+FORMATO_CON_ID = "[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar"
+RENDIMIENTO = ("Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · "
+               "CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente")
+DESTINO = "destino: corregidos <c>, derivados <d>, descartados <e>"
+
+
+def seccion_de(texto, titulo):
+    nivel = len(titulo) - len(titulo.lstrip("#"))
+    partes, dentro, en_bloque = [], False, False
+    for linea in texto.split("\n"):
+        if linea.lstrip().startswith("```"):
+            en_bloque = not en_bloque
+        elif not en_bloque and linea.startswith("#"):
+            if dentro and len(linea) - len(linea.lstrip("#")) <= nivel:
+                break
+            dentro = dentro or linea.startswith(titulo)
+        if dentro:
+            partes.append(linea)
+    assert partes, "la skill no tiene la sección %r" % titulo
+    return "\n".join(partes)
+
+
+def bloques_de_codigo(texto):
+    bloques, actual = [], None
+    for linea in texto.split("\n"):
+        if linea.lstrip().startswith("```"):
+            if actual is None:
+                actual = []
+            else:
+                bloques.append("\n".join(actual))
+                actual = None
+        elif actual is not None:
+            actual.append(linea.strip())
+    return bloques
+
+
+def test_el_prompt_de_revisar_pide_el_id_de_la_regla_sin_un_id_literal():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    prompts = [b for b in bloques_de_codigo(seccion_de(texto, "## 4.")) if b.startswith("Revisá ")]
+    assert len(prompts) == 1, prompts
+    prompt = prompts[0]
+    assert FORMATO_CON_ID in prompt and "sin ID" in prompt, prompt
+    literal = ID_LITERAL_RE.search(prompt)
+    assert literal is None, "el prompt nombra un ID literal: %s" % (literal and literal.group(0))
+    assert ID_LITERAL_RE.search(prompt.replace("<ID de la regla | sin ID>", "SQL-01")), "control positivo: un ID literal se detecta"
+    consolidacion = seccion_de(texto, "## 7.")
+    assert "unidos por ubicación y regla" in consolidacion and "con ID, la regla es su ID" in consolidacion, consolidacion
+
+
+def test_la_consolidacion_abre_con_el_rendimiento_y_el_recibo_completa_su_destino():
+    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    consolidacion = seccion_de(texto, "## 7.")
+    assert RENDIMIENTO in bloques_de_codigo(consolidacion), bloques_de_codigo(consolidacion)
+    assert "solo en `completo`" in consolidacion and "primera línea de `consolidado.md`" in consolidacion, consolidacion
+    recibo = seccion_de(texto, "## 8.")
+    assert DESTINO in recibo and "`con-hallazgos` o `limpio`" in recibo, recibo
 
 
 def main():

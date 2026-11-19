@@ -119,10 +119,12 @@ Entrada:
 Ya decidido en el ticket (## Decisiones), no lo vuelvas a plantear como hallazgo; si un CRITICAL lo contradice, reportalo y nombrá la decisión:
 - <una línea por decisión, copiada de ## Decisiones, o «ninguna»>
 
-Entregá el reporte con tu contrato.
+Entregá el reporte con tu contrato. En cada hallazgo, justo después de la severidad, citá el ID de la regla de la matriz que rompe, o `sin ID` si no viene de una regla con ID:
+[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar
 ```
 
 - **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
+- **El ID de la regla también va en el prompt**, y no en las plantillas de los revisores: un cambio de plantilla no llega a los revisores ya generados. `revisor-diseno` solo ve los IDs de `criterios`, así que `sin ID` es una respuesta normal. Nunca pongas un ID de ejemplo en el prompt: el revisor lo copiaría.
 
 - Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento.
 - **No leas reportes parciales:** esperá a que terminen todas. Nunca lances otra revisión mientras tanto.
@@ -148,11 +150,23 @@ python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --desti
 
 ## 7. La consolidación
 
-La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
+La hace el orquestador, en prosa, leyendo los reportes de `corridas/`. La regla de un hallazgo es la que citó el revisor: con ID, la regla es su ID; con `sin ID`, lo que viola.
 
+- **El rendimiento** va en la primera línea de `consolidado.md`, siempre con esta forma:
+
+  ```
+  Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente
+  ```
+
+  - `<n>` cuenta cada hallazgo de la consolidación una vez, de diseño y de capa. No cuenta los conflictos, las preguntas para el líder, los límites, lo que ya estaba antes del cambio ni lo que reabre una decisión sin ser `CRITICAL`.
+  - El acuerdo va solo en `completo`, y cuenta los hallazgos de diseño por su frecuencia. En `rapido` y en un rechequeo, la línea no lo trae.
+  - La severidad de cada hallazgo es la que le dio su revisor.
+  - El destino queda `pendiente` hasta el recibo (paso 8).
+
+  Es lo que mide qué rinde cada corrida: con esos datos se decide si un `completo` puede bajar a 2 corridas de diseño.
 - **Modo `rapido`, y todo rechequeo:** junta los reportes de diseño y de capa. Cada hallazgo, una vez, con su ubicación y su regla.
 - **Modo `completo`:**
-  - **Hallazgos con su frecuencia** entre las tres corridas de diseño (3/3, 2/3, 1/3), unidos por ubicación y regla. Los que salieron 1/3 van marcados **«a confirmar»**.
+  - **Hallazgos con su frecuencia** entre las tres corridas de diseño (3/3, 2/3, 1/3), unidos por ubicación y regla (con ID, la regla es su ID). Los que salieron 1/3 van marcados **«a confirmar»**.
   - **Conflictos:** la misma pieza con veredictos opuestos entre corridas (por ejemplo, «quitar» contra «consumido»). Van en su propia sección, **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**.
 - **En los dos modos:**
   - **La severidad de diseño y la de capa van separadas.** Cada hallazgo conserva la del revisor que lo dijo (`CRITICAL`, `WARNING`, `SUGGESTION`); no se promedian ni se unifican.
@@ -176,6 +190,7 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`.
    - `--ronda <n>` va solo desde la segunda ronda del mismo día y modo, con el número de su carpeta. `--check` toma la ronda más alta, o la de `--recibo`.
    - `<base>` es la base completa del triaje, para que el recibo cubra el mismo diff que se revisó.
    - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente`, volvé a escribirlo con `con-hallazgos` y los mismos argumentos; si era un rechequeo, también con su `--previo`, porque sin él el recibo pierde lo heredado y después no se puede sellar. `--verificacion` anota lo que se corrió de verdad y su resultado.
+   - **Completá el destino** en la línea de rendimiento de `consolidado.md` cuando escribís el recibo con `con-hallazgos` o `limpio`, también al reescribir uno `pendiente`: `destino: corregidos <c>, derivados <d>, descartados <e>`. Los derivados son los que van con `--derivado`, y los descartados, los que el usuario descartó con su motivo. En un rechequeo, completá también el de la ronda anterior: lo que el rechequeo vio resuelto cuenta como corregido. Con `pendiente`, el destino sigue `pendiente`.
    - Escribe `revision/<fecha>-<modo>[-<n>]/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
    - Si el recibo ya existía, se pisa entero: pasá todos los `--repo` en una sola llamada.
 3. **Antes de decir «listo» o «listo para commit», corré `--check`:**
