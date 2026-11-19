@@ -22,8 +22,13 @@ Pruebas: `python3 plugin/scripts/<script>.tests.py`, todas con el bucle de `CONT
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |---|---|---|---|---|---|
-| T1 | S1 a S5 | `ticket.py --enlaces` y `--copiar`, sobre el criterio compartido con `conocimiento.py`, con sus tests y sus docs | delegada, en un carril propio. Risk: none, porque solo lee y el portapapeles se toca a pedido | pendiente | |
+| T1 | S1 a S5 | `ticket.py --enlaces` y `--copiar`, sobre el criterio compartido con `conocimiento.py`, con sus tests y sus docs | delegada, en un carril propio. Risk: none, porque solo lee y el portapapeles se toca a pedido | hecho (L2) | `8315dc9` |
 
 ## Log
 
 - **L1** (2026-11-19) El pedido de _00_ y la decisión del autor, tal cual, están en S1. Antes de decidir, se verificó qué hay hoy: `conocimiento.py:191-199` detecta enlaces rotos, pero solo en los docs de conocimiento y solo a `.md`.
+- **L2** (2026-11-19) T1 hecho en `8315dc9`.
+  - **Qué hace.** `ticket.py --enlaces <id | ruta>` lista los enlaces con su texto, su ruta absoluta y su tipo; los rotos y los enlaces con esquema salen aparte. `--copiar` manda las rutas al portapapeles y, sin herramienta, avisa y las muestra igual.
+  - **Una sola regla.** La regla de enlace válido pasó de `conocimiento.py` a `odd_ws/enlaces.py`, y `conocimiento.py` la importa con su salida sin cambios.
+  - **Pruebas.** El pre-commit corrió todas las suites en verde.
+  - Queda esperar la respuesta de _00_ sobre si esto es lo que pedía.
