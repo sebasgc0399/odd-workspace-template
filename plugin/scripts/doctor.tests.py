@@ -2625,6 +2625,31 @@ def test_pi_agentes_con_la_config_rota_es_una_sola_falta():
         (raiz / "workspace.config.json").write_text('{"schema_version": 1, "layers": {}, "hosts": ["pi"]}', encoding="utf-8")
         r = por_id(ctx)["pi-agentes"]
         assert r.estado == "FALTA" and "layers" in r.detalle and r.arreglo is None and r.ayuda, r
+        assert "overlays" not in r.detalle, r
+
+
+SIN_OVERLAYS = ("el doctor no ve los overlays de herramientas de gentle-shell (#3223), que pueden cambiar las herramientas de "
+                "un agente al cargarlo")
+
+
+def linea_del_doctor(ctx, id_):
+    salida = correr([], ctx)[1]
+    lineas = [linea for linea in salida.splitlines() if linea.split(" ", 1)[0] == id_]
+    assert len(lineas) == 1, salida
+    return lineas[0]
+
+
+def test_la_linea_de_pi_agentes_dice_que_el_doctor_no_ve_los_overlays_de_herramientas():
+    with Escenario() as e:
+        raiz, ctx = instancia_pi_sana(e)
+        assert linea_del_doctor(ctx, "pi-agentes").split(None, 2)[1:] == [
+            "OK", "3 .md de .pi/agents al día con su .md de .claude/agents; " + SIN_OVERLAYS]
+        poner(raiz, ".pi/agents/writer-vieja.md", md_de_pi_de_la_plantilla("writer-sql").replace("writer-sql", "writer-vieja"))
+        linea = linea_del_doctor(ctx, "pi-agentes")
+        assert linea.split(None, 2)[1] == "AVISO" and "writer-vieja.md" in linea and linea.endswith("; " + SIN_OVERLAYS), linea
+        md_de_pi_en(raiz, "writer-sql").unlink()
+        linea = linea_del_doctor(ctx, "pi-agentes")
+        assert linea.split(None, 2)[1] == "FALTA" and "writer-sql.md" in linea and linea.endswith("; " + SIN_OVERLAYS), linea
 
 
 def test_con_pi_declarado_en_windows_python_revisa_el_python_de_pi_y_lo_nombra():

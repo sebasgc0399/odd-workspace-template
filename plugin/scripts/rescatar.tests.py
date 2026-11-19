@@ -809,8 +809,10 @@ PROMPT_PI = "Revisá el diseño del ticket T1 antes del commit."
 INICIO_PI, FIN_PI = 1794996000250, 1794996270007
 USO_PI = {"input": 900, "output": 1200, "cacheRead": 50000, "cacheWrite": 8000, "reasoning": 300}
 COSTO_PI = {"turnos": 3, "contexto_inicial": None, "contexto_final": None, "salida": 1200, "cache_escrita": 8000,
-            "cache_leida": 50000, "inicio": "2026-11-18T10:00:00.250Z", "fin": "2026-11-18T10:04:30.007Z", "pausa_mayor": None}
+            "cache_leida": 50000, "inicio": "2026-11-18T10:00:00.250Z", "fin": "2026-11-18T10:04:30.007Z", "pausa_mayor": None,
+            "tokens_total": 60100, "costo_usd": 0.42}
 SIN_ORQUESTADOR_PI = "aviso costo: el costo del orquestador solo se mide en Claude Code; orquestador queda en null\n"
+AUSENTE = object()
 
 
 def herramienta_pi(nombre, args, salida="", error=False, corriendo=False, llamada=None):
@@ -825,13 +827,18 @@ def hilo_pi():
 
 
 def tarea_pi(id_="t1", status="completed", resultado="Reporte de Pi.", items=None, dropped=0, uso=USO_PI, inicio=INICIO_PI,
-             fin=FIN_PI, agente_="revisor-diseno"):
+             fin=FIN_PI, agente_="revisor-diseno", **cambios):
     tarea = {"id": id_, "agent": agente_, "mode": "background", "prompt": PROMPT_PI, "label": "Revisá el diseño",
              "cwd": "C:\\inst", "parentSessionId": "s1", "status": status, "createdAt": INICIO_PI - 50, "startedAt": inicio,
              "endedAt": fin, "model": MODELO_PI, "thinking": None, "sessionPath": None, "error": None, "result": resultado,
              "lastStep": "responded", "lastActivityAt": FIN_PI, "turns": 3, "toolCalls": 3, "tokens": 60100, "cost": 0.42}
     if uso is not None:
         tarea["usage"] = uso
+    for clave, valor in cambios.items():
+        if valor is AUSENTE:
+            tarea.pop(clave, None)
+        else:
+            tarea[clave] = valor
     return {"task": tarea, "thread": {"items": hilo_pi() if items is None else items, "dropped": dropped, "version": 9,
                                       "limits": {"maxItems": 400, "maxOutputChars": 16000}}}
 
@@ -980,6 +987,67 @@ def test_pi_costo_escribe_el_costo_de_la_revision_sin_orquestador_y_el_anuncio_n
             "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 2 corrida(s), 4 líneas "
             "de diff; por corrida, en promedio: 3 turnos, contexto final sin medir, salida 1 200, caché escrita 8 000 y caché "
             "leída 50 000 tokens; las corridas corrieron en serie\n"), "")
+
+
+TICKET_T1 = ("inst", "tickets", "T1-a")
+INICIO_T2, FIN_T2 = 1794996300000, 1794996360999
+
+
+def test_pi_una_tarea_real_sin_usage_guarda_sus_totales_cuenta_como_medida_y_el_anuncio_los_cita():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_tarea(base / "agente", tarea_pi(uso=None, tokens=7196, cost=0.0142, turns=4, toolCalls=5))
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", uso=None, usage=None, tokens=2804, cost=0.0058, turns=2, toolCalls=1,
+                                                inicio=INICIO_T2, fin=FIN_T2))
+        codigo, salida, error = cli_pi(base, "--destino", rev / "corridas", "--corrida", "c1=t1", "--corrida", "c2=t2", "--costo")
+        assert (codigo, error) == (0, SIN_ORQUESTADOR_PI), (codigo, salida, error)
+        assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+        totales = dict(COSTO_PI, turnos=4, salida=None, cache_escrita=None, cache_leida=None, tokens_total=7196, costo_usd=0.0142)
+        assert list(totales)[-2:] == ["tokens_total", "costo_usd"]
+        assert leer_json(rev / "corridas" / "c1.lecturas.json")["costo"] == totales
+        assert [c["costo"] for c in leer_json(rev / "corridas" / "costo.json")["corridas"]] == [totales, dict(
+            totales, turnos=2, inicio="2026-11-18T10:05:00.000Z", fin="2026-11-18T10:06:00.999Z", tokens_total=2804, costo_usd=0.0058)]
+        assert cli("--ultimo-costo", base.joinpath(*TICKET_T1)) == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 2 corrida(s), 4 líneas "
+            "de diff; por corrida, en promedio: 3 turnos, 5 000 tokens en total y 0,0100 USD; las corridas corrieron en serie\n"), "")
+
+
+def test_pi_una_tarea_sin_usage_tokens_ni_costo_cuenta_sin_datos_de_uso():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_tarea(base / "agente", tarea_pi())
+        guardar_tarea(base / "agente", tarea_pi(id_="t2", uso=None, tokens=AUSENTE, cost=AUSENTE, inicio=INICIO_T2, fin=FIN_T2))
+        codigo, salida, error = cli_pi(base, "--destino", rev / "corridas", "--corrida", "c1=t1", "--corrida", "c2=t2", "--costo")
+        assert (codigo, error) == (0, SIN_ORQUESTADOR_PI), (codigo, salida, error)
+        assert salida.splitlines()[-1] == "costo: 2 corrida(s) en %s (1 sin datos de uso)" % (rev / "corridas" / "costo.json"), salida
+        assert leer_json(rev / "corridas" / "costo.json")["corridas"][1]["costo"] == dict(
+            COSTO_PI, salida=None, cache_escrita=None, cache_leida=None, tokens_total=None, costo_usd=None,
+            inicio="2026-11-18T10:05:00.000Z", fin="2026-11-18T10:06:00.999Z")
+        assert cli("--ultimo-costo", base.joinpath(*TICKET_T1)) == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 de 2 corrida(s) con "
+            "datos de uso, 4 líneas de diff; por corrida, en promedio: 3 turnos, contexto final sin medir, salida 1 200, caché "
+            "escrita 8 000 y caché leída 50 000 tokens; las corridas corrieron en serie\n"), "")
+
+
+def test_pi_el_anuncio_no_le_pone_tokens_a_un_campo_sin_medir():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_tarea(base / "agente", tarea_pi(uso={"output": 1200, "cacheWrite": 8000}))
+        assert cli_pi(base, "--destino", rev / "corridas", "--corrida", "c1=t1", "--costo")[0] == 0
+        assert cli("--ultimo-costo", base.joinpath(*TICKET_T1)) == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), 4 líneas "
+            "de diff; por corrida, en promedio: 3 turnos, contexto final sin medir, salida 1 200, caché escrita 8 000 tokens y "
+            "caché leída sin medir\n"), "")
+
+
+def test_pi_sesion_con_una_carpeta_sin_la_de_tareas_sale_con_2_sin_escribir_nada():
+    with Temporal() as base:
+        guardar_tarea(base / "agente", tarea_pi())
+        for sesion in (base / "vacia", base / "otra" / "tasks"):
+            sesion.mkdir(parents=True)
+            assert cli_pi(base, "--sesion", sesion, "--destino", base / "d", "--corrida", "c=t1") == (
+                2, "rescatar: no existe la carpeta de tareas de gentle-shell %s\n" % (sesion / "gentle-agents" / "tasks"), ""), sesion
+        assert not (base / "d").exists()
 
 
 OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")

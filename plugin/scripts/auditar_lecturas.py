@@ -12,8 +12,10 @@ from pathlib import Path
 import config_loader
 from odd_ws import capas as convencion
 from odd_ws.comun import raiz_de_instancia
+from odd_ws.hosts import pi
 from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, leer
 
+EQUIVALENTES = {**{h: h for h in LECTURA}, **{pi.HERRAMIENTAS[h]: h for h in LECTURA}}
 _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _MSYS = re.compile(r"^/([A-Za-z])(?:/|$)")
 
@@ -115,6 +117,7 @@ def _resumen_entrada(entrada):
 
 def clasificar(indice, tool, entrada, reglas, cwd, ceguera_fisica):
     base = {"indice": indice, "tool": tool, "entrada": _resumen_entrada(entrada)}
+    tool = EQUIVALENTES.get(tool) if isinstance(tool, str) else None
     if tool == "Read":
         ruta = entrada.get("file_path") or entrada.get("path")
         if not ruta:
@@ -253,7 +256,8 @@ def _imprimir(informe, ver):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Audita las lecturas (Read/Grep/Glob) de corridas a ciegas contra las rutas prohibidas.")
+        description="Audita las lecturas (Read/Grep/Glob de Claude Code, read/grep/find de Pi) de corridas a ciegas contra las "
+                    "rutas prohibidas.")
     parser.add_argument("archivos", nargs="+", help="*.lecturas.json o agent-<id>.jsonl")
     parser.add_argument("--manifest", help="manifest.json del caso (prohibidas / permitidas)")
     parser.add_argument("--scratch", help="carpeta scratch de la corrida: sustituye {scratch} en permitidas")

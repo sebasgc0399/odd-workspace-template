@@ -6,6 +6,7 @@ import argparse
 import codecs
 import datetime
 import json
+import math
 import os
 import re
 import types
@@ -23,6 +24,10 @@ SHELL_PI = tuple(pi.DIALECTOS)
 COMPLETADA = "completed"
 TAREA_RE = re.compile(r"[A-Za-z0-9-]+")
 USO_PI = {"salida": "output", "cache_escrita": "cacheWrite", "cache_leida": "cacheRead"}
+CAMPOS_DE_TOKENS = ("contexto_inicial", "contexto_final", "salida", "cache_escrita", "cache_leida", "tokens_total")
+CAMPOS_DEL_ANUNCIO = (("contexto final", "contexto_final"), ("salida", "salida"), ("caché escrita", "cache_escrita"),
+                      ("caché leída", "cache_leida"))
+SIN_MEDIR = "sin medir"
 MAX_SALIDA = 2000
 CODIGO_DE_SALIDA_RE = re.compile(r"Exit code (-?[0-9]+)")
 CLAVES_REPORTE = ("message", "result", "report")
@@ -195,7 +200,9 @@ def _costo_pi(tarea):
     medida = {"turnos": tarea.get("turns") if _es_entero(tarea.get("turns")) else None,
               "contexto_inicial": None, "contexto_final": None}
     medida.update({campo: uso.get(clave) if _es_entero(uso.get(clave)) else None for campo, clave in USO_PI.items()})
-    medida.update({"inicio": _instante_pi(tarea.get("startedAt")), "fin": _instante_pi(tarea.get("endedAt")), "pausa_mayor": None})
+    medida.update({"inicio": _instante_pi(tarea.get("startedAt")), "fin": _instante_pi(tarea.get("endedAt")), "pausa_mayor": None,
+                   "tokens_total": tarea.get("tokens") if _es_entero(tarea.get("tokens")) else None,
+                   "costo_usd": tarea.get("cost") if _es_numero(tarea.get("cost")) else None})
     return medida if any(valor is not None for valor in medida.values()) else None
 
 
@@ -232,10 +239,15 @@ def extraer_corrida_pi(ruta):
     return _corrida_de_tarea(*leida)
 
 
+def _es_la_carpeta_de_tareas(carpeta):
+    partes = Path(os.path.normcase(os.path.abspath(carpeta))).parts
+    return partes[-len(pi.TAREAS_DE_GENTLE_AGENTS.parts):] == tuple(map(os.path.normcase, pi.TAREAS_DE_GENTLE_AGENTS.parts))
+
+
 def carpeta_de_tareas(sesion=None):
     if sesion is not None:
         sesion = Path(sesion)
-        return sesion / pi.TAREAS_DE_GENTLE_AGENTS if (sesion / pi.TAREAS_DE_GENTLE_AGENTS).is_dir() else sesion
+        return sesion if _es_la_carpeta_de_tareas(sesion) else sesion / pi.TAREAS_DE_GENTLE_AGENTS
     ctx = types.SimpleNamespace(home=Path.home(), entorno=os.environ, windows=os.name == "nt")
     return pi.home_de_gentle_agents(ctx) / pi.TAREAS_DE_GENTLE_AGENTS
 
@@ -370,9 +382,45 @@ def _es_entero(valor):
     return isinstance(valor, int) and not isinstance(valor, bool)
 
 
+def _es_numero(valor):
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool) and math.isfinite(valor)
+
+
+def _con_datos_de_uso(medida):
+    return isinstance(medida, dict) and (any(_es_entero(medida.get(campo)) for campo in CAMPOS_DE_TOKENS)
+                                         or _es_numero(medida.get("costo_usd")))
+
+
 def _promedio(medidas, clave):
     valores = [m[clave] for m in medidas if _es_entero(m.get(clave))]
-    return "{:,}".format(round(sum(valores) / len(valores))).replace(",", " ") if valores else "sin medir"
+    return "{:,}".format(round(sum(valores) / len(valores))).replace(",", " ") if valores else SIN_MEDIR
+
+
+def _en_tokens(promedio):
+    textos = ["%s %s" % (nombre, promedio[clave]) for nombre, clave in CAMPOS_DEL_ANUNCIO]
+    medidos = [i for i, (_, clave) in enumerate(CAMPOS_DEL_ANUNCIO) if promedio[clave] != SIN_MEDIR]
+    if medidos:
+        textos[medidos[-1]] += " tokens"
+    return "%s y %s" % (", ".join(textos[:-1]), textos[-1])
+
+
+def _totales(medidas):
+    partes = []
+    tokens = _promedio(medidas, "tokens_total")
+    if tokens != SIN_MEDIR:
+        partes.append("%s tokens en total" % tokens)
+    costos = [m["costo_usd"] for m in medidas if _es_numero(m.get("costo_usd"))]
+    if costos:
+        partes.append(("%.4f USD" % (sum(costos) / len(costos))).replace(".", ","))
+    return " y ".join(partes)
+
+
+def _por_corrida(medidas):
+    promedio = {clave: _promedio(medidas, clave) for _, clave in CAMPOS_DEL_ANUNCIO}
+    totales = _totales(medidas)
+    if totales and all(valor == SIN_MEDIR for valor in promedio.values()):
+        return totales
+    return _en_tokens(promedio)
 
 
 def _medida(ruta, avisos):
@@ -382,7 +430,7 @@ def _medida(ruta, avisos):
     except (OSError, ValueError, KeyError, TypeError):
         avisos.append("se ignora %s (no es un costo.json legible)" % ruta)
         return None
-    medidas = [c["costo"] for c in corridas if isinstance(c.get("costo"), dict)]
+    medidas = [c["costo"] for c in corridas if _con_datos_de_uso(c.get("costo"))]
     if not medidas:
         return None
     fines = [m["fin"] for m in medidas if isinstance(m.get("fin"), str)]
@@ -427,13 +475,9 @@ def ultimo_costo(ticket):
     n = len(medida["medidas"])
     corridas = "%d corrida(s)" % n if n == medida["total"] else "%d de %d corrida(s) con datos de uso" % (n, medida["total"])
     lineas = "líneas de diff sin medir" if medida["lineas"] is None else "%d líneas de diff" % medida["lineas"]
-    promedio = {clave: _promedio(medida["medidas"], clave)
-                for clave in ("turnos", "contexto_final", "salida", "cache_escrita", "cache_leida")}
-    return ("último costo medido, %s: %s: modo %s, %s, %s; por corrida, en promedio: %s turnos, contexto final %s, "
-            "salida %s, caché escrita %s y caché leída %s tokens%s" % (
-                origen, relativa, modo, corridas, lineas, promedio["turnos"], promedio["contexto_final"],
-                promedio["salida"], promedio["cache_escrita"], promedio["cache_leida"],
-                "; las corridas corrieron en serie" if medida["en_serie"] else "")), avisos
+    return ("último costo medido, %s: %s: modo %s, %s, %s; por corrida, en promedio: %s turnos, %s%s" % (
+        origen, relativa, modo, corridas, lineas, _promedio(medida["medidas"], "turnos"), _por_corrida(medida["medidas"]),
+        "; las corridas corrieron en serie" if medida["en_serie"] else "")), avisos
 
 
 def _parsear_corridas(crudas, host=CLAUDE_CODE):
@@ -476,7 +520,8 @@ def _parser():
                              "gentle-shell, <agentHome>/gentle-agents/tasks/<task_id>.json, con agentHome "
                              "GENTLE_PI_AGENT_HOME, si no PI_CODING_AGENT_DIR, si no ~/.pi/agent")
     parser.add_argument("--sesion", help="carpeta subagents (o la de la sesion que la contiene); con --host pi es opcional: "
-                                         "la carpeta de tareas de gentle-shell, o el agentHome que la contiene")
+                                         "la carpeta de tareas de gentle-shell (<agentHome>/gentle-agents/tasks), o el "
+                                         "agentHome que la contiene; si no la tiene, sale con 2")
     parser.add_argument("--destino", help="carpeta donde se escriben los archivos de cada corrida")
     parser.add_argument("--corrida", action="append", metavar="NOMBRE=AGENTID",
                         help="repetible; el nombre es el de los archivos a escribir; con --host pi va el task_id")
@@ -555,7 +600,7 @@ def main(argv=None):
         ruta, datos, avisos = escribir_costo(args.destino, costos, sub, list(corridas.values()), args.host)
         for aviso in avisos:
             print("aviso costo: %s" % aviso, file=sys.stderr)
-        sin_uso = sum(1 for c in datos["corridas"] if c.get("costo") is None)
+        sin_uso = sum(1 for c in datos["corridas"] if not _con_datos_de_uso(c.get("costo")))
         print("costo: %d corrida(s) en %s%s" % (len(datos["corridas"]), ruta, " (%d sin datos de uso)" % sin_uso if sin_uso else ""))
     return 1 if fallos else 0
 
