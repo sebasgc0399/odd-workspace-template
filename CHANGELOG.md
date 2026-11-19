@@ -2,6 +2,69 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.10.0
+
+**La instalación sale limpia, `revisar` mide y explica lo que cuesta, Pi y Codex funcionan completos con Gentle 4.8, y los enlaces de un ticket se depuran y se abren desde cualquier cliente.**
+
+### Lo que cambia para ti
+
+- **El primer commit trae lo que es de la instancia.** Si `claude plugin install --scope project` ya escribió `.claude/settings.json` con lo mismo que escribiría el bootstrap, entra al primer commit. Antes quedaba afuera, y un clon del equipo no habilitaba el plugin. El `.code-workspace` de la raíz también entra si sus carpetas usan rutas relativas. Lo que no entra, el bootstrap te lo dice con su motivo.
+- **`workspace.local.json` nunca entra a un commit,** aunque tu `.gitignore` no lo excluya, porque tiene las rutas de tu máquina.
+- **En la raíz de un repo de código, el bootstrap pregunta antes.** Ahí la instancia quedaría en el git de ese repo, con el hook y el primer commit en su rama. Por eso te recomienda una carpeta aparte, y solo sigue ahí con tu sí. Esto corrige lo que decía la `0.9.1`: la instancia pierde su git solo en una subcarpeta de un repo, no en su raíz.
+- **La propuesta de capas solo te ofrece sumar extensiones del mismo lenguaje**, como un `.js` a una capa `ts`, y no un `.json`.
+- **Si `claude plugin marketplace add` falla** con «its source doesn't match its extraKnownMarketplaces entry», el marketplace ya está registrado: sigue con `plugin install`.
+- **Cada revisión mide lo que cuesta.** Registra los turnos, el contexto, la salida y la caché de cada corrida, y en Claude Code también lo que le costó a la sesión principal. El anuncio de la siguiente revisión cita el último costo medido, y avisa si las corridas corrieron en serie. El consolidado cuenta los hallazgos por acuerdo y por severidad, y cada hallazgo cita el ID de la regla que rompe.
+- **Puedes bajar un escalón, de `completo` a `rapido`,** cuando el triaje lo propuso solo por límites del instrumento (una señal inválida o un archivo sin capa) y el cambio no va a un líder. Lo decides tú, con un motivo que queda en el recibo. Nunca se baja si el triaje vio un riesgo real, y el recibo comprueba que el triaje sea del mismo diff.
+- **«Sin capa» se explica.** El triaje y `/odd-ws:abrir` te dicen qué extensiones versionadas no tienen capa y que se arregla declarándola.
+- **En Pi, `revisar` rescata los reportes enteros.** gentle-shell 4.8 corta a 16 KB la copia que le entrega al agente, y la mayoría de los reportes de diseño pasan ese tope. Ahora se leen de la tarea que guarda gentle-shell, con sus lecturas auditadas y su costo. Fuera de una sesión de gentle-shell, el rescate se corre con `--sesion ~/.gentle-shell/agent`.
+- **En Codex, una revisión grande ya no se corta por el límite de hilos.** Una corrida que Codex rechaza por su límite de concurrencia se relanza cuando termina otra, y te avisa que la revisión va por tandas.
+- **Los enlaces de un ticket se revisan y se abren desde cualquier cliente.**
+  - `ticket.py --enlaces <id>` lista los enlaces del ticket, o de cualquier `.md`, numerados, con su ruta absoluta y los rotos aparte.
+  - Pídele al agente que abra uno, o usa `/odd-ws:enlaces`, una skill nueva que el agente también puede usar por su cuenta. Te pregunta cuál y lo abre en tu escritorio, en Windows, macOS, Linux con escritorio o WSL. En una sesión remota no abre, y te dice por qué.
+  - Un script o un ejecutable nunca se lanza: se muestra en su carpeta.
+  - Con `--copiar`, las rutas van al portapapeles.
+- **Los enlaces rotos aparecen solos.** Si el ticket activo tiene enlaces rotos, o con una ruta de tu máquina que se rompe en el clon de otra persona, el resumen del ticket te los muestra al arrancar la sesión. `/odd-ws:cerrar` los revisa antes de cerrar.
+- **No tienes que regenerar nada.** Actualiza el plugin con los dos comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **El bootstrap (R7).**
+  - **`--commitear`.** Suma lo que ya existía sin trackear ni ignorar:
+    - `.claude/settings.json`, comparado como JSON canónico;
+    - cada `*.code-workspace` de la raíz sin carpetas de la máquina: letra de unidad, `/`, `\`, UNC o `uri`.
+
+    `workspace.local.json` nunca entra. Lo que queda afuera sale en una línea `no entró al commit <ruta>: <motivo>`.
+  - **Los ignorados.** Se leen con `git check-ignore -z --stdin`: sin `-z`, git cita los nombres no ASCII, y un `.code-workspace` ignorado con un nombre como `facturación` hacía fallar el primer commit.
+  - **`es_repo_de_codigo`.** Es una raíz que es el toplevel de su repo, con archivos en `HEAD` y sin `workspace.config.json`. Ahí el script sale con 2 sin escribir nada, también en el ensayo, salvo con `--confirmar-repo`. `--proponer` suma `repo_de_codigo` y `mismo_lenguaje`, con una sola familia: TypeScript con JavaScript.
+- **El costo de revisar (R5).**
+  - **`rescatar.py`.** Mide cada corrida desde su transcript (`odd_ws/transcripcion.py`), contando cada mensaje una vez por id. `--costo` escribe `corridas/costo.json`, con el modo, los motivos del triaje, las corridas, las líneas del diff, el `orquestador` y `en_serie`. `--ultimo-costo <ticket>` da la línea del anuncio.
+  - **`recibo.py --bajada "<motivo>" --va-a-lider no`.** Baja solo de `completo` a `rapido`, contra el `entrada/triaje.json` de la revisión. Ese triaje tiene que ser del mismo diff: los mismos repos, con la misma base. El rechequeo hereda la bajada mientras siga en ese modo.
+  - **El triaje.** Suma la clave `sin_capa` (`archivos`, `unico_motivo_de_capas` y `aviso`). El aviso de `capas-cobertura` vive en `config_loader`, y lo repiten el triaje y `abrir`.
+- **Gentle 4.8 (R6).**
+  - **`rescatar.py --host pi`.** Lee `<agentHome>/gentle-agents/tasks/<task_id>.json`, y `agentHome` es `GENTLE_PI_AGENT_HOME`, si no `PI_CODING_AGENT_DIR`, si no `~/.pi/agent`. Devuelve lo mismo que en Claude Code, más `tokens_total` y `costo_usd`, porque la tarea real no trae `usage`. Si una tarea falta, la skill recurre a `subagent_result`. La prueba en vivo en gentle-shell coincidió con el formato.
+  - **`auditar_lecturas.py`.** Clasifica las lecturas de Pi (`read`, `grep` y `find`) como las de Claude Code.
+  - **La línea `pi-agentes` del doctor.** Dice que no ve los overlays de herramientas de gentle-shell (#3223).
+  - **El pre-commit del repo.** Frena un commit que agrega `<<<<<<<` y `>>>>>>>` en un mismo archivo (`odd_ws/marcadores.py`), y respeta `conflict-marker-size`. `git rebase --continue` no corre el pre-commit: `CONTRIBUTING.md` pide `git commit` en la parada.
+- **Los enlaces (I61).**
+  - **La regla.** La de enlace válido pasa a `odd_ws/enlaces.py` y la comparten `conocimiento.py`, `ticket.py` y el resumen del ticket activo.
+  - **`--abrir <n>`** usa `odd_ws/abridor.py`, que decide con el entorno:
+    - con `SSH_CONNECTION` o sin pantalla no abre, y sale con 1;
+    - el abridor y la herramienta del portapapeles se buscan solo en las entradas absolutas del `PATH`, porque en Windows `shutil.which` mira primero la carpeta actual.
+  - **La decisión de abrir.**
+    - Usa la ruta real, y solo una lista de documentos, datos e imágenes se abre con su programa.
+    - En Windows y WSL, una ruta con coma no se abre ni se muestra, porque `explorer` separa los argumentos por comas.
+    - El código de salida de `explorer` no cuenta, porque suele ser 1 aunque haya abierto.
+  - **La skill `enlaces`.** El procedimiento vive en `/odd-ws:enlaces`, sin `disable-model-invocation`, para que el agente lo encuentre cuando el usuario pide abrir o revisar enlaces. `abrir` crea tickets y sigue siendo solo del usuario.
+  - **El resumen del ticket activo.** Marca las rutas de la máquina sin tocar el disco, porque una ruta UNC puede bloquear el hook.
+- **Seguimientos de versiones anteriores.**
+  - En Pi, una sesión bifurcada (`fork`) avisa de una config rota, como `resume`.
+  - El ítem `codex-proyecto` del doctor acepta la clave del repo escrita con un alias.
+  - El shim cuenta un `commondir` solo si su carpeta tiene `objects` y `refs`, como git.
+  - En el modo memorias de `cerrar`, la corrección que pide `matriz.py` se muestra antes del sí, y el id se calcula igual que el script que lo asigna.
+- **Las verificaciones.**
+  - Cada cambio de riesgo tuvo un verificador independiente sobre copias aisladas: el bootstrap, la bajada y su cruce con el triaje, el rescate de Pi, el pre-commit y la apertura de enlaces.
+  - Dos bloqueantes se corrigieron con su rechequeo: el `.code-workspace` no ASCII, y el `commondir` del shim.
+
 ## 0.9.1
 
 **Un parche: el doctor de Pi deja de dar OK falsos, un writer de gentle-shell ya no corre sin guards en el repo de arriba, y la documentación dice dónde va la instancia.**
