@@ -351,6 +351,44 @@ def test_sin_match_la_capa_reclama_toda_su_extension():
         assert m().clasificar(i.repo / "a" / "b" / "Uno.sql", cargada) == ("sql", "db")
 
 
+def test_extensiones_sin_capa_cuenta_lo_que_no_clasifica_y_saltea_los_docs():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        rutas = [i.repo / r for r in ("a.sql", "sub/b.SQL", "x.mjs", "sub/y.MJS", "Makefile", "README.md", "notas.TXT", "guia.rst",
+                                      "package.json")]
+        rutas.append(i.ticket / "suelto.sql")
+        assert m().extensiones_sin_capa(rutas, cargada) == {".mjs": 2, "(sin extensión)": 1, ".json": 1}
+        assert m().extensiones_sin_capa([i.repo / "a.sql", i.repo / "README.md"], cargada) == {}
+        assert m().EXTENSIONES_DE_DOCS == (".md", ".txt", ".rst")
+
+
+def test_lista_de_extensiones_va_de_la_mas_frecuente_y_corta_en_el_tope():
+    assert m().lista_de_extensiones({".json": 1, ".mjs": 2, "(sin extensión)": 1}) == ".mjs (2), (sin extensión) (1), .json (1)"
+    diez = {".e%d" % n: 1 for n in range(10)}
+    assert m().lista_de_extensiones(diez) == ", ".join(".e%d (1)" % n for n in range(8)) + " y 2 más"
+    assert m().lista_de_extensiones({".e%d" % n: 1 for n in range(8)}).endswith(".e7 (1)")
+
+
+def test_cobertura_de_los_repos_lee_lo_versionado_de_cada_repo():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        pedidos = []
+
+        def versionados(ruta):
+            pedidos.append(ruta)
+            return ["a.sql", "x.mjs", "y.mjs", "Makefile", "README.md"]
+
+        assert m().cobertura_de_los_repos(cargada, versionados) == "extensiones versionadas sin capa: .mjs (2), (sin extensión) (1)"
+        assert pedidos == [str(i.repo)], pedidos
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: ["a.sql", "README.md"]) is None
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: None) is None, "un repo que git no pudo listar no cuenta"
+
+
+def test_la_ayuda_de_la_cobertura_dice_que_sube_a_completo_y_como_se_arregla():
+    assert "/odd-ws:revisar a modo completo" in m().AYUDA_COBERTURA and "extensions" in m().AYUDA_COBERTURA
+    assert m().NOMBRE in m().AYUDA_COBERTURA
+
+
 def test_match_invalido_es_rota():
     for malo in ("**/*.java", [], [""], [3], None):
         config = config_valida()

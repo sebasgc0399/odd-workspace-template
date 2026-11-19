@@ -20,6 +20,13 @@ TOPE_DEL_INDICE_POR_DEFECTO = 200
 HOSTS_POR_DEFECTO = ("claude-code",)
 CLAVE_DE_TICKETS = "tickets"
 PREFIJO_DE_TICKETS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
+EXTENSIONES_DE_DOCS = (".md", ".txt", ".rst")
+SIN_EXTENSION = "(sin extensión)"
+TOPE_DE_EXTENSIONES = 8
+ID_COBERTURA = "capas-cobertura"
+AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. "
+                   "Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
+                   f"{NOMBRE}; si no, es esperado y el aviso queda.")
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -411,3 +418,34 @@ def clasificar(ruta, config):
             if _reclama(capa, extension) and any(coincide(relativa, patron) for patron in capa.get("workshop") or []):
                 return (nombre, "taller")
     return None
+
+
+def contar_extensiones(rutas):
+    cuenta = {}
+    for ruta in rutas:
+        clave = os.path.splitext(ruta)[1].lower() or SIN_EXTENSION
+        cuenta[clave] = cuenta.get(clave, 0) + 1
+    return cuenta
+
+
+def extensiones_sin_capa(rutas, config):
+    return contar_extensiones(ruta for ruta in rutas
+                              if os.path.splitext(ruta)[1].lower() not in EXTENSIONES_DE_DOCS and not clasificar(ruta, config))
+
+
+def lista_de_extensiones(cuenta):
+    ordenadas = sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))
+    lista = ", ".join("%s (%d)" % par for par in ordenadas[:TOPE_DE_EXTENSIONES])
+    resto = " y %d más" % (len(ordenadas) - TOPE_DE_EXTENSIONES) if len(ordenadas) > TOPE_DE_EXTENSIONES else ""
+    return lista + resto
+
+
+def cobertura_de_los_repos(config, versionados):
+    cuenta = {}
+    for repo in config["repos"].values():
+        relativas = versionados(repo["path"])
+        if relativas is None:
+            continue
+        for clave, n in extensiones_sin_capa([os.path.join(repo["path"], relativa) for relativa in relativas], config).items():
+            cuenta[clave] = cuenta.get(clave, 0) + n
+    return "extensiones versionadas sin capa: " + lista_de_extensiones(cuenta) if cuenta else None

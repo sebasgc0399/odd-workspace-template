@@ -12,7 +12,7 @@ Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendid
 
 1. **Nada se escribe antes del sí.** La carpeta se crea con el sí del paso 2, y el contenido del ticket se escribe con el sí del paso 8. Mostrar primero, escribir después.
 2. **Nada se asume.** Si algo del pedido no está claro, queda como pregunta en el ticket. En particular, todo «X o Y» del pedido es una pregunta por fijar con el líder antes de codear, no una elección tuya.
-3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. Lo único que escribe es, en la instancia, la carpeta del ticket, el `.code-workspace` si le suma el worktree, y el commit de eso (paso 8). La excepción es un repo con `"own": true` en `workspace.config.json`, que es del usuario: ahí la skill corre ella misma el `fetch` y crea el worktree (paso 6). Ni ahí commitea ni hace push.
+3. **Los repos del equipo no se tocan.** Esta skill no corre `git` sobre ellos: los comandos que pide (el worktree, un `fetch`) los corre el usuario. La única lectura es la de `ticket.py --cobertura` (paso 8), que lista lo versionado sin cambiar nada. Lo único que escribe es, en la instancia, la carpeta del ticket, el `.code-workspace` si le suma el worktree, y el commit de eso (paso 8). La excepción es un repo con `"own": true` en `workspace.config.json`, que es del usuario: ahí la skill corre ella misma el `fetch` y crea el worktree (paso 6). Ni ahí commitea ni hace push.
 4. **No hay contrato con el tracker.** Si esta sesión tiene una herramienta (MCP) del tracker del usuario, se usa para leer el pedido; si no, el usuario lo pega.
 5. **Cuando el glob de un id encuentra más de una carpeta, las listás y preguntás.** Nunca elegís una vos. Con ids que llevan guion, la carpeta de `AB-CD-x` también aparece en el glob del id `AB`.
 
@@ -120,6 +120,7 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 ## 8. Mostrar, escribir y cerrar
 
 1. **Mostrá todo lo que se va a escribir**, junto, antes de tocar el archivo: la cabecera, el Objetivo, los criterios, el Alcance con sus preguntas por fijar, y el Contexto técnico con los repos y capas afectados (si el pedido los dice; si no, quedan como pregunta), los docs de dominio, los candidatos hermanos, el worktree y el Paso 0. Marcá lo que quedó pendiente.
+   - **La cobertura de capas.** Corré `python3 "<S>/ticket.py" --cobertura`, que hace la misma cuenta que el ítem `capas-cobertura` del doctor sobre toda la instancia, porque todavía no hay diff. Si sale `aviso capas-cobertura: …`, mostralo tal cual, con su línea `cómo:`, junto a las capas afectadas: un cambio del ticket en esos archivos lleva `/odd-ws:revisar` a modo `completo`. Si sale `capas-cobertura: todo lo versionado …`, no hace falta decir nada.
    - **Si el ticket es grande** (no cabe en una sesión, espera algo externo o trae entregas separadas), sumá sus `## Specs`, con cada S# citando el pedido tal cual, y sus `## Tareas`. Con gentle-ai, ese ticket es el documento de ODD: no se crea `odd/tasks/`, y el espejo en engram va en `odd/<id>/tasks`.
    - **Si es chico**, decí que vas a quitar esas dos secciones.
 2. **Pedí el sí.** Sin sí, no se escribe nada. Si el usuario corrige algo, ajustá y volvé a mostrar.
@@ -138,7 +139,7 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
      - **desde la raíz**, que es lo cómodo en VS Code: `ticket.py` ya lo dejó como ticket activo, así que un resumen de su `CLAUDE.md` (objetivo, specs, tareas, seguimientos y la bitácora reciente) llega al arrancar y después de cada `/compact`;
    - las preguntas por fijar con el líder, que van primero;
    - el Paso 0, antes de cualquier código;
-   - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder;
+   - `/odd-ws:revisar` antes de cada commit, y antes de mostrarle el cambio a un líder. Si `--cobertura` avisó extensiones sin capa, repetí el aviso: un cambio en esos archivos sube la revisión a `completo` hasta que su capa se declare;
    - `/odd-ws:cerrar` al terminar, para graduar lo aprendido.
 
 ## Scripts
@@ -149,3 +150,4 @@ No lo llenes con suposiciones: se completa cuando se exploran los repos, y el re
 | `ticket.py --activar <id>` | marca como activo el ticket de ese id, que la sesión de la raíz recibe al arrancar y tras cada `/compact`; crear un ticket ya lo marca | 0 `ticket activo: <carpeta>` · 1 sin carpeta, con varias o id inválido · 2 error de uso o de entorno |
 | `ticket.py --desactivar <id>` | quita la marca si es de ese ticket | 0 `sin ticket activo` o `ticket activo: <carpeta> (no es el <id>)` · 2 error de uso o de entorno |
 | `ticket.py --siguiente [<prefijo>]` | propone el siguiente id consecutivo, con el prefijo de `tickets.prefix` o el que se le pasa; no escribe nada | 0 `siguiente: <id>` · 1 sin prefijo o prefijo inválido · 2 error de uso, sin instancia o config rota |
+| `ticket.py --cobertura` | repite el aviso `capas-cobertura` del doctor: cuenta por extensión lo versionado en los repos que ninguna capa clasifica, sin los docs; solo lee | 0 `aviso capas-cobertura: …` y su `cómo:`, o `capas-cobertura: todo lo versionado en los repos tiene capa o es doc` · 2 error de uso, sin instancia o config rota |

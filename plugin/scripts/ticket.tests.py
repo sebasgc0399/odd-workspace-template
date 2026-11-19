@@ -33,7 +33,8 @@ GUIA = b"\x00guia binaria\xff\r\n"
 USO = ("uso: ticket.py <id> <slug> [--raiz <carpeta>] [--ensayo]\n"
        "     ticket.py --siguiente [<prefijo>] [--raiz <carpeta>]\n"
        "     ticket.py --activar <id> [--raiz <carpeta>]\n"
-       "     ticket.py --desactivar <id> [--raiz <carpeta>]\n")
+       "     ticket.py --desactivar <id> [--raiz <carpeta>]\n"
+       "     ticket.py --cobertura [--raiz <carpeta>]\n")
 PLANTILLA = {
     "tickets/_plantilla/CLAUDE.md": CLAUDE_MD,
     "tickets/_plantilla/.claude/settings.json": SETTINGS,
@@ -316,6 +317,8 @@ def test_los_argumentos_mal_formados_dan_la_linea_de_uso_y_dos():
             ["--siguiente", "a", "b"], ["--siguiente", "--ensayo"], ["--siguiente", "--siguiente"], ["--siguiente", "a", "--raiz"],
             ["--activar"], ["--activar", "12", "13"], ["--activar", "12", "--ensayo"], ["--activar", "12", "--siguiente"],
             ["--desactivar"], ["--desactivar", "12", "13"], ["12", "a", "--activar"],
+            ["--cobertura", "12"], ["--cobertura", "--ensayo"], ["--cobertura", "--siguiente"], ["--cobertura", "--cobertura"],
+            ["12", "a", "--cobertura"],
         ]
         for argv in casos:
             rechazado(e, 2, USO.strip(), *argv)
@@ -531,6 +534,41 @@ def test_siguiente_con_los_tickets_de_la_config_rotos_sale_con_dos():
     with Escenario() as e:
         con_prefijo(e, "S-M")
         rechazado(e, 2, "tickets.prefix", "--siguiente", "--raiz", str(e.raiz))
+
+
+def versionar(e, archivos):
+    e.escribir(archivos, raiz=e.repo)
+    for argv in (["init", "-q"], ["add", "-A"]):
+        subprocess.run(["git", *argv], cwd=e.repo, env=e.entorno, check=True, capture_output=True)
+
+
+def test_cobertura_avisa_las_extensiones_versionadas_sin_capa_de_la_instancia_y_no_escribe():
+    import config_loader
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "sub/b.EXT": b"x", "scripts/x.mjs": b"x", "scripts/y.mjs": b"x", "Makefile": b"x", "README.md": b"x"})
+        e.escribir({"sin-versionar.py": b"x"}, raiz=e.repo)
+        antes = arbol(e.base)
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0,
+            "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2), (sin extensión) (1)\n"
+            "  cómo: " + config_loader.AYUDA_COBERTURA + "\n",
+            "",
+        )
+        assert arbol(e.base) == antes
+        assert e.correr("--cobertura", cwd=e.raiz / "tickets") == e.correr("--cobertura", "--raiz", str(e.raiz))
+
+
+def test_cobertura_sin_extensiones_sin_capa_lo_dice_con_cero():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "README.md": b"x"})
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (0, "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n", "")
+
+
+def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
+    with Escenario() as e:
+        rechazado(e, 2, "no hay workspace.config.json", "--cobertura", "--raiz", str(e.base))
+        (e.raiz / "workspace.config.json").write_bytes(b"{roto")
+        rechazado(e, 2, "está rota", "--cobertura", "--raiz", str(e.raiz))
 
 
 def main():

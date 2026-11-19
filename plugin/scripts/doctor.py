@@ -77,12 +77,6 @@ PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
 AYUDA_TICKETS = ('Corregí "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
                  "y siga con letras, números o guion bajo (es tu archivo: el doctor no lo toca).")
 AYUDA_CLAVE = "Corregí esa clave en workspace.config.json (es tu archivo: el doctor no lo toca)."
-EXTENSIONES_DE_DOCS = (".md", ".txt", ".rst")
-SIN_EXTENSION = "(sin extensión)"
-TOPE_DE_EXTENSIONES = 8
-AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. "
-                   "Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
-                   "workspace.config.json; si no, es esperado y el aviso queda.")
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -258,30 +252,22 @@ def chequear_instancia(ctx):
 
 
 def chequear_cobertura(ctx, raiz):
-    id = "capas-cobertura"
+    id = config_loader.ID_COBERTURA
     try:
         config = config_loader.cargar(raiz)
     except config_loader.ConfigRota:
         return resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")
     if not config["repos"]:
         return resultado(id, NO_APLICA, "la instancia no declara repos")
-    faltan = {}
-    for repo in config["repos"].values():
-        codigo, salida = ctx.ejecutar(["git", "-C", repo["path"], "ls-files", "-z"])
-        if codigo != 0:
-            continue
-        for relativa in filter(None, salida.split("\0")):
-            extension = os.path.splitext(relativa)[1].lower()
-            if extension in EXTENSIONES_DE_DOCS or config_loader.clasificar(os.path.join(repo["path"], relativa), config):
-                continue
-            clave = extension or SIN_EXTENSION
-            faltan[clave] = faltan.get(clave, 0) + 1
-    if not faltan:
+
+    def versionados(ruta):
+        codigo, salida = ctx.ejecutar(["git", "-C", ruta, "ls-files", "-z"])
+        return list(filter(None, salida.split("\0"))) if codigo == 0 else None
+
+    detalle = config_loader.cobertura_de_los_repos(config, versionados)
+    if detalle is None:
         return resultado(id, OK, "todo lo versionado en los repos tiene capa o es doc")
-    ordenadas = sorted(faltan.items(), key=lambda par: (-par[1], par[0]))
-    lista = ", ".join("%s (%d)" % par for par in ordenadas[:TOPE_DE_EXTENSIONES])
-    resto = " y %d más" % (len(ordenadas) - TOPE_DE_EXTENSIONES) if len(ordenadas) > TOPE_DE_EXTENSIONES else ""
-    return resultado(id, AVISO, "extensiones versionadas sin capa: %s%s" % (lista, resto), None, AYUDA_COBERTURA)
+    return resultado(id, AVISO, detalle, None, config_loader.AYUDA_COBERTURA)
 
 
 def chequear_config(raiz):

@@ -20,7 +20,7 @@ from odd_ws.comun import cargar_por_ruta, lineas, raiz_de_instancia
 TOPE_BYTES = 2000000
 UMBRAL_CONSUMIDORES = 2
 TOPE_OBJETOS = 20
-DOC_EXT = (".md", ".txt", ".rst")
+DOC_EXT = config_loader.EXTENSIONES_DE_DOCS
 CARPETA_GENERADA = "__pycache__"
 EXT_GENERADA = (".pyc", ".pyo")
 SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
@@ -521,8 +521,21 @@ def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
         "repos": [_repo_de_salida(r, ticket is not None) for r in recolectados],
         "taller": [{"ruta": Path(c["abs"]).as_posix(), "capa": c["capa"], "origen": c["origen"], "contraparte": c["contraparte"]}
                    for c in del_taller],
-        "senales": senales, "modo": modo, "motivos": motivos, "no_detectable": no_detectable,
+        "senales": senales, "modo": modo, "motivos": motivos, "sin_capa": _sin_capa(activos), "no_detectable": no_detectable,
     }
+
+
+def _capas_y_sin_capa(activos):
+    return sorted({c["capa"] for c in activos if c["capa"]}), sorted(c["ruta"] for c in activos if not c["capa"])
+
+
+def _sin_capa(activos):
+    capas, sin_capa = _capas_y_sin_capa(activos)
+    if not sin_capa:
+        return None
+    detalle = "extensiones sin capa en el cambio: " + config_loader.lista_de_extensiones(config_loader.contar_extensiones(sin_capa))
+    return {"archivos": sin_capa, "unico_motivo_de_capas": len(capas) <= 1,
+            "aviso": {"id": config_loader.ID_COBERTURA, "detalle": detalle, "ayuda": config_loader.AYUDA_COBERTURA}}
 
 
 def _evaluar_senales(senales, activos, instancia, clones):
@@ -571,8 +584,7 @@ def _evaluar_senales(senales, activos, instancia, clones):
     if not instancia["marcadores"] and not instancia["problemas"]:
         senales["efecto"]["detalle"] = ["0 marcadores en la instancia: el efecto hacia otros sistemas no se mide "
                                         "(ver lo que el triaje no detecta)"]
-    capas = sorted({c["capa"] for c in activos if c["capa"]})
-    sin_capa = sorted(c["ruta"] for c in activos if not c["capa"])
+    capas, sin_capa = _capas_y_sin_capa(activos)
     if len(capas) > 1:
         senales["capas"]["detalle"].append("más de una capa: %s" % ", ".join(capas))
     if sin_capa:
@@ -597,6 +609,9 @@ def _origen_de_la_base(repo):
 def formatear(r):
     salida = ["triaje — modo: %s" % r["modo"].upper()]
     salida += ["  " + m for m in r["motivos"]]
+    if r.get("sin_capa"):
+        aviso = r["sin_capa"]["aviso"]
+        salida += ["aviso %s: %s" % (aviso["id"], aviso["detalle"]), "  cómo: %s" % aviso["ayuda"]]
     salida.append("instancia: %s" % r["raiz"])
     salida.append("origin/HEAD usado (sin fetch; si está viejo, hazlo antes):")
     for clon, h in r["origin_head"].items():
