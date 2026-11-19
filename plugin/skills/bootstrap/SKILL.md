@@ -85,7 +85,7 @@ Mostralo **agrupado**, no línea por línea:
 - por capa: su writer, su revisor, su skill, su regla y la prueba de la regla;
 - lo común: la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md`, la plantilla del ticket, el revisor de diseño, los criterios, la matriz, la evidencia, los `settings.json` y el `pre-commit`;
 - git: `git init`, `core.hooksPath` y el primer commit;
-- **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …` y `no se crearía …`.
+- **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …`, `no entraría al commit …` y `no se crearía …`.
 
 Después, **la única pregunta**: ¿se aplica así, o qué cambia? Ese sí cubre también el primer commit. Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá solo lo que cambió.
 
@@ -99,7 +99,8 @@ Cómo leer la salida:
   - Si el error es de la spec, corregí la spec y volvé al ensayo.
   - Si es de una config que ya existía, el arreglo es del usuario: decile qué falta.
 - **`no se tocó` en una línea de git** (hooks propios, un worktree enlazado, un `core.hooksPath` con otro valor): explicá en una línea qué significa. No lo cambies por tu cuenta.
-- **La línea `commit:`.** `commit: <hash> con N archivos (el hook, ejecutable)` es el primer commit hecho: solo los archivos que el script creó, sin lo ignorado, y nunca un push. Si dice `commit: no se hizo; …` (la config pide aprobar cada commit, hay cambios stageados ajenos, la raíz está dentro de otro repo) o `commit: falló (…)`, pasale la línea al usuario tal cual: trae lo que tiene que hacer, con el `chmod` del hook.
+- **La línea `commit:`.** `commit: <hash> con N archivos (el hook, ejecutable)` es el primer commit hecho: los archivos que el script creó, sin lo ignorado, y nunca un push. Si termina en `; entraron también los que ya existían: …`, sumó lo que ya estaba sin trackear y es de la instancia: el `.claude/settings.json` igual al que escribe el script (el que deja `claude plugin install --scope project`) y el `.code-workspace` de la raíz con rutas relativas.
+- **`no entró al commit …`:** un `.claude/settings.json` con otro contenido, o un `.code-workspace` con alguna ruta absoluta o que no se pudo leer. Quedan sin trackear: pasale la línea al usuario tal cual, que trae el motivo, y no los commitees vos. Si dice `commit: no se hizo; …` (la config pide aprobar cada commit, hay cambios stageados ajenos, la raíz está dentro de otro repo) o `commit: falló (…)`, pasale la línea al usuario tal cual: trae lo que tiene que hacer, con el `chmod` del hook.
 - **`falta en .gitignore: …`** y **`no se pudo borrar …`:** pasáselas al usuario. La última va antes de commitear.
 - **`no se creó … ya existía, así que lo deriva de ahí el doctor`**: el agente de otro CLI que ya tenía su `.md`. No es un error: lo genera el doctor del paso 5, desde ese `.md`, con su arreglo.
 

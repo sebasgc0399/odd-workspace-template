@@ -1,6 +1,7 @@
 import atexit
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -374,6 +375,147 @@ def test_sumar_pi_a_una_instancia_que_ya_existe_deja_sus_agentes_al_doctor_y_lo_
                     in lineas), (extra, ruta, lineas)
         assert caja.arbol() == antes and not (caja.raiz / ".pi").exists(), extra
     assert lineas[-1] == f"resumen: 0 creados, {len(archivos_esperados())} ya existían, 3 los deriva el doctor", lineas[-1]
+
+
+SETTINGS_DEL_PLUGIN = {"enabledPlugins": {"odd-ws@odd-workspace-template": True}}
+COMMIT_HECHO = r"commit: [0-9a-f]{7,} con %d archivos \(el hook, ejecutable\)"
+AVISO_SETTINGS = ("no entró al commit .claude/settings.json: ya existía con otro contenido que el que escribe el bootstrap; "
+                  "si es tuyo, commitealo vos")
+AVISO_RUTA_ABSOLUTA = "no entró al commit %s: lista carpetas con ruta absoluta, que solo valen en esta máquina; queda sin trackear"
+
+
+def primer_commit(preparar, *extra):
+    caja = Caja()
+    caja.raiz.mkdir()
+    preparar(caja)
+    return caja, caja.cli(caja.spec(), "--commitear", *extra, entorno=IDENTIDAD_ENV)
+
+
+def rastreados(caja):
+    return set(caja.git(caja.raiz, "ls-files").splitlines())
+
+
+def lineas_de_commit(salida):
+    return [linea for linea in salida.splitlines() if linea.startswith("commit: ")]
+
+
+def sin_lo_local():
+    return [ruta for ruta in archivos_esperados() if ruta != "workspace.local.json"]
+
+
+def escribir_settings(caja, datos, **formato):
+    (caja.raiz / ".claude").mkdir(exist_ok=True)
+    (caja.raiz / ".claude" / "settings.json").write_bytes(json.dumps(datos, **formato).replace("\n", "\r\n").encode("utf-8"))
+
+
+def escribir_workspace(caja, nombre, *rutas):
+    datos = {"folders": [{"path": ruta} for ruta in rutas], "settings": {}}
+    (caja.raiz / nombre).write_text(json.dumps(datos, indent=2), encoding="utf-8")
+
+
+def test_un_settings_del_plugin_que_ya_existia_sin_trackear_entra_al_primer_commit():
+    caja, (codigo, salida, errores) = primer_commit(lambda c: escribir_settings(c, SETTINGS_DEL_PLUGIN, indent=4))
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    assert "ya existía .claude/settings.json" in lineas, lineas
+    commit = lineas_de_commit(salida)
+    patron = COMMIT_HECHO % len(sin_lo_local()) + r"; entraron también los que ya existían: \.claude/settings\.json"
+    assert len(commit) == 1 and re.fullmatch(patron, commit[0]), commit
+    assert rastreados(caja) == set(sin_lo_local()), sorted(rastreados(caja) ^ set(sin_lo_local()))
+    assert caja.git(caja.raiz, "status", "--porcelain") == ""
+
+
+def test_un_settings_distinto_no_entra_al_primer_commit_y_la_salida_lo_nombra():
+    distinto = {**SETTINGS_DEL_PLUGIN, "permissions": {"allow": ["Bash(ls)"]}}
+    caja, (codigo, salida, errores) = primer_commit(lambda c: escribir_settings(c, distinto))
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % (len(sin_lo_local()) - 1), commit[0]), commit
+    assert AVISO_SETTINGS in lineas and lineas.index(AVISO_SETTINGS) == lineas.index(commit[0]) + 1, lineas
+    assert ".claude/settings.json" not in rastreados(caja)
+    assert caja.git(caja.raiz, "status", "--porcelain") == "?? .claude/settings.json"
+
+
+def test_un_code_workspace_con_rutas_relativas_entra_al_primer_commit():
+    caja, (codigo, salida, errores) = primer_commit(lambda c: escribir_workspace(c, "mi-proyecto.code-workspace", ".", "../repo-a"))
+    assert codigo == 0 and errores == "", (codigo, errores)
+    commit = lineas_de_commit(salida)
+    patron = COMMIT_HECHO % (len(sin_lo_local()) + 1) + r"; entraron también los que ya existían: mi-proyecto\.code-workspace"
+    assert len(commit) == 1 and re.fullmatch(patron, commit[0]), commit
+    assert "mi-proyecto.code-workspace" in rastreados(caja)
+    assert caja.git(caja.raiz, "status", "--porcelain") == ""
+
+
+def test_un_code_workspace_con_alguna_ruta_absoluta_queda_sin_trackear_y_la_salida_dice_por_que():
+    formas = {"letra": "C:/repos/a", "barra": "/srv/repos/a", "contrabarra": "\\repos\\a", "unc": "\\\\servidor\\repos\\a"}
+
+    def preparar(c):
+        for nombre, ruta in formas.items():
+            escribir_workspace(c, f"{nombre}.code-workspace", ".", ruta)
+
+    caja, (codigo, salida, errores) = primer_commit(preparar)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % len(sin_lo_local()), commit[0]), commit
+    for nombre in sorted(formas):
+        assert AVISO_RUTA_ABSOLUTA % f"{nombre}.code-workspace" in lineas, (nombre, lineas)
+    assert not [ruta for ruta in rastreados(caja) if ruta.endswith(".code-workspace")], rastreados(caja)
+    pendientes = sorted(caja.git(caja.raiz, "status", "--porcelain").splitlines())
+    assert pendientes == sorted(f"?? {nombre}.code-workspace" for nombre in formas), pendientes
+
+
+def test_lo_que_ignora_el_gitignore_no_entra_al_commit_aunque_ya_existiera_igual():
+    def preparar(c):
+        (c.raiz / ".gitignore").write_bytes(b"workspace.local.json\n.claude/estado/\n.claude/settings.json\n*.code-workspace\n")
+        escribir_settings(c, SETTINGS_DEL_PLUGIN)
+        escribir_workspace(c, "mi-proyecto.code-workspace", ".")
+
+    caja, (codigo, salida, errores) = primer_commit(preparar)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(COMMIT_HECHO % (len(sin_lo_local()) - 2), commit[0]), commit
+    assert "no entró al commit" not in salida, salida
+    assert not {".claude/settings.json", "mi-proyecto.code-workspace", ".gitignore"} & rastreados(caja), rastreados(caja)
+
+
+def test_un_settings_ya_trackeado_y_cambiado_no_se_stagea_ni_se_nombra_al_completar_la_instancia():
+    caja = Caja()
+    spec = caja.spec()
+    assert caja.cli(spec, "--commitear", entorno=IDENTIDAD_ENV)[0] == 0
+    caja.git(caja.raiz, "rm", "-q", "CLAUDE.md")
+    caja.git(caja.raiz, *IDENTIDAD, "commit", "-q", "-m", "sin indice")
+    escribir_settings(caja, {**SETTINGS_DEL_PLUGIN, "env": {"X": "1"}})
+    codigo, salida, errores = caja.cli(spec, "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and re.fullmatch(r"commit: [0-9a-f]{7,} con 1 archivos", commit[0]), commit
+    assert "no entró al commit" not in salida, salida
+    assert caja.git(caja.raiz, "status", "--porcelain") == "M .claude/settings.json"
+
+
+def test_el_ensayo_dice_que_entraria_lo_que_ya_existia_igual_y_relativo_y_que_no_lo_demas():
+    caja = Caja()
+    caja.raiz.mkdir()
+    escribir_settings(caja, SETTINGS_DEL_PLUGIN)
+    escribir_workspace(caja, "a.code-workspace", ".", "../repo-a")
+    escribir_workspace(caja, "b.code-workspace", ".", "C:/repos/a")
+    (caja.raiz / "c.code-workspace").write_text('{\n  // con comentarios\n  "folders": [{"path": "."}]\n}\n', encoding="utf-8")
+    (caja.raiz / "d.code-workspace").write_text(json.dumps({"folders": [{"path": "."}, {"uri": "vscode-remote://ssh-remote+x/repo"}]}),
+                                                encoding="utf-8")
+    antes = caja.arbol()
+    codigo, salida, errores = caja.cli(caja.spec(), "--ensayo", "--commitear")
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    assert lineas_de_commit(salida) == ["commit: se haría con los archivos nuevos (el hook, ejecutable); "
+                                        "entrarían también los que ya existían: .claude/settings.json, a.code-workspace"], lineas
+    absoluta = "lista carpetas con ruta absoluta, que solo valen en esta máquina; quedaría sin trackear"
+    assert f"no entraría al commit b.code-workspace: {absoluta}" in lineas, lineas
+    assert f"no entraría al commit d.code-workspace: {absoluta}" in lineas, lineas
+    ilegible = [l for l in lineas if l.startswith("no entraría al commit c.code-workspace: no se pudo leer sus carpetas (")]
+    assert len(ilegible) == 1 and ilegible[0].endswith("así que no se sabe si usan rutas relativas; si las usa, commitealo vos"), lineas
+    assert caja.arbol() == antes and not (caja.raiz / ".git").exists()
 
 
 def test_el_aislamiento_de_git_dejo_vacias_las_config_global_y_del_sistema():

@@ -41,6 +41,15 @@ GIT_INIT, GIT_HOOKS, GIT_COMMIT = "init", "hooks_path", "commit"
 MENSAJE_DEL_COMMIT = "chore: crea la instancia con odd-ws"
 HOOK_DE_LA_INSTANCIA = ".githooks/pre-commit"
 CON_EL_HOOK = " (el hook, ejecutable)"
+SETTINGS = ".claude/settings.json"
+WORKSPACES = "*.code-workspace"
+RUTA_DE_LA_MAQUINA = re.compile(r"[A-Za-z]:|[\\/]")
+CON_LOS_PREVIOS = ("; entraron también los que ya existían: {}", "; entrarían también los que ya existían: {}")
+SIN_LOS_PREVIOS = ("no entró al commit {}: {}", "no entraría al commit {}: {}")
+SETTINGS_DISTINTO = "ya existía con otro contenido que el que escribe el bootstrap; si es tuyo, commitealo vos"
+CON_RUTA_ABSOLUTA = ("lista carpetas con ruta absoluta, que solo valen en esta máquina; queda sin trackear",
+                     "lista carpetas con ruta absoluta, que solo valen en esta máquina; quedaría sin trackear")
+WORKSPACE_ILEGIBLE = "no se pudo leer sus carpetas ({}), así que no se sabe si usan rutas relativas; si las usa, commitealo vos"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
@@ -555,44 +564,102 @@ def _decidir_commit(spec, plan, raiz):
     return "hacer", None
 
 
-def paso_de_commit(spec, plan, raiz):
+def _ignorados(raiz, rutas):
+    respuesta = _git(["-C", str(raiz), "check-ignore", "--", *rutas])
+    return set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
+
+
+def _sin_trackear_ni_ignorar(raiz, rutas):
+    if not rutas:
+        return []
+    respuesta = _git(["-C", str(raiz), "--literal-pathspecs", "ls-files", "-z", "--", *rutas])
+    if respuesta is None or respuesta[0] != 0:
+        return []
+    trackeadas = set(filter(None, respuesta[1].split("\0")))
+    libres = [ruta for ruta in rutas if ruta not in trackeadas]
+    ignorados = _ignorados(raiz, libres) if libres else set()
+    return [ruta for ruta in libres if ruta not in ignorados]
+
+
+def _de_la_maquina(carpeta):
+    ruta = carpeta.get("path")
+    return "uri" in carpeta or (isinstance(ruta, str) and RUTA_DE_LA_MAQUINA.match(ruta) is not None)
+
+
+def _por_que_queda_afuera(plan, raiz, ruta, ensayo):
+    if ruta == SETTINGS:
+        esperado = json.loads(next(a.contenido for a in plan if a.ruta == SETTINGS).decode("utf-8"))
+        actual = _objeto_existente(Path(raiz) / ruta)
+        return None if actual is not None and _canonico(actual) == _canonico(esperado) else SETTINGS_DISTINTO
+    try:
+        carpetas = _carpetas(Path(raiz) / ruta)
+    except (OSError, ValueError) as error:
+        return WORKSPACE_ILEGIBLE.format(error)
+    return CON_RUTA_ABSOLUTA[ensayo] if any(_de_la_maquina(c) for c in carpetas) else None
+
+
+def _previos_del_commit(plan, raiz, existentes, con_git, ensayo=False):
+    planeadas = {a.ruta for a in plan}
+    candidatos = [SETTINGS] if SETTINGS in existentes and SETTINGS in planeadas else []
+    candidatos += [archivo.name for archivo in _workspaces(raiz) if archivo.name not in planeadas and archivo.is_file()]
+    if con_git:
+        candidatos = _sin_trackear_ni_ignorar(raiz, candidatos)
+    entran, quedan = [], []
+    for ruta in candidatos:
+        motivo = _por_que_queda_afuera(plan, raiz, ruta, ensayo)
+        if motivo is None:
+            entran.append(ruta)
+        else:
+            quedan.append(SIN_LOS_PREVIOS[ensayo].format(ruta, motivo))
+    return entran, quedan
+
+
+def _con_los_previos(previos, ensayo):
+    return CON_LOS_PREVIOS[ensayo].format(", ".join(previos)) if previos else ""
+
+
+def pasos_de_commit(spec, plan, raiz):
     modo, motivo = _decidir_commit(spec, plan, raiz)
-    if modo == "hacer":
-        con_hook = any(a.ruta == HOOK_DE_LA_INSTANCIA and a.modo == CREAR for a in plan)
-        motivo = "commit: se haría con los archivos nuevos" + (CON_EL_HOOK if con_hook else "")
-    return PasoDeGit(GIT_COMMIT, None, modo, motivo)
+    if modo != "hacer":
+        return [PasoDeGit(GIT_COMMIT, None, modo, motivo)]
+    con_hook = any(a.ruta == HOOK_DE_LA_INSTANCIA and a.modo == CREAR for a in plan)
+    existentes = {a.ruta for a in plan if a.modo == YA_EXISTE}
+    previos, quedan = _previos_del_commit(plan, raiz, existentes, _consultar_repo(raiz).toplevel is not None, ensayo=True)
+    motivo = "commit: se haría con los archivos nuevos" + (CON_EL_HOOK if con_hook else "") + _con_los_previos(previos, True)
+    return [PasoDeGit(GIT_COMMIT, None, modo, motivo), *(PasoDeGit(GIT_COMMIT, None, "omitir", linea) for linea in quedan)]
 
 
 def commitear(spec, plan, resultados, raiz):
     modo, motivo = _decidir_commit(spec, plan, raiz)
     if modo != "hacer":
-        return motivo, False
+        return [motivo], False
     nuevos = [r.ruta for r in resultados if r.estado == CREADO]
     if not nuevos:
-        return "commit: no hace falta; no se creó ningún archivo", False
+        return ["commit: no hace falta; no se creó ningún archivo"], False
     literal = ["-C", str(raiz), "--literal-pathspecs"]
-    respuesta = _git(["-C", str(raiz), "check-ignore", "--", *nuevos])
-    ignorados = set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
+    ignorados = _ignorados(raiz, nuevos)
     rutas = [ruta for ruta in nuevos if ruta not in ignorados]
     if not rutas:
-        return "commit: no hace falta; lo que se creó lo ignora git", False
+        return ["commit: no hace falta; lo que se creó lo ignora git"], False
+    previos, quedan = _previos_del_commit(plan, raiz, {r.ruta for r in resultados if r.estado == YA_EXISTIA}, True)
     con_hook = HOOK_DE_LA_INSTANCIA in rutas
-    pasos = [["add", "--", *rutas]]
+    pasos = [["add", "--", *rutas, *previos]]
     if con_hook:
         pasos.append(["add", "--chmod=+x", "--", HOOK_DE_LA_INSTANCIA])
     pasos.append(["commit", "-q", "-m", MENSAJE_DEL_COMMIT])
     for argumentos in pasos:
         respuesta = _git([*literal, *argumentos], plazo=PLAZO_DEL_COMMIT)
         if respuesta is None:
-            return _sin_commit("git no está instalado"), False
+            return [_sin_commit("git no está instalado"), *quedan], False
         codigo, salida, error = respuesta
         if codigo != 0:
             detalle = (error or salida or f"código {codigo}").splitlines()[-1]
             pendiente = f", con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})" if con_hook else ""
-            return f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", False
+            return [f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", *quedan], False
     respuesta = _git(["-C", str(raiz), "rev-parse", "--short", "HEAD"])
     corto = respuesta[1] if respuesta is not None and respuesta[0] == 0 else "?"
-    return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else ""), True
+    total = len(rutas) + len(previos)
+    return [f"commit: {corto} con {total} archivos" + (CON_EL_HOOK if con_hook else "") + _con_los_previos(previos, False), *quedan], True
 
 
 def _nombre_corto(carpeta):
@@ -610,19 +677,27 @@ def _extensiones(repo):
     return dict(sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))[:TOPE_DE_EXTENSIONES])
 
 
-def _carpetas_del_workspace(archivo):
+def _workspaces(raiz):
+    return sorted(Path(raiz).glob(WORKSPACES))
+
+
+def _carpetas(archivo):
     datos = json.loads(archivo.read_text(encoding="utf-8-sig"))
     carpetas = datos.get("folders") if isinstance(datos, dict) else None
     if not isinstance(carpetas, list):
         raise ValueError("no tiene una lista folders")
-    return [c["path"] for c in carpetas if isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"]]
+    return [c for c in carpetas if isinstance(c, dict)]
+
+
+def _carpetas_del_workspace(archivo):
+    return [c["path"] for c in _carpetas(archivo) if isinstance(c.get("path"), str) and c["path"]]
 
 
 def proponer(raiz):
     raiz = Path(raiz)
     real = raiz.resolve()
     avisos, repos, vistos, workspaces = [], [], set(), []
-    for archivo in sorted(raiz.glob("*.code-workspace")):
+    for archivo in _workspaces(raiz):
         workspaces.append(archivo.name)
         try:
             rutas = _carpetas_del_workspace(archivo)
@@ -879,16 +954,16 @@ def principal(argv):
         if opciones.ensayo:
             commitearia = False
             if opciones.commitear:
-                paso = paso_de_commit(spec, plan, raiz)
-                plan.pasos_git = (*plan.pasos_git, paso)
-                commitearia = paso.modo == "hacer"
+                pasos = pasos_de_commit(spec, plan, raiz)
+                plan.pasos_git = (*plan.pasos_git, *pasos)
+                commitearia = pasos[0].modo == "hacer"
             print("\n".join(informe(plan, None, raiz, True, aviso_de_permisos=not commitearia)))
             return 0
         resultados = aplicar(plan, raiz)
         commiteado = False
         if opciones.commitear:
-            linea, commiteado = commitear(spec, plan, resultados, raiz)
-            resultados.git.append(linea)
+            lineas, commiteado = commitear(spec, plan, resultados, raiz)
+            resultados.git.extend(lineas)
     except SpecInvalida as error:
         return _error(str(error))
     except ErrorDePlan as error:
