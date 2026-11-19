@@ -292,6 +292,82 @@ def test_proponer_no_se_combina_con_spec_ensayo_ni_commitear():
         assert not e.raiz.exists()
 
 
+CLAVES_DE_LA_PROPUESTA = {"raiz", "proyecto", "instancia_existente", "workspaces", "repos", "avisos"}
+
+
+def proponer_con_repos(e, repos):
+    raiz = e.crear_raiz()
+    for nombre, archivos in repos.items():
+        repo_con_archivos(e.base / nombre, archivos)
+    carpetas = [{"path": "."}] + [{"path": f"../{nombre}"} for nombre in repos]
+    (raiz / "p.code-workspace").write_text(json.dumps({"folders": carpetas}), encoding="utf-8")
+    codigo, datos, errores = proponer(raiz)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    return datos
+
+
+def test_proponer_agrupa_las_extensiones_del_mismo_lenguaje_y_no_ofrece_el_json_a_una_capa_ts():
+    with Escenario() as e:
+        datos = proponer_con_repos(e, {"web": {"src/a.ts": b"a", "src/b.ts": b"b", "src/c.tsx": b"c", "scripts/x.mjs": b"x",
+                                               "package.json": b"{}", "tsconfig.json": b"{}", "README.md": b"r"}})
+        assert ".json" in datos["repos"][0]["extensiones"], datos
+        assert datos["mismo_lenguaje"] == [[".ts", ".mjs", ".tsx"]], datos
+        assert not any(".json" in grupo for grupo in datos["mismo_lenguaje"]), datos
+
+
+def test_proponer_junta_el_lenguaje_entre_repos_y_cuenta_tambien_lo_que_queda_fuera_del_tope():
+    with Escenario() as e:
+        varias = {f"f{n}.e{n:02d}": b"x" for n in range(25)}
+        varias.update({f"g{n}.e{n:02d}": b"x" for n in range(25)})
+        datos = proponer_con_repos(e, {"api": {**varias, "a.ts": b"a", "b.ts": b"b", "c.cjs": b"c"}, "front": {"x.js": b"x", "y.js": b"y"}})
+        assert ".cjs" not in datos["repos"][0]["extensiones"], datos["repos"][0]["extensiones"]
+        assert datos["mismo_lenguaje"] == [[".js", ".ts", ".cjs"]], datos["mismo_lenguaje"]
+
+
+def test_proponer_sin_dos_extensiones_de_un_mismo_lenguaje_no_agrupa_nada():
+    with Escenario() as e:
+        datos = proponer_con_repos(e, {"db": {"a.sql": b"a", "b.py": b"b", "c.json": b"c"}, "web": {"a.ts": b"a"}})
+        assert datos["mismo_lenguaje"] == [], datos
+
+
+def test_proponer_dice_si_la_raiz_es_un_repo_de_codigo():
+    with Escenario() as e:
+        if hay_repo_arriba(e.base):
+            print("      (el temporal está dentro de un repo: prueba omitida)")
+            return
+        de_codigo = repo_con_archivos(e.base / "codigo", {"src/a.ts": b"a"})
+        assert commit_aislado(de_codigo, "base")[0] == 0
+        sin_commits = repo_con_archivos(e.base / "sin-commits", {"a.ts": b"a"})
+        con_instancia = repo_con_archivos(e.base / "con-instancia", {"a.ts": b"a"})
+        assert commit_aislado(con_instancia, "base")[0] == 0
+        (con_instancia / "workspace.config.json").write_text("{}", encoding="utf-8")
+        (e.base / "vacia").mkdir()
+        casos = {de_codigo: True, de_codigo / "src": False, sin_commits: False, con_instancia: False, e.base / "vacia": False}
+        for raiz, esperado in casos.items():
+            codigo, datos, errores = proponer(raiz)
+            assert codigo == 0 and errores == "" and datos["repo_de_codigo"] is esperado, (raiz, datos, errores)
+
+
+def test_proponer_fuera_de_un_repo_de_codigo_da_lo_de_antes_y_repo_de_codigo_falso():
+    with Escenario() as e:
+        raiz = e.crear_raiz()
+        codigo, datos, errores = proponer(raiz)
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert set(datos) == CLAVES_DE_LA_PROPUESTA | {"repo_de_codigo", "mismo_lenguaje"}, sorted(datos)
+        assert datos["repo_de_codigo"] is False and datos["repos"] == [] and datos["avisos"] == [] and datos["workspaces"] == [], datos
+        assert datos["mismo_lenguaje"] == [], datos
+        assert datos["proyecto"] == "instancia" and datos["instancia_existente"] is False, datos
+
+
+def test_confirmar_repo_no_se_combina_con_proponer_ni_se_repite():
+    with Escenario() as e:
+        spec = str(e.archivo_spec())
+        for argv in (["--proponer", "--confirmar-repo"], ["--spec", spec, "--confirmar-repo", "--confirmar-repo"], ["--confirmar-repo"]):
+            codigo, salida, errores = correr(argv)
+            assert codigo == 2 and "[--confirmar-repo]" in errores and salida == "", (argv, errores)
+        assert not e.raiz.exists()
+
+
 def test_tickets_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
     with Escenario() as e:
         for valor in ({"prefix": "S-M"}, {"prefix": ""}, "SM", {"prefix": "SM", "otra": 1}):
@@ -2448,10 +2524,10 @@ def test_un_git_que_falla_se_informa_sin_cambiar_la_salida():
             return
         original = b()._git
 
-        def roto(argumentos):
+        def roto(argumentos, **opciones):
             if "init" in argumentos:
                 return 1, "", "fatal: no se puede crear el repo"
-            return original(argumentos)
+            return original(argumentos, **opciones)
 
         b()._git = roto
         try:
@@ -2511,7 +2587,7 @@ def test_unos_hooks_propios_no_se_apagan_y_se_informa():
             assert hooks_que_corrieron(marcador) == ["commit-msg", "pre-commit"]
             marcador.unlink()
             antes = (raiz / ".git" / "config").read_bytes()
-            codigo, salida, errores = correr_con_git(e, raiz, *ensayo)
+            codigo, salida, errores = correr_con_git(e, raiz, "--confirmar-repo", *ensayo)
             assert codigo == 0 and errores == "", (codigo, errores)
             carpeta = os.path.normpath(str(raiz / ".git" / "hooks"))
             esperada = f"core.hooksPath: no se tocó; hay hooks propios en {carpeta} (commit-msg, pre-commit), que dejarían de correr"
@@ -2554,7 +2630,7 @@ def test_un_worktree_enlazado_no_se_toca_y_el_repo_principal_queda_igual():
             wt = e.base / "wt"
             assert git_aislado("worktree", "add", "-q", str(wt), cwd=principal)[0] == 0
             antes = (principal / ".git" / "config").read_bytes()
-            codigo, salida, errores = correr_con_git(e, wt, *ensayo)
+            codigo, salida, errores = correr_con_git(e, wt, "--confirmar-repo", *ensayo)
             assert codigo == 0 and errores == "", (codigo, errores)
             assert "core.hooksPath: no se tocó; la raíz es un worktree enlazado y --local cambiaría la config de todos sus checkouts" in salida.splitlines(), salida
             assert (principal / ".git" / "config").read_bytes() == antes
@@ -2948,10 +3024,10 @@ def test_si_git_desaparece_entre_la_consulta_y_la_escritura_se_informa_sin_rompe
             return
         original = b()._git
 
-        def desaparece(argumentos):
+        def desaparece(argumentos, **opciones):
             if "init" in argumentos or "--get" not in argumentos and "config" in argumentos:
                 return None
-            return original(argumentos)
+            return original(argumentos, **opciones)
 
         b()._git = desaparece
         try:

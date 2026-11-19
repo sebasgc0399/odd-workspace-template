@@ -79,6 +79,8 @@ En Windows, `python3` lo crean el Python install manager de python.org y la Micr
    claude plugin install odd-ws@odd-workspace-template --scope project
    ```
 
+   Si `marketplace add` falla con «its source doesn't match its extraKnownMarketplaces entry», el marketplace ya está registrado con otra fuente (por ejemplo, la URL git completa). No hace falta registrarlo de nuevo: sigue con `plugin install`.
+
 2. **Abre `claude` en esa carpeta y corre `/odd-ws:bootstrap`.** Detecta tus repos, te muestra la propuesta completa (proyecto, repos y capas) junto con el plan y solo escribe después de tu sí, con el primer commit incluido.
 3. **Corre `/odd-ws:doctor`,** arregla lo que marque FALTA y abre tu primer ticket con `/odd-ws:abrir`.
 

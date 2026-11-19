@@ -13,10 +13,14 @@ from odd_ws import capas as convencion
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
-USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear]\n"
+USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--commitear] [--confirmar-repo]\n"
        "     bootstrap.py --proponer [--raiz <carpeta>]")
+REPO_DE_CODIGO = ("la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
+                  "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
+                  "si igual la querés acá, confirmalo con --confirmar-repo")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 20
+MISMO_LENGUAJE = (frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),)
 CREAR, YA_EXISTE = "crear", "ya_existe"
 CREADO, YA_EXISTIA = "creado", "ya_existia"
 LO_DERIVA_EL_DOCTOR = "lo_deriva_el_doctor"
@@ -41,6 +45,15 @@ GIT_INIT, GIT_HOOKS, GIT_COMMIT = "init", "hooks_path", "commit"
 MENSAJE_DEL_COMMIT = "chore: crea la instancia con odd-ws"
 HOOK_DE_LA_INSTANCIA = ".githooks/pre-commit"
 CON_EL_HOOK = " (el hook, ejecutable)"
+SETTINGS = ".claude/settings.json"
+WORKSPACES = "*.code-workspace"
+RUTA_DE_LA_MAQUINA = re.compile(r"[A-Za-z]:|[\\/]")
+CON_LOS_PREVIOS = ("; entraron también los que ya existían: {}", "; entrarían también los que ya existían: {}")
+SIN_LOS_PREVIOS = ("no entró al commit {}: {}", "no entraría al commit {}: {}")
+SETTINGS_DISTINTO = "ya existía con otro contenido que el que escribe el bootstrap; si es tuyo, commitealo vos"
+CON_RUTA_ABSOLUTA = ("lista carpetas con ruta absoluta, que solo valen en esta máquina; queda sin trackear",
+                     "lista carpetas con ruta absoluta, que solo valen en esta máquina; quedaría sin trackear")
+WORKSPACE_ILEGIBLE = "no se pudo leer sus carpetas ({}), así que no se sabe si usan rutas relativas; si las usa, commitealo vos"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
@@ -50,7 +63,7 @@ AccionDerivada = namedtuple("AccionDerivada", "ruta contenido fuente arreglo", d
 PasoDeGit = namedtuple("PasoDeGit", "tipo valor modo motivo")
 Resultado = namedtuple("Resultado", "ruta estado")
 Generador = namedtuple("Generador", "nombre funcion claves validar")
-Opciones = namedtuple("Opciones", "spec raiz ensayo commitear proponer")
+Opciones = namedtuple("Opciones", "spec raiz ensayo commitear proponer confirmar_repo")
 
 GENERADORES = []
 
@@ -386,10 +399,11 @@ def planificar_archivos(raiz, archivos, generador="archivos"):
 EstadoGit = namedtuple("EstadoGit", "disponible toplevel ilegible detalle")
 
 
-def _git(argumentos, plazo=None):
+def _git(argumentos, plazo=None, entrada=None):
     plazo = PLAZO_DE_GIT if plazo is None else plazo
+    flujo = {"stdin": subprocess.DEVNULL} if entrada is None else {"input": entrada}
     try:
-        resultado = subprocess.run(["git", *argumentos], capture_output=True, stdin=subprocess.DEVNULL, env=entorno_git(), timeout=plazo)
+        resultado = subprocess.run(["git", *argumentos], capture_output=True, env=entorno_git(), timeout=plazo, **flujo)
     except (FileNotFoundError, PermissionError):
         return None
     except subprocess.TimeoutExpired:
@@ -423,6 +437,17 @@ def _consultar_repo(raiz):
 
 def _es_la_raiz(toplevel, raiz):
     return config_loader.canonica(toplevel) == config_loader.canonica(raiz)
+
+
+def es_repo_de_codigo(raiz):
+    raiz = Path(raiz)
+    if not os.path.isdir(raiz) or os.path.lexists(raiz / config_loader.NOMBRE):
+        return False
+    estado = _consultar_repo(raiz)
+    if estado.toplevel is None or not _es_la_raiz(estado.toplevel, raiz):
+        return False
+    respuesta = _git(["-C", str(raiz), "ls-tree", "--name-only", "HEAD"])
+    return respuesta is not None and respuesta[0] == 0 and respuesta[1] != ""
 
 
 def _decidir_init(raiz, estado):
@@ -555,48 +580,114 @@ def _decidir_commit(spec, plan, raiz):
     return "hacer", None
 
 
-def paso_de_commit(spec, plan, raiz):
+def _ignorados(raiz, rutas):
+    entrada = "".join(ruta + "\0" for ruta in rutas).encode("utf-8")
+    respuesta = _git(["-C", str(raiz), "check-ignore", "-z", "--stdin"], entrada=entrada)
+    return set(filter(None, respuesta[1].split("\0"))) if respuesta is not None and respuesta[0] == 0 else set()
+
+
+def _sin_trackear_ni_ignorar(raiz, rutas):
+    if not rutas:
+        return []
+    respuesta = _git(["-C", str(raiz), "--literal-pathspecs", "ls-files", "-z", "--", *rutas])
+    if respuesta is None or respuesta[0] != 0:
+        return []
+    trackeadas = set(filter(None, respuesta[1].split("\0")))
+    libres = [ruta for ruta in rutas if ruta not in trackeadas]
+    ignorados = _ignorados(raiz, libres) if libres else set()
+    return [ruta for ruta in libres if ruta not in ignorados]
+
+
+def _de_la_maquina(carpeta):
+    ruta = carpeta.get("path")
+    return "uri" in carpeta or (isinstance(ruta, str) and RUTA_DE_LA_MAQUINA.match(ruta) is not None)
+
+
+def _por_que_queda_afuera(plan, raiz, ruta, ensayo):
+    if ruta == SETTINGS:
+        esperado = json.loads(next(a.contenido for a in plan if a.ruta == SETTINGS).decode("utf-8"))
+        actual = _objeto_existente(Path(raiz) / ruta)
+        return None if actual is not None and _canonico(actual) == _canonico(esperado) else SETTINGS_DISTINTO
+    try:
+        carpetas = _carpetas(Path(raiz) / ruta)
+    except (OSError, ValueError) as error:
+        return WORKSPACE_ILEGIBLE.format(error)
+    return CON_RUTA_ABSOLUTA[ensayo] if any(_de_la_maquina(c) for c in carpetas) else None
+
+
+def _previos_del_commit(plan, raiz, existentes, con_git, ensayo=False):
+    planeadas = {a.ruta for a in plan}
+    candidatos = [SETTINGS] if SETTINGS in existentes and SETTINGS in planeadas else []
+    candidatos += [archivo.name for archivo in _workspaces(raiz) if archivo.name not in planeadas and archivo.is_file()]
+    if con_git:
+        candidatos = _sin_trackear_ni_ignorar(raiz, candidatos)
+    entran, quedan = [], []
+    for ruta in candidatos:
+        motivo = _por_que_queda_afuera(plan, raiz, ruta, ensayo)
+        if motivo is None:
+            entran.append(ruta)
+        else:
+            quedan.append(SIN_LOS_PREVIOS[ensayo].format(ruta, motivo))
+    return entran, quedan
+
+
+def _con_los_previos(previos, ensayo):
+    return CON_LOS_PREVIOS[ensayo].format(", ".join(previos)) if previos else ""
+
+
+def pasos_de_commit(spec, plan, raiz):
     modo, motivo = _decidir_commit(spec, plan, raiz)
-    if modo == "hacer":
-        con_hook = any(a.ruta == HOOK_DE_LA_INSTANCIA and a.modo == CREAR for a in plan)
-        motivo = "commit: se haría con los archivos nuevos" + (CON_EL_HOOK if con_hook else "")
-    return PasoDeGit(GIT_COMMIT, None, modo, motivo)
+    if modo != "hacer":
+        return [PasoDeGit(GIT_COMMIT, None, modo, motivo)]
+    con_hook = any(a.ruta == HOOK_DE_LA_INSTANCIA and a.modo == CREAR for a in plan)
+    existentes = {a.ruta for a in plan if a.modo == YA_EXISTE}
+    previos, quedan = _previos_del_commit(plan, raiz, existentes, _consultar_repo(raiz).toplevel is not None, ensayo=True)
+    motivo = "commit: se haría con los archivos nuevos" + (CON_EL_HOOK if con_hook else "") + _con_los_previos(previos, True)
+    return [PasoDeGit(GIT_COMMIT, None, modo, motivo), *(PasoDeGit(GIT_COMMIT, None, "omitir", linea) for linea in quedan)]
 
 
 def commitear(spec, plan, resultados, raiz):
     modo, motivo = _decidir_commit(spec, plan, raiz)
     if modo != "hacer":
-        return motivo, False
+        return [motivo], False
     nuevos = [r.ruta for r in resultados if r.estado == CREADO]
     if not nuevos:
-        return "commit: no hace falta; no se creó ningún archivo", False
+        return ["commit: no hace falta; no se creó ningún archivo"], False
     literal = ["-C", str(raiz), "--literal-pathspecs"]
-    respuesta = _git(["-C", str(raiz), "check-ignore", "--", *nuevos])
-    ignorados = set(respuesta[1].splitlines()) if respuesta is not None and respuesta[0] == 0 else set()
+    ignorados = _ignorados(raiz, nuevos)
     rutas = [ruta for ruta in nuevos if ruta not in ignorados]
     if not rutas:
-        return "commit: no hace falta; lo que se creó lo ignora git", False
+        return ["commit: no hace falta; lo que se creó lo ignora git"], False
+    rutas = [ruta for ruta in rutas if ruta != config_loader.NOMBRE_LOCAL]
+    if not rutas:
+        return [f"commit: no hace falta; lo que se creó lo ignora git o es {config_loader.NOMBRE_LOCAL}, que nunca entra a un commit"], False
+    previos, quedan = _previos_del_commit(plan, raiz, {r.ruta for r in resultados if r.estado == YA_EXISTIA}, True)
     con_hook = HOOK_DE_LA_INSTANCIA in rutas
-    pasos = [["add", "--", *rutas]]
+    pasos = [["add", "--", *rutas, *previos]]
     if con_hook:
         pasos.append(["add", "--chmod=+x", "--", HOOK_DE_LA_INSTANCIA])
     pasos.append(["commit", "-q", "-m", MENSAJE_DEL_COMMIT])
     for argumentos in pasos:
         respuesta = _git([*literal, *argumentos], plazo=PLAZO_DEL_COMMIT)
         if respuesta is None:
-            return _sin_commit("git no está instalado"), False
+            return [_sin_commit("git no está instalado"), *quedan], False
         codigo, salida, error = respuesta
         if codigo != 0:
             detalle = (error or salida or f"código {codigo}").splitlines()[-1]
             pendiente = f", con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})" if con_hook else ""
-            return f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", False
+            return [f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", *quedan], False
     respuesta = _git(["-C", str(raiz), "rev-parse", "--short", "HEAD"])
     corto = respuesta[1] if respuesta is not None and respuesta[0] == 0 else "?"
-    return f"commit: {corto} con {len(rutas)} archivos" + (CON_EL_HOOK if con_hook else ""), True
+    total = len(rutas) + len(previos)
+    return [f"commit: {corto} con {total} archivos" + (CON_EL_HOOK if con_hook else "") + _con_los_previos(previos, False), *quedan], True
 
 
 def _nombre_corto(carpeta):
     return re.sub(r"[^a-z0-9]+", "-", carpeta.name.lower()).strip("-") or "repo"
+
+
+def _por_uso(cuenta):
+    return [extension for extension, _ in sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))]
 
 
 def _extensiones(repo):
@@ -607,22 +698,40 @@ def _extensiones(repo):
     for nombre in filter(None, respuesta[1].split("\0")):
         extension = Path(nombre).suffix.lower() or SIN_EXTENSION
         cuenta[extension] = cuenta.get(extension, 0) + 1
-    return dict(sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))[:TOPE_DE_EXTENSIONES])
+    return cuenta
 
 
-def _carpetas_del_workspace(archivo):
+def _mismo_lenguaje(cuentas):
+    total = {}
+    for cuenta in cuentas:
+        for extension, n in cuenta.items():
+            total[extension] = total.get(extension, 0) + n
+    ordenadas = _por_uso(total)
+    grupos = [[extension for extension in ordenadas if extension in familia] for familia in MISMO_LENGUAJE]
+    return [grupo for grupo in grupos if len(grupo) > 1]
+
+
+def _workspaces(raiz):
+    return sorted(Path(raiz).glob(WORKSPACES))
+
+
+def _carpetas(archivo):
     datos = json.loads(archivo.read_text(encoding="utf-8-sig"))
     carpetas = datos.get("folders") if isinstance(datos, dict) else None
     if not isinstance(carpetas, list):
         raise ValueError("no tiene una lista folders")
-    return [c["path"] for c in carpetas if isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"]]
+    return [c for c in carpetas if isinstance(c, dict)]
+
+
+def _carpetas_del_workspace(archivo):
+    return [c["path"] for c in _carpetas(archivo) if isinstance(c.get("path"), str) and c["path"]]
 
 
 def proponer(raiz):
     raiz = Path(raiz)
     real = raiz.resolve()
-    avisos, repos, vistos, workspaces = [], [], set(), []
-    for archivo in sorted(raiz.glob("*.code-workspace")):
+    avisos, repos, vistos, workspaces, cuentas = [], [], set(), [], []
+    for archivo in _workspaces(raiz):
         workspaces.append(archivo.name)
         try:
             rutas = _carpetas_del_workspace(archivo)
@@ -646,9 +755,13 @@ def proponer(raiz):
             if estado.toplevel is None or not _es_la_raiz(estado.toplevel, carpeta):
                 avisos.append(f"{archivo.name}: {ruta} no es la raíz de un repo git")
                 continue
-            repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": _extensiones(carpeta)})
+            cuenta = _extensiones(carpeta)
+            cuentas.append(cuenta)
+            extensiones = {extension: cuenta[extension] for extension in _por_uso(cuenta)[:TOPE_DE_EXTENSIONES]}
+            repos.append({"nombre": _nombre_corto(carpeta), "ruta": str(carpeta), "extensiones": extensiones})
     return {"raiz": str(real), "proyecto": real.name, "instancia_existente": (raiz / config_loader.NOMBRE).is_file(),
-            "workspaces": workspaces, "repos": repos, "avisos": avisos}
+            "repo_de_codigo": es_repo_de_codigo(raiz), "workspaces": workspaces, "repos": repos,
+            "mismo_lenguaje": _mismo_lenguaje(cuentas), "avisos": avisos}
 
 
 def _confirmar(raiz, ruta, referencia):
@@ -809,6 +922,7 @@ def _argumentos(argv):
     ensayo = False
     commitear_pedido = False
     proponer_pedido = False
+    confirmar_repo = False
     i = 0
     while i < len(argv):
         argumento = argv[i]
@@ -821,18 +935,21 @@ def _argumentos(argv):
         elif argumento == "--proponer" and not proponer_pedido:
             proponer_pedido = True
             i += 1
+        elif argumento == "--confirmar-repo" and not confirmar_repo:
+            confirmar_repo = True
+            i += 1
         elif argumento in ("--spec", "--raiz") and argumento not in valores and i + 1 < len(argv) and argv[i + 1] and not argv[i + 1].startswith("--"):
             valores[argumento] = argv[i + 1]
             i += 2
         else:
             return None
     if proponer_pedido:
-        if "--spec" in valores or ensayo or commitear_pedido:
+        if "--spec" in valores or ensayo or commitear_pedido or confirmar_repo:
             return None
-        return Opciones(None, valores.get("--raiz"), False, False, True)
+        return Opciones(None, valores.get("--raiz"), False, False, True, False)
     if "--spec" not in valores:
         return None
-    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido, False)
+    return Opciones(valores["--spec"], valores.get("--raiz"), ensayo, commitear_pedido, False, confirmar_repo)
 
 
 def resolver_raiz(texto, cwd):
@@ -873,22 +990,24 @@ def principal(argv):
         return 0
     try:
         raiz = resolver_raiz(opciones.raiz, Path(os.getcwd()))
+        if not opciones.confirmar_repo and es_repo_de_codigo(raiz):
+            return _error(REPO_DE_CODIGO.format(raiz))
         spec = leer_spec(opciones.spec)
         validar_spec(spec, raiz)
         plan = planificar(spec, raiz)
         if opciones.ensayo:
             commitearia = False
             if opciones.commitear:
-                paso = paso_de_commit(spec, plan, raiz)
-                plan.pasos_git = (*plan.pasos_git, paso)
-                commitearia = paso.modo == "hacer"
+                pasos = pasos_de_commit(spec, plan, raiz)
+                plan.pasos_git = (*plan.pasos_git, *pasos)
+                commitearia = pasos[0].modo == "hacer"
             print("\n".join(informe(plan, None, raiz, True, aviso_de_permisos=not commitearia)))
             return 0
         resultados = aplicar(plan, raiz)
         commiteado = False
         if opciones.commitear:
-            linea, commiteado = commitear(spec, plan, resultados, raiz)
-            resultados.git.append(linea)
+            lineas, commiteado = commitear(spec, plan, resultados, raiz)
+            resultados.git.extend(lineas)
     except SpecInvalida as error:
         return _error(str(error))
     except ErrorDePlan as error:
