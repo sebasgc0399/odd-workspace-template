@@ -35,9 +35,13 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
 | T0 | S1, S6, S8 | Las decisiones en el estudio y el roadmap, I46 anotada, y este documento | inline | hecho | este commit |
 | T1 | S2 | El costo por corrida en `rescatar.py`, con su lector en `odd_ws/transcripcion.py`; el `costo.json` opcional, el triaje guardado en la revisión y el anuncio con el último costo | delegada: corre en paralelo con T2, con superficies disjuntas | hecho (L5) | `9a03892` |
 | T2 | S7 | La clave de «sin capa» en el triaje, y el aviso de `capas-cobertura` compartido en `config_loader`, que repiten el triaje y `abrir` | delegada: corre en paralelo con T1 | hecho (L5) | `e2ffcff` |
-| T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | delegada con T4. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecho, en verificación (L6) | `a7ac88d` |
+| T3 | S5, S6 | La bajada de un escalón en `recibo.py` y en `revisar`, con el rechequeo medido contra el modo bajado; cierra I34 | delegada con T4. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecho; verificador: PASS (L7) | `a7ac88d` |
 | T4 | S3, S4 | La línea de rendimiento y el ID de la regla, en el prompt y en la consolidación de `revisar` | delegada con T3, por el contexto del orquestador | hecho (L6) | `2c3689f` |
-| T5 | S9 | El costo del orquestador y el aviso de corridas en serie en `costo.json` | delegada, por el contexto del orquestador. Risk: none | pendiente | |
+| T5 | S9 | El costo del orquestador y el aviso de corridas en serie en `costo.json` | delegada, por el contexto del orquestador. Risk: none | hecho (L7) | `f30405a` |
+| F1 | S5 | Seguimiento: `recibo.py` confía en el `triaje.json` de la carpeta. Se blinda comparando sus repos y su base con los del recibo (L7) | aparte | anotado | |
+| F2 | S5 | Seguimiento, ya estaba antes de T3: un recibo `rapido` sin `--bajada`, sobre un triaje que propuso `completo`, no se detecta (L7) | aparte | anotado | |
+| F3 | S9 | Seguimiento: un rescate posterior desde otra sesión pisa con `null` un `orquestador` que estaba bien; además, `costo.json` no guarda el modo que propuso el triaje (L7) | aparte | anotado | |
+| F4 | — | Seguimiento cosmético: `triaje.tests.py` perdió un espacio (`PRUEBAS =[`) | aparte | anotado | |
 
 ## Log
 
@@ -69,3 +73,19 @@ Cada spec cita al autor tal cual. Las decisiones son las filas del cuadro que el
       - un recibo `rapido` sin `--bajada`, cuando el triaje propuso `completo`, no se detecta, porque sin la opción los recibos no cambian;
       - `recibo.py` confía en el `triaje.json` de la carpeta y no comprueba que sea de este diff.
   - Con T3 se cierra I34. Siguiente paso: el verificador de T3 y, en paralelo, T5.
+- **L7** (2026-11-18) Las verificaciones de T3 y T5.
+  - **El verificador independiente de T3: PASS, sin bloqueantes.** Probó lo siguiente, siempre sobre una copia aparte:
+    - 8 escenarios con triajes reales de `triaje.py --json`. La bajada se permite en tres: un archivo sin capa, un archivo sin capa más una capa, y `consumidores` inválida. Se rechaza en los otros cinco: dos capas, dos capas más un archivo sin capa, `dinero`, `efecto`, y `efecto` más un archivo sin capa.
+    - 40 casos borde, con los hashes de la instancia sin cambios después de cada rechazo.
+    - El sello y el `--check` de un recibo bajado, y 24 chequeos de rechequeo.
+    - Un diferencial de 17 secuencias contra `2c3689f`: los recibos dieron idénticos, salvo la línea `usage:`.
+
+    Los avisos se convirtieron en F1, F2 y F4, y el verificador confirmó que F2 ya pasaba antes de T3. Por su lado, el orquestador volvió a correr `recibo.tests.py` y dio 84/84.
+  - **T5 (`f30405a`).** `costo.json` suma `orquestador`, que son los campos de `costo()` más `contexto_dejado`, y `en_serie`.
+    - **El tramo** sale del transcript principal, `<proyecto>/<sesión>.jsonl`. Va desde el último `triaje.py` anterior al primer lanzamiento de las corridas hasta el `recibo.py --write` de la ronda, o hasta el final del archivo.
+    - **El anuncio** de `--ultimo-costo` solo agrega «las corridas corrieron en serie» cuando es cierto.
+    - **Prueba en vivo.** Corrió sobre sesiones reales, en solo lectura: en una revisión, el orquestador hizo 29 turnos y le dejó 64 263 tokens de contexto al resto de la sesión.
+    - **Diferencial contra `a7ac88d`.** Las claves anteriores y los demás archivos quedaron idénticos.
+    - **Verificación del orquestador.** Volvió a correr `rescatar.tests.py` y dio 48/48.
+    - **Riesgo.** El writer marcó el ítem 3, pero solo suma claves opcionales, así que el orquestador lo clasificó `Risk: none`.
+  - R5 queda lista, de T0 a T5, para salir con la próxima versión. Las decisiones de O6 y O5 (S8) esperan las revisiones medidas.
