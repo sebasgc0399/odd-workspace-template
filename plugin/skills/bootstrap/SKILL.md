@@ -49,7 +49,7 @@ Armá la propuesta completa en una tabla. Cada término que aparezca lleva su ex
   - las extensiones, como `.sql`, y los repos que la usan;
   - el `rule_prefix`: el prefijo de los ids de las reglas de esa capa en la matriz (`TS-01`, `TS-02`…). Sale del nombre, en mayúsculas y dígitos, empezando por letra: `sql` da `SQL`, `capa-web` da `CW`. Tiene que ser único entre las capas.
 - **El molde** (`defaults.mold_source`): `repo` quiere decir que los revisores comparan cada cambio contra el código que ya está en el repo; `propio`, que la instancia va a tener sus propios moldes. Proponé `repo`.
-- **Los tickets.** Si el usuario no usa un tracker, proponé un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo.
+- **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), proponé un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo.
 - **Los commits.** En la instancia, el agente commitea sin pedir aprobación: el primer commit lo hace este script, y los siguientes, las skills. Con `"ask_before_commit": true`, pide el sí antes de cada uno. Proponé dejarlo sin la clave.
 
 `knowledge` y `hosts` son opcionales: sumalas solo si el usuario las menciona. `hosts` dice en qué CLI se trabaja la instancia (sin ella, solo Claude Code); el plugin conoce `claude-code`, `codex` y `pi`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`.
@@ -93,7 +93,7 @@ Mostralo **agrupado**, no línea por línea:
 - git: `git init`, `core.hooksPath` y el primer commit;
 - **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …`, `no entraría al commit …` y `no se crearía …`.
 
-Después, **la única pregunta**: ¿se aplica así, o qué cambia? Ese sí cubre también el primer commit. Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá solo lo que cambió.
+Después, **la única pregunta**: ¿se aplica así, o qué cambia? Ese sí cubre también el primer commit. Si la acompañás con ejemplos de qué se puede cambiar y nombrás el tracker, poné entre paréntesis ejemplos conocidos para que se entienda qué es (Jira, Azure Boards, GitHub Issues, Linear). Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá solo lo que cambió.
 
 ## 4. La aplicación
 
