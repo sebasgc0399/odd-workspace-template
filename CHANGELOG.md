@@ -2,6 +2,33 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.11.0
+
+**El recibo registra solo lo que de verdad se revisó, con el modo que respalda el triaje de tu diff actual (issue #1), y el doctor apaga el RDD de gentle-ai solo en el clon de la instancia.**
+
+### Lo que cambia para ti
+
+- **Una bajada ya no vale con un triaje viejo.** Si editas algo después del triaje, el recibo te pide correrlo de nuevo antes de bajar a `rapido`, porque la edición pudo traer un riesgo real. Es el caso del issue #1.
+- **El modo no baja sin `--bajada`.** Con un triaje guardado, el recibo no acepta un `--modo` más bajo que el que propuso, y en un rechequeo tampoco uno más bajo que el de la ronda anterior. Salvo en `completo`, ese triaje también tiene que ser el de tu diff actual.
+- **Los archivos del ambiente local ya no impiden bajar.** El triaje ve todo el diff y el recibo cubre solo lo que revisaste: lo que el triaje vio y el recibo no cubre sale en un aviso, por si alguno era del ticket.
+- **Reescribir un recibo con otro diff ya no pasa en silencio:** sale con 1 y te manda al rechequeo con `--previo`. Con el mismo diff conserva el sello y la bajada.
+- **`--check` mira lo que entraría al commit,** el índice, y te dice el estado, el modo y la bajada del recibo. **`--sellar` no sella un recibo `pendiente`.**
+- **`recibo.py --write --ticket` parte de la misma base que el triaje:** la del último sello del ticket.
+- **El doctor apaga el RDD nativo solo en el clon de la instancia** (`--scope clone`), no en toda la máquina. Fuera de una instancia el ítem no aplica, porque ahí el RDD de gentle-ai es tu revisión.
+- **El bootstrap da ejemplos de tracker** (Jira, Azure Boards, GitHub Issues, Linear) cuando te pregunta si usas uno.
+- **Si tienes una revisión a medias** con un `triaje.json` de antes de esta versión, vuelve a correr el triaje: sin la huella del diff, la bajada y el piso del modo lo rechazan.
+- Actualiza con los dos comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **La huella del triaje.** `triaje.py --json` suma a cada repo `sha256` y `sha256_por_archivo`, calculados con `recibo.calcular`. El recibo exige que cada archivo que cubre esté en el triaje con la misma base y la misma huella; los archivos o repos que el triaje vio de más solo salen en el aviso. Las carpetas (submódulos, repos anidados) quedan fuera de la huella, y un submódulo borrado entra como ausente.
+- **El triaje se valida entero:** las seis señales, un modo que sea el que dan sus señales y sus archivos, y `sin_capa.unico_motivo_de_capas` recalculado desde los archivos. Las funciones compartidas viven en `recibo.py`.
+- **Un archivo del taller triado por el `--repo` de la instancia** conserva su contraparte de la línea base, como con `--taller`.
+- **Las rutas van a git como literales** (`--literal-pathspecs`, sin las variables `GIT_*_PATHSPECS`), y en Windows una ruta con otras mayúsculas se canoniza a la del repo antes de hashearla.
+- **El rechazo de un triaje de otro diff** nombra cada repo del recibo con su base (`--repo <ruta>#<base>`), también los que un rechequeo hereda enteros.
+- **El doctor:** `--arreglar rdd` corre `gentle-ai review mode disable --scope clone --cwd <repo>`. En una instancia fuera de git no hay arreglo automático, porque gentle-ai lo apaga por clon.
+- La auditoría y sus decisiones están en `odd/tasks/integridad-del-recibo.md`.
+
 ## 0.10.1
 
 **Un parche de pruebas: los tests de los enlaces pasan también en macOS. No cambia nada para ti.**

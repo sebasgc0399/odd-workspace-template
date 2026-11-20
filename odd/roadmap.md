@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-20, con la `0.10.1`, las ideas I1 a I64 y R3 a demanda. La cola trae R8 (el issue #1 y su auditoría), R9 y R10, que salen de la retroalimentación de Maik sobre la `0.10.0`. Lo demás sigue saliendo de los estudios de `odd/estudios/`, que se deciden con el autor, y de las revisiones medidas que deciden O6 y O5 (S8 de [costo-de-revisar](tasks/costo-de-revisar.md)).
+Actualizado: 2026-11-20, con la `0.11.0`, las ideas I1 a I64 y R3 a demanda. La `0.11.0` cerró R8 (el issue #1 y su auditoría) y R9; la cola sigue con R10, que sale de la retroalimentación de Maik sobre la `0.10.0`. Lo demás sigue saliendo de los estudios de `odd/estudios/`, que se deciden con el autor, y de las revisiones medidas que deciden O6 y O5 (S8 de [costo-de-revisar](tasks/costo-de-revisar.md)).
 
 ## Cómo se mueve
 
@@ -17,9 +17,9 @@ Actualizado: 2026-11-20, con la `0.10.1`, las ideas I1 a I64 y R3 a demanda. La 
 
 | # | Qué | Detalle | Estado |
 |---|---|---|---|
-| R8 | La integridad del recibo: el issue #1 de Denver y la auditoría de dos lentes que lo siguió | [integridad-del-recibo](tasks/integridad-del-recibo.md) | en curso: T1 y T2 escritas y en verde, falta T3 (merge, suite, verificador) |
-| R9 | El doctor apaga el RDD nativo solo en la instancia (`--scope clone`) y no en toda la máquina, y el README deja de decir a la vez que no reemplaza a gentle-ai y que apaga su revisión | P3 de la retroalimentación de Maik (I62 a I64): `doctor.py:27` usa `--scope global`, y `README.md:46` contradice a `:55` | siguiente; sale en la próxima versión |
-| R10 | Instalar solo los controles (I62) | | en la cola |
+| R8 | La integridad del recibo: el issue #1 de Denver y la auditoría de dos lentes que lo siguió | [integridad-del-recibo](tasks/integridad-del-recibo.md) | hecha (`0.11.0`) |
+| R9 | El doctor apaga el RDD nativo solo en la instancia (`--scope clone`) y no en toda la máquina, y el README deja de decir a la vez que no reemplaza a gentle-ai y que apaga su revisión | P3 de la retroalimentación de Maik (I62 a I64): `doctor.py:27` usa `--scope global`, y `README.md:46` contradice a `:55` | hecha (`0.11.0`) |
+| R10 | Instalar solo los controles (I62) | | en la cola; mapeada el 2026-11-20, con decisiones de producto pendientes |
 
 ## Esperando
 
@@ -98,7 +98,7 @@ Cada idea lleva su fuente (del autor, un video o un proyecto, con su enlace), la
 | I61 | 2026-11-19 | Un usuario de la comunidad (_00_), en el hilo de la `0.9.0` | Listar los enlaces de un ticket o de cualquier `.md`, con su ruta absoluta, su tipo y si están rotos, y copiar las rutas al portapapeles. | La regla de enlace válido de `conocimiento.py`, que pasa a `odd_ws/enlaces.py` y se extiende a carpetas y a archivos que no son `.md`. Abrir los enlaces solos se descartó: depende del sistema y del cliente, y en la terminal de VS Code una ruta absoluta se abre con Ctrl+clic. | hecha (`0.10.0`, [enlaces-del-ticket](tasks/enlaces-del-ticket.md)) |
 | I62 | 2026-11-20 | Un usuario de la comunidad (Maik), que usa gentle-ai completo, en el hilo de la `0.10.0` (M1) | Instalar solo los controles: guards, reglas por capa y doctor, sin `revisar`, recibos, tickets ni writers. | Los hooks ya funcionan sin tickets ni recibos (ningún script de hook importa `recibo`), pero el bootstrap registra siempre los cuatro generadores (`bootstrap.py:1028-1037`) y ninguna clave de la config apaga una pieza. Absorbe la I5, el interruptor por hook. Es la puerta de entrada para quien ya tiene orquestación y RDD. | en la cola (R10) |
 | I63 | 2026-11-20 | Maik (P1, M2 y P3) | Convivir con el RDD nativo en vez de apagarlo: revisar D3 con lo que gentle-ai es hoy. | D3 sigue en pie: el revisor nativo corre sin herramientas ni `CLAUDE.md`, así que no abre el hermano ni cuenta consumidores (`Doc/diseno.md:1102`). Pero hoy el RDD solo entra en lo de alto riesgo y con permiso del usuario, así que el choque puede ser menor que el que supuso D3. Se estudia midiendo en uso real si las dos revisiones se pisan, antes de cambiar la plantilla (`plantillas/CLAUDE.md:136`) o el doctor. | nueva; se estudia antes de tocar D3 |
-| I64 | 2026-11-20 | Maik (M5) | Las reglas por capa empiezan observando: una regla bloquea solo después de calibrarse, y una disputada vuelve a aviso. | Ya está en el diseño y sin código: D2 («una regla bloquea solo si… da 0 aciertos en el corpus», `Doc/diseno.md:1099`) y D6.3 (`:1108`). Hoy el modo `aviso` o `bloqueo` lo fija cada regla, y `reglas.py --calibrar` cuenta los aciertos sin decidir nada. No aplica al guard de comandos destructivos: ahí un falso positivo cuesta poco y uno que se escapa, mucho. | nueva |
+| I64 | 2026-11-20 | Maik (M5) | Las reglas por capa empiezan observando: una regla bloquea solo después de calibrarse, y una disputada vuelve a aviso. | Ya está en el diseño y sin código: D2 («una regla bloquea solo si… da 0 aciertos en el corpus», `Doc/diseno.md:1099`) y D6.3 (`:1108`). Hoy el modo `aviso` o `bloqueo` lo fija cada regla, y `reglas.py --calibrar` cuenta los aciertos sin decidir nada. No aplica al guard de comandos destructivos: ahí un falso positivo cuesta poco y uno que se escapa, mucho. | nueva; mapeada el 2026-11-20, con decisiones de producto pendientes |
 
 ## Seguimientos
 
@@ -107,8 +107,8 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 | Documento | Seguimientos |
 |---|---|
 | [endurecer-guards](tasks/endurecer-guards.md) | Y1 a Y5 e Y7 a Y10 |
-| [costo-de-revisar](tasks/costo-de-revisar.md) | F2, F3, F5 y F6 (F2, F5 y F6 se cierran con R8) |
-| [integridad-del-recibo](tasks/integridad-del-recibo.md) | F1 a F4 |
+| [costo-de-revisar](tasks/costo-de-revisar.md) | F3 (F2, F5 y F6 se cerraron con R8, en la `0.11.0`) |
+| [integridad-del-recibo](tasks/integridad-del-recibo.md) | F1, F2, F5, F6 y F7 |
 | [instalacion-limpia](tasks/instalacion-limpia.md) | F1 a F4, los avisos del verificador de T1 y T2 y de su rechequeo |
 | [graduar-memorias](tasks/graduar-memorias.md) | X1, X2, X6 y X7 |
 | [multi-host](tasks/multi-host.md) | X1, X4 a X7, X12, X13 y X19 |
@@ -120,6 +120,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 
 | Versión | Qué |
 |---|---|
+| `0.11.0` | La integridad del recibo (R8, [integridad-del-recibo](tasks/integridad-del-recibo.md): el issue #1 y su auditoría), el RDD de gentle-ai apagado solo en el clon de la instancia (R9) y los ejemplos de tracker en el bootstrap |
 | `0.10.1` | Las pruebas de los enlaces pasan también en macOS ([enlaces-del-ticket](tasks/enlaces-del-ticket.md)) |
 | `0.10.0` | La instalación limpia para el video (R7: I55 a I60 de [instalacion-limpia](tasks/instalacion-limpia.md)), el costo de revisar medido y la bajada de un escalón (R5: I28, I34 y el requisito de I46, de [costo-de-revisar](tasks/costo-de-revisar.md)), Pi y Codex completos con Gentle 4.8 (R6, [compat-gentle](tasks/compat-gentle.md)), los enlaces del ticket por escenario (I61, [enlaces-del-ticket](tasks/enlaces-del-ticket.md)), y los seguimientos X3, X8 y X18 de [multi-host](tasks/multi-host.md) y X3 a X5 de [graduar-memorias](tasks/graduar-memorias.md) |
 | `0.9.1` | El doctor de Pi sin OK falsos, el `.git` del shim como lo mira git y los tests de plazo deterministas (R2: X14, X15 y X16 de [multi-host](tasks/multi-host.md)), y la instancia en una carpeta aparte en el README |

@@ -25,7 +25,7 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
 |----|-------|-----|------|--------|--------|
 | T1 | S1, S2, S3, S4 | El triaje que respalda el modo: la huella en `triaje.py`, la validación entera y el modo en `recibo.py`, la contraparte del taller por `--repo` | delegada en paralelo con T2, en su worktree. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecha (L4, L5) | `46884df` |
 | T2 | S5, S6, S7, S8, S9, S10 | Lo que el recibo garantiza: la reescritura, `--check`, `--sellar`, la base con el sello, las rutas literales y las mayúsculas | delegada en paralelo con T1, en su worktree. Risk: item 2, la misma compuerta; lleva verificador | hecha (L4, L5) | `76f710f` |
-| T3 | todas | El merge de T2 en la rama, F3 y F4, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline. Risk: item 2, la misma compuerta | merge, F3, F4 y F5 commiteados (L6); el verificador encontró B1 a B3, corregidos en un lote (L7); falta su rechequeo | `0d01eac`, `db0cea8` |
+| T3 | todas | El merge de T2 en la rama, F3 y F4, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline. Risk: item 2, la misma compuerta | hecha: verificador PASS después de un lote de corrección (L7, L8) | `0d01eac`, `db0cea8`, `3f697ef` |
 | F1 | — | Anotado (A7, inferido): `--clon` con un subconjunto, `--raiz` u un `origin_head` viejo mueven la señal de consumidores, y el recibo no lo ata | aparte | anotado | |
 | F2 | — | Anotado (B8, inferido): la bajada heredada arrastra `va_a_lider: false`. No se cambia: la regla de mostrar a un líder se aplica al mostrar, y exigirlo en cada rechequeo agrega fricción sin evidencia de un caso real | aparte | anotado | |
 | F3 | S1, S3 | Hueco que reportó T1: sin `--bajada`, el triaje guardado pone el piso del modo pero no se ata al diff, así que un triaje viejo en `rapido` habilita `--modo rapido` después de una edición que suma riesgo. Se cierra comparando la huella también al leer el piso (L5) | en T3, inline | decidido | |
@@ -112,3 +112,7 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
     - El 7 lo cubren ahora los tests de punta a punta.
     - Los avisos 1, 2 y 4 quedan como F5, F6 y F7.
   - **Scratch del verificador, a borrar a mano:** `%TEMP%\tmp.OgkSwA9P1q`.
+- **L8** (2026-11-20) El rechequeo y la entrega.
+  - **El rechequeo** del verificador, limitado a B1, B2 y B3 sobre `3f697ef`, dio PASS en los tres. Cada rechazo dejó el ticket idéntico byte a byte. Su scratch, a borrar a mano: `%TEMP%	mp.OgkSwA9P1q`.
+  - **El CI de la rama** `fix/integridad-del-recibo` (empujada con destino explícito, con el sí del autor) pasó en Windows, Linux y macOS.
+  - **La entrega:** el autor aprobó publicar R8 y R9 juntas como `0.11.0`, con los ejemplos de tracker del bootstrap.
