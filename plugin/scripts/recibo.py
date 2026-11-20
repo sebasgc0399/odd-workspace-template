@@ -430,7 +430,7 @@ def _repos_del_triaje(triaje):
 def _huella_distinta(entrada, del_triaje):
     ruta, huella = entrada["ruta"], del_triaje.get("sha256_por_archivo")
     if not (isinstance(huella, dict) and isinstance(del_triaje.get("sha256"), str)):
-        return ["%s: el triaje no trae la huella del diff" % ruta]
+        return ["%s: el triaje no trae la huella del diff" % ruta], []
     vistos = sorted(a["ruta"] for a in del_triaje.get("archivos", []))
     revisados = entrada["archivos"]
     distintos = []
@@ -439,19 +439,17 @@ def _huella_distinta(entrada, del_triaje):
     cambiados = [a for a in revisados if a in vistos and huella.get(a) != entrada["sha256_por_archivo"].get(a)]
     if faltan:
         distintos.append("%s: el triaje no trae %s" % (ruta, ", ".join(faltan)))
-    if sobran:
-        distintos.append("%s: el recibo no trae %s" % (ruta, ", ".join(sobran)))
     if cambiados:
         distintos.append("%s: %s cambio despues del triaje" % (ruta, ", ".join(cambiados)))
-    if not distintos and (sorted(huella) != vistos or del_triaje["sha256"] != entrada["sha256"]):
+    if not distintos and (sorted(huella) != vistos or (not sobran and del_triaje["sha256"] != entrada["sha256"])):
         distintos.append("%s: la huella del triaje no es la de sus archivos" % ruta)
-    return distintos
+    return distintos, sobran
 
 
 def leer_triaje_del_diff(carpeta, repos):
     triaje = leer_triaje(carpeta)
     del_triaje = _repos_del_triaje(triaje)
-    distintos = []
+    distintos, no_cubiertos = [], []
     for entrada in repos:
         suyo = del_triaje.pop(_clave_ruta(entrada["ruta"]), None)
         if suyo is None:
@@ -459,12 +457,20 @@ def leer_triaje_del_diff(carpeta, repos):
         elif suyo.get("base") != entrada["base"]:
             distintos.append("%s tiene base %s en el triaje y %s en el recibo" % (entrada["ruta"], suyo.get("base"), entrada["base"]))
         else:
-            distintos += _huella_distinta(entrada, suyo)
-    distintos += ["%s esta en el triaje y no en el recibo" % r["ruta"] for r in del_triaje.values()]
+            suyos, sobran = _huella_distinta(entrada, suyo)
+            distintos += suyos
+            if sobran:
+                no_cubiertos.append("%s: %s" % (entrada["ruta"], ", ".join(sobran)))
+    no_cubiertos += ["%s (todo el repo): %s" % (r["ruta"], ", ".join(sorted(a["ruta"] for a in r["archivos"])))
+                     for r in del_triaje.values() if r.get("archivos")]
     if distintos:
-        raise ErrorUso("el triaje de %s no es de este diff: %s; corre el triaje de nuevo y guardalo con triaje.py --json con los "
-                       "mismos --repo y la misma base que el recibo" % (_ruta_del_triaje(carpeta), "; ".join(distintos)))
+        raise ErrorUso("el triaje de %s no es de este diff: %s; corre el triaje de nuevo y guardalo con triaje.py --json, con un --repo "
+                       "por cada repo del recibo: %s" % (_ruta_del_triaje(carpeta), "; ".join(distintos),
+                                                         " ".join("--repo %s#%s" % (e["ruta"], e["base"]) for e in repos)))
     _validar_modo(carpeta, triaje)
+    if no_cubiertos:
+        print("recibo: aviso, el triaje de %s vio cambios que el recibo no cubre: %s; si son de esta unidad, se revisan y van con --archivo"
+              % (_ruta_del_triaje(carpeta), "; ".join(no_cubiertos)), file=sys.stderr)
     return triaje
 
 
@@ -482,11 +488,13 @@ def _sin_riesgo_real(carpeta, triaje):
                        % (_ruta_del_triaje(carpeta), ", ".join("senal %s: positiva" % r for r in reales)))
 
 
-def _no_baja_del_triaje(args, carpeta):
+def _no_baja_del_triaje(args, carpeta, repos):
     if not os.path.isfile(os.path.join(carpeta, *TRIAJE)):
         return
-    triaje = leer_triaje(carpeta)
-    _validar_modo(carpeta, triaje)
+    if args.modo == MODOS_DEL_TRIAJE[-1]:
+        _validar_modo(carpeta, leer_triaje(carpeta))
+        return
+    triaje = leer_triaje_del_diff(carpeta, repos)
     if MODOS_DEL_TRIAJE.index(args.modo) < MODOS_DEL_TRIAJE.index(triaje["modo"]):
         raise ErrorUso("--modo %s es mas bajo que el %s que propuso el triaje de %s: el modo no baja sin --bajada, "
                        "que es un solo escalon, de completo a rapido" % (args.modo, triaje["modo"], _ruta_del_triaje(carpeta)))
@@ -507,7 +515,7 @@ def bajada_de_la_ronda(args, carpeta, heredada, repos):
         if args.modo == heredada["a"]:
             _sin_riesgo_real(carpeta, leer_triaje_del_diff(carpeta, repos))
             return heredada
-    _no_baja_del_triaje(args, carpeta)
+    _no_baja_del_triaje(args, carpeta, repos)
     return None
 
 

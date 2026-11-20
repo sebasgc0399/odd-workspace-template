@@ -8,9 +8,9 @@ Pruebas: `python3 plugin/scripts/<script>.tests.py` (en Windows, `python`), toda
 
 Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejoras»). Cada spec cita su origen: el issue, el hallazgo del auditor del vínculo (A#) o el del auditor de los consumidores (B#).
 
-- **S1** (issue #1, y F6 de `costo-de-revisar`). El resultado esperado del issue, tal cual: «Detectar que el contenido cambio y pedir un triaje nuevo antes de escribir el recibo. Al repetir el triaje sobre esta edicion, la señal de efecto exige mantener la revision completa.» Y su prueba: «Para el test mantendria fijos el repo, la base y la lista de archivos. Antes de la segunda edicion, la bajada deberia aceptarse. Despues, el mismo triaje deberia rechazarse sin escribir un recibo nuevo.» El triaje guarda la huella de su diff por repo y por archivo, calculada con la misma función que el recibo (`recibo.calcular`); al autorizar o heredar una bajada, el recibo compara la lista de archivos y las huellas, y si difieren rechaza sin escribir. Un triaje sin huella se rechaza igual, pidiendo correrlo de nuevo.
+- **S1** (issue #1, y F6 de `costo-de-revisar`). El resultado esperado del issue, tal cual: «Detectar que el contenido cambio y pedir un triaje nuevo antes de escribir el recibo. Al repetir el triaje sobre esta edicion, la señal de efecto exige mantener la revision completa.» Y su prueba: «Para el test mantendria fijos el repo, la base y la lista de archivos. Antes de la segunda edicion, la bajada deberia aceptarse. Despues, el mismo triaje deberia rechazarse sin escribir un recibo nuevo.» El triaje guarda la huella de su diff por repo y por archivo, calculada con la misma función que el recibo (`recibo.calcular`); al autorizar o heredar una bajada, y al leer el piso del modo de S3, el recibo exige que cada archivo que cubre esté en el triaje con la misma huella y la misma base; si no, rechaza sin escribir. El triaje puede haber visto más archivos o repos que el recibo, por ejemplo los del ambiente local que no se commitean (F4, L5): esos salen en un aviso y no rechazan. Un triaje sin huella se rechaza igual, pidiendo correrlo de nuevo.
 - **S2** (A5, B6). El triaje guardado se valida entero: trae las seis señales de `SENALES`, su modo es el que el triaje sacaría de esas señales y `sin_capa.unico_motivo_de_capas` se recalcula desde los archivos en lugar de creerle al JSON. La skill `revisar` dice que `triaje.json` y `recibo.json` no se editan a mano.
-- **S3** (A2, B5, F2 de `costo-de-revisar`). El modo no baja sin `--bajada`. Con un triaje guardado, `--modo` es igual o más alto que el que propuso el triaje, salvo con `--bajada` (un escalón, de `completo` a `rapido`). En un rechequeo, `--modo` es igual o más alto que el del recibo previo, o que el `a` de su bajada si la hereda; con una fecha posterior también. Un modo más bajo es error de uso y no escribe.
+- **S3** (A2, B5, F2 de `costo-de-revisar`). El modo no baja sin `--bajada`. Con un triaje guardado, que se lee atado al diff como en S1 (F3, L5), `--modo` es igual o más alto que el que propuso el triaje, salvo con `--bajada` (un escalón, de `completo` a `rapido`). En un rechequeo, `--modo` es igual o más alto que el del recibo previo, o que el `a` de su bajada si la hereda; con una fecha posterior también. Un modo más bajo es error de uso y no escribe.
 - **S4** (A3). Un archivo del taller triado por `--repo <instancia>` conserva su contraparte de la línea base: salen las mismas señales que con `--taller`.
 - **S5** (A1, B1, B2). `--write` sobre un recibo que ya existe: si las huellas del diff actual difieren de las guardadas, rechaza sin escribir y manda al rechequeo con `--previo`; si son iguales, cambia el estado y conserva `sellado` y lo demás.
 - **S6** (B3). Antes del commit, `--check` aplica el criterio de `--sellar` a lo que entraría al commit: falla si el índice trae otra versión de un archivo revisado, o si hay archivos en el índice fuera del recibo con las mismas exclusiones que `fuera_de_lo_revisado`; los cambios del working tree fuera del recibo que no están en el índice salen como aviso. El mensaje de `--sellar` cuando hay cambios fuera de lo revisado propone el rechequeo con `--previo`.
@@ -23,13 +23,13 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T1 | S1, S2, S3, S4 | El triaje que respalda el modo: la huella en `triaje.py`, la validación entera y el modo en `recibo.py`, la contraparte del taller por `--repo` | delegada en paralelo con T2, en su worktree. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | escrita y en verde, sin commitear en `t` (L4) | |
-| T2 | S5, S6, S7, S8, S9, S10 | Lo que el recibo garantiza: la reescritura, `--check`, `--sellar`, la base con el sello, las rutas literales y las mayúsculas | delegada en paralelo con T1, en su worktree. Risk: item 2, la misma compuerta; lleva verificador | escrita y en verde, sin commitear en `t2` (L4) | |
-| T3 | todas | El merge de T2 en la rama, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline | pendiente | |
+| T1 | S1, S2, S3, S4 | El triaje que respalda el modo: la huella en `triaje.py`, la validación entera y el modo en `recibo.py`, la contraparte del taller por `--repo` | delegada en paralelo con T2, en su worktree. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecha (L4, L5) | `46884df` |
+| T2 | S5, S6, S7, S8, S9, S10 | Lo que el recibo garantiza: la reescritura, `--check`, `--sellar`, la base con el sello, las rutas literales y las mayúsculas | delegada en paralelo con T1, en su worktree. Risk: item 2, la misma compuerta; lleva verificador | hecha (L4, L5) | `76f710f` |
+| T3 | todas | El merge de T2 en la rama, F3 y F4, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline. Risk: item 2, la misma compuerta | merge, F3, F4 y F5 escritos y en verde (L6); faltan el commit y el verificador | |
 | F1 | — | Anotado (A7, inferido): `--clon` con un subconjunto, `--raiz` u un `origin_head` viejo mueven la señal de consumidores, y el recibo no lo ata | aparte | anotado | |
 | F2 | — | Anotado (B8, inferido): la bajada heredada arrastra `va_a_lider: false`. No se cambia: la regla de mostrar a un líder se aplica al mostrar, y exigirlo en cada rechequeo agrega fricción sin evidencia de un caso real | aparte | anotado | |
-| F3 | S1, S3 | Hueco que reportó T1: sin `--bajada`, el triaje guardado pone el piso del modo pero no se ata al diff, así que un triaje viejo en `rapido` habilita `--modo rapido` después de una edición que suma riesgo. Se cerraría comparando la huella también al leer el piso | a decidir en T3 | abierto | |
-| F4 | S1 | Decisión abierta que reportó T1: la lista de archivos se compara por igualdad estricta, así que una revisión que deja afuera archivos del ambiente local nunca puede bajar. Falla hacia lo seguro (queda en `completo`); aceptar un subconjunto puede tapar un riesgo | preguntar al autor | abierto | |
+| F3 | S1, S3 | Hueco que reportó T1: sin `--bajada`, el triaje guardado pone el piso del modo pero no se ata al diff, así que un triaje viejo en `rapido` habilita `--modo rapido` después de una edición que suma riesgo. Se cierra comparando la huella también al leer el piso (L5) | en T3, inline | decidido | |
+| F4 | S1 | Decisión que reportó T1: la lista de archivos se comparaba por igualdad estricta, así que una revisión que deja afuera archivos del ambiente local nunca podía bajar. El autor aprobó aceptar un recibo que cubre parte de los archivos del triaje (L5) | en T3, inline | decidido | |
 
 ## Log
 
@@ -62,3 +62,34 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
     4. Correr la suite completa.
     5. Pasar el verificador independiente de toda la feature.
     6. Cerrar F2, F5 y F6 en `costo-de-revisar`.
+- **L5** (2026-11-20) F3 y F4 decididos. T1 y T2 se commitean en sus ramas.
+  - **F3**, decidido por el padre porque solo hay una dirección segura: cuando hay triaje guardado, el piso del modo se lee con `leer_triaje_del_diff`, igual que la bajada. Hoy `_no_baja_del_triaje` (`recibo.py:417-424` de T1) lo lee sin atarlo al diff.
+  - **F4**, el autor, tal cual: «Vale me parece una buena solucion igualmente analiza bien si esa es la mejor solucion». Se acepta un recibo cuyos archivos son parte de los del triaje. Se comparan la base y la huella de cada archivo del recibo, y no la huella total del repo. Un archivo o un repo del recibo que el triaje no vio se sigue rechazando.
+  - **Por qué es seguro:** las seis señales solo pueden subir con más archivos (`modo_de_las_senales`, `sin_capa_es_el_unico_motivo`), así que un triaje que vio más nunca es más permisivo. Lo no revisado no entra al commit, porque `--check` (S6) rechaza un archivo del índice que está fuera del recibo.
+  - **Alternativas descartadas:**
+    - Que el triaje reciba `--archivo`: el usuario elegiría lo que ve el triaje.
+    - Una lista de exclusiones en la config: una clave nueva, para cubrir solo lo anotado.
+    - Mantener la igualdad estricta: obliga a guardar el ambiente local con stash, o a pagar `completo`.
+    - Correr el triaje dentro del recibo: ya descartado en L3.
+  - **Dos agregados del padre:**
+    - Un aviso con los archivos y los repos del triaje que el recibo no cubre. Conserva el «te olvidaste un archivo» que daba la igualdad estricta.
+    - Un repo que está en el triaje y falta en el recibo se trata como sus archivos: sale en el aviso.
+  - **Dependencia:** F4 es condición de F3. Con la igualdad estricta, atar el piso al diff haría fallar todo `--write` con el ambiente local sucio.
+- **L6** (2026-11-20) T3, el merge y los arreglos de F3, F4 y F5.
+  - **Commits:** T1 quedó en `46884df` y T2 en `76f710f`, cada uno con el pre-commit completo en verde.
+  - **El merge** de `fix/recibo-garantias` tuvo dos conflictos y los dos eran de suma. En `Doc/diseno.md` va la «Recolección» de T1 con la «base sellada» de T2. En el test `check_y_sellar…bajado` va el `guardar_triaje` de T1 con el `--estado limpio` de T2. Las costuras de `armar_rechequeo` y `recolectar_repo` se mezclaron solas y quedaron bien. Sobre el merge, `recibo` dio 108/108 y `triaje` 99/99.
+  - **F4:**
+    - `_huella_distinta` ya no rechaza los archivos del triaje que el recibo no trae, y `leer_triaje_del_diff` tampoco rechaza los repos del triaje que el recibo no trae.
+    - Los dos salen en un aviso por stderr, impreso después de validar el triaje.
+    - La huella total del repo se compara solo cuando el triaje y el recibo traen los mismos archivos.
+  - **F3:** `_no_baja_del_triaje` lee el triaje con `leer_triaje_del_diff`. Con `--modo completo` solo lo valida, sin atarlo, porque no hay piso que violar, y atarlo pediría correr el triaje después de cada corrección. Es decisión del padre.
+  - **F5:** el rechazo nombra cada repo del recibo con su base (`--repo <ruta>#<base>`), los heredados también.
+  - **Tests:**
+    - Rojo observado antes del cambio en los dos de F4 y en el de F3. El de F5 se escribió junto con el cambio, y su rojo se comprobó después contra el `recibo.py` de HEAD, en una copia aparte.
+    - Salen dos casos que fijaban la igualdad estricta: «el triaje trae un archivo que el recibo no», en S1, y «el triaje trae un repo de mas».
+    - Otros dos tests fijaban el hueco de F3 y se ajustan:
+      - En S2, el caso «rapido sin archivos» pasa a `--modo completo`, que valida sin atar al diff.
+      - En «sin bajada… mismos bytes», los casos «sin huella» y «propone 0 con solo `c.txt`» pasan a los que no escriben, y «con huella» sigue escribiendo los mismos bytes.
+    - Con todo, `recibo` da 112/112. El primer intento de commitear el merge falló porque el pre-commit corre sobre el working tree y encontró esos dos tests. El merge entró después como `0d01eac`, solo con su resolución.
+    - Se actualizan la skill `revisar` (paso 8), `Doc/uso.md` y `Doc/diseno.md`.
+  - **`costo-de-revisar`:** F2, F5 y F6 cerrados, con su L10.
