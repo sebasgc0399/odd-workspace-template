@@ -23,11 +23,10 @@ TOPE_OBJETOS = 20
 DOC_EXT = config_loader.EXTENSIONES_DE_DOCS
 CARPETA_GENERADA = "__pycache__"
 EXT_GENERADA = (".pyc", ".pyo")
-SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
+SENALES = recibo.SENALES
 LENGUAJES = {".sql": tsql}
 COTA = "solo en los repos declarados en workspace.config.json"
 CAMPOS_MARCADOR = ("id", "patron", "ejemplo", "fuente", "ancla", "descripcion")
-SHA_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 SIN_HALLAZGOS = {
     "efecto": "sin marcadores de efecto en el archivo entero (base y actual)",
     "dinero": "sin hallazgos en las líneas agregadas ni quitadas",
@@ -83,10 +82,6 @@ def leer_archivo(ruta):
         return None
     with open(ruta, "rb") as f:
         return decodificar(f.read())
-
-
-def es_doc(ruta):
-    return os.path.splitext(ruta)[1].lower() in DOC_EXT
 
 
 def es_generado(ruta):
@@ -219,62 +214,15 @@ def _capa(abs_, config):
     return clase[0], "taller" if clase[1] == "taller" else "repo"
 
 
-def _nuevo_cambio(ruta, abs_, estado, capa, origen, taller=False):
-    return {"ruta": ruta, "abs": abs_, "estado": estado, "capa": capa, "origen": origen, "taller": taller,
+def _nuevo_cambio(ruta, abs_, estado, capa, origen):
+    return {"ruta": ruta, "abs": abs_, "estado": estado, "capa": capa, "origen": origen, "taller": False,
             "agregadas": [], "quitadas": [], "actual": None, "base_texto": None, "contraparte": None,
             "nuevo": estado in ("A", "?"), "ilegible": False}
 
 
-def sellos_del_ticket(ticket, top):
-    revision = os.path.join(ticket, "revision")
-    if not os.path.isdir(revision):
-        return []
-    clave, sellos = recibo._clave_ruta(top), []
-    for fecha, modo, ronda, archivo in recibo._recibos_del_ticket(revision):
-        try:
-            datos = recibo.cargar_recibo(archivo)
-        except recibo.ErrorUso:
-            continue
-        for e in datos["repos"]:
-            sello = e.get("sellado")
-            if (isinstance(sello, str) and SHA_RE.fullmatch(sello) and isinstance(e["ruta"], str)
-                    and recibo._clave_ruta(e["ruta"]) == clave):
-                carpeta = os.path.basename(os.path.dirname(archivo))
-                sellos.append((sello, (fecha, recibo.MODOS.index(modo), ronda), "revision/" + carpeta))
-    return sellos
-
-
-def _es_ancestro(top, commit, de):
-    return _git(top, "merge-base", "--is-ancestor", commit, de).returncode == 0
-
-
-def sello_mas_nuevo(ticket, top):
-    vivos = [s for s in sellos_del_ticket(ticket, top) if _es_ancestro(top, s[0], "HEAD")]
-    cuentas = {}
-    for sello, _, _ in vivos:
-        if sello not in cuentas:
-            cuentas[sello] = int(_git_ok(top, "rev-list", "--count", sello).stdout.decode("ascii").strip())
-    return max(vivos, key=lambda s: (cuentas[s[0]], s[1])) if vivos else None
-
-
-def elegir_base(top, base_arg, ticket):
-    if base_arg or ticket is None:
-        return recibo.resolver_base(top, base_arg), ("explicita" if base_arg else "merge-base"), None
-    sello = sello_mas_nuevo(ticket, top)
-    if sello is None:
-        return recibo.resolver_base(top), "merge-base", None
-    try:
-        defecto = recibo.resolver_base(top)
-    except recibo.ErrorEntorno:
-        defecto = None
-    if defecto and not _es_ancestro(top, defecto, sello[0]):
-        return defecto, "merge-base", None
-    return sello[0], "sellada", sello[2]
-
-
 def recolectar_repo(ruta, base_arg, config, ticket=None):
     top = recibo.raiz_del_repo(ruta)
-    base, origen, sellada_en = elegir_base(top, base_arg, ticket)
+    base, origen, sellada_en = recibo.elegir_base(top, base_arg, ticket)
     salida = _git_ok(top, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base).stdout.split(b"\0")
     estados = {}
     for i in range(0, len(salida) - 1, 2):
@@ -301,6 +249,10 @@ def recolectar_repo(ruta, base_arg, config, ticket=None):
         if os.path.isfile(abs_):
             c["actual"] = leer_archivo(abs_)
             c["ilegible"] = c["actual"] is None
+            if c["origen"] == "taller":
+                _contra_la_linea_base(c, config, abs_)
+                cambios.append(c)
+                continue
         if c["estado"] != "?":
             existe = _git(top, "show", "%s:%s" % (base, rel))
             if existe.returncode == 0:
@@ -323,14 +275,19 @@ def recolectar_taller(ruta, config):
     if not os.path.isfile(ruta):
         raise ErrorEntorno("el archivo del taller no existe: %s" % ruta)
     abs_ = os.path.abspath(ruta)
-    c = _nuevo_cambio(os.path.basename(abs_), abs_, "T", *_capa(abs_, config), taller=True)
+    c = _nuevo_cambio(os.path.basename(abs_), abs_, "T", *_capa(abs_, config))
     c["actual"] = leer_archivo(abs_)
     c["ilegible"] = c["actual"] is None
-    c["agregadas"] = lineas_de(c["actual"])
+    _contra_la_linea_base(c, config, ruta)
+    return c
+
+
+def _contra_la_linea_base(c, config, ruta):
+    c["taller"], c["agregadas"] = True, lineas_de(c["actual"])
     linea_base = config["layers"][c["capa"]].get("workshop_baseline") if c["origen"] == "taller" else None
     if linea_base:
         try:
-            contraparte = verificar_capa._contraparte(abs_, linea_base, config)
+            contraparte = verificar_capa._contraparte(c["abs"], linea_base, config)
             texto = verificar_capa._contenido(contraparte) if contraparte else None
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ErrorEntorno("no se pudo buscar la contraparte de %s (%s)" % (ruta, exc))
@@ -339,7 +296,6 @@ def recolectar_taller(ruta, config):
             if c["actual"] is not None:
                 c["quitadas"] = _de_hunks(verificar_capa._hunks_contra(texto, c["actual"]))[1]
     c["nuevo"] = c["base_texto"] is None
-    return c
 
 
 # ---------------------------------------------------------------- consumidores
@@ -481,6 +437,9 @@ def _repo_de_salida(r, con_origen):
         salida.update(base_origen=r["base_origen"], base_recibo=r["base_recibo"])
     salida["archivos"] = [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
                           for c in r["cambios"]]
+    huella = recibo.calcular(r["ruta"], r["base"], [c["ruta"] for c in r["cambios"] if not os.path.isdir(c["abs"])],
+                             permitir_ausentes=True)
+    salida.update(sha256=huella["sha256"], sha256_por_archivo=huella["sha256_por_archivo"])
     if r["generados"]:
         salida["generados"] = r["generados"]
     return salida
@@ -496,23 +455,14 @@ def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
     clones_ = Clones(clones if clones is not None else [repo["path"] for repo in config["repos"].values()], bases)
     del_taller = [recolectar_taller(t, config) for t in taller]
     todos = [c for r in recolectados for c in r["cambios"]] + del_taller
-    activos = [c for c in todos if not es_doc(c["ruta"])]
+    activos = [c for c in todos if not recibo.es_doc(c["ruta"])]
     senales = {id_: {"nivel": "negativa", "detalle": []} for id_ in SENALES}
     if activos:
         _evaluar_senales(senales, activos, instancia, clones_)
     else:
         for id_ in SENALES:
             senales[id_]["detalle"].append("no aplica: no hay cambios fuera de docs")
-    if not todos:
-        modo, motivos = "sin-cambios", ["no hay cambios contra la base"]
-    elif not activos:
-        modo, motivos = "0", ["solo docs o notas del taller: lectura estructural"]
-    else:
-        escalan = [i for i in SENALES if senales[i]["nivel"] != "negativa"]
-        if escalan:
-            modo, motivos = "completo", ["señal %s: %s" % (i, senales[i]["nivel"]) for i in escalan]
-        else:
-            modo, motivos = "rapido", ["todas las señales en negativo y el instrumento verificado"]
+    modo, motivos = recibo.modo_de_las_senales(senales, bool(todos), bool(activos))
     no_detectable = [n.format(cota=instancia["cota"], marcadores=len(instancia["marcadores"]), senales=convencion.SENALES,
                               nombres=instancia["nombres"]) for n in NO_DETECTABLE] + instancia["no_detectable"]
     return {
@@ -530,11 +480,11 @@ def _capas_y_sin_capa(activos):
 
 
 def _sin_capa(activos):
-    capas, sin_capa = _capas_y_sin_capa(activos)
+    sin_capa = _capas_y_sin_capa(activos)[1]
     if not sin_capa:
         return None
     detalle = "extensiones sin capa en el cambio: " + config_loader.lista_de_extensiones(config_loader.contar_extensiones(sin_capa))
-    return {"archivos": sin_capa, "unico_motivo_de_capas": len(capas) <= 1,
+    return {"archivos": sin_capa, "unico_motivo_de_capas": recibo.sin_capa_es_el_unico_motivo([c["capa"] for c in activos]),
             "aviso": {"id": config_loader.ID_COBERTURA, "detalle": detalle, "ayuda": config_loader.AYUDA_COBERTURA}}
 
 
