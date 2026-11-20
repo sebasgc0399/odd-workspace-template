@@ -27,7 +27,6 @@ SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 LENGUAJES = {".sql": tsql}
 COTA = "solo en los repos declarados en workspace.config.json"
 CAMPOS_MARCADOR = ("id", "patron", "ejemplo", "fuente", "ancla", "descripcion")
-SHA_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 SIN_HALLAZGOS = {
     "efecto": "sin marcadores de efecto en el archivo entero (base y actual)",
     "dinero": "sin hallazgos en las líneas agregadas ni quitadas",
@@ -225,56 +224,9 @@ def _nuevo_cambio(ruta, abs_, estado, capa, origen, taller=False):
             "nuevo": estado in ("A", "?"), "ilegible": False}
 
 
-def sellos_del_ticket(ticket, top):
-    revision = os.path.join(ticket, "revision")
-    if not os.path.isdir(revision):
-        return []
-    clave, sellos = recibo._clave_ruta(top), []
-    for fecha, modo, ronda, archivo in recibo._recibos_del_ticket(revision):
-        try:
-            datos = recibo.cargar_recibo(archivo)
-        except recibo.ErrorUso:
-            continue
-        for e in datos["repos"]:
-            sello = e.get("sellado")
-            if (isinstance(sello, str) and SHA_RE.fullmatch(sello) and isinstance(e["ruta"], str)
-                    and recibo._clave_ruta(e["ruta"]) == clave):
-                carpeta = os.path.basename(os.path.dirname(archivo))
-                sellos.append((sello, (fecha, recibo.MODOS.index(modo), ronda), "revision/" + carpeta))
-    return sellos
-
-
-def _es_ancestro(top, commit, de):
-    return _git(top, "merge-base", "--is-ancestor", commit, de).returncode == 0
-
-
-def sello_mas_nuevo(ticket, top):
-    vivos = [s for s in sellos_del_ticket(ticket, top) if _es_ancestro(top, s[0], "HEAD")]
-    cuentas = {}
-    for sello, _, _ in vivos:
-        if sello not in cuentas:
-            cuentas[sello] = int(_git_ok(top, "rev-list", "--count", sello).stdout.decode("ascii").strip())
-    return max(vivos, key=lambda s: (cuentas[s[0]], s[1])) if vivos else None
-
-
-def elegir_base(top, base_arg, ticket):
-    if base_arg or ticket is None:
-        return recibo.resolver_base(top, base_arg), ("explicita" if base_arg else "merge-base"), None
-    sello = sello_mas_nuevo(ticket, top)
-    if sello is None:
-        return recibo.resolver_base(top), "merge-base", None
-    try:
-        defecto = recibo.resolver_base(top)
-    except recibo.ErrorEntorno:
-        defecto = None
-    if defecto and not _es_ancestro(top, defecto, sello[0]):
-        return defecto, "merge-base", None
-    return sello[0], "sellada", sello[2]
-
-
 def recolectar_repo(ruta, base_arg, config, ticket=None):
     top = recibo.raiz_del_repo(ruta)
-    base, origen, sellada_en = elegir_base(top, base_arg, ticket)
+    base, origen, sellada_en = recibo.elegir_base(top, base_arg, ticket)
     salida = _git_ok(top, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base).stdout.split(b"\0")
     estados = {}
     for i in range(0, len(salida) - 1, 2):
