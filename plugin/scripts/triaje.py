@@ -437,7 +437,8 @@ def _repo_de_salida(r, con_origen):
         salida.update(base_origen=r["base_origen"], base_recibo=r["base_recibo"])
     salida["archivos"] = [{"ruta": c["ruta"], "estado": c["estado"], "capa": c["capa"], "origen": c["origen"]}
                           for c in r["cambios"]]
-    huella = recibo.calcular(r["ruta"], r["base"], [c["ruta"] for c in r["cambios"] if not os.path.isdir(c["abs"])])
+    huella = recibo.calcular(r["ruta"], r["base"], [c["ruta"] for c in r["cambios"] if not os.path.isdir(c["abs"])],
+                             permitir_ausentes=True)
     salida.update(sha256=huella["sha256"], sha256_por_archivo=huella["sha256_por_archivo"])
     if r["generados"]:
         salida["generados"] = r["generados"]

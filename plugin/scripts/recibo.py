@@ -441,7 +441,7 @@ def _huella_distinta(entrada, del_triaje):
         distintos.append("%s: el triaje no trae %s" % (ruta, ", ".join(faltan)))
     if cambiados:
         distintos.append("%s: %s cambio despues del triaje" % (ruta, ", ".join(cambiados)))
-    if not distintos and (sorted(huella) != vistos or (not sobran and del_triaje["sha256"] != entrada["sha256"])):
+    if not distintos and (not set(huella) <= set(vistos) or (not sobran and del_triaje["sha256"] != entrada["sha256"])):
         distintos.append("%s: la huella del triaje no es la de sus archivos" % ruta)
     return distintos, sobran
 
@@ -652,6 +652,8 @@ def escribir_recibo(args):
         malos = distinto_del_guardado(guardado, datos)
         if malos:
             return _informar_sin_pisar(destino, carpeta, malos)
+        if args.bajada is None and guardado.get("bajada") is not None:
+            heredada = guardado["bajada"]
     bajada = bajada_de_la_ronda(args, carpeta, heredada, datos["repos"])
     if guardado is not None:
         datos = _con_el_resultado_nuevo(guardado, args, bajada)

@@ -1366,6 +1366,34 @@ def test_s4_un_archivo_del_taller_por_el_repo_de_la_instancia_da_las_mismas_sena
         assert "Proc_Alfa: ≥ 1, " in d and "Proc_Beta.sql" in d, "cuenta en los repos, sin tratarlo como objeto nuevo: %s" % d
 
 
+def test_un_submodulo_borrado_no_tumba_el_triaje_y_la_bajada_vale_con_un_recibo_de_archivos():
+    with Mundo() as w:
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        git(w.web, "update-index", "--add", "--cacheinfo", "160000,%s,mods/s" % ("1" * 40))
+        git(w.web, "commit", "-q", "-m", "submodulo")
+        publicar(w.web)
+        git(w.web, "rm", "--cached", "-q", "mods/s")
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-20", [w.web], [w.web / "appsettings.json"])
+        assert codigo == 0 and "bajado de completo a rapido" in salida, (codigo, salida, error)
+        assert "vio cambios que el recibo no cubre" in error and ": mods/s;" in error, error
+
+
+def test_un_repo_anidado_sin_trackear_no_impide_la_bajada_con_un_recibo_de_archivos():
+    with Mundo() as w:
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        anidado = w.web / "vendor" / "lib"
+        anidado.mkdir(parents=True)
+        git(anidado, "init", "-q")
+        escribir(anidado, {"lib.txt": "de otro repo\n"})
+        escribir(w.web, {"appsettings.json": "{}\n"})
+        codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-20", [w.web], [w.web / "appsettings.json"])
+        assert codigo == 0 and "bajado de completo a rapido" in salida, (codigo, salida, error)
+        assert "vio cambios que el recibo no cubre" in error and "vendor/lib/" in error, error
+
+
 PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 

@@ -1770,6 +1770,24 @@ def test_f4_sin_bajada_un_triaje_que_vio_mas_archivos_deja_escribir_el_modo_que_
         assert recibos_de(ticket) == ["2026-10-21-rapido/recibo.json"], recibos_de(ticket)
 
 
+def test_reescribir_un_recibo_bajado_sin_repetir_la_bajada_la_conserva_y_con_otro_triaje_no_escribe():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        archivos = [repo / "a.sql", repo / "c.txt"]
+        guardar_triaje(carpeta, triaje_con(), repos=[(repo, base, ["a.sql", "c.txt"])])
+        assert correr(args_write(ticket, [repo], archivos, ["--fecha", "2026-10-21", "--estado", "pendiente", *bajar()]))[0] == 0
+        antes = json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))
+        codigo, salida, error = correr(args_write(ticket, [repo], archivos, ["--fecha", "2026-10-21", "--estado", "con-hallazgos"]))
+        assert codigo == 0 and error == "" and salida.endswith("; bajado de completo a rapido)\n"), (codigo, salida, error)
+        despues = json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))
+        assert despues["bajada"] == antes["bajada"] and [e["estado"] for e in despues["repos"]] == ["con-hallazgos"], despues
+        guardar_triaje(carpeta, triaje_con(positivas=("efecto", "capas")), repos=[(repo, base, ["a.sql", "c.txt"])])
+        crudo = (carpeta / "recibo.json").read_bytes()
+        codigo, salida, error = correr(args_write(ticket, [repo], archivos, ["--fecha", "2026-10-21", "--estado", "limpio"]))
+        assert codigo == 2 and salida == "" and "riesgo real" in error, (codigo, salida, error)
+        assert (carpeta / "recibo.json").read_bytes() == crudo
+
+
 def test_f3_sin_bajada_un_triaje_anterior_a_la_ultima_edicion_no_deja_escribir_rapido_y_completo_si():
     with temporal() as t:
         repo, base, ticket, _ = unidad_bajada(t)

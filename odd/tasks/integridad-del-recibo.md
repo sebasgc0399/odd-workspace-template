@@ -25,11 +25,14 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
 |----|-------|-----|------|--------|--------|
 | T1 | S1, S2, S3, S4 | El triaje que respalda el modo: la huella en `triaje.py`, la validación entera y el modo en `recibo.py`, la contraparte del taller por `--repo` | delegada en paralelo con T2, en su worktree. Risk: item 2, porque el recibo es la compuerta de la revisión; lleva verificador | hecha (L4, L5) | `46884df` |
 | T2 | S5, S6, S7, S8, S9, S10 | Lo que el recibo garantiza: la reescritura, `--check`, `--sellar`, la base con el sello, las rutas literales y las mayúsculas | delegada en paralelo con T1, en su worktree. Risk: item 2, la misma compuerta; lleva verificador | hecha (L4, L5) | `76f710f` |
-| T3 | todas | El merge de T2 en la rama, F3 y F4, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline. Risk: item 2, la misma compuerta | merge, F3, F4 y F5 escritos y en verde (L6); faltan el commit y el verificador | |
+| T3 | todas | El merge de T2 en la rama, F3 y F4, la suite completa, el verificador independiente de la feature, y F2, F5 y F6 cerrados en `costo-de-revisar` | inline. Risk: item 2, la misma compuerta | merge, F3, F4 y F5 commiteados (L6); el verificador encontró B1 a B3, corregidos en un lote (L7); falta su rechequeo | `0d01eac`, `db0cea8` |
 | F1 | — | Anotado (A7, inferido): `--clon` con un subconjunto, `--raiz` u un `origin_head` viejo mueven la señal de consumidores, y el recibo no lo ata | aparte | anotado | |
 | F2 | — | Anotado (B8, inferido): la bajada heredada arrastra `va_a_lider: false`. No se cambia: la regla de mostrar a un líder se aplica al mostrar, y exigirlo en cada rechequeo agrega fricción sin evidencia de un caso real | aparte | anotado | |
 | F3 | S1, S3 | Hueco que reportó T1: sin `--bajada`, el triaje guardado pone el piso del modo pero no se ata al diff, así que un triaje viejo en `rapido` habilita `--modo rapido` después de una edición que suma riesgo. Se cierra comparando la huella también al leer el piso (L5) | en T3, inline | decidido | |
-| F4 | S1 | Decisión que reportó T1: la lista de archivos se comparaba por igualdad estricta, así que una revisión que deja afuera archivos del ambiente local nunca podía bajar. El autor aprobó aceptar un recibo que cubre parte de los archivos del triaje (L5) | en T3, inline | decidido | |
+| F4 | S1 | Decisión que reportó T1: la lista de archivos se comparaba por igualdad estricta, así que una revisión que deja afuera archivos del ambiente local nunca podía bajar. El autor aprobó aceptar un recibo que cubre parte de los archivos del triaje (L5) | en T3, inline | hecho | `db0cea8` |
+| F5 | S3 | Seguimiento (aviso 1 del verificador, L7): el piso de S3 solo existe si el triaje está en la carpeta del modo elegido. Un `--modo` más bajo escribe en otra carpeta, sin `entrada/triaje.json`, y ahí no hay piso. La skill guarda el triaje en la carpeta del modo de la revisión, así que pasa fuera de su flujo; la base no tenía ningún piso | aparte | anotado | |
+| F6 | — | Seguimiento (aviso 2): el triaje en texto también calcula la huella, unos 3 git más por archivo, aunque el texto no la muestra | aparte | anotado | |
+| F7 | S6 | Seguimiento (aviso 4): el aviso de `--check` nombra los generados (`__pycache__/*.pyc`) que el triaje deja fuera de la unidad | aparte | anotado | |
 
 ## Log
 
@@ -93,3 +96,19 @@ Los hallazgos de la auditoría entran por L1 («hacemos varios arreglos y/o mejo
     - Con todo, `recibo` da 112/112. El primer intento de commitear el merge falló porque el pre-commit corre sobre el working tree y encontró esos dos tests. El merge entró después como `0d01eac`, solo con su resolución.
     - Se actualizan la skill `revisar` (paso 8), `Doc/uso.md` y `Doc/diseno.md`.
   - **`costo-de-revisar`:** F2, F5 y F6 cerrados, con su L10.
+- **L7** (2026-11-20) El verificador independiente de toda la feature (`a94b46a..db0cea8`), y un lote de corrección.
+  - **Lo que pasó:** S1 a S10, F3, F4 y F5 dieron PASS, con el flujo real (`triaje.py --json` y después `recibo.py --write`) en S1, F3, F4, F5 y S8. El chequeo diferencial fueron 24 casos, todos iguales salvo lo pedido, y todo rechazo dejó el ticket idéntico byte a byte. Las suites, sobre su copia: `recibo` 112/112, `triaje` 99/99 y `doctor` 203/203.
+  - **Bloqueantes.** Los dos los causa la rama y los dos fallan cerrado:
+    - **B1:** `triaje.py` salía con 2 con un submódulo borrado. Calculaba la huella de todos los cambios sin `permitir_ausentes`, y el commit del gitlink no está en los objetos del repo.
+    - **B2:** un repo anidado sin trackear, o un submódulo con el puntero cambiado, aparece en `archivos` pero queda fuera de la huella. Por eso `sorted(huella) != vistos` rechazaba la bajada para siempre.
+  - **El lote:**
+    - En el triaje, `calcular(…, permitir_ausentes=True)`: el gitlink borrado entra como ausente.
+    - En `_huella_distinta`, la huella tiene que cubrir solo archivos que el triaje lista, y no toda la lista. No se pierde seguridad: cada archivo del recibo sigue necesitando su huella igual, y una carpeta no puede estar en un recibo porque `diff_de_ruta` la rechaza.
+  - **B3, del aviso 6.** Reescribir un recibo bajado sin repetir `--bajada` salía con 2 por el piso de S3. Contradecía S5 («conserva `sellado` y lo demás») y el paso 8 de la skill («lo que no nombra queda»). Ahora la reescritura hereda la bajada guardada como un rechequeo: vale mientras el triaje sea de este diff y no vea un riesgo real.
+  - **Tests de regresión:** el submódulo borrado y el repo anidado, de punta a punta con el triaje real en `triaje.tests.py`, y la reescritura de un recibo bajado en `recibo.tests.py`. Rojo observado en los tres antes del arreglo. Después: `recibo` 112/112 y `triaje` 101/101; la de la reescritura se sumó después, en verde.
+  - **Avisos sin cambio:**
+    - El 3 queda como está: el aviso de F4 antes de un rechazo por riesgo real dice de qué archivo puede venir ese riesgo.
+    - El 5 es por diseño: los JSON no se editan a mano, y la huella se compara archivo por archivo.
+    - El 7 lo cubren ahora los tests de punta a punta.
+    - Los avisos 1, 2 y 4 quedan como F5, F6 y F7.
+  - **Scratch del verificador, a borrar a mano:** `%TEMP%\tmp.OgkSwA9P1q`.
