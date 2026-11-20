@@ -27,7 +27,7 @@ En Windows con Codex, los comandos van con `python` en lugar de `python3`. Sale 
 
 ## Reglas
 
-- **`rdd`:** el interruptor del RDD de gentle-ai es del usuario. `--arreglar rdd` se corre solo si el usuario pide apagarlo; un AVISO no es permiso.
+- **`rdd`:** el interruptor del RDD de gentle-ai es del usuario. `--arreglar rdd` se corre solo si el usuario pide apagarlo; un AVISO no es permiso. Lo apaga solo en el clon de la instancia (`--scope clone`), y fuera de una instancia el ítem no aplica.
 - **gentle-ai:** nunca le pases `--help` ni invoques `upgrade` (`gentle-ai upgrade --help` ejecuta el upgrade). El doctor solo usa `version`, `review mode status` y `telemetry status`.
 - **`lista-negra`:** nunca leas ni muestres el contenido de la lista negra; es confidencial. Si falta, el usuario la crea.
 - **`writer-<capa>`:** `--arreglar` escribe en la instancia: crea el writer que falta o regenera el atrasado, y conserva su `description` y sus bloques `<!-- instancia:... -->`. Antes de pedir el sí, decí qué archivo va a escribir. Un writer editado fuera de los bloques o escrito a mano es FALTA sin arreglo: no lo borres ni lo muevas por tu cuenta, pasale al usuario el texto de `cómo:`.

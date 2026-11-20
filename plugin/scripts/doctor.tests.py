@@ -771,11 +771,40 @@ def test_gentle_ai_ausente_es_aviso_opcional_y_rdd_y_telemetria_no_aplican():
         assert r["rdd"].estado == "NO APLICA" and r["telemetria"].estado == "NO APLICA", r
 
 
-def test_rdd_encendido_es_aviso_y_el_arreglo_usa_scope_global():
+RDD_ENCENDIDO = {("gentle-ai", "review", "mode", "status"): (0, "receipt-driven development: on (decided by default)\n")}
+APAGAR_RDD = ("gentle-ai", "review", "mode", "disable")
+
+
+def test_rdd_encendido_en_una_instancia_con_repo_es_aviso_y_el_arreglo_lo_apaga_solo_en_ese_clon():
     with Escenario() as e:
-        ctx = Falso(e.base, respuestas={("gentle-ai", "review", "mode", "status"): (0, "receipt-driven development: on (decided by default)\n")})
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz, respuestas={**RDD_ENCENDIDO, ("git", "-C", str(raiz), "rev-parse", "--show-toplevel"): (0, str(raiz) + "\n")})
         r = por_id(ctx)["rdd"]
-        assert r.estado == "AVISO" and r.comando == ["gentle-ai", "review", "mode", "disable", "--scope", "global"], r
+        assert r.estado == "AVISO" and r.comando == [*APAGAR_RDD, "--scope", "clone", "--cwd", str(raiz)], r
+        assert "solo en el clon de esta instancia" in r.ayuda and "tus otros proyectos" in r.ayuda, r.ayuda
+        correr(["--arreglar", "rdd"], ctx)
+        apagados = [c for c in ctx.llamadas if c[:4] == APAGAR_RDD]
+        assert apagados == [(*APAGAR_RDD, "--scope", "clone", "--cwd", str(raiz))], apagados
+
+
+def test_rdd_encendido_fuera_de_una_instancia_no_aplica_y_no_ofrece_apagarlo():
+    with Escenario() as e:
+        ctx = Falso(e.base, respuestas=RDD_ENCENDIDO)
+        r = por_id(ctx)["rdd"]
+        assert r.estado == "NO APLICA" and r.comando is None and "fuera de una instancia" in r.detalle, r
+        codigo, _ = correr(["--arreglar", "rdd"], ctx)
+        assert codigo == 0 and not [c for c in ctx.llamadas if c[:4] == APAGAR_RDD], ctx.llamadas
+
+
+def test_rdd_encendido_en_una_instancia_sin_repo_git_es_aviso_sin_arreglo_automatico():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz, respuestas=RDD_ENCENDIDO)
+        r = por_id(ctx)["rdd"]
+        assert r.estado == "AVISO" and r.comando is None and r.arreglo is None, r
+        assert "no está en un repo git" in r.ayuda and "por clon" in r.ayuda, r.ayuda
+        codigo, salida = correr(["--arreglar", "rdd"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida and not [c for c in ctx.llamadas if c[:4] == APAGAR_RDD], salida
 
 
 def test_telemetria_activa_es_aviso():
@@ -836,7 +865,7 @@ def test_arreglar_un_item_que_ya_esta_bien_no_ejecuta_nada():
         ctx = Falso(e.base)
         codigo, salida = correr(["--arreglar", "rdd"], ctx)
         assert codigo == 0, salida
-        assert ("gentle-ai", "review", "mode", "disable", "--scope", "global") not in ctx.llamadas, ctx.llamadas
+        assert not [c for c in ctx.llamadas if c[:4] == ("gentle-ai", "review", "mode", "disable")], ctx.llamadas
 
 
 def test_los_avisos_no_hacen_fallar_la_salida():
