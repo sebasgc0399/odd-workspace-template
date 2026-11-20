@@ -43,7 +43,7 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 
 ## Junto a gentle-ai y engram
 
-`odd-ws` no reemplaza a ninguno de los dos: cada uno cubre una parte distinta, y ninguno es obligatorio.
+`odd-ws` no reemplaza a ninguno de los dos: cada uno cubre una parte distinta, y ninguno es obligatorio. Se pisan en una sola cosa, la revisión, y solo dentro de una instancia: ahí revisa `odd-ws`.
 
 | Herramienta | De qué se encarga |
 |---|---|
@@ -52,7 +52,7 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 | odd-ws | Qué se exige en cada proyecto, con lo aprendido convertido en chequeos |
 
 - **Con engram,** `/odd-ws:cerrar` lee las memorias del proyecto y te muestra cuáles vale la pena convertir en reglas.
-- **Con gentle-ai,** el doctor te propone apagar su revisión nativa (`rdd`), porque la instancia trae revisores propios que leen el repo y las reglas de cada capa. Nunca la apaga solo.
+- **Con gentle-ai,** el doctor te propone apagar su revisión nativa (`rdd`) solo en el clon de la instancia, porque ahí la instancia trae revisores propios que leen el repo y las reglas de cada capa. Tus otros proyectos siguen con la revisión de gentle-ai, y el doctor nunca la apaga solo.
 
 ## Instalación
 

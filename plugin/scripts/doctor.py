@@ -24,7 +24,7 @@ UMBRAL_MS = 100
 OK, FALTA, AVISO, NO_APLICA = "OK", "FALTA", "AVISO", "NO APLICA"
 VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 USO = "uso: doctor.py [--arreglar <id>]"
-COMANDO_RDD = ["gentle-ai", "review", "mode", "disable", "--scope", "global"]
+APAGAR_RDD = ["gentle-ai", "review", "mode", "disable"]
 OPCIONAL = "opcional: ningún script del plugin lo invoca"
 OPCIONAL_CREDENCIALES = "opcional: solo hace falta para empujar a GitHub"
 
@@ -41,7 +41,10 @@ SONDA_PYTHON = "import sys; print('Python %d.%d.%d' % sys.version_info[:3])"
 PYTHON_MINIMO = (3, 7, 0)
 AYUDA_CREDENCIALES = "Instalá Git for Windows con Git Credential Manager, o corré git config --global credential.helper manager."
 AYUDA_GENTLE = "Instalá o actualizá gentle-ai (en Windows: go install github.com/gentleman-programming/gentle-ai/v4/cmd/gentle-ai@latest) y corré sync con Claude Code cerrado."
-AYUDA_RDD = "D3: el RDD nativo no ve el dominio (su reviewer corre sin herramientas); la plantilla trae el propio. Solo se apaga si lo pedís con --arreglar rdd."
+AYUDA_RDD = ("D3: el RDD nativo no ve el dominio (su reviewer corre sin herramientas); la plantilla trae el propio. Se apaga solo en el clon "
+             "de esta instancia, y solo si lo pedís con --arreglar rdd: tus otros proyectos siguen con el RDD como estaba.")
+AYUDA_RDD_SIN_REPO = ("D3: gentle-ai apaga el RDD por clon, y esta instancia no está en un repo git, así que no hay arreglo automático. "
+                      "Para apagarlo en toda la máquina, corré a mano gentle-ai review mode disable: afecta también a tus otros proyectos.")
 AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
 AYUDA_ENGRAM = "Actualizá engram a 3.5 o superior desde su release oficial (en Windows, renombrá el .exe en uso antes de reemplazarlo)."
 AYUDA_JQ = "scoop install jq (lo exige engram setup)."
@@ -596,7 +599,13 @@ def chequear_rdd(ctx, hay_gentle):
     if codigo == 0 and re.search(r":\s*off\b", estado):
         return resultado("rdd", OK, estado)
     if codigo == 0 and re.search(r":\s*on\b", estado):
-        return resultado("rdd", AVISO, estado, COMANDO_RDD, AYUDA_RDD)
+        raiz = raiz_de_instancia(ctx)
+        if raiz is None:
+            return resultado("rdd", NO_APLICA, f"{estado}; fuera de una instancia, el RDD nativo es tu revisión")
+        repo = raiz_del_repo_de(ctx, raiz)
+        if repo is None:
+            return resultado("rdd", AVISO, estado, None, AYUDA_RDD_SIN_REPO)
+        return resultado("rdd", AVISO, estado, [*APAGAR_RDD, "--scope", "clone", "--cwd", str(repo)], AYUDA_RDD)
     return resultado("rdd", AVISO, f"no se pudo leer el estado del RDD: {estado or '(vacío)'}", None, AYUDA_RDD)
 
 
