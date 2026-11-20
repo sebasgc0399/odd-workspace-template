@@ -1065,7 +1065,7 @@ def test_ticket_con_una_unidad_sellada_triaja_solo_la_unidad_nueva():
         repo = r["repos"][0]
         assert repo["base"] == sello and rutas(repo) == [SQL_GAMMA], repo
         assert repo["base_origen"] == "sellada" and repo["base_recibo"] == "revision/2026-11-17-rapido", repo
-        assert list(repo) == ["ruta", "base", "base_origen", "base_recibo", "archivos"], list(repo)
+        assert list(repo) == ["ruta", "base", "base_origen", "base_recibo", "archivos", "sha256", "sha256_por_archivo"], list(repo)
         args = ["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(ticket)]
         codigo, salida, error = correr(args)
         assert codigo == 0 and error == "", error
@@ -1242,7 +1242,112 @@ def test_la_bajada_de_recibo_lee_el_json_que_guarda_el_triaje():
         assert not (ticket / "revision" / "2026-11-19-rapido" / "recibo.json").exists()
 
 
-PRUEBAS = [(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
+# ---------------------------------------------------------------- la huella del triaje y el taller por el repo de la instancia (integridad del recibo)
+
+def test_s1_el_json_del_triaje_lleva_la_huella_del_diff_de_cada_repo_con_la_funcion_del_recibo():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3"), "Makefile": "x\n", "tools/__pycache__/u.pyc": b"\x00"})
+        (w.db / SQL_GAMMA).unlink()
+        args = ["--repo", str(w.db), "--repo", str(w.web), "--raiz", str(w.raiz)]
+        codigo, salida, error = correr(args + ["--json"])
+        assert codigo == 0 and error == "", error
+        db, web = json.loads(salida)["repos"]
+        assert list(db) == ["ruta", "base", "archivos", "sha256", "sha256_por_archivo", "generados"], list(db)
+        rutas_db = [a["ruta"] for a in db["archivos"]]
+        assert rutas_db == ["Makefile", SQL_ALFA, SQL_GAMMA], rutas_db
+        huella = M.recibo.calcular(db["ruta"], db["base"], rutas_db)
+        assert (db["sha256"], db["sha256_por_archivo"]) == (huella["sha256"], huella["sha256_por_archivo"]), db
+        assert web["archivos"] == [] and web["sha256_por_archivo"] == {} and web["sha256"] == M.recibo.calcular(web["ruta"], web["base"], [])["sha256"]
+        codigo, texto, _ = correr(args)
+        assert codigo == 0 and "sha256" not in texto, "el texto sale como antes"
+
+
+def guardar_el_triaje(w, ticket, carpeta, repos):
+    argv = ["--raiz", str(w.raiz), "--ticket", str(ticket), "--json"]
+    for repo in repos:
+        argv += ["--repo", str(repo)]
+    codigo, salida, error = correr(argv)
+    assert codigo == 0, error
+    (carpeta / "entrada").mkdir(parents=True, exist_ok=True)
+    (carpeta / "entrada" / "triaje.json").write_text(salida, encoding="utf-8")
+    return json.loads(salida)
+
+
+def recibo_con_salida(argv):
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        codigo = M.recibo.main(argv)
+    return codigo, salida.getvalue(), error.getvalue()
+
+
+def test_s1_la_bajada_con_el_triaje_de_antes_de_la_ultima_edicion_sale_con_2_y_no_escribe_el_recibo():
+    with Mundo() as w:
+        ticket = w.raiz / TICKET
+        ticket.mkdir(parents=True)
+        carpeta = ticket / "revision" / "2026-11-20-rapido"
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3"), "Makefile": "x\n"})
+        triaje = guardar_el_triaje(w, ticket, carpeta, [w.db])
+        assert triaje["modo"] == "completo" and triaje["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"], triaje["motivos"]
+        assert triaje["sin_capa"]["unico_motivo_de_capas"] is True, triaje["sin_capa"]
+        argv = ["--write", "--ticket", str(ticket), "--repo", str(w.db), "--archivo", str(w.db / SQL_ALFA), "--archivo", str(w.db / "Makefile"),
+                "--modo", "rapido", "--fecha", "2026-11-20", "--bajada", "Makefile sin capa", "--va-a-lider", "no"]
+        codigo, salida, error = recibo_con_salida(argv)
+        assert codigo == 0 and salida.endswith("(1 repo(s), 2 archivo(s); bajado de completo a rapido)\n"), "antes de la edicion vale: %s" % error
+        (carpeta / "recibo.json").unlink()
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", EFECTO)})
+        codigo, salida, error = recibo_con_salida(argv)
+        assert codigo == 2 and salida == "" and "no es de este diff" in error and "corre el triaje de nuevo" in error, (codigo, salida, error)
+        assert "%s cambio despues del triaje" % SQL_ALFA in error, error
+        assert not (carpeta / "recibo.json").exists(), "el triaje viejo no escribe el recibo"
+        triaje = guardar_el_triaje(w, ticket, carpeta, [w.db])
+        assert triaje["senales"]["efecto"]["nivel"] == "positiva", triaje["senales"]["efecto"]
+        codigo, salida, error = recibo_con_salida(argv)
+        assert codigo == 2 and salida == "" and "senal efecto: positiva" in error, "con el triaje de nuevo, el efecto exige completo: %s" % error
+        assert not (carpeta / "recibo.json").exists()
+
+
+def instancia_versionada(w):
+    git(w.raiz, "init", "-q")
+    return commitear(w.raiz, {})
+
+
+def niveles(r):
+    return {id_: nivel(r, id_) for id_ in M.SENALES}, r["modo"]
+
+
+def test_s4_un_archivo_del_taller_por_el_repo_de_la_instancia_da_las_mismas_senales_que_con_taller():
+    casos = [
+        ("un parametro nuevo contra la contraparte", None, ALFA.replace("@Id INT,", "@Id INT,\n    @Extra INT,")),
+        ("igual a su contraparte", None, ALFA),
+        ("dinero solo en la contraparte", {SQL_ALFA: ALFA.replace("SELECT 1", "SET @Total = @Total + @Propina;")}, ALFA),
+        ("sin contraparte", None, "CREATE PROCEDURE esq.Proc_Inventada\nAS\nBEGIN\n    SELECT 1\nEND\n"),
+        ("un borrador ya versionado en la instancia", None, ALFA.replace("SELECT 1", EFECTO)),
+    ]
+    for nombre, en_db, texto in casos:
+        with Mundo() as w:
+            if en_db:
+                commitear(w.db, en_db)
+                publicar(w.db)
+            archivo = "esq.Proc_Inventada.sql" if "Inventada" in texto else "esq.Proc_Alfa.sql"
+            if nombre.startswith("un borrador"):
+                w.taller(archivo, ALFA)
+            base = instancia_versionada(w)
+            ruta = w.taller(archivo, texto)
+            por_taller = w.analizar(repos=[], taller=[ruta])
+            por_repo = M.analizar([(str(w.raiz), base)], taller=[], raiz=str(w.raiz))
+            assert niveles(por_repo) == niveles(por_taller), (nombre, niveles(por_repo), niveles(por_taller))
+            rel = "tickets/T-1-x/SQL/" + archivo
+            assert [(a["ruta"], a["capa"], a["origen"]) for a in por_repo["repos"][0]["archivos"]] == [(rel, "sql", "taller")], por_repo["repos"][0]
+    with Mundo() as w:
+        base = instancia_versionada(w)
+        ruta = w.taller("esq.Proc_Alfa.sql", ALFA.replace("@Id INT,", "@Id INT,\n    @Extra INT,"))
+        por_repo = M.analizar([(str(w.raiz), base)], taller=[], raiz=str(w.raiz))
+        assert nivel(por_repo, "contrato") == "positiva" and "@Extra" in detalle(por_repo, "contrato"), por_repo["senales"]["contrato"]
+        d = detalle(por_repo, "consumidores")
+        assert "Proc_Alfa: ≥ 1, " in d and "Proc_Beta.sql" in d, "cuenta en los repos, sin tratarlo como objeto nuevo: %s" % d
+
+
+PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 
 def main():

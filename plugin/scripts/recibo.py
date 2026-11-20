@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 
+import config_loader
 from odd_ws.comun import entorno_git
 
 VERSION = 1
@@ -27,6 +28,7 @@ BAJADA = ("completo", "rapido")
 TRIAJE = ("entrada", "triaje.json")
 MODOS_DEL_TRIAJE = ("sin-cambios",) + MODOS
 NIVELES = ("positiva", "negativa", "invalida")
+SENALES = ("efecto", "consumidores", "dinero", "migracion", "contrato", "capas")
 AUSENTE = hashlib.sha256(b"<ausente>").hexdigest()
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 OPCIONES_DIFF = (
@@ -224,6 +226,9 @@ def recibo_previo(ticket, previo, carpeta):
         raise ErrorUso("--previo tiene que ser un recibo de este ticket (%s/revision/<fecha>-<modo>[-<ronda>]/), no %s"
                        % (ticket.replace("\\", "/"), archivo.replace("\\", "/")))
     nueva = CARPETA_RE.fullmatch(os.path.basename(carpeta))
+    if MODOS.index(nueva.group(2)) < MODOS.index(m.group(2)):
+        raise ErrorUso("--modo %s es mas bajo que el %s del recibo previo revision/%s: un rechequeo no baja el modo, "
+                       "tampoco con una fecha posterior" % (nueva.group(2), m.group(2), m.group(0)))
     if _orden_de_carpeta(nueva) <= _orden_de_carpeta(m):
         raise ErrorUso("el rechequeo tiene que quedar despues de revision/%s: misma fecha y modo con --ronda %d, "
                        "o una fecha posterior; si no, --check y --sellar sobre el ticket tomarian el recibo previo"
@@ -284,6 +289,41 @@ def armar_rechequeo(args, carpeta):
             "previo": nombre, "repos": entradas}, 0, previo.get("bajada")
 
 
+def es_doc(ruta):
+    return os.path.splitext(ruta)[1].lower() in config_loader.EXTENSIONES_DE_DOCS
+
+
+def modo_de_las_senales(senales, hay_cambios, hay_activos):
+    if not hay_cambios:
+        return "sin-cambios", ["no hay cambios contra la base"]
+    if not hay_activos:
+        return "0", ["solo docs o notas del taller: lectura estructural"]
+    escalan = [i for i in SENALES if senales[i]["nivel"] != "negativa"]
+    if escalan:
+        return "completo", ["señal %s: %s" % (i, senales[i]["nivel"]) for i in escalan]
+    return "rapido", ["todas las señales en negativo y el instrumento verificado"]
+
+
+def sin_capa_es_el_unico_motivo(capas):
+    return any(not c for c in capas) and len({c for c in capas if c}) <= 1
+
+
+def _ruta_del_triaje(carpeta):
+    return os.path.join(carpeta, *TRIAJE).replace("\\", "/")
+
+
+def _archivos_del_triaje(triaje):
+    repos, taller = triaje.get("repos", []), triaje.get("taller", [])
+    if not (isinstance(repos, list) and isinstance(taller, list)
+            and all(isinstance(r, dict) and isinstance(r.get("ruta"), str) and isinstance(r.get("archivos", []), list) for r in repos)):
+        return None
+    archivos = [a for r in repos for a in r.get("archivos", [])] + taller
+    if not all(isinstance(a, dict) and isinstance(a.get("ruta"), str) and (a.get("capa") is None or isinstance(a["capa"], str))
+               for a in archivos):
+        return None
+    return archivos
+
+
 def leer_triaje(carpeta):
     ruta = os.path.join(carpeta, *TRIAJE)
     nombre = ruta.replace("\\", "/")
@@ -297,15 +337,47 @@ def leer_triaje(carpeta):
     except (OSError, ValueError) as exc:
         raise ErrorUso("triaje ilegible (%s): %s" % (nombre, exc))
     senales = datos.get("senales") if isinstance(datos, dict) else None
-    if not (isinstance(senales, dict) and senales and datos.get("modo") in MODOS_DEL_TRIAJE
+    if not (isinstance(senales, dict) and set(senales) == set(SENALES) and datos.get("modo") in MODOS_DEL_TRIAJE
             and all(isinstance(s, dict) and s.get("nivel") in NIVELES for s in senales.values())):
-        raise ErrorUso("triaje con forma invalida (%s): le faltan el modo o las senales con su nivel" % nombre)
+        raise ErrorUso("triaje con forma invalida (%s): tiene que traer el modo y las seis senales (%s), cada una con su nivel"
+                       % (nombre, ", ".join(SENALES)))
+    if _archivos_del_triaje(datos) is None:
+        raise ErrorUso("triaje con forma invalida (%s): repos y taller tienen que ser listas, y cada archivo, un objeto con su ruta y su capa"
+                       % nombre)
     return datos
 
 
+def _validar_modo(carpeta, triaje):
+    archivos = _archivos_del_triaje(triaje)
+    esperado = modo_de_las_senales(triaje["senales"], bool(archivos), any(not es_doc(a["ruta"]) for a in archivos))[0]
+    if triaje["modo"] != esperado:
+        raise ErrorUso("triaje con forma invalida (%s): propone %s, y sus senales y archivos dan %s; no se edita a mano, "
+                       "corre el triaje de nuevo" % (_ruta_del_triaje(carpeta), triaje["modo"], esperado))
+
+
 def _repos_del_triaje(triaje):
-    repos = triaje.get("repos") if isinstance(triaje.get("repos"), list) else []
-    return {_clave_ruta(r["ruta"]): (r["ruta"], r.get("base")) for r in repos if isinstance(r, dict) and isinstance(r.get("ruta"), str)}
+    return {_clave_ruta(r["ruta"]): r for r in triaje.get("repos", [])}
+
+
+def _huella_distinta(entrada, del_triaje):
+    ruta, huella = entrada["ruta"], del_triaje.get("sha256_por_archivo")
+    if not (isinstance(huella, dict) and isinstance(del_triaje.get("sha256"), str)):
+        return ["%s: el triaje no trae la huella del diff" % ruta]
+    vistos = sorted(a["ruta"] for a in del_triaje.get("archivos", []))
+    revisados = entrada["archivos"]
+    distintos = []
+    faltan = [a for a in revisados if a not in vistos]
+    sobran = [a for a in vistos if a not in revisados]
+    cambiados = [a for a in revisados if a in vistos and huella.get(a) != entrada["sha256_por_archivo"].get(a)]
+    if faltan:
+        distintos.append("%s: el triaje no trae %s" % (ruta, ", ".join(faltan)))
+    if sobran:
+        distintos.append("%s: el recibo no trae %s" % (ruta, ", ".join(sobran)))
+    if cambiados:
+        distintos.append("%s: %s cambio despues del triaje" % (ruta, ", ".join(cambiados)))
+    if not distintos and (sorted(huella) != vistos or del_triaje["sha256"] != entrada["sha256"]):
+        distintos.append("%s: la huella del triaje no es la de sus archivos" % ruta)
+    return distintos
 
 
 def leer_triaje_del_diff(carpeta, repos):
@@ -313,30 +385,43 @@ def leer_triaje_del_diff(carpeta, repos):
     del_triaje = _repos_del_triaje(triaje)
     distintos = []
     for entrada in repos:
-        ruta, base = del_triaje.pop(_clave_ruta(entrada["ruta"]), (None, None))
-        if ruta is None:
+        suyo = del_triaje.pop(_clave_ruta(entrada["ruta"]), None)
+        if suyo is None:
             distintos.append("%s no esta en el triaje" % entrada["ruta"])
-        elif base != entrada["base"]:
-            distintos.append("%s tiene base %s en el triaje y %s en el recibo" % (entrada["ruta"], base, entrada["base"]))
-    distintos += ["%s esta en el triaje y no en el recibo" % ruta for ruta, _ in del_triaje.values()]
+        elif suyo.get("base") != entrada["base"]:
+            distintos.append("%s tiene base %s en el triaje y %s en el recibo" % (entrada["ruta"], suyo.get("base"), entrada["base"]))
+        else:
+            distintos += _huella_distinta(entrada, suyo)
+    distintos += ["%s esta en el triaje y no en el recibo" % r["ruta"] for r in del_triaje.values()]
     if distintos:
-        raise ErrorUso("el triaje de %s no es de este diff: %s; guardalo con triaje.py --json con los mismos --repo y la misma "
-                       "base que el recibo" % (os.path.join(carpeta, *TRIAJE).replace("\\", "/"), "; ".join(distintos)))
+        raise ErrorUso("el triaje de %s no es de este diff: %s; corre el triaje de nuevo y guardalo con triaje.py --json con los "
+                       "mismos --repo y la misma base que el recibo" % (_ruta_del_triaje(carpeta), "; ".join(distintos)))
+    _validar_modo(carpeta, triaje)
     return triaje
 
 
 def riesgos_reales(triaje):
-    sin_capa = triaje.get("sin_capa")
-    solo_sin_capa = isinstance(sin_capa, dict) and sin_capa.get("unico_motivo_de_capas") is True
-    return [id_ for id_, senal in triaje["senales"].items()
-            if senal["nivel"] == "positiva" and not (id_ == "capas" and solo_sin_capa)]
+    capas = [a["capa"] for a in _archivos_del_triaje(triaje) if not es_doc(a["ruta"])]
+    solo_sin_capa = sin_capa_es_el_unico_motivo(capas)
+    return [id_ for id_ in SENALES
+            if triaje["senales"][id_]["nivel"] == "positiva" and not (id_ == "capas" and solo_sin_capa)]
 
 
 def _sin_riesgo_real(carpeta, triaje):
     reales = riesgos_reales(triaje)
     if reales:
         raise ErrorUso("el triaje de %s vio un riesgo real (%s): no se baja, la revision va en completo"
-                       % (os.path.join(carpeta, *TRIAJE).replace("\\", "/"), ", ".join("senal %s: positiva" % r for r in reales)))
+                       % (_ruta_del_triaje(carpeta), ", ".join("senal %s: positiva" % r for r in reales)))
+
+
+def _no_baja_del_triaje(args, carpeta):
+    if not os.path.isfile(os.path.join(carpeta, *TRIAJE)):
+        return
+    triaje = leer_triaje(carpeta)
+    _validar_modo(carpeta, triaje)
+    if MODOS_DEL_TRIAJE.index(args.modo) < MODOS_DEL_TRIAJE.index(triaje["modo"]):
+        raise ErrorUso("--modo %s es mas bajo que el %s que propuso el triaje de %s: el modo no baja sin --bajada, "
+                       "que es un solo escalon, de completo a rapido" % (args.modo, triaje["modo"], _ruta_del_triaje(carpeta)))
 
 
 def bajada_de_la_ronda(args, carpeta, heredada, repos):
@@ -347,15 +432,15 @@ def bajada_de_la_ronda(args, carpeta, heredada, repos):
                            % (triaje["modo"], args.modo))
         _sin_riesgo_real(carpeta, triaje)
         return {"de": triaje["modo"], "a": args.modo, "motivo": args.bajada, "va_a_lider": False}
-    if heredada is None:
-        return None
-    if not (isinstance(heredada, dict) and (heredada.get("de"), heredada.get("a")) == BAJADA
-            and isinstance(heredada.get("motivo"), str) and heredada.get("va_a_lider") is False):
-        raise ErrorUso("el recibo previo trae una bajada con forma invalida: %s" % json.dumps(heredada, ensure_ascii=False))
-    if args.modo != heredada["a"]:
-        return None
-    _sin_riesgo_real(carpeta, leer_triaje_del_diff(carpeta, repos))
-    return heredada
+    if heredada is not None:
+        if not (isinstance(heredada, dict) and (heredada.get("de"), heredada.get("a")) == BAJADA
+                and isinstance(heredada.get("motivo"), str) and heredada.get("va_a_lider") is False):
+            raise ErrorUso("el recibo previo trae una bajada con forma invalida: %s" % json.dumps(heredada, ensure_ascii=False))
+        if args.modo == heredada["a"]:
+            _sin_riesgo_real(carpeta, leer_triaje_del_diff(carpeta, repos))
+            return heredada
+    _no_baja_del_triaje(args, carpeta)
+    return None
 
 
 def _avisar_si_pisa(destino, datos):
@@ -599,7 +684,9 @@ def _parser():
     p.add_argument("--ticket", help="carpeta del ticket (con --write)")
     p.add_argument("--repo", action="append", metavar="RUTA[#BASE]", help="repo o worktree; base por defecto: merge-base con la rama de origin/HEAD")
     p.add_argument("--archivo", action="append", help="archivo revisado (absoluto, o relativo con un unico --repo); repetible")
-    p.add_argument("--modo", choices=MODOS, default=None, help="0, rapido o completo: obligatorio con --write; con --check filtra los recibos del ticket")
+    p.add_argument("--modo", choices=MODOS, default=None,
+                   help="0, rapido o completo: obligatorio con --write, donde no baja del que propuso el triaje guardado "
+                        "(salvo con --bajada) ni del recibo previo; con --check filtra los recibos del ticket")
     p.add_argument("--recibo", metavar="RUTA", help="con --check: chequea ese recibo.json (o su carpeta) en vez del mas reciente del ticket")
     p.add_argument("--reviewer", action="append", help="reviewer corrido; repetible")
     p.add_argument("--verificacion", action="append", help="'<comando>: <resultado>'; repetible")
@@ -614,7 +701,8 @@ def _parser():
                    help="con --write: hallazgo que se deriva a otra tarea, otro ticket o el backlog; repetible")
     p.add_argument("--bajada", type=_motivo, metavar="MOTIVO",
                    help="con --write y --modo rapido: el usuario baja un escalon lo que propuso el triaje guardado en "
-                        "<carpeta>/entrada/triaje.json (completo, sin un riesgo real); el motivo queda en el recibo")
+                        "<carpeta>/entrada/triaje.json (completo, sin un riesgo real), que tiene que ser de este diff: los mismos "
+                        "archivos, sin cambios desde el triaje; el motivo queda en el recibo")
     p.add_argument("--va-a-lider", dest="va_a_lider", choices=("si", "no"), default=None,
                    help="con --bajada, obligatorio: si el cambio va a un lider antes del commit; con si, no se baja")
     return p
