@@ -1035,7 +1035,7 @@ def sellar(w, repo, rutas, fecha="2026-11-17", sellar_en=None, base=None):
     ticket = w.raiz / TICKET
     ticket.mkdir(parents=True, exist_ok=True)
     argv = ["--write", "--ticket", str(ticket), "--repo", "%s#%s" % (repo, base) if base else str(repo), "--modo", "rapido",
-            "--fecha", fecha]
+            "--fecha", fecha, "--estado", "limpio"]
     for rel in rutas:
         argv += ["--archivo", str(repo / rel)]
     recibo_main(argv)
@@ -1198,6 +1198,25 @@ def test_ticket_que_no_existe_es_error_de_uso():
         escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
         codigo, salida, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(w.raiz / "tickets" / "no-existe")])
         assert codigo == 2 and salida == "" and "la carpeta del ticket no existe" in error and "no-existe" in error, (codigo, salida, error)
+
+
+def test_ticket_triaje_y_recibo_eligen_la_base_con_la_misma_funcion():
+    with Mundo() as w:
+        merge_base = git(w.db, "rev-parse", "HEAD")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        ticket, sello = sellar(w, w.db, [SQL_ALFA])
+        escribir(w.db, {SQL_GAMMA: GAMMA.replace("SELECT 2", "SELECT 4")})
+        assert not any(hasattr(M, f) for f in ("elegir_base", "sello_mas_nuevo", "sellos_del_ticket", "_es_ancestro")), "viven en recibo"
+        codigo, salida, error = correr(["--repo", str(w.db), "--raiz", str(w.raiz), "--ticket", str(ticket), "--json"])
+        assert codigo == 0 and error == "", error
+        repo = json.loads(salida)["repos"][0]
+        assert (repo["base"], repo["base_origen"], repo["base_recibo"]) == (sello, "sellada", "revision/2026-11-17-rapido"), repo
+        assert M.recibo.elegir_base(repo["ruta"], None, str(ticket)) == (sello, "sellada", "revision/2026-11-17-rapido")
+        assert M.recibo.elegir_base(repo["ruta"], merge_base, str(ticket))[:2] == (merge_base, "explicita")
+        recibo_main(["--write", "--ticket", str(ticket), "--repo", str(w.db), "--archivo", str(w.db / SQL_GAMMA), "--modo", "rapido",
+                     "--fecha", "2026-11-18"])
+        escrito = json.loads((ticket / "revision" / "2026-11-18-rapido" / "recibo.json").read_text(encoding="utf-8"))
+        assert escrito["repos"][0]["base"] == repo["base"], "recibo.py --write --ticket parte de la misma base que el triaje"
 
 
 # ---------------------------------------------------------------- la bajada de un escalón en recibo.py (I34)
