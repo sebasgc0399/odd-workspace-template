@@ -18,7 +18,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 3. **No hay bucle automático de corrección.** El usuario decide qué corrige, y una revisión se cierra con una corrección y un rechequeo (sección 9). Cualquier otra revisión después de corregir es un pedido nuevo y vuelve a pedir el sí.
 4. **Solo git de lectura en los repos del equipo:** ni cambiar de rama, ni tocar el índice (un archivo sin trackear entra al diff con `--no-index`, nunca con `git add -N`), ni plantar archivos. Todo lo que escribe esta skill va en la carpeta del ticket.
 5. **Todas las corridas de una revisión usan el mismo modelo:** no pases `model` a ninguna o pasale el mismo alias a todas, y no fijes IDs de modelo.
-6. **Esta skill no congela nada:** dejar un `completo` que va a un líder como caso del modo sombra es de `/odd-ws:eval-reviewers`, que lo congela, lo puntúa y lo ratifica.
+6. **Esta skill no congela nada:** si el usuario quiere dejar la revisión como caso del modo sombra (por ejemplo, un `completo` que va a un líder), es de `/odd-ws:eval-reviewers`, que lo congela, lo puntúa y lo ratifica.
 
 ## 1. Las entradas
 
@@ -79,7 +79,7 @@ Anotá la tabla `nombre de corrida → agentId` (en Pi, `task_id`), con nombres 
 
 ## 5. El modo 0
 
-Sin corridas ni sí: anunciá el modo y leé vos los docs o notas cambiados. Revisá su estructura: encabezados, enlaces y rutas que citan, que lo que afirman exista, y que no queden restos de borrador. Mostrá el resultado y escribí el recibo (paso 8) con `--modo 0`, sin `--reviewer`, y `--verificacion "lectura estructural: <resultado>"`.
+Sin corridas ni sí: anunciá el modo y los archivos que vas a leer, y leé vos los docs o notas cambiados. Revisá su estructura: encabezados, enlaces y rutas que citan, que lo que afirman exista, y que no queden restos de borrador. Mostrá el resultado y escribí el recibo (paso 8) con `--modo 0`, sin `--reviewer`, y `--verificacion "lectura estructural: <resultado>"`.
 
 ## 6. El rescate
 
@@ -109,7 +109,7 @@ La hace el orquestador, en prosa, con los reportes de `corridas/`, en `consolida
   Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente
   ```
 
-  `<n>` cuenta cada hallazgo una vez, de diseño y de capa, sin los conflictos ni lo que va aparte. El acuerdo va solo en `completo`, con los hallazgos de diseño por su frecuencia. El destino queda `pendiente` hasta el recibo.
+  `<n>` cuenta cada hallazgo una vez, de diseño y de capa, sin los conflictos ni lo que va aparte. El acuerdo va solo en `completo`, con los hallazgos de diseño por su frecuencia; en `rapido` y en un rechequeo, la línea no lo trae. El destino queda `pendiente` hasta el recibo.
 - **En `rapido` y en todo rechequeo**, cada hallazgo va una vez, con su ubicación y su regla.
 - **En `completo`**, los de diseño van con su frecuencia entre las tres corridas (3/3, 2/3, 1/3), unidos por ubicación y regla (con ID, la regla es su ID), y los de 1/3, marcados **«a confirmar»**. Hay varianza, y varias corridas no suman aciertos: protegen de la corrida mala y muestran los **conflictos**, la misma pieza con veredictos opuestos («quitar» contra «consumido»), que van en **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**, porque la decisión es de dominio.
 - La severidad de diseño y la de capa van separadas: cada hallazgo, con la de su revisor, sin promediar. Lo que diseño derivó a una capa y lo que esa capa devolvió va aparte, y lo que nadie toma se marca **«sin dueño»** y se lo lleva el usuario.

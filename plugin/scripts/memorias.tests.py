@@ -955,6 +955,16 @@ def test_repo_desconocido_o_junto_a_memorias_sale_con_dos():
         assert codigo == 2 and "--repo" in error, error
 
 
+def test_el_nucleo_de_cerrar_manda_una_medicion_a_una_fila_de_la_matriz_y_abre_matriz_md():
+    nucleo = SKILL_CERRAR.read_text(encoding="utf-8")
+    fila = next((l for l in nucleo.split("\n") if l.startswith("| Una medición")), None)
+    assert fila is not None, "la tabla del paso 2 no tiene la fila de la medición"
+    assert "fila de la matriz" in fila and "`destino` `evidencia`" in fila and "evidencia.md" in fila, fila
+    paso_4 = seccion_de(nucleo, "## 4.")
+    compuerta = next((l for l in paso_4.split("\n") if "references/matriz.md" in l), "")
+    assert "Una medición también es una fila" in compuerta, "la compuerta de matriz.md no se abre con una medición: %s" % compuerta
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

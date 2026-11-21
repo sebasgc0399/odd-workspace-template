@@ -1044,6 +1044,8 @@ Muestra los enlaces de un ticket, o de cualquier `.md`, y abre o copia el que el
 
 Orquesta la revisión de un cambio de un ticket antes del commit, con los agentes que genera `/bootstrap`: `revisor-diseno` (entre capas) y el `revisor-<capa>` de cada capa tocada. Los revisores solo leen. La skill arma la entrada, lanza, rescata, consolida y escribe el recibo, y no commitea.
 
+El `SKILL.md` es un núcleo de menos de unos 5.000 tokens, porque Claude Code solo vuelve a adjuntar los primeros 5.000 de una skill después de una compactación, y con la skill entera se perdían el recibo y el rechequeo (I65, `odd/tasks/carga-en-el-prompt.md`). El detalle vive en `skills/revisar/references/` (`recibo.md`, `rechequeo.md`, `rescate.md`, `hosts.md` y `prompt.md`), y el núcleo abre cada uno con una compuerta en el paso que lo necesita. Las rutas de las references usan el marcador `<S>` que define el núcleo, porque `${CLAUDE_PLUGIN_ROOT}` solo se reemplaza dentro del `SKILL.md`. Los tests que leen el texto leen el núcleo con sus references, y uno fija el tamaño del núcleo.
+
 - **El modo lo propone `triaje.py`** (`sin-cambios`, `0`, `rapido` o `completo`), y las señales solo escalan. Como el triaje no puede detectar si el cambio va a un líder, la skill lo pregunta, y si va, el modo es `completo`.
 - **Antes de lanzar nada**, anuncia el modo, las señales, las capas y el costo en corridas (`0`, `1 + capas` o `3 + capas`), y espera el sí. Lo espera aunque la haya invocado el modelo.
 - **El último costo medido (I28).** Fuera del modo `0`, el anuncio cita la línea de `rescatar.py --ultimo-costo <ticket>`: el costo de la última revisión medida del ticket o, si no tiene, de la instancia. Sin ninguna, anuncia solo las corridas. Se cita tal cual y no se ajusta al diff, porque el costo de una corrida no sigue al tamaño del cambio; si esa revisión corrió sus corridas en serie, la línea lo dice. Para medirlo, la entrada guarda el triaje en `entrada/triaje.json` y el rescate corre con `--costo`. El porqué: el número que Claude Code muestra por corrida es su contexto final, cerca de un tercio de lo que cuesta ([estudio](../odd/estudios/costo-de-revisar.md)).
@@ -1098,6 +1100,8 @@ Orquesta la revisión de un cambio de un ticket antes del commit, con los agente
 ### Cerrar (`skills/cerrar`, T9)
 
 Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: lo aprendido sale de la carpeta del ticket. Solo lo invoca el usuario.
+
+Como `revisar`, el `SKILL.md` es un núcleo corto, de unos 13 KB, con los pasos 1 a 10 y sus comandos. El detalle vive en `skills/cerrar/references/` (`memorias.md` con el modo memorias completo, `matriz.md` y `entrega.md`), detrás de compuertas que se abren con un evento visible: el argumento `memorias`, una fila de la matriz o una disputa, un ticket que usó worktree, y la entrega.
 
 - **El triaje** decide adónde va cada aprendizaje:
   - lo que es del ticket se queda;

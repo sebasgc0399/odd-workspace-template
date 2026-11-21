@@ -29,11 +29,11 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T1 | S1, S2 | Los hijos limpios y el catálogo solo dentro de una instancia, en el shim de Pi | delegada a un writer, en paralelo con T2 (superficies disjuntas) | escrita y en verde (L3) | |
-| T2 | S3 | `revisar` con un núcleo corto y sus references | delegada a un writer, en paralelo con T1 | escrita y en verde (L4) | |
-| T3 | S4 | `cerrar` con un núcleo corto y sus references | delegada, después de T2, con el mismo patrón | escrita y en verde (L6) | |
-| T4 | S5 | Las descripciones de las 9 skills | inline, al final, porque toca los frontmatter de T2 y T3 | escrita (L7) | |
-| T5 | todas | El verificador independiente de la feature, los docs y el cierre | inline | pendiente | |
+| T1 | S1, S2 | Los hijos limpios y el catálogo solo dentro de una instancia, en el shim de Pi | delegada a un writer, en paralelo con T2 (superficies disjuntas) | hecha (L3) | `2b19450` |
+| T2 | S3 | `revisar` con un núcleo corto y sus references | delegada a un writer, en paralelo con T1 | hecha (L4) | `f93167a` |
+| T3 | S4 | `cerrar` con un núcleo corto y sus references | delegada, después de T2, con el mismo patrón | hecha (L6) | `26624db` |
+| T4 | S5 | Las descripciones de las 9 skills | inline, al final, porque toca los frontmatter de T2 y T3 | hecha (L7, L8) | `95d361e` |
+| T5 | todas | El verificador independiente de la feature, los docs y el cierre | inline | verificador: un bloqueante, corregido en un lote (L8); falta el rechequeo | |
 
 ## Log
 
@@ -95,3 +95,17 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
   - **Las que el modelo ve:** `revisar` pasa de 309 a 164 caracteres, `enlaces` de 286 a 153, `doctor` de 289 a 156 y `eval-reviewers` de 291 a 151. Entre las cuatro, de 1.175 a 624.
   - **Las del usuario:** quedan entre 112 y 130 caracteres.
   - **Lo que se conserva:** las palabras que disparan las listadas (`revisar`: «antes del commit», «líder», «recibo»; `doctor`: «hook», «entorno»). Ninguna lleva dos puntos, que en el frontmatter YAML rompen el valor.
+- **L8** (2026-11-21) El verificador independiente de la feature (`43ccca7..95d361e`) y su lote de corrección. El autor ya dio el ok para publicar la `0.12.1`.
+  - **El veredicto:** PASS en S1, S2, S3, S5 y S6, y FAIL en S4.
+    - En Pi, el hijo no suma nada en ningún inicio y conserva todos los guards; el agente principal fuera de una instancia saca solo las skills del plugin, y `/skill:` sigue resolviendo.
+    - Todas las suites dieron verde, también con `GIT_DIR` apuntando a un señuelo.
+  - **El bloqueante:** la tabla del paso 2 de `cerrar` mandaba una medición directo a `evidencia.md`. La regla de que una medición es una fila de la matriz con su ID había quedado solo en `references/matriz.md`, cuya compuerta se abría con una fila o una disputa. El modelo habría escrito la medición sin fila, sin ID y sin `matriz.py`.
+  - **El arreglo:** la fila de la tabla dice «una fila de la matriz con `destino` `evidencia`» y su entrada en `evidencia.md`, y el paso 4.1 nombra la medición junto a la compuerta. Un test de regresión en `memorias.tests.py` lo fija; dio rojo contra el núcleo commiteado y verde con el arreglo.
+  - **Los avisos de significado, también corregidos:**
+    - la regla 6 de `revisar` vuelve a cubrir cualquier revisión que el usuario quiera como caso del modo sombra;
+    - el modo 0 vuelve a anunciar los archivos que va a leer;
+    - la línea del acuerdo vuelve a decir que en `rapido` y en un rechequeo no lo trae.
+  - **Los disparadores secundarios recuperados en las descripciones:** `doctor` con «Capa 0», «portátil» y «después de clonar la plantilla»; `eval-reviewers` con «comparar dos versiones de su prompt»; `enlaces` con «rutas de la máquina». Quedan en 179 a 199 caracteres, por encima de los 150 de S5, porque que se disparen cuando corresponde pesa más.
+  - **Los núcleos:** `revisar` 17.331 bytes (tope 17.408) y `cerrar` 12.970 (tope 13.312).
+  - **Los docs:** `Doc/diseno.md` describe las references de `revisar` y `cerrar`.
+  - **Scratch del verificador, a borrar a mano:** `%TEMP%	mp.ZFERijv3X2`.

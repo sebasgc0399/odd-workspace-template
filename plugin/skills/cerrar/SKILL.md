@@ -37,7 +37,7 @@ Por cada decisión, gotcha, hallazgo y candidato del ticket, decidí a dónde va
 | Conocimiento de dominio (cómo funciona algo del proyecto) | El doc de `knowledge.docs` que corresponde: listá su carpeta y mirá qué dice de cada doc el índice de `knowledge.index` (por defecto, el `CLAUDE.md` raíz), como en `/odd-ws:abrir`. |
 | Metodología o convención de trabajo | El `CLAUDE.md` raíz, en su sección. Se mantiene corto (lo mide `conocimiento.py`): si crece, el detalle va a un doc y la raíz solo lo indexa. |
 | **Criterio de revisión** o convención de una capa | Una **fila de la matriz**, más la regla escrita en su destino (paso 5). |
-| Una medición (cuánto tarda, cuánto pesa, cuántos consumidores) | `.claude/reglas/evidencia.md`. |
+| Una medición (cuánto tarda, cuánto pesa, cuántos consumidores) | Una **fila de la matriz** con `destino` `evidencia`, y su ID una sola vez en `.claude/reglas/evidencia.md`, con su fuente (paso 5). |
 | Un pendiente que este ticket resolvió | Se cierra con su evidencia donde viva ese pendiente. |
 
 **Cada aprendizaje se clasifica además como de dominio o de motor.** De dominio es lo del proyecto; **de motor**, lo que habla del propio plugin `odd-ws` (un script, una skill o la plantilla), que no se gradúa a ningún destino de la instancia: se anota en la última entrada de la bitácora como `→ motor: <hallazgo>`, sin buzón, y queda para quien mantiene el plugin.
@@ -52,7 +52,7 @@ Si el ticket tiene un caso congelado del modo sombra (`<ticket>/revision/<fecha>
 
 Mostrá, **antes de escribir nada**, todo lo que este cierre va a escribir, ya con el modo sombra resuelto:
 
-1. **Los aprendizajes:** una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Una fila de la matriz va con todos sus campos y, si es un chequeo que tiene que bloquear, con su `sembrado`; si el ticket anota que una regla bloqueó algo correcto, va su disputa. Antes de armarlas, leé `references/matriz.md`.
+1. **Los aprendizajes:** una tabla con una fila por aprendizaje: qué es, dominio o motor, destino y el texto o la fila exacta que vas a escribir. Una fila de la matriz va con todos sus campos y, si es un chequeo que tiene que bloquear, con su `sembrado`; si el ticket anota que una regla bloqueó algo correcto, va su disputa. Una medición también es una fila, con `destino` `evidencia`. Antes de armarlas, leé `references/matriz.md`.
 2. **Los dos relojes** (paso 6): el valor y la fecha exactos de `Conocimiento`, y `Estado`, sin cambio o con su valor nuevo y por qué.
 3. **La entrada de la bitácora** (paso 6), con su texto y la foto de la entrega por repo, que mirás antes con git de solo lectura.
 4. **Los enlaces que se arreglan** (paso 1): el de hoy y el que lo reemplaza, o que se saca. Se escriben en el paso 6, con los relojes.
