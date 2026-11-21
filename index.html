@@ -4,14 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>odd-ws: que tu agente no repita el mismo error</title>
-<meta name="description" content="odd-ws es un plugin para Claude Code, Codex CLI y gentle-shell que convierte lo que aprendes en un proyecto en chequeos que corren solos: hooks por capa, writers con compuerta y revisión con recibo atado al diff.">
+<meta name="description" content="odd-ws es un plugin para Claude Code, Codex CLI y gentle-shell (Pi) que convierte lo que aprendes en un proyecto en chequeos que corren solos: hooks por capa, reglas que bloquean solo después de calibrarse, writers con compuerta y revisión con recibo atado al diff.">
 <link rel="canonical" href="https://sebasgc0399.github.io/odd-workspace-template/">
 <meta property="og:type" content="website">
+<meta property="og:locale" content="es_ES">
+<meta property="og:site_name" content="odd-ws">
 <meta property="og:title" content="odd-ws: que tu agente no repita el mismo error">
 <meta property="og:description" content="Plugin para Claude Code, Codex CLI y gentle-shell: lo que aprendes en un proyecto se vuelve chequeos que corren solos.">
 <meta property="og:url" content="https://sebasgc0399.github.io/odd-workspace-template/">
 <meta property="og:image" content="https://raw.githubusercontent.com/sebasgc0399/odd-workspace-template/main/Doc/img/odd-ws-portada.gif">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="odd-ws: que tu agente no repita el mismo error">
+<meta name="twitter:description" content="Plugin para Claude Code, Codex CLI y gentle-shell: lo que aprendes en un proyecto se vuelve chequeos que corren solos.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/sebasgc0399/odd-workspace-template/main/Doc/img/odd-ws-portada.gif">
 <style>
   :root {
     --fondo: #ffffff;
@@ -82,6 +87,13 @@
   table { border-collapse: collapse; width: 100%; margin: 12px 0; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; }
   footer { padding-top: 40px; padding-bottom: 48px; color: var(--suave); font-size: 0.9rem; }
+  .version { color: var(--suave); font-size: 0.9rem; }
+  .perfiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .perfil { background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: 14px; }
+  .perfil h3 { margin-top: 0; }
+  @media (max-width: 720px) { .perfiles { grid-template-columns: 1fr; } }
+  .novedad { margin-bottom: 10px; }
+  .novedad b { color: var(--acento); }
 </style>
 </head>
 <body>
@@ -90,6 +102,7 @@
   <h1>Que tu agente no vuelva a cometer el mismo error</h1>
   <p class="lema">Un plugin que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.</p>
   <p class="clis">Para Claude Code, Codex CLI y gentle-shell (Pi). Código abierto, licencia MIT.</p>
+  <p class="version">Versión actual: <b>0.12.1</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
   <div class="botones">
     <a class="boton principal" href="https://github.com/sebasgc0399/odd-workspace-template">Ver el repo en GitHub</a>
     <a class="boton" href="#instalar">Instalar</a>
@@ -102,6 +115,28 @@
 </header>
 
 <main>
+  <h2>Así se ve un bloqueo</h2>
+  <p>Tu agente intenta <code>git push --force origin main</code>. El hook de comandos lo frena antes de que corra, y el agente recibe este mensaje:</p>
+  <pre><code>guard-comandos bloqueó el comando: git push --force (si de verdad hace falta forzar, usa --force-with-lease). Si la operación es deliberada, que la corra el usuario a mano.</code></pre>
+  <p>Lo mismo vale para tu stack. Una <b>capa</b> es una tecnología de tu proyecto (SQL, C#, Android…) con sus reglas. Si el agente no cargó los no-negociables de la capa, su primera edición ahí se bloquea y los recibe, y después de cada edición corren las reglas de esa capa. El detalle está en <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/hooks.md">Hooks</a>.</p>
+
+  <h2>Para quién es</h2>
+  <p>Para quien trabaja en un proyecto con un agente de código y ya vio que repite los mismos errores. Según lo que ya uses, tu camino cambia:</p>
+  <div class="perfiles">
+    <div class="perfil">
+      <h3>Solo Claude Code</h3>
+      <p>Instala el plugin completo: tickets, hooks por capa, writers con compuerta y revisión con recibo. Es el camino de <a href="#instalar">Instalar</a>.</p>
+    </div>
+    <div class="perfil">
+      <h3>Ya usas gentle-ai</h3>
+      <p>Elige el perfil <code>controles</code> en el bootstrap: solo los guards, las reglas por capa y el doctor, sin tickets, writers ni revisión de odd-ws. Tu revisión sigue siendo la de gentle-ai y no se pisan.</p>
+    </div>
+    <div class="perfil">
+      <h3>Codex o gentle-shell (Pi)</h3>
+      <p>Trabajan sobre la misma instancia. Una instancia puede usarse con varios CLI a la vez. Cada guía está más abajo.</p>
+    </div>
+  </div>
+
   <h2>Cómo funciona</h2>
   <p>Una convención que solo vive como texto depende de que el modelo la recuerde. odd-ws sigue el principio <b>mecanismo antes que memoria</b>: lo que se aprende se vuelve un chequeo, no un recordatorio.</p>
   <div class="flujo" role="list">
@@ -115,11 +150,30 @@
   <h2>Qué te da</h2>
   <ul class="lista">
     <li><b>Cada ticket tiene su carpeta,</b> con su objetivo, sus criterios de aceptación y su alcance.</li>
-    <li><b>Los hooks chequean cada edición</b> contra las reglas de su capa, y frenan los comandos peligrosos.</li>
-    <li><b>Los cambios grandes los escriben agentes con compuerta,</b> y los revisores dejan un recibo atado al diff.</li>
-    <li><b>Lo aprendido en un ticket sube</b> a reglas y docs verificables.</li>
-    <li><b>Las reglas de un stack se pueden traer de otro repo git,</b> fijadas a una etiqueta.</li>
+    <li><b>Los hooks chequean cada edición</b> contra las reglas de su capa, y frenan los comandos peligrosos, también cuando el agente escribe por la shell.</li>
+    <li><b>Las reglas empiezan observando:</b> una regla bloquea solo después de calibrarse contra tu código, y una disputada vuelve a avisar. Un falso positivo no te frena el trabajo.</li>
+    <li><b>Los cambios grandes los escriben agentes con compuerta,</b> y los revisores dejan un recibo atado al diff. La revisión mide cuánto cuesta y explica por qué eligió su modo.</li>
+    <li><b>Lo aprendido en un ticket sube</b> a reglas y docs verificables, y <code>/odd-ws:cerrar memorias</code> convierte en reglas las memorias del proyecto.</li>
+    <li><b>Las reglas de un stack se pueden traer de otro repo git,</b> fijadas a una etiqueta, con <code>/odd-ws:paquetes</code>.</li>
+    <li><b>Puedes apagar un hook puntual</b> con <code>disabled_hooks</code>, sin desinstalar el plugin.</li>
   </ul>
+
+  <h2>Las skills</h2>
+  <table>
+    <thead><tr><th>Comando</th><th>Para qué</th></tr></thead>
+    <tbody>
+      <tr><td><code>/odd-ws:bootstrap</code></td><td>Crear la instancia, o completar una que ya existe</td></tr>
+      <tr><td><code>/odd-ws:doctor</code></td><td>Revisar que los hooks y la config estén bien</td></tr>
+      <tr><td><code>/odd-ws:abrir</code></td><td>Empezar un ticket</td></tr>
+      <tr><td><code>/odd-ws:revisar</code></td><td>Revisar un cambio antes del commit</td></tr>
+      <tr><td><code>/odd-ws:cerrar</code></td><td>Cerrar un ticket y graduar lo aprendido</td></tr>
+      <tr><td><code>/odd-ws:paquetes</code></td><td>Traer, cambiar de etiqueta o sacar las reglas de otro repo</td></tr>
+      <tr><td><code>/odd-ws:enlaces</code></td><td>Revisar, abrir y copiar los enlaces de un ticket</td></tr>
+      <tr><td><code>/odd-ws:conocimiento</code></td><td>Revisar la salud de los docs del proyecto</td></tr>
+      <tr><td><code>/odd-ws:eval-reviewers</code></td><td>Medir un revisor contra la revisión real de un líder</td></tr>
+    </tbody>
+  </table>
+  <p>Cuándo usar cada una y quién la dispara está en la <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/uso.md#skills">guía de uso</a>.</p>
 
   <h2>Dónde va la instancia</h2>
   <p>odd-ws monta una <b>instancia</b>, un espacio de trabajo con agentes, en una carpeta aparte, al lado de tus repos de código. La instancia tiene su propio git y apunta a tus repos por su ruta, sin tocarlos.</p>
@@ -128,10 +182,21 @@
     <div class="flecha">apunta por su ruta →</div>
     <div class="carpeta"><code>mi-proyecto/</code><br>Tu repo de código, intacto.</div>
   </div>
-  <p>Si la creas dentro de un repo de código, pierde su git: el bootstrap no le hace <code>git init</code>, ni configura el hook, ni hace el primer commit.</p>
+  <p>Si la creas dentro de un repo de código, la instancia no tiene git propio. En una subcarpeta, el bootstrap no le hace <code>git init</code>, ni configura el hook, ni hace el primer commit. En la raíz del repo, el bootstrap te pregunta antes y te recomienda una carpeta aparte: solo con tu sí la instancia queda en el git de ese repo.</p>
 
   <h2 id="instalar">Instalar</h2>
-  <p>Necesitas Python (invocable como <code>python3</code>, 3.7 o más) y Git. Los requisitos de cada CLI están en el <a href="https://github.com/sebasgc0399/odd-workspace-template#instalación">README</a>.</p>
+  <p>Necesitas Python y Git, y la versión mínima de tu CLI:</p>
+  <table>
+    <thead><tr><th>Herramienta</th><th>Versión</th></tr></thead>
+    <tbody>
+      <tr><td>Python, invocable como <code>python3</code></td><td>3.7 o más. El doctor pide 3.11 o más para leer la config de Codex</td></tr>
+      <tr><td>Git</td><td>En Windows, Git for Windows</td></tr>
+      <tr><td>Claude Code</td><td>2.1.284 o más; se recomienda 2.1.295 o más</td></tr>
+      <tr><td>Codex CLI, si lo usas</td><td>0.144 o más; 0.167 o más para los writers</td></tr>
+      <tr><td>Pi, si lo usas</td><td>1.5.0 o más. Para los writers, gentle-shell (<code>npm i -g gentle-pi</code>)</td></tr>
+    </tbody>
+  </table>
+  <p>En Windows, <code>python3</code> lo crean el Python install manager de python.org y la Microsoft Store, no el instalador clásico. El detalle está en el <a href="https://github.com/sebasgc0399/odd-workspace-template#instalación">README</a>.</p>
 
   <details open>
     <summary>Con Claude Code</summary>
@@ -139,10 +204,12 @@
       <li>Crea la carpeta de la instancia, aparte de tus repos (puede estar vacía), y desde ahí instala el plugin. <code>--scope project</code> es obligatorio: sin él, los hooks correrían en todos tus proyectos.
         <pre><code>claude plugin marketplace add sebasgc0399/odd-workspace-template
 claude plugin install odd-ws@odd-workspace-template --scope project</code></pre>
+        Si <code>marketplace add</code> falla con «its source doesn't match its extraKnownMarketplaces entry», el marketplace ya está registrado: sigue con <code>plugin install</code>.
       </li>
       <li>Abre <code>claude</code> en esa carpeta y corre <code>/odd-ws:bootstrap</code>. Detecta tus repos, te muestra la propuesta completa y solo escribe después de tu sí, con el primer commit incluido.</li>
       <li>Corre <code>/odd-ws:doctor</code>, arregla lo que marque FALTA y abre tu primer ticket con <code>/odd-ws:abrir</code>.</li>
     </ol>
+    <p>Antes de tu primer ticket, lee las <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/uso.md#reglas-de-la-instalación">reglas de la instalación</a>: cada ticket lleva su propio <code>.claude/settings.json</code> y su sesión se abre con <code>--add-dir</code>.</p>
   </details>
 
   <details>
@@ -153,7 +220,7 @@ claude plugin install odd-ws@odd-workspace-template --scope project</code></pre>
         <pre><code>codex plugin marketplace add sebasgc0399/odd-workspace-template
 codex plugin add odd-ws@odd-workspace-template</code></pre>
       </li>
-      <li>Abre <code>codex</code> en la raíz de la instancia, confía en la carpeta y confía los hooks de odd-ws desde <code>/hooks</code>. Las skills se invocan con <code>$</code>, por ejemplo <code>$doctor</code>.</li>
+      <li>Abre <code>codex</code> en la raíz de la instancia, confía en la carpeta y confía los hooks de odd-ws cuando Codex lo pida, o desde <code>/hooks</code>. Las skills se invocan con <code>$</code>, por ejemplo <code>$doctor</code>.</li>
     </ol>
   </details>
 
@@ -161,15 +228,15 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
     <summary>Con gentle-shell (Pi)</summary>
     <ol>
       <li>Declara Pi en la instancia: <code>"hosts": ["claude-code", "pi"]</code>, o solo <code>["pi"]</code>.</li>
-      <li>Instala gentle-shell con <code>npm i -g gentle-pi</code> y el paquete de odd-ws desde git, con la etiqueta de la versión:
+      <li>Instala gentle-shell con <code>npm i -g gentle-pi</code>. El paquete de odd-ws no está en npm: se instala desde git, con la etiqueta de la versión, y necesita <code>npm</code> en el <code>PATH</code>.
         <pre><code>gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v&lt;versión&gt;</code></pre>
       </li>
-      <li>Abre gentle-shell en la raíz de la instancia, dale confianza con <code>/trust</code> y corre <code>/skill:doctor</code>.</li>
+      <li>Abre gentle-shell en la raíz de la instancia, dale confianza con <code>/trust</code> y corre <code>/skill:doctor</code>. En una instancia que ya existía, el doctor genera los agentes de <code>.pi/agents</code>.</li>
     </ol>
   </details>
 
   <h2>Junto a gentle-ai y engram</h2>
-  <p>odd-ws no reemplaza a ninguno de los dos: cada uno cubre una parte distinta, y ninguno es obligatorio.</p>
+  <p>odd-ws no reemplaza a ninguno de los dos: cada uno cubre una parte distinta, y ninguno es obligatorio. Se pisan en una sola cosa, la revisión, y solo dentro de una instancia: ahí revisa odd-ws.</p>
   <table>
     <thead><tr><th>Herramienta</th><th>De qué se encarga</th></tr></thead>
     <tbody>
@@ -178,19 +245,41 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
       <tr><td>odd-ws</td><td>Qué se exige en cada proyecto, con lo aprendido convertido en chequeos</td></tr>
     </tbody>
   </table>
+  <ul class="lista">
+    <li><b>Con engram,</b> <code>/odd-ws:cerrar memorias</code> lee las memorias del proyecto y te muestra cuáles vale la pena convertir en reglas.</li>
+    <li><b>Con gentle-ai,</b> el doctor te propone apagar su revisión nativa solo en el clon de la instancia, y nunca la apaga solo. Si prefieres quedarte con la revisión de gentle-ai, elige el perfil <code>controles</code>: ahí no se pisan.</li>
+  </ul>
+
+  <h2>Novedades</h2>
+  <p class="novedad"><b>0.12.1.</b> odd-ws le suma menos al prompt: nada en los subagentes de gentle-shell ni fuera de una instancia, y <code>revisar</code> y <code>cerrar</code> con un núcleo corto.</p>
+  <p class="novedad"><b>0.12.0.</b> Instalar solo los controles, apagar un hook puntual, y reglas por capa que bloquean solo después de calibrarse. <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/actualizar.md#después-de-actualizar-calibrar-las-reglas-que-bloquean">Si actualizas, calibra tus reglas</a>: hasta entonces solo avisan.</p>
+  <p class="novedad"><b>0.11.0.</b> El recibo de la revisión registra solo lo que de verdad se revisó, y el doctor apaga el RDD de gentle-ai solo en el clon de la instancia.</p>
+  <p class="novedad"><b>0.10.0.</b> Instalación limpia, costo de revisar medido, Pi y Codex completos, y los enlaces de un ticket con <code>/odd-ws:enlaces</code>.</p>
+
+  <h2>Dónde funciona</h2>
+  <table>
+    <thead><tr><th>CLI</th><th>Windows</th><th>Linux y macOS</th></tr></thead>
+    <tbody>
+      <tr><td>Claude Code</td><td>Uso diario del autor, y el CI</td><td>Solo el CI</td></tr>
+      <tr><td>Codex CLI</td><td>Prueba de humo a mano, y el CI</td><td>Solo el CI</td></tr>
+      <tr><td>gentle-shell (Pi)</td><td>Prueba de humo a mano, y el CI</td><td>Solo el CI</td></tr>
+    </tbody>
+  </table>
+  <p>El CI corre todas las suites en Ubuntu, Windows y macOS, y no instala ningún CLI. En Linux y macOS nadie lo probó a mano todavía.</p>
 
   <h2>Documentación</h2>
   <ul class="lista">
     <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/uso.md">Guía de uso</a>: los conceptos, el ciclo de un ticket y cada skill.</li>
     <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/hooks.md">Hooks</a>: por qué el agente frenó una edición o un comando.</li>
     <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/capas-y-reglas.md">Capas y reglas</a>: escribir reglas para tu stack, o traerlas de otro repo.</li>
+    <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/equipo.md">Uso en equipo</a>: compartir una instancia con tu equipo.</li>
     <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/actualizar.md">Actualizar el plugin</a>.</li>
     <li><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">Qué cambió en cada versión</a>.</li>
   </ul>
 </main>
 
 <footer>
-  <p>odd-ws · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
+  <p>odd-ws 0.12.1 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
 </footer>
 </body>
 </html>
