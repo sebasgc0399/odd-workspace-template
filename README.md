@@ -3,7 +3,9 @@
 [![Pruebas](https://github.com/sebasgc0399/odd-workspace-template/actions/workflows/pruebas.yml/badge.svg?branch=main)](https://github.com/sebasgc0399/odd-workspace-template/actions/workflows/pruebas.yml)
 [![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
 
-![odd-ws. En el chat es un consejo; en tu repo, es un chequeo. El agente escribe una vista sin el filtro WHERE activo = 1, el chequeo de la capa la marca como SQL-01 CRITICAL y el agente la corrige.](Doc/img/odd-ws-portada.gif)
+![Ejemplo del ciclo de odd-ws. El agente escribe una vista sin el filtro WHERE activo = 1, el usuario lo corrige en el ticket, /odd-ws:cerrar lo vuelve la regla SQL-01 y en el próximo ticket el chequeo la marca solo como SQL-01 CRITICAL. En el chat es un consejo; en tu repo, es un chequeo.](Doc/img/odd-ws-portada.gif)
+
+*Un ejemplo del ciclo, armado con un ticket de prueba: no es una grabación.*
 
 **Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code, Codex CLI y gentle-shell (Pi) que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
 
