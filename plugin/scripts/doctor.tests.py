@@ -904,7 +904,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1043,6 +1043,56 @@ def test_config_rota_por_otra_causa_tambien_es_falta_con_el_mensaje_de_config_ro
         (raiz / "workspace.config.json").write_text('{"schema_version": 7, "layers": {}}', encoding="utf-8")
         r = por_id(Falso(e.base, cwd=raiz))["config"]
         assert r.estado == "FALTA" and "schema_version" in r.detalle, r
+
+
+def con_disabled_hooks(raiz, valor):
+    ruta = raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_config_con_disabled_hooks_invalido_es_falta_y_valido_es_ok():
+    for valor, estado in (("guard_comandos", "FALTA"), (["guard-comandos"], "FALTA"), ([3], "FALTA"),
+                          (["writer_stop", "writer_stop"], "FALTA"), ([], "OK"), (["guard_comandos", "revisar_turno"], "OK")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            con_disabled_hooks(raiz, valor)
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado, (valor, r)
+            assert estado == "OK" or (r.detalle.startswith("disabled_hooks") and "workspace.config.json" in r.ayuda), (valor, r)
+
+
+def test_hooks_apagados_es_ok_sin_la_clave_y_aviso_con_sus_nombres_sin_arreglo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "OK" and r.comando is None and r.arreglo is None, r
+        con_disabled_hooks(raiz, [])
+        assert por_id(ctx)["hooks-apagados"].estado == "OK"
+        con_disabled_hooks(raiz, ["revisar_turno", "verificar_capa"])
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "AVISO" and "revisar_turno, verificar_capa" in r.detalle, r
+        assert r.comando is None and r.arreglo is None and "disabled_hooks" in r.ayuda and "guard_comandos" not in r.ayuda, r
+        con_disabled_hooks(raiz, ["guard_comandos"])
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "AVISO" and "guard_comandos" in r.detalle and "force push" in r.ayuda, r
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("hooks-apagados "))
+        assert lineas[i].split()[:2] == ["hooks-apagados", "AVISO"] and "cómo:" in lineas[i + 1], lineas[i:i + 2]
+        codigo, salida = correr(["--arreglar", "hooks-apagados"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))["disabled_hooks"] == ["guard_comandos"]
+
+
+def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config():
+    with Escenario() as e:
+        raiz = e.instancia()
+        con_disabled_hooks(raiz, ["guard_comandos", "otro"])
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert r["config"].estado == "FALTA", r["config"]
+        assert r["hooks-apagados"].estado == "NO APLICA" and "config" in r["hooks-apagados"].detalle, r["hooks-apagados"]
 
 
 def test_instancia_hooks_no_aplica_si_la_raiz_no_esta_en_un_repo_git():

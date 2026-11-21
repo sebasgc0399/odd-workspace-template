@@ -2145,6 +2145,38 @@ def test_escrituras_deja_solo_lo_que_recibe_contenido_nuevo():
     comprobar(fallos)
 
 
+def apagar(raiz, valor):
+    ruta = Path(raiz) / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_apagado_en_disabled_hooks_deja_pasar_al_writer_sin_fotos_ni_bitacora():
+    with instancia_temporal() as raiz:
+        archivo = raiz / "A.sql"
+        archivo.write_text("x", encoding="utf-8")
+        commit = evento_bash("git commit -m x", cwd=str(raiz))
+        parche = evento_parche(parche_codex("*** Update File: A.sql", "@@", "-x", "+y"), raiz)
+        assert correr(commit, raiz)[0] == 2, "control: el writer no commitea"
+        assert "git commit" in (negado_en_codex(correr(shell_de_codex("git commit -m x", raiz), raiz, host="codex")) or ""), "control"
+        assert not (raiz / ".claude").exists(), "control: un bloqueo no deja nada en disco"
+        apagar(raiz, ["writer_guard"])
+        assert correr(commit, raiz) == (0, "", b"")
+        assert correr(evento_escritura(archivo, cwd=str(raiz)), raiz) == (0, "", b"")
+        assert correr(shell_de_codex("git commit -m x", raiz), raiz, host="codex") == (0, "", b"")
+        assert correr(parche, raiz, host="codex") == (0, "", b"")
+        assert not (raiz / ".claude").exists(), "apagado no toma fotos ni anota la bitácora"
+
+
+def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_writer_guard():
+    with instancia_temporal() as raiz:
+        for valor in (["verificar_capa", "guard_comandos", "revisar_turno", "writer_stop"], "writer_guard", ["writer-guard"], [7],
+                      ["writer_guard", "writer_guard"], {"writer_guard": True}):
+            apagar(raiz, valor)
+            assert correr(evento_bash("git commit -m x", cwd=str(raiz)), raiz)[0] == 2, valor
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

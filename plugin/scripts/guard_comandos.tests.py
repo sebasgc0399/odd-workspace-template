@@ -1901,6 +1901,65 @@ def test_capa_con_la_config_rota_no_se_puede_clasificar_y_deja_pasar():
         assert G.correr(evento("echo x > db/a.sql", cwd=str(base)), entorno=entorno_de(inst)) == (0, "", b"")
 
 
+def instancia_con_todo(base):
+    app, db = base / "app", base / "equipo" / "db"
+    (app / "db").mkdir(parents=True)
+    db.mkdir(parents=True)
+    inst = instancia(base, {"schema_version": 1, "repos": {"app": {}, "db": {"agent_readonly": True}},
+                            "layers": {"sql": {"extensions": [".sql"], "repos": ["app"]}}})
+    local = {"repos": {"app": {"path": str(app)}, "db": {"path": str(db)}}}
+    (inst / "workspace.local.json").write_text(json.dumps(local), encoding="utf-8")
+    return inst, app, db
+
+
+def apagar(inst, valor):
+    ruta = inst / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def evento_pi(comando, cwd):
+    return {"type": "tool_call", "toolName": "bash", "input": {"command": comando},
+            "ctx": {"cwd": str(cwd), "sessionId": "s1", "hasUI": False, "mode": "rpc"},
+            "oddWs": {"agent": None, "agentId": None, "lastAssistantMessage": "", "continued": False}}
+
+
+def comandos_que_frena(inst, app, db):
+    return [(evento("git push --force origin main", cwd=str(inst)), "block"), (evento("git reset --hard HEAD~1", cwd=str(inst)), "block"),
+            (evento("echo x > db/a.sql", cwd=str(app)), "block"), (evento("git -C %s commit -m x" % fw(db), cwd=str(inst)), "ask")]
+
+
+def test_apagado_en_disabled_hooks_deja_pasar_todo_en_los_tres_hosts():
+    with carpeta() as base:
+        inst, app, db = instancia_con_todo(base)
+        entorno = entorno_de(inst)
+        frenados = comandos_que_frena(inst, app, db)
+        for e, _ in frenados:
+            assert G.correr(e, entorno=entorno) != (0, "", b""), "control: %r" % e["tool_input"]
+        libre = {host: G.correr(evento_pi("git status", inst) if host == "pi" else evento("git status", cwd=str(inst)),
+                                entorno=entorno, host=host) for host in ("codex", "pi")}
+        assert negado_en_codex(G.correr(frenados[0][0], entorno=entorno, host="codex")), "control en Codex"
+        assert G.correr(evento_pi("git push --force origin main", inst), entorno=entorno, host="pi") != libre["pi"], "control en Pi"
+        apagar(inst, ["guard_comandos"])
+        for e, _ in frenados:
+            assert G.correr(e, entorno=entorno) == (0, "", b""), e["tool_input"]
+        assert G.correr(frenados[0][0], entorno=entorno, host="codex") == libre["codex"]
+        assert G.correr(evento_pi("git push --force origin main", inst), entorno=entorno, host="pi") == libre["pi"]
+
+
+def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_guard_comandos():
+    with carpeta() as base:
+        inst, app, db = instancia_con_todo(base)
+        frenados = comandos_que_frena(inst, app, db)
+        for valor in (["verificar_capa", "revisar_turno", "writer_guard", "writer_stop"], "guard_comandos", ["guard-comandos"], [3],
+                      ["guard_comandos", "guard_comandos"], {"guard_comandos": True}):
+            apagar(inst, valor)
+            for e, esperado in frenados:
+                codigo, texto, _ = G.correr(e, entorno=entorno_de(inst))
+                assert (codigo == 2) if esperado == "block" else (codigo == 0 and "pregunta" in texto), (valor, e["tool_input"], texto)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

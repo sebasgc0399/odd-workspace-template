@@ -80,6 +80,9 @@ PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
 AYUDA_TICKETS = ('Corregí "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
                  "y siga con letras, números o guion bajo (es tu archivo: el doctor no lo toca).")
 AYUDA_CLAVE = "Corregí esa clave en workspace.config.json (es tu archivo: el doctor no lo toca)."
+AYUDA_HOOKS_APAGADOS = (f"Si no fue a propósito, sacalo de {config_loader.CLAVE_DE_HOOKS_APAGADOS} en {config_loader.NOMBRE} (es tu archivo: "
+                        "el doctor no lo toca). Un hook apagado deja pasar todo en Claude Code, Codex y Pi.")
+AYUDA_GUARD_APAGADO = " Con guard_comandos apagado, nada frena un force push, un reset --hard ni un borrado recursivo del agente."
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -279,12 +282,27 @@ def chequear_config(raiz):
     except config_loader.ConfigRota as error:
         return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
     for validar, ayuda in ((config_loader.prefijo_de_tickets, AYUDA_TICKETS), (config_loader.pide_aprobar_commits, AYUDA_CLAVE),
-                           (config_loader.repos_propios, AYUDA_CLAVE)):
+                           (config_loader.repos_propios, AYUDA_CLAVE), (config_loader.hooks_apagados, AYUDA_CLAVE)):
         try:
             validar(raiz)
         except config_loader.ConfigRota as error:
             return resultado("config", FALTA, str(error), None, ayuda)
     return resultado("config", OK, f"{len(config['repos'])} repos con su ruta y {len(config['layers'])} capas")
+
+
+def chequear_hooks_apagados(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id = "hooks-apagados"
+    try:
+        apagados = config_loader.hooks_apagados(raiz)
+    except config_loader.ConfigRota as error:
+        return [resultado(id, NO_APLICA, f"no apaga ninguno ({error}): lo dice el ítem config")]
+    if not apagados:
+        return [resultado(id, OK, f"los {len(config_loader.HOOKS)} hooks del plugin corren en esta instancia")]
+    ayuda = AYUDA_HOOKS_APAGADOS + (AYUDA_GUARD_APAGADO if "guard_comandos" in apagados else "")
+    return [resultado(id, AVISO, f"apagados en {config_loader.NOMBRE}: {', '.join(apagados)}", None, ayuda)]
 
 
 def raiz_del_repo_de(ctx, raiz):
@@ -732,6 +750,7 @@ def diagnosticar(ctx):
         chequear_lista_negra(ctx, raiz),
         chequear_plugin_root(ctx),
         *chequear_instancia(ctx),
+        *chequear_hooks_apagados(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),

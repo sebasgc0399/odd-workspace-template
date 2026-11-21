@@ -2294,6 +2294,20 @@ def test_ask_before_commit_y_own_invalidos_rechazan_la_spec():
         rechazada(e, spec, "own y agent_readonly")
 
 
+def test_disabled_hooks_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in ("guard_comandos", ["guard-comandos"], [3], ["writer_stop", "writer_stop"], {"guard_comandos": True}):
+            spec = e.spec()
+            spec["config"]["disabled_hooks"] = valor
+            rechazada(e, spec, "disabled_hooks")
+        spec = e.spec()
+        spec["config"]["disabled_hooks"] = ["revisar_turno"]
+        raiz = e.base / "instancia-con-hooks-apagados"
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+
+
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
     with Escenario() as e:
         if hay_repo_arriba(e.base):

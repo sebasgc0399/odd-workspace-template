@@ -186,7 +186,9 @@ def _config(evento, raiz):
     if raiz is None:
         return None
     estado = config_loader.estado(raiz)
-    return estado.config if estado.tipo == "ok" else None
+    if estado.tipo != "ok" or config_loader.hook_apagado(estado.raiz, "revisar_turno"):
+        return None
+    return estado.config
 
 
 def _inicio(evento, raiz, limite):

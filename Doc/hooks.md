@@ -32,6 +32,20 @@ Una capa sin no-negociables no tiene primer toque: si el bloque `<!-- no-negocia
 
 Los hooks los lanza `python3`. Si no arranca, en Claude Code 2.1.295 o más la herramienta queda bloqueada con el error; con una versión anterior, y siempre en Codex, la herramienta pasa sin el chequeo. En ese caso, la defensa es el ítem `python` de `/odd-ws:doctor`, que revisa el intérprete que lanza cada CLI declarado.
 
+## Apagar un hook
+
+Un plugin no puede quitar un hook en un solo proyecto, así que se apaga desde la config: la clave opcional `disabled_hooks` de `workspace.config.json` lista los hooks que no corren en esta instancia, en Claude Code, Codex y Pi por igual.
+
+```json
+"disabled_hooks": ["revisar_turno"]
+```
+
+- **Los nombres** son los de los cinco scripts: `verificar_capa`, `guard_comandos`, `revisar_turno`, `writer_guard` y `writer_stop`. Un hook apagado deja pasar todo y no escribe nada: `revisar_turno` no saca su foto, `verificar_capa` no marca el primer toque y `writer_guard` no guarda las fotos del writer.
+- **Cada nombre apaga solo su hook.** Con `verificar_capa` apagado, las reglas de la capa siguen corriendo al terminar el turno (`revisar_turno`) y al cerrar un writer (`writer_stop`).
+- **Un valor inválido no apaga ninguno:** si no es una lista, o si un nombre no es de los cinco o se repite, los cinco siguen prendidos. El ítem `config` de `/odd-ws:doctor` lo marca como FALTA y el bootstrap rechaza esa config.
+- **El doctor avisa** en el ítem `hooks-apagados` mientras haya alguno apagado, con su nombre. Para prenderlo, sácalo de la lista.
+- **Apagar `guard_comandos` es el riesgo mayor:** nada frena un force push, un `reset --hard`, un `clean -f`, un borrado recursivo fuera del scratch ni la escritura por shell de un archivo de capa, y el git de escritura en un repo con `agent_readonly: true` ya no pregunta. Apágalo solo si otra herramienta cumple ese papel, por ejemplo el sandbox de tu CLI.
+
 ## En Codex
 
 - **Lo que en Claude Code pregunta, en Codex se bloquea,** porque Codex no puede pedir confirmación desde un hook. El motivo llega con una línea más: «Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, pídele al usuario que lo corra él.»
