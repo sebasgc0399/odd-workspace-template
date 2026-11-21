@@ -2,6 +2,30 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.12.0
+
+**Puedes instalar solo los controles de odd-ws junto a otra orquestación, apagar un hook puntual, y las reglas por capa bloquean solo después de calibrarse.**
+
+### Lo que cambia para ti
+
+- **Corte duro: las reglas por capa no bloquean hasta calibrarlas.** Al actualizar, todo bloqueo de una capa o de un paquete pasa a aviso, con el motivo y el comando a correr. Para que una regla vuelva a bloquear, declara su `sembrado` en `REGLAS`, corre `reglas.py --calibrar <capa> <carpeta> --guardar` y commitea `.claude/registro/`. El paso a paso está en [Doc/actualizar.md](Doc/actualizar.md).
+- **Una regla bloquea solo si** su módulo lo pide, atrapa su defecto sembrado, da 0 aciertos en el código existente y no cambió desde la calibración. Cualquier cambio en el módulo pide calibrar de nuevo, y un fin de línea distinto no.
+- **El sembrado puede llevar ruta.** Además de un texto, puede ser `{"ruta": "Migrations/0001_alta.sql", "texto": "..."}`, así una regla que solo mira una carpeta, una extensión que no es la primera de la capa o el nombre del archivo también se calibra.
+- **Las disputas.** Si un bloqueo está mal, crea `.claude/registro/disputas/<ID>.md` con quién la abre, qué bloqueo y por qué. La regla vuelve a avisar hasta que se arregle su chequeo y se borre el archivo. Ningún script abre una disputa solo.
+- **Los paquetes de reglas** se calibran igual, contra la huella de su lock, y `--guardar` los calibra junto con la capa.
+- **Instalar solo los controles.** Con `"profile": "controles"` en la config (el bootstrap te lo pregunta), la instancia trae los guards, las reglas por capa y el doctor, sin tickets, revisiones ni writers. El `CLAUDE.md` sale corto, para no chocar con la orquestación de gentle-ai, y el doctor no te propone apagar el RDD, porque ahí la revisión es la tuya. Para pasar a completo, quita la clave y corre `/odd-ws:bootstrap`.
+- **Apagar un hook.** `"disabled_hooks"` en la config apaga los hooks que nombres: `verificar_capa`, `guard_comandos`, `revisar_turno`, `writer_guard` o `writer_stop`. El doctor te avisa cuáles están apagados, y el riesgo si uno es `guard_comandos`. Un valor inválido no apaga nada.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **El modo efectivo** se calcula en un solo punto, `odd_ws/calibracion.py`, al final de `verificar_capa._verificar_archivo`; `writer_stop` y `revisar_turno` leen el resultado. El motivo de un aviso viaja en `aviso_por`, que el módulo no puede falsear. Un hallazgo sin `modo`, con un `id` que no es texto o sin fuente avisa con su motivo en vez de bloquear o de callar el hook.
+- **La calibración** vive en `.claude/registro/calibracion.json`, versionado: por regla, la huella del módulo (sha256 con CRLF pasado a LF), si atrapó su sembrado, los aciertos, los que piden bloqueo, el corpus (repo, commit y ruta relativa) y la fecha. Los paquetes van en `paquetes`, aparte de las capas. Sin `--guardar`, la salida de `--calibrar` no cambia.
+- **El perfil** se lee con un solo helper de `config_loader`, y cada generador filtra adentro de su `generar`. La plantilla reducida es `plugin/plantillas/CLAUDE.controles.md`, con una marca que el doctor usa en el ítem `perfil`.
+- **`disabled_hooks`** se chequea en la decisión de cada hook, con `config_loader.hook_apagado`, en Claude Code, Codex y Pi. Un hook apagado deja pasar todo sin tocar el disco. El doctor suma el ítem `hooks-apagados`.
+- **Los helpers de las pruebas que corren git** limpian el entorno, porque las suites corren dentro del pre-commit, que exporta `GIT_DIR`.
+- Las decisiones de cada parte están en `odd/tasks/solo-controles.md` y `odd/tasks/reglas-observan.md`.
+
 ## 0.11.0
 
 **El recibo registra solo lo que de verdad se revisó, con el modo que respalda el triaje de tu diff actual (issue #1), y el doctor apaga el RDD de gentle-ai solo en el clon de la instancia.**

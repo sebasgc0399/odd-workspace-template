@@ -31,7 +31,7 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
 | T1 | S1, S2, S3, S4, S7, S8 | El modo efectivo y la calibración de la capa: `odd_ws/calibracion.py`, `reglas.py --guardar`, `verificar_capa`, `writer_stop`, la plantilla de la suite de reglas y los docs | delegada a un writer, en paralelo con la I62 en otro worktree. Risk: item 2 (los guards dejan de bloquear hasta calibrar) y item 6 (si la huella falla en silencio, ningún test lo vería en una instancia real); lleva verificador, al final de la feature (L3) | hecha (L3, L4) | `bf6cc5b` |
 | T2 | S5 | Las disputas en `.claude/registro/disputas/` | delegada junto con T3, en un writer y un commit (L5) | hecha (L5) | `ebe8bf6` |
 | T3 | S6 | Los paquetes con la huella de su lock | delegada junto con T2 (L5) | hecha (L5) | `ebe8bf6` |
-| T4 | todas | El verificador independiente de la feature y el cierre | inline | verificador: un bloqueante y cuatro avisos, corregidos en un lote (L6); falta el rechequeo | |
+| T4 | todas | El verificador independiente de la feature y el cierre | inline | hecha: verificador PASS después de un lote de corrección (L6, L7) | `da298bc` |
 
 ## Log
 
@@ -104,3 +104,11 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
     - los hooks de cierre no muestran un hallazgo bajado a aviso: está documentado;
     - el comando sugerido puede apuntar al checkout principal cuando el corpus está en un worktree.
   - **Scratch, a borrar a mano:** del verificador, `%TEMP%	mp.rVy72n5d6i` (con un worktree enlazado de prueba adentro); del writer del lote, `%TEMP%	mp.WJLEKeuCgL`.
+- **L7** (2026-11-21) El rechequeo y la entrega.
+  - **El rechequeo** del verificador, limitado al bloqueante y a los avisos sobre `da298bc`, dio PASS en los cuatro:
+    - las reglas filtradas por `Migrations/` y por una extensión que no es la primera se calibran y bloquean, y un archivo fuera de su alcance queda en silencio;
+    - el registro anidado y un `REGLAS` con `SystemExit` avisan, y la capa calibrada sigue bloqueando;
+    - los docs están.
+  - **La arista que queda:** un `REGLAS` de la capa con `SystemExit` hace que `--calibrar` salga sin escribir ni imprimir. Ya pasaba en la base y queda fuera de dominio.
+  - **La costura con la I62** en `release/0.12.0`: dos tests de `disabled_hooks` usaban como control que una regla sin calibrar bloquea. Ahora calibran su capa, como los de esta feature.
+  - **Scratch del verificador, a borrar a mano:** `%TEMP%	mp.rVy72n5d6i`.
