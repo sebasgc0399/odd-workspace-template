@@ -16,7 +16,8 @@ En Windows con Codex, los comandos van con `python` en lugar de `python3`. En Co
 
 ## Reglas
 
-- **Nunca ejecutes código del paquete:** ni lo importes ni corras su `verificar.py` o su suite por tu cuenta. Su suite corre solo en el pre-commit de la instancia o en `reglas.py --test`, cuando el usuario lo aprueba.
+- **Nunca ejecutes código del paquete:** ni lo importes ni corras su `verificar.py` o su suite por tu cuenta. Su suite corre solo en el pre-commit de la instancia o en `reglas.py --test`, cuando el usuario lo aprueba. Calibrarlo (`reglas.py --calibrar … --guardar`) también corre su código: solo después de que el usuario leyó lo copiado y con su sí.
+- **Un bloqueo del paquete empieza avisando.** Una regla del paquete bloquea solo si declara su `sembrado` en `REGLAS` y la instancia la calibró con la huella actual del lock. Importar o actualizar no la calibra: `actualizar` deja vieja la calibración que había. Si el usuario es el autor del paquete, recordale que cada regla que tiene que bloquear declara su `sembrado` (sección «Paquetes de reglas» de `Doc/capas-y-reglas.md`).
 - **No edites lo copiado.** Ni `.claude/reglas/paquetes/<nombre>/` ni `.claude/reglas/paquetes.json` se tocan a mano: el doctor lo marca por la huella. Un arreglo va al repo del paquete, con una etiqueta nueva, y se trae con `actualizar`.
 - **Cada escritura, con su sí:** `importar`, `actualizar` y `quitar`. El commit, con un segundo sí aparte.
 - **La fuente.** Preferí una URL https o ssh (también la forma `git@host:repo`). Una ruta local se guarda absoluta y solo sirve en esta máquina: el script lo avisa, y vos se lo repetís. Una URL con usuario o contraseña se rechaza, porque iría al lock que se commitea: las credenciales van en git. `http://` sin TLS tampoco vale.
@@ -54,7 +55,14 @@ En Windows con Codex, los comandos van con `python` en lugar de `python3`. En Co
 ## Después de importar o actualizar
 
 1. **Pedile que lea el código copiado antes del commit,** sobre todo `verificar.py` y `verificar.tests.py`: corren en los hooks de esta instancia en cada edición de la capa, y en el pre-commit. El lock fija el commit, pero lo que corre lo revisa él.
-2. Mostrá:
+2. **Ofrecé calibrar la capa,** después de que lo leyó y solo con su sí, con una carpeta de código real de la capa (o una vacía, si todavía no hay código):
+
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/reglas.py" --calibrar <capa> <carpeta> --guardar
+   ```
+
+   Mostrá la línea de cada regla del paquete: `puede bloquear`, o `solo avisa:` con el porqué. Calibra también el módulo de la capa y sus otros paquetes, porque reemplaza la calibración de la capa entera. Sin calibrar, los bloqueos del paquete llegan como aviso. Si sale con 1 porque la carpeta del paquete no coincide con su lock, el arreglo es `actualizar` a la misma etiqueta.
+3. Mostrá:
 
    ```bash
    git status --short
@@ -62,12 +70,14 @@ En Windows con Codex, los comandos van con `python` en lugar de `python3`. En Co
    ```
 
    Los archivos de un paquete recién importado son nuevos: salen en `git status` y no en `git diff --stat`, que solo muestra lo que ya estaba commiteado (el lock, si había otro paquete).
-3. Ofrecé el commit con las rutas exactas y un mensaje convencional, y corrélo **solo con un segundo sí:**
+4. Ofrecé el commit con las rutas exactas y un mensaje convencional, y corrélo **solo con un segundo sí:**
 
    ```bash
    git add -- ':/.claude/reglas/paquetes/<nombre>' ':/.claude/reglas/paquetes.json'
    git commit -m "chore(reglas): importa el paquete <nombre> en <etiqueta>"
    ```
+
+   Si calibraste en el paso 2, sumá `':/.claude/registro/calibracion.json'` al `git add`.
 
    Para `actualizar`, el mensaje es `chore(reglas): lleva el paquete <nombre> a <etiqueta>`. El pre-commit corre `reglas.py --test`, que también corre la suite del paquete, en su propio proceso. Si queda en rojo, el commit no pasa: mostrá la salida y no lo saltees con `--no-verify`.
 

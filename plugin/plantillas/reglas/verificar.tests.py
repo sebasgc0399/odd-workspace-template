@@ -11,17 +11,18 @@ M = importlib.util.module_from_spec(especificacion)
 especificacion.loader.exec_module(M)
 
 
-def ctx_de(texto):
+def ctx_de(texto, relativa=None):
     agregadas = [(n, linea) for n, linea in enumerate(texto.split("\n"), 1) if linea] if texto else []
     return {
-        "ruta": str(ARCHIVO), "relativa": "muestra.ext", "relativa_repo": None, "origen": "taller", "capa": "capa",
-        "bytes": texto.encode("utf-8"), "texto": texto, "es_nuevo": True, "agregadas": agregadas,
+        "ruta": str(ARCHIVO if relativa is None else ARCHIVO.parent.joinpath(*relativa.split("/"))),
+        "relativa": relativa or "muestra.ext", "relativa_repo": relativa, "origen": "taller" if relativa is None else "repo",
+        "capa": "capa", "bytes": texto.encode("utf-8"), "texto": texto, "es_nuevo": True, "agregadas": agregadas,
         "hunks": [{"agregadas": agregadas, "quitadas": []}] if agregadas else [], "limite": None,
     }
 
 
-def hallazgos_de(texto):
-    encontrados = M.verificar(ctx_de(texto))
+def hallazgos_de(texto, relativa=None):
+    encontrados = M.verificar(ctx_de(texto, relativa))
     assert isinstance(encontrados, list), f"verificar(ctx) debe devolver una lista, no {type(encontrados).__name__}"
     return encontrados
 
@@ -50,6 +51,30 @@ def test_cada_hallazgo_cumple_el_contrato():
 def test_verificar_es_determinista():
     for texto in MUESTRAS:
         assert hallazgos_de(texto) == hallazgos_de(texto)
+
+
+def ruta_valida(ruta):
+    return (isinstance(ruta, str) and "\\" not in ruta and ":" not in ruta
+            and all(parte.strip() not in ("", ".", "..") for parte in ruta.split("/")))
+
+
+def test_cada_sembrado_es_un_texto_o_una_ruta_con_su_texto_y_su_regla_lo_atrapa():
+    for regla in M.REGLAS:
+        sembrado = getattr(regla, "sembrado", None)
+        if sembrado is None:
+            continue
+        relativa = None
+        if isinstance(sembrado, dict):
+            assert set(sembrado) == {"ruta", "texto"}, f"el sembrado de {regla.id} lleva solo ruta y texto: {sorted(sembrado, key=str)}"
+            relativa, sembrado = sembrado["ruta"], sembrado["texto"]
+            assert ruta_valida(relativa), f"la ruta del sembrado de {regla.id} debe ser relativa, con /, sin . ni ..: {relativa!r}"
+            assert isinstance(sembrado, str) and sembrado.strip(), f"el texto del sembrado de {regla.id} debe ser un texto no vacío"
+        else:
+            assert isinstance(sembrado, str) and sembrado.strip(), \
+                f'el sembrado de {regla.id} debe ser un texto no vacío o {{"ruta": ..., "texto": ...}}'
+        vistos = [h.get("id") for h in hallazgos_de(sembrado, relativa)]
+        assert regla.id in vistos, f"{regla.id} no atrapa su sembrado {sembrado!r}" + (f" en {relativa}" if relativa else "") \
+            + ": sin eso no puede bloquear"
 
 
 def main():

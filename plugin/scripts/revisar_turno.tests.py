@@ -2,6 +2,7 @@ import ast
 import contextlib
 import importlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -35,7 +36,9 @@ def _cargar():
 
 R = _cargar() if _RUTA.exists() else None
 
-STUB = '''def verificar(ctx):
+STUB = '''import types
+REGLAS = (types.SimpleNamespace(id="T-01", sembrado="x MALO BLOQ"),)
+def verificar(ctx):
     salida = []
     for n, t in ctx["agregadas"]:
         if "MALO" in t:
@@ -111,7 +114,17 @@ def agregar(ruta, texto):
 BASE = {"db/a.sql": "uno\ndos\n", "db/b.sql": "tres\n", "README.md": "hola\n"}
 
 
-def escenario(base, archivos=None, modulo=STUB):
+def calibrar(inst, capa):
+    import reglas
+    corpus = Path(inst).parent / "corpus-vacio"
+    corpus.mkdir(parents=True, exist_ok=True)
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        codigo = reglas.main(["--calibrar", capa, str(corpus), "--guardar", "--raiz", str(inst)])
+    assert codigo == 0, (codigo, salida.getvalue(), error.getvalue())
+
+
+def escenario(base, archivos=None, modulo=STUB, calibrada=True):
     repo = Path(base) / "equipo" / "app"
     repo.mkdir(parents=True)
     git(repo, "init", "-q")
@@ -126,6 +139,8 @@ def escenario(base, archivos=None, modulo=STUB):
     escribir(inst, "workspace.local.json", json.dumps({"repos": {"app": {"path": str(repo)}}}))
     escribir(inst, ".gitignore", "workspace.local.json\n.claude/estado/\n")
     escribir(inst, convencion.chequeo("sql"), modulo)
+    if calibrada and modulo is STUB:
+        calibrar(inst, "sql")
     git(inst, "init", "-q")
     git(inst, "add", "-A")
     git(inst, "commit", "-q", "-m", "instancia")
@@ -273,6 +288,20 @@ def test_un_archivo_de_capa_escrito_por_cualquier_via_con_un_bloqueo_hace_seguir
         assert "Edit o Write" in texto, texto
         assert foto(inst).is_dir(), "con un bloqueo la foto queda para la continuación"
         assert "apply_patch" in motivo(fin(inst, host="codex"))
+
+
+def test_un_bloqueo_sin_calibrar_no_hace_seguir_y_su_aviso_dice_por_que():
+    with temporal() as base:
+        repo, inst = escenario(base, calibrada=False)
+        assert inicio(inst) == Permitir()
+        a = repo / "db" / "a.sql"
+        agregar(a, "x MALO BLOQ\n")
+        assert fin(inst) == Permitir(), "sin calibrar, el bloqueo no hace seguir"
+        import config_loader
+        bloqueos, avisos = R._chequear([(str(a), None, None)], config_loader.cargar(inst), None)
+        assert bloqueos == [] and len(avisos) == 1, (bloqueos, avisos)
+        assert avisos[0].endswith("línea 3: línea marcada (aviso: sin calibrar; para que bloquee, correr "
+                                  "`reglas.py --calibrar sql <carpeta> --guardar`)"), avisos
 
 
 def fotos_del_writer(inst, sesion="s1", agente="writer-sql"):

@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -34,7 +35,9 @@ def _cargar():
 
 W = _cargar() if _RUTA.exists() else None
 
-STUB_MALO = '''def verificar(ctx):
+STUB_MALO = '''import types
+REGLAS = (types.SimpleNamespace(id="T-02", sembrado="y = MALO BLOQ;"),)
+def verificar(ctx):
     out = []
     for n, t in ctx["agregadas"]:
         if "MALO" in t:
@@ -103,7 +106,17 @@ def repo_web(base, archivos):
     return repo
 
 
-def instancia(base, modulo=STUB_MALO):
+def calibrar(inst, capa):
+    import reglas
+    corpus = Path(inst).parent / "corpus-vacio"
+    corpus.mkdir(parents=True, exist_ok=True)
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        codigo = reglas.main(["--calibrar", capa, str(corpus), "--guardar", "--raiz", str(inst)])
+    assert codigo == 0, (codigo, salida.getvalue(), error.getvalue())
+
+
+def instancia(base, modulo=STUB_MALO, calibrada=True):
     inst = Path(base) / "inst"
     repo = Path(base) / "equipo" / "web"
     repo.mkdir(parents=True, exist_ok=True)
@@ -112,6 +125,8 @@ def instancia(base, modulo=STUB_MALO):
     escribir(inst, "workspace.local.json", json.dumps({"repos": {"web": {"path": str(repo)}}}))
     if modulo is not None:
         escribir(inst, convencion.chequeo("web"), modulo)
+        if calibrada and modulo is STUB_MALO:
+            calibrar(inst, "web")
     return inst
 
 
@@ -195,12 +210,12 @@ def negado_en_codex(salida):
     return decision.get("permissionDecisionReason")
 
 
-def escenario(base, nuevo_texto="a\nB\nc\ny = MALO BLOQ;\n", extra=None, modulo=STUB_MALO):
+def escenario(base, nuevo_texto="a\nB\nc\ny = MALO BLOQ;\n", extra=None, modulo=STUB_MALO, calibrada=True):
     repo = repo_web(base, {"Core/A/B.cs": "a\nb\nc\n"})
     escribir(repo, "Core/A/B.cs", nuevo_texto)
     for rel, texto in (extra or {}).items():
         escribir(repo, rel, texto)
-    return repo, repo / "Core" / "A" / "B.cs", instancia(base, modulo)
+    return repo, repo / "Core" / "A" / "B.cs", instancia(base, modulo, calibrada)
 
 
 def hook(entrada, inst=None, args=("--plazo", "50")):
@@ -454,6 +469,20 @@ def test_bloquea_una_vez_con_todo_junto_y_las_lineas_reales():
         assert est["formato_ok"] is False and est["archivos"] == [str(archivo)], est
         assert [b["id"] for b in est["bloqueos"]] == ["T-02"], est["bloqueos"]
         assert [(n["relativa"], n["agregadas"], n["quitadas"]) for n in est["numstat"]] == [("Core/A/B.cs", 2, 1)], est["numstat"]
+
+
+def test_un_bloqueo_sin_calibrar_no_frena_y_queda_en_los_avisos_con_el_motivo():
+    with temporal() as base:
+        repo, archivo, inst = escenario(base, calibrada=False)
+        t = transcript(base, [("Edit", {"file_path": str(archivo)})])
+        assert correr(evento(t, resultado("ok")), inst) == SILENCIO, "sin calibrar, el bloqueo no frena el cierre"
+        est = estado_escrito(inst)
+        assert est["bloqueos"] == [] and [a["id"] for a in est["avisos"]] == ["T-02"], est
+        config = W._verificar_capa().config_loader.cargar(inst)
+        bloqueos, avisos, internos = W._chequear([str(archivo)], config, None)
+        assert bloqueos == [] and internos == [] and len(avisos) == 1, (bloqueos, avisos, internos)
+        assert avisos[0]["texto"] == ("[T-02 CRITICAL] Core/A/B.cs línea 4: está mal → así (aviso: sin calibrar; para que bloquee, "
+                                      "correr `reglas.py --calibrar web <carpeta> --guardar`)"), avisos[0]["texto"]
 
 
 def test_con_stop_hook_active_deja_pasar_y_escribe_la_verdad():

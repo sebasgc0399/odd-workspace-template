@@ -127,6 +127,12 @@ def test_rutas_de_los_paquetes_de_reglas():
         assert not ruta.startswith("/") and "\\" not in ruta and ":" not in ruta, ruta
 
 
+def test_rutas_del_registro_versionado():
+    assert m().REGISTRO == ".claude/registro"
+    assert m().CALIBRACION == ".claude/registro/calibracion.json"
+    assert not m().REGISTRO.startswith(m().ESTADO), "el registro se commitea; el estado no"
+
+
 def test_rutas_de_la_plantilla_del_ticket():
     assert m().TICKET_PLANTILLA_DIR == "tickets/_plantilla"
     assert m().TICKET_SETTINGS == "tickets/_plantilla/.claude/settings.json"

@@ -11,6 +11,7 @@ import time
 import unicodedata
 
 import config_loader
+from odd_ws import calibracion
 from odd_ws import capas as convencion
 from odd_ws import hosts
 from odd_ws.capacidades import FIN_SUBAGENTE
@@ -209,7 +210,8 @@ def _describir(h, relativa):
     severidad = h.get("severidad") or ""
     etiqueta = "[%s %s]" % (h["id"], severidad) if severidad else "[%s]" % h["id"]
     linea = h.get("linea")
-    return "%s %s %s: %s" % (etiqueta, relativa, "línea %d" % linea if linea is not None else "archivo", h["mensaje"])
+    return "%s %s %s: %s%s" % (etiqueta, relativa, "línea %d" % linea if linea is not None else "archivo", h["mensaje"],
+                               calibracion.sufijo(h))
 
 
 def _chequear(archivos, config, limite):

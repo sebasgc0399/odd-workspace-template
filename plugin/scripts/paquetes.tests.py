@@ -54,12 +54,16 @@ def git(cwd, *args, entrada=None):
 
 
 VERIFICAR = '''import os
+import types
 with open(os.environ.get("CENTINELA_DE_LA_PRUEBA", os.devnull), "a") as f:
     f.write("verificar\\n")
 
+REGLA = types.SimpleNamespace(id="ALF-01", sembrado="SELECT MALO;")
+REGLAS = (REGLA,)
+
 
 def verificar(ctx):
-    return [{"id": "ALF-01", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "MENSAJE"}
+    return [{"id": REGLA.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "MENSAJE"}
             for n, t in ctx["agregadas"] if "MALO" in t]
 '''
 SUITE = '''import os
@@ -240,11 +244,20 @@ def test_importado_el_doctor_da_ok_y_el_hook_aplica_su_regla():
         doctor = subprocess.run([sys.executable, str(AQUI / "doctor.py")], capture_output=True, env=env, cwd=str(w.raiz), timeout=300)
         filas = [l for l in doctor.stdout.decode("utf-8").splitlines() if l.startswith("paquetes ")]
         assert len(filas) == 1 and filas[0].split()[1] == "OK", filas
+        calibrar = [sys.executable, str(AQUI / "reglas.py"), "--calibrar", "sql", str(w.db / "src"), "--guardar"]
+        calibrada = subprocess.run(calibrar, capture_output=True, env=env, cwd=str(w.raiz), timeout=120)
+        assert calibrada.returncode == 0 and calibrada.stdout.decode("utf-8").splitlines()[-1] == "ALF-01 puede bloquear", calibrada
         escribir(w.db, {"src/Nuevo.sql": "SELECT MALO\n"})
         evento = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "session_id": "s1", "tool_input": {"file_path": str(w.db / "src" / "Nuevo.sql")}}
         hook = subprocess.run([sys.executable, str(AQUI / "verificar_capa.py"), "--plazo", "20"], input=json.dumps(evento).encode("utf-8"),
                               capture_output=True, env=env, timeout=120)
         assert hook.returncode == 2 and "[ALF-01] linea 1: regla v1" in hook.stderr.decode("utf-8"), hook
+        assert w.correr("actualizar", "alfa", "--etiqueta", "v2")[0] == 0
+        hook = subprocess.run([sys.executable, str(AQUI / "verificar_capa.py"), "--plazo", "20"], input=json.dumps(evento).encode("utf-8"),
+                              capture_output=True, env=env, timeout=120)
+        contexto = json.loads(hook.stdout)["hookSpecificOutput"]["additionalContext"] if hook.returncode == 0 else hook
+        assert "[ALF-01] linea 1: regla v2 (aviso: calibración vieja; para que bloquee, correr `reglas.py --calibrar sql " in contexto, \
+            "otra etiqueta es otra huella en el lock: hay que recalibrar (%r)" % (contexto,)
 
 
 def test_importar_rechaza_lo_que_no_es_una_etiqueta():

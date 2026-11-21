@@ -36,6 +36,8 @@ function deOddWs(texto: string): string {
 }
 const SKILL_SQL = "---\nname: capa-sql\n---\n# capa-sql\n\n<!-- no-negociables -->\n- NN-SQL: regla uno de la capa\n<!-- /no-negociables -->\n";
 const REGLAS_SQL = [
+  "import types",
+  "REGLAS = (types.SimpleNamespace(id=\"T-01\", sembrado=\"SELECT 1; -- MALO\"),)",
   "def verificar(ctx):",
   "    return [{\"id\": \"T-01\", \"modo\": \"bloqueo\", \"severidad\": \"CRITICAL\", \"linea\": n, \"fragmento\": \"MALO\",",
   "             \"mensaje\": \"no va, molde: x/y.sql\"} for n, t in ctx[\"agregadas\"] if \"MALO\" in t]",
@@ -195,6 +197,9 @@ function mundo(nombre: string) {
   escribir(inst, "workspace.local.json", JSON.stringify({ repos: { db: { path: db }, api: { path: api } } }));
   escribir(inst, ".claude/skills/capa-sql/SKILL.md", SKILL_SQL);
   escribir(inst, ".claude/reglas/verificar_sql.py", REGLAS_SQL);
+  const corpus = join(raiz, "corpus-vacio");
+  mkdirSync(corpus, { recursive: true });
+  execFileSync(PYTHON, [join(PLUGIN, "scripts", "reglas.py"), "--calibrar", "sql", corpus, "--guardar", "--raiz", inst], { stdio: "pipe" });
   escribir(db, "malo.sql", "SELECT 1; -- MALO\n");
   return { inst, db, api };
 }
