@@ -35,6 +35,9 @@ CAPAS = {"sql": {"extensions": [".sql"], "rule_prefix": "SQL"}, "docs": {"extens
 CASA_IMPOSIBLE = str(Path(__file__).resolve() / "casa")
 FECHA_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 SKILL_CERRAR = AQUI.parent / "skills" / "cerrar" / "SKILL.md"
+REFERENCIAS_DE_CERRAR = SKILL_CERRAR.parent / "references"
+REFERENCIA_RE = re.compile(r"references/([\w.-]+\.md)")
+NUCLEO_MAXIMO = 13 * 1024
 MARCADOR_RE = re.compile(r"<[^<>\s]+>")
 SUSTITUTOS = {"<dir>": "/home/u/memoria", "<slug>": "a", "<repo>": "app"}
 OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
@@ -691,6 +694,14 @@ def seccion_de(texto, titulo):
     return "\n".join(partes)
 
 
+def texto_de_cerrar(titulo=None):
+    nucleo = SKILL_CERRAR.read_text(encoding="utf-8")
+    parte = nucleo if titulo is None else seccion_de(nucleo, titulo)
+    referencias = [(REFERENCIAS_DE_CERRAR / nombre).read_text(encoding="utf-8")
+                   for nombre in sorted(set(REFERENCIA_RE.findall(parte)))]
+    return "\n\n".join([parte, *referencias])
+
+
 def zona_de_memorias(texto):
     return seccion_de(texto, "## 10.") + "\n" + seccion_de(texto, "## Modo memorias")
 
@@ -762,15 +773,35 @@ def problemas_del_json(texto, datos, codex):
     return problemas
 
 
+def test_s4_el_nucleo_de_cerrar_pesa_unos_12_kb_y_el_detalle_va_a_references():
+    tamano = len(SKILL_CERRAR.read_bytes())
+    assert tamano < NUCLEO_MAXIMO, "el SKILL.md de cerrar pesa %d bytes, %d o más: el detalle va a references/" % (
+        tamano, NUCLEO_MAXIMO)
+
+
+def test_s4_cada_reference_de_cerrar_existe_la_nombra_el_nucleo_y_usa_el_marcador_de_los_scripts():
+    assert REFERENCIA_RE.findall("leé `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
+    nombradas = set(REFERENCIA_RE.findall(SKILL_CERRAR.read_text(encoding="utf-8")))
+    archivos = {r.name for r in REFERENCIAS_DE_CERRAR.glob("*.md")} if REFERENCIAS_DE_CERRAR.is_dir() else set()
+    assert nombradas, "el núcleo de cerrar no nombra ninguna reference"
+    assert nombradas == archivos, "nombradas sin archivo: %s; archivos que el núcleo no nombra: %s" % (
+        sorted(nombradas - archivos), sorted(archivos - nombradas))
+    for nombre in sorted(archivos):
+        texto = (REFERENCIAS_DE_CERRAR / nombre).read_text(encoding="utf-8")
+        assert "${CLAUDE_PLUGIN_ROOT}" not in texto, "%s usa ${CLAUDE_PLUGIN_ROOT}, que solo se reemplaza en el SKILL.md" % nombre
+        comandos = [linea for linea in texto.split("\n") if re.search(r"python3? \"", linea)]
+        assert all('"<S>/' in linea for linea in comandos), (nombre, comandos)
+
+
 def test_los_comandos_de_memorias_py_que_da_la_skill_los_acepta_su_parser():
-    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    texto = texto_de_cerrar()
     assert problemas_de_los_comandos(texto) == [], problemas_de_los_comandos(texto)
     mutada = texto.replace("--como vista", "--coma vista", 1)
     assert mutada != texto and problemas_de_los_comandos(mutada), "control positivo: una opción que no existe se detecta"
 
 
 def test_las_claves_del_json_que_nombra_la_skill_existen_en_la_salida_real():
-    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    texto = texto_de_cerrar()
     with temporal() as base:
         raiz = instancia(base)
         carpeta = memorias(base, {"a.md": memoria()})
@@ -794,7 +825,7 @@ def problemas_de_la_evidencia(texto):
 
 
 def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
-    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    texto = texto_de_cerrar()
     assert problemas_de_la_evidencia(texto) == [], problemas_de_la_evidencia(texto)
     for viejo, nuevo in (("**La fila, el destino y la evidencia parafrasean la regla.**", "**La fila y el destino parafrasean la regla.**"),
                          (", la misma que mostró la propuesta,", ",")):
@@ -810,14 +841,14 @@ def problemas_de_la_correccion(texto):
 
 
 def test_la_correccion_que_pide_matriz_py_se_muestra_y_espera_el_si():
-    texto = SKILL_CERRAR.read_text(encoding="utf-8")
+    texto = texto_de_cerrar()
     assert problemas_de_la_correccion(texto) == [], problemas_de_la_correccion(texto)
     sin_si = texto.replace("y pedí el sí antes de escribirla", "y escribila", 1)
     assert sin_si != texto and problemas_de_la_correccion(sin_si), "control positivo: una corrección escrita sin el sí se detecta"
 
 
-def problemas_del_id(texto):
-    rutas = re.findall(r'^\s*[A-Z]+ = "(\.claude/[^"]+)"', seccion_de(texto, "## 5."), re.M)
+def problemas_del_id(paso_5, texto):
+    rutas = re.findall(r'^\s*[A-Z]+ = "(\.claude/[^"]+)"', paso_5, re.M)
     paso = numeradas_de(seccion_de(texto, "### M3.")).get("2", "")
     problemas = [] if len(rutas) >= 2 else ["el script del paso 5 nombra %d archivos, se esperaban la matriz y verificar_<capa>.py" % len(rutas)]
     problemas += [] if "paso 5" in paso else ["M3.2 no remite al script del paso 5 para el id"]
@@ -825,10 +856,10 @@ def problemas_del_id(texto):
 
 
 def test_la_propuesta_calcula_el_id_con_los_mismos_archivos_que_el_script_del_paso_5():
-    texto = SKILL_CERRAR.read_text(encoding="utf-8")
-    assert problemas_del_id(texto) == [], problemas_del_id(texto)
+    paso_5, texto = texto_de_cerrar("## 5."), texto_de_cerrar()
+    assert problemas_del_id(paso_5, texto) == [], problemas_del_id(paso_5, texto)
     sin_reglas = texto.replace(" y los que ya usa `.claude/reglas/verificar_<capa>.py`", "", 1)
-    assert sin_reglas != texto and problemas_del_id(sin_reglas), "control positivo: un id que no mira verificar_<capa>.py se detecta"
+    assert sin_reglas != texto and problemas_del_id(paso_5, sin_reglas), "control positivo: un id que no mira verificar_<capa>.py se detecta"
 
 
 def test_de_punta_a_punta_solo_un_origen_exacto_y_valido_gradua():

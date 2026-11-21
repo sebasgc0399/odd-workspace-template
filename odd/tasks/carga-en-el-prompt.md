@@ -31,8 +31,8 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
 |----|-------|-----|------|--------|--------|
 | T1 | S1, S2 | Los hijos limpios y el catálogo solo dentro de una instancia, en el shim de Pi | delegada a un writer, en paralelo con T2 (superficies disjuntas) | escrita y en verde (L3) | |
 | T2 | S3 | `revisar` con un núcleo corto y sus references | delegada a un writer, en paralelo con T1 | escrita y en verde (L4) | |
-| T3 | S4 | `cerrar` con un núcleo corto y sus references | delegada, después de T2, con el mismo patrón | pendiente | |
-| T4 | S5 | Las descripciones de las 9 skills | inline, al final, porque toca los frontmatter de T2 y T3 | pendiente | |
+| T3 | S4 | `cerrar` con un núcleo corto y sus references | delegada, después de T2, con el mismo patrón | escrita y en verde (L6) | |
+| T4 | S5 | Las descripciones de las 9 skills | inline, al final, porque toca los frontmatter de T2 y T3 | escrita (L7) | |
 | T5 | todas | El verificador independiente de la feature, los docs y el cierre | inline | pendiente | |
 
 ## Log
@@ -50,7 +50,7 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
   - **Decisiones:**
     - Tomadas por la promesa del autor: los hijos sin nada de odd-ws, el catálogo solo dentro de una instancia y el núcleo corto.
     - Defaults técnicos: filtrar el catálogo sin quitar `pi.skills`, registrar los 7 eventos también en el hijo, y usar `<S>` en las references, abiertas por compuertas.
-    - **Abierta, para el autor:** qué skills pasan a ser solo del usuario. El explorador recomienda `eval-reviewers` sí y `doctor` no. No se toca hasta que decida.
+    - **Para el autor:** qué skills pasan a ser solo del usuario. El explorador recomendaba `eval-reviewers` sí y `doctor` no. Decidido en L5: ninguna cambia.
     - El tope de 12.000 caracteres del resumen en el agente principal no se baja en esta versión.
 - **L3** (2026-11-21) T1, escrita por un writer en `r11`. Son unas 286 líneas, 148 de tests.
   - **El shim:** `pi.ts` suma `cwdDe`, `carpetasDeOddWs` y `sinLasSkillsDeOddWs`, que filtran `event.systemPromptOptions.skills` en `before_agent_start`. En el hijo, `iniciar` no hace nada y `resources_discover` no publica. Se siguen registrando los 7 eventos.
@@ -74,3 +74,24 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
   - **Las suites:** `recibo` 115/115, `rescatar` 61/61 y `config_loader` 105/105. El señuelo quedó intacto.
   - **Los márgenes:** el núcleo queda 64 bytes por debajo del tope, y la descripción más corta de T4 lo agranda. Falta una línea sobre `references/` en `Doc/diseno.md`, para T5.
   - **Scratch, a borrar a mano:** `%TEMP%	mp.PUBwn4xeKh` y `scratchpad	2` de esta sesión.
+- **L5** (2026-11-21) La decisión del autor sobre qué skills pasan a ser solo del usuario. Tal cual: «Si dejemoslo como esta, en ves de ganar, lo complicamos».
+  - **Lo que se comparó:** el ahorro, entre 60 y 120 tokens por agente y por llamada, y menos con las descripciones de T4, contra tres costos:
+    - `cerrar` le pide al agente puntuar con `eval-reviewers` un caso del modo sombra antes de graduar (`cerrar/SKILL.md:49`), y `revisar` le delega congelar un caso que va a un líder (`revisar/SKILL.md:21`); con la skill solo del usuario, el agente tendría que frenar y pedírsela;
+    - en las instancias que ya existen, el `CLAUDE.md` la lista como una skill más y no como ritual (línea 148 de la plantilla), así que el agente la ofrecería y no podría correrla: la vuelta perdida de la I39;
+    - en Codex no cambia nada.
+  - **`doctor`** tampoco cambia: lo piden el hook y el bootstrap.
+  - **T4** solo acorta las descripciones, sin cambiar quién puede invocar cada skill.
+- **L6** (2026-11-21) T3, escrita por un writer en `r11`.
+  - **Los tamaños:** `cerrar/SKILL.md` bajó de 32.442 a 13.061 bytes, unos 3.530 tokens, con tres references: `memorias.md` (12.003 bytes, el modo memorias completo y con sus títulos), `matriz.md` (5.909) y `entrega.md` (2.494).
+  - **El núcleo** conserva el frontmatter, la guarda de `controles`, las reglas duras 1 a 5 y los pasos 1 a 10. El paso 5 queda en los destinos y los dos `matriz.py`.
+  - **Las compuertas:** se abren con un evento que se ve: el argumento `memorias`, una fila de la matriz o una regla que bloqueó algo correcto, un ticket que usó worktree, y la entrega.
+  - **Una compuerta más que pidió el writer:** una disputa puede aparecer sin una fila nueva de la matriz.
+  - **«Nada se perdió»:** las 37 líneas de código, los 176 spans y las 15 frases entre comillas están todas. De 229 oraciones, 171 están textuales y 58 se condensaron, cada una con su ancla. El control positivo falla si se borra una regla.
+  - **Los tests:** `memorias.tests.py` lee el núcleo y las references con un helper, y fija el núcleo en 13 KB. Rojo observado con el archivo viejo.
+  - **Las suites:** `memorias` 42/42, `config_loader` 105/105, `matriz` 60/60, `conocimiento` 113/113 y `hosts/pi` 70/70. El señuelo quedó intacto.
+  - **S4 pedía unos 12 KB** y el núcleo quedó en 12,75 KiB, muy por debajo de los 5.000 tokens. El padre lo aceptó.
+  - **Scratch, a borrar a mano:** `%TEMP%	mp.0gfodm0b7I` y `scratchpad	3` de esta sesión.
+- **L7** (2026-11-21) T4, escrita por el padre. Las nueve descripciones, con el caso de uso primero y sin cambiar quién puede invocar cada skill (L5).
+  - **Las que el modelo ve:** `revisar` pasa de 309 a 164 caracteres, `enlaces` de 286 a 153, `doctor` de 289 a 156 y `eval-reviewers` de 291 a 151. Entre las cuatro, de 1.175 a 624.
+  - **Las del usuario:** quedan entre 112 y 130 caracteres.
+  - **Lo que se conserva:** las palabras que disparan las listadas (`revisar`: «antes del commit», «líder», «recibo»; `doctor`: «hook», «entorno»). Ninguna lleva dos puntos, que en el frontmatter YAML rompen el valor.
