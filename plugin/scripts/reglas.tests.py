@@ -601,6 +601,214 @@ def test_calibrar_no_mira_el_lock():
         assert codigo == 0 and "SQL-01 archivos=0 aciertos=0" in out.splitlines(), (codigo, out, err)
 
 
+REGISTRO = ".claude/registro/calibracion.json"
+MODULO_CON_SEMBRADO = ('import collections\r\n'
+                       '\r\n'
+                       'Regla = collections.namedtuple("Regla", "id sembrado")\r\n'
+                       'REGLAS = [Regla("SQL-01", "SELECT MAL;"), Regla("SQL-02", "SELECT NADIE_LO_VE;"), Regla("SQL-03", None)]\r\n'
+                       '\r\n'
+                       '\r\n'
+                       'def verificar(ctx):\r\n'
+                       '    if "BOOM" in ctx["texto"]:\r\n'
+                       '        raise ValueError("explota")\r\n'
+                       '    res = []\r\n'
+                       '    for n, t in ctx["agregadas"]:\r\n'
+                       '        if "MAL" in t:\r\n'
+                       '            res.append({"id": "SQL-01", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": "MAL", "mensaje": "m"})\r\n'
+                       '        if "OJO" in t:\r\n'
+                       '            res.append({"id": "SQL-03", "modo": "aviso", "severidad": "", "linea": n, "fragmento": None, "mensaje": "m"})\r\n'
+                       '    return res\r\n')
+
+
+def huella_de(texto):
+    import hashlib
+    return "sha256:" + hashlib.sha256(texto.encode("utf-8").replace(b"\r\n", b"\n")).hexdigest()
+
+
+def registro(raiz):
+    return json.loads((Path(raiz) / REGISTRO).read_text(encoding="utf-8"))
+
+
+@contextlib.contextmanager
+def git_aislado(base):
+    vacio = Path(base) / "gitconfig-vacio"
+    vacio.write_text("", encoding="utf-8")
+    aislado = {"GIT_CONFIG_GLOBAL": str(vacio), "GIT_CONFIG_SYSTEM": str(vacio), "GIT_CONFIG_NOSYSTEM": "1"}
+    previo = {clave: os.environ.get(clave) for clave in aislado}
+    os.environ.update(aislado)
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+
+
+def git_de_prueba(repo, *args):
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args], cwd=str(repo),
+                       capture_output=True, text=True, encoding="utf-8", env=M.entorno_git())
+    assert r.returncode == 0, (args, r.stderr)
+    return r.stdout.strip()
+
+
+def test_git_de_prueba_no_escribe_en_el_repo_del_hook_que_corre_la_suite():
+    with temporal() as raiz, git_aislado(raiz):
+        afuera, prueba = raiz / "afuera", raiz / "prueba"
+        for repo in (afuera, prueba):
+            repo.mkdir()
+        git_de_prueba(afuera, "init", "-q")
+        escribir(afuera, {"x.txt": "x\n"})
+        git_de_prueba(afuera, "add", "-A")
+        git_de_prueba(afuera, "commit", "-q", "-m", "afuera")
+        del_hook = {"GIT_DIR": str(afuera / ".git"), "GIT_INDEX_FILE": str(afuera / ".git" / "index"), "GIT_WORK_TREE": str(afuera)}
+        previo = {clave: os.environ.get(clave) for clave in del_hook}
+        os.environ.update(del_hook)
+        try:
+            git_de_prueba(prueba, "init", "-q")
+            escribir(prueba, {"y.txt": "y\n"})
+            git_de_prueba(prueba, "add", "-A")
+            git_de_prueba(prueba, "commit", "-q", "-m", "base")
+        finally:
+            for clave, valor in previo.items():
+                if valor is None:
+                    os.environ.pop(clave, None)
+                else:
+                    os.environ[clave] = valor
+        assert git_de_prueba(afuera, "log", "--format=%s") == "afuera", "un commit de fixture cayó en el repo del hook"
+        assert git_de_prueba(prueba, "log", "--format=%s") == "base"
+
+
+def test_guardar_escribe_la_calibracion_de_cada_regla_con_su_forma():
+    import datetime
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT 1\n", "db/sub/b.sql": "SELECT MAL\nSELECT MAL\n", "db/c.sql": "-- OJO\n"})
+        antes = datetime.date.today().isoformat()
+        codigo, out, err = calibrar(raiz, "--guardar")
+        despues = datetime.date.today().isoformat()
+        assert codigo == 0, (codigo, out, err)
+        assert out.splitlines() == ["SQL-01 archivos=1 aciertos=2", "SQL-02 archivos=0 aciertos=0", "SQL-03 archivos=1 aciertos=1",
+                                    "calibracion guardada en %s" % REGISTRO,
+                                    "SQL-01 solo avisa: 2 aciertos en bloqueo en el corpus",
+                                    "SQL-02 solo avisa: no atrapa su sembrado",
+                                    "SQL-03 solo avisa: sin sembrado"], out
+        assert err.splitlines() == ["reglas: aviso, %s no esta en ningun repo declarado: el corpus queda registrado solo por "
+                                    "su nombre (db)" % (Path(raiz) / "db")], err
+        datos = registro(raiz)
+        assert datos["version"] == 1 and list(datos["capas"]) == ["sql"], datos
+        reglas = datos["capas"]["sql"]
+        assert list(reglas) == ["SQL-01", "SQL-02", "SQL-03"], reglas
+        comun = {"huella": huella_de(MODULO_CON_SEMBRADO), "archivos_del_corpus": 3, "corpus": {"repo": None, "commit": None, "ruta": "db"}}
+        esperado = {"SQL-01": dict(comun, atrapa_su_sembrado=True, aciertos=2, aciertos_en_bloqueo=2),
+                    "SQL-02": dict(comun, atrapa_su_sembrado=False, aciertos=0, aciertos_en_bloqueo=0),
+                    "SQL-03": dict(comun, atrapa_su_sembrado=False, aciertos=1, aciertos_en_bloqueo=0)}
+        for id_, datos_de_la_regla in esperado.items():
+            assert {k: v for k, v in reglas[id_].items() if k != "fecha"} == datos_de_la_regla, (id_, reglas[id_])
+            assert reglas[id_]["fecha"] in (antes, despues), reglas[id_]
+        assert str(raiz) not in (Path(raiz) / REGISTRO).read_text(encoding="utf-8"), "nunca una ruta absoluta"
+
+
+def test_guardar_con_corpus_limpio_o_vacio_deja_bloquear_a_la_regla_que_atrapa_su_sembrado():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0, (codigo, out, err)
+        assert "SQL-01 puede bloquear" in out.splitlines(), out
+        regla = registro(raiz)["capas"]["sql"]["SQL-01"]
+        assert regla["archivos_del_corpus"] == 0 and regla["atrapa_su_sembrado"] is True and regla["aciertos_en_bloqueo"] == 0, regla
+
+
+def test_guardar_con_un_repo_declarado_guarda_repo_commit_y_ruta_relativa():
+    with temporal() as raiz, git_aislado(raiz):
+        repo = Path(raiz) / "equipo" / "db"
+        escribir(repo, {"src/sp/a.sql": "SELECT 1\n", "README.md": "x\n"})
+        git_de_prueba(repo, "init", "-q")
+        git_de_prueba(repo, "add", "-A")
+        git_de_prueba(repo, "commit", "-q", "-m", "base")
+        cabeza = git_de_prueba(repo, "rev-parse", "HEAD")
+        escribir(raiz, {"workspace.config.json": json.dumps({"schema_version": 1, "repos": {"db": {}},
+                                                             "layers": {"sql": {"extensions": [".sql"], "repos": ["db"]}}}),
+                        "workspace.local.json": json.dumps({"repos": {"db": {"path": str(repo)}}}), MODULO_RUTA: MODULO_CON_SEMBRADO})
+        for carpeta, ruta in ((repo / "src" / "sp", "src/sp"), (repo, ".")):
+            codigo, out, err = correr(["--calibrar", "sql", str(carpeta), "--raiz", str(raiz), "--guardar"])
+            assert codigo == 0 and err == "", (carpeta, codigo, out, err)
+            assert registro(raiz)["capas"]["sql"]["SQL-01"]["corpus"] == {"repo": "db", "commit": cabeza, "ruta": ruta}, registro(raiz)
+
+
+def test_guardar_no_escribe_si_hubo_errores_y_sale_1():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT 1\n", "db/b.sql": "BOOM\n"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 1 and not (Path(raiz) / ".claude" / "registro").exists(), (codigo, out, err)
+        assert "explota" in err and "no se guarda la calibracion" in err, err
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO.replace('"SELECT MAL;"', '"BOOM"'))
+        escribir(raiz, {"db/a.sql": "SELECT 1\n"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 1 and not (Path(raiz) / ".claude" / "registro").exists(), (codigo, out, err)
+        assert "sembrado de SQL-01" in err and "explota" in err, err
+
+
+def test_guardar_no_escribe_sin_REGLAS_y_sale_2():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO.replace("REGLAS = ", "_TODAS = "))
+        escribir(raiz, {"db/a.sql": "SELECT MAL\n"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 2 and not (Path(raiz) / ".claude" / "registro").exists(), (codigo, out, err)
+        assert out.splitlines() == ["SQL-01 archivos=1 aciertos=1"], out
+        assert "no declara REGLAS: no se guarda la calibracion" in err, err
+
+
+def test_guardar_conserva_las_otras_capas_y_reemplaza_entera_la_suya():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        vieja = {"huella": "sha256:" + "c" * 64, "atrapa_su_sembrado": True, "aciertos": 0, "aciertos_en_bloqueo": 0,
+                 "archivos_del_corpus": 9, "corpus": {"repo": None, "commit": None, "ruta": "docs"}, "fecha": "2026-01-02"}
+        escribir(raiz, {REGISTRO: json.dumps({"version": 1, "capas": {"docs": {"DOC-01": vieja}, "sql": {"SQL-99": vieja}}})})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0, (codigo, out, err)
+        capas = registro(raiz)["capas"]
+        assert capas["docs"] == {"DOC-01": vieja} and sorted(capas["sql"]) == ["SQL-01", "SQL-02", "SQL-03"], capas
+
+
+def test_guardar_con_el_registro_roto_no_escribe_y_sale_2():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        escribir(raiz, {REGISTRO: "{roto"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 2 and out == "" and REGISTRO in err, (codigo, out, err)
+        assert (Path(raiz) / REGISTRO).read_text(encoding="utf-8") == "{roto"
+
+
+def test_guardar_sin_calibrar_es_un_error_de_uso():
+    with temporal() as raiz:
+        instancia(raiz, suite=SUITE.replace("CODIGO", "0"))
+        for argv in (["--guardar"], ["--test", "sql", "--guardar", "--raiz", str(raiz)]):
+            codigo, out, err = correr(argv)
+            assert codigo == 2 and out == "" and "--guardar" in err, (argv, codigo, out, err)
+
+
+def test_sin_guardar_la_calibracion_no_cambia_ni_escribe_nada():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT MAL\n", "db/b.sql": "-- OJO\n"})
+        codigo, out, err = calibrar(raiz, "--detalle")
+        assert (codigo, out, err) == (0, "SQL-01 archivos=1 aciertos=1\n  a.sql:1 MAL\nSQL-02 archivos=0 aciertos=0\n"
+                                         "SQL-03 archivos=1 aciertos=1\n  b.sql:1\n", ""), (codigo, out, err)
+        assert not (Path(raiz) / ".claude" / "registro").exists()
+
+
+def test_la_ayuda_documenta_guardar():
+    codigo, out, err = correr(["--help"])
+    assert codigo == 0 and "--guardar" in out and "calibracion.json" in out, (codigo, out)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

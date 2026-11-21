@@ -49,3 +49,19 @@ En la `0.9.0`:
 Corre `/odd-ws:doctor` (en Codex, `$doctor`). Si una versión cambia la plantilla de los writers, cada `writer-<capa>` sale en AVISO, con el motivo «está en la plantilla v1 y el plugin trae la v2» (o las versiones que toquen). Aplica su arreglo, `--arreglar writer-<capa>`. Si usas Codex, `codex-agentes` sale en FALTA porque sus TOML quedaron atrás: aplica también `--arreglar codex-agentes`. Si usas gentle-shell, lo mismo con `pi-agentes`: aplica `--arreglar pi-agentes`. Regenerar conserva la `description` y los bloques `<!-- instancia:... -->` de cada writer.
 
 Mientras un writer siga en la plantilla vieja, la compuerta de cierre le pide lo que la plantilla nueva agrega. Por ejemplo, desde la plantilla 2 un writer de la plantilla 1 cierra sin `limites:`, se come el único bloqueo de la compuerta y pasa en el segundo cierre. No se traba, pero cada cierre gasta ese aviso hasta que lo regeneres.
+
+## Después de actualizar: calibrar las reglas que bloquean
+
+Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo dice), una regla de capa bloquea solo si está calibrada: ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla). Es un corte duro: al actualizar, todo `bloqueo` de los módulos de tu instancia llega como aviso, con el motivo `sin calibrar` y el comando a correr, hasta que lo calibres. Para que una regla vuelva a bloquear:
+
+1. **Suma su `sembrado`.** En `.claude/reglas/verificar_<capa>.py`, el objeto de la regla en `REGLAS` lleva un atributo `sembrado`: un texto con el defecto que la regla tiene que atrapar. Si el módulo no declara `REGLAS`, declárala; sin ella no se puede calibrar.
+2. **Calibra la capa.** Corre, con una carpeta de código real de la capa (o una vacía, si todavía no hay código):
+
+   ```text
+   python3 "<plugin_root>/scripts/reglas.py" --calibrar <capa> <carpeta> --guardar
+   ```
+
+   La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado o tiene aciertos en bloqueo en el corpus.
+3. **Commitea `.claude/registro/`**, junto con el módulo si le sumaste `sembrado`.
+
+Cada cambio posterior del módulo deja vieja la calibración de su capa, así que se repiten los pasos 2 y 3. Los paquetes de reglas siguen bloqueando como antes, sin calibrar. La prueba de la suite que comprueba los `sembrado` llega solo a las instancias nuevas: en una que ya existe, cópiala de `plugin/plantillas/reglas/verificar.tests.py`.

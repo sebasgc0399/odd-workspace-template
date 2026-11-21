@@ -52,6 +52,16 @@ def test_verificar_es_determinista():
         assert hallazgos_de(texto) == hallazgos_de(texto)
 
 
+def test_cada_sembrado_es_un_texto_que_su_regla_atrapa():
+    for regla in M.REGLAS:
+        sembrado = getattr(regla, "sembrado", None)
+        if sembrado is None:
+            continue
+        assert isinstance(sembrado, str) and sembrado.strip(), f"el sembrado de {regla.id} debe ser un texto no vacío"
+        vistos = [h.get("id") for h in hallazgos_de(sembrado)]
+        assert regla.id in vistos, f"{regla.id} no atrapa su sembrado {sembrado!r}: sin eso no puede bloquear"
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

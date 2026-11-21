@@ -1,5 +1,6 @@
 import contextlib
 import importlib
+import io
 import json
 import ntpath
 import os
@@ -1343,7 +1344,9 @@ def test_de_punta_a_punta_el_writer_de_pi_anota_en_la_bitacora_y_la_compuerta_lo
 
 
 SKILL_SQL = "---\nname: capa-sql\n---\n# capa-sql\n\n<!-- no-negociables -->\n- NN-SQL: regla uno de la capa\n<!-- /no-negociables -->\n"
-REGLAS_SQL = ('def verificar(ctx):\n'
+REGLAS_SQL = ('import types\n'
+              'REGLAS = (types.SimpleNamespace(id="T-01", sembrado="SELECT 1; -- MALO"),)\n'
+              'def verificar(ctx):\n'
               '    return [{"id": "T-01", "modo": "bloqueo", "severidad": "CRITICAL", "linea": n, "fragmento": "MALO",\n'
               '             "mensaje": "no va, molde: x/y.sql"} for n, t in ctx["agregadas"] if "MALO" in t]\n')
 RESULTADO_OK = ("## Resultado\nestado: ok\nregla: ninguna\nintento: ninguno\npresupuesto: x.sql, techo 10 líneas\nreales: x\n"
@@ -1372,8 +1375,18 @@ def mundo_sql(base):
                             (".claude/agents/writer-sql.md", "---\nname: writer-sql\nskills: [criterios, capa-sql]\n---\n\ncuerpo\n")):
         (inst / relativa).parent.mkdir(parents=True, exist_ok=True)
         (inst / relativa).write_text(texto, encoding="utf-8")
+    calibrar(inst, "sql", base / "corpus-vacio")
     (db / "malo.sql").write_text("SELECT 1; -- MALO\n", encoding="utf-8")
     return inst, db, entorno
+
+
+def calibrar(inst, capa, corpus):
+    import reglas
+    corpus.mkdir(parents=True, exist_ok=True)
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        codigo = reglas.main(["--calibrar", capa, str(corpus), "--guardar", "--raiz", str(inst)])
+    assert codigo == 0 and "T-01 puede bloquear" in salida.getvalue(), (codigo, salida.getvalue(), error.getvalue())
 
 
 def suciedades(uri):

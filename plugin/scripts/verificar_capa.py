@@ -11,6 +11,7 @@ import subprocess
 import time
 
 import config_loader
+from odd_ws import calibracion
 from odd_ws import capas as convencion
 from odd_ws import enlaces
 from odd_ws import hosts
@@ -190,12 +191,12 @@ def _formatear(h):
     etiqueta = "[%s %s]" % (h["id"], severidad) if severidad else "[%s]" % h["id"]
     linea = h.get("linea")
     donde = "linea %d" % linea if linea is not None else "archivo"
-    return "%s %s: %s" % (etiqueta, donde, h["mensaje"])
+    return "%s %s: %s%s" % (etiqueta, donde, h["mensaje"], calibracion.sufijo(h))
 
 
 def _salida(relativa, hallazgos):
-    bloqueos = [h for h in hallazgos if h["modo"] == "bloqueo"]
-    avisos = [h for h in hallazgos if h["modo"] != "bloqueo"]
+    bloqueos = [h for h in hallazgos if h.get("modo") == "bloqueo"]
+    avisos = [h for h in hallazgos if h.get("modo") != "bloqueo"]
     if bloqueos:
         encabezado = "verificar-capa: %s tiene %d problema(s): corregir y reintentar." % (relativa, len(hallazgos))
     else:
@@ -237,7 +238,7 @@ def _validos(encontrados, valido):
 
 def _hallazgos_de_la_capa(archivo_modulo, capa, ctx):
     modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_modulo_%s" % capa)
-    return _validos(modulo.verificar(ctx), es_hallazgo)
+    return modulo, _validos(modulo.verificar(ctx), es_hallazgo)
 
 
 def _hallazgos_del_paquete(paquete, ctx, raiz):
@@ -263,23 +264,25 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra):
     if ctx is None:
         return None
     if not de_paquetes:
-        hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
+        modulo, hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
         if hallazgos is None:
             return None
-        return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
-    intacto = copy.deepcopy(ctx)
-    hallazgos = []
-    if propio:
-        try:
-            hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx) or []
-        except (Exception, SystemExit):
-            if not aislar_la_capa:
-                raise
-            hallazgos = []
-    for paquete in de_paquetes:
-        if _sin_tiempo():
-            break
-        hallazgos += _hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"])
+        grupos = [(calibracion.fuente_del_modulo(capa, modulo, archivo_modulo), hallazgos)]
+    else:
+        intacto = copy.deepcopy(ctx)
+        modulo, hallazgos = None, []
+        if propio:
+            try:
+                modulo, hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
+            except (Exception, SystemExit):
+                if not aislar_la_capa:
+                    raise
+        grupos = [(calibracion.fuente_del_modulo(capa, modulo, archivo_modulo), hallazgos or [])]
+        for paquete in de_paquetes:
+            if _sin_tiempo():
+                break
+            grupos.append((None, _hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"])))
+    hallazgos = calibracion.aplicar(grupos, config["raiz"], config["repos"])
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 
 

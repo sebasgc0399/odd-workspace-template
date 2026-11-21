@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -72,7 +73,9 @@ def verificar(ctx):
              "mensaje": "CTX " + json.dumps(info)}]
 '''
 
-STUB_MALO = '''def verificar(ctx):
+STUB_MALO = '''import types
+REGLAS = (types.SimpleNamespace(id="T-02", sembrado="x = MALO BLOQ;"),)
+def verificar(ctx):
     out = []
     for n, t in ctx["agregadas"]:
         if "MALO" in t:
@@ -86,14 +89,18 @@ STUB_SIN_SEVERIDAD = '''def verificar(ctx):
             {"id": "T-04", "modo": "aviso", "severidad": "", "linea": None, "fragmento": None, "mensaje": "dos"}]
 '''
 
-STUB_ALCANCE = '''def verificar(ctx):
+STUB_ALCANCE = '''import types
+REGLAS = (types.SimpleNamespace(id="T-05", sembrado="XX"),)
+def verificar(ctx):
     if (ctx["relativa_repo"] or "").startswith("src/legado/"):
         return []
     return [{"id": "T-05", "modo": "bloqueo", "severidad": "CRITICAL", "linea": n, "fragmento": "XX", "mensaje": "XX fuera del legado"}
             for n, t in ctx["agregadas"] if "XX" in t]
 '''
 
-STUB_IMPORTA_LA_BIBLIOTECA = '''from odd_ws.comun import lineas
+STUB_IMPORTA_LA_BIBLIOTECA = '''import types
+from odd_ws.comun import lineas
+REGLAS = (types.SimpleNamespace(id="T-06", sembrado="MALO"),)
 def verificar(ctx):
     return [{"id": "T-06", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "lineas de la biblioteca: \\u00f1 %d" % len(lineas(ctx["texto"]))}
             for n, t in ctx["agregadas"] if "MALO" in t]
@@ -137,6 +144,16 @@ class Mundo:
 
     def modulo(self, capa, fuente):
         escribir(self.raiz, ".claude/reglas/verificar_%s.py" % capa, fuente)
+
+    def calibrar(self, capa, carpeta=None):
+        import reglas
+        carpeta = Path(carpeta) if carpeta is not None else self.base / "corpus-vacio"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        salida, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+            codigo = reglas.main(["--calibrar", capa, str(carpeta), "--guardar", "--raiz", str(self.raiz)])
+        assert codigo == 0, (codigo, salida.getvalue(), error.getvalue())
+        return salida.getvalue()
 
     def config(self):
         import config_loader
@@ -219,6 +236,7 @@ def test_fuera_de_las_capas_sale_sin_lanzar_subprocess():
 def test_otros_eventos_y_herramientas_salen_en_silencio():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
         assert w.correr(evento(ruta))[0] == 2, "control positivo: el caso base bloquea"
         assert w.correr(evento(ruta, "Write"))[0] == 2
@@ -239,6 +257,7 @@ def test_falla_abierta_ante_cualquier_error_interno():
             w.modulo("web", fuente)
             assert w.correr(evento(ruta)) == (0, "", b""), fuente
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         assert w.correr(evento(w.web / "no-existe" / "A.cs")) == (0, "", b""), "archivo inexistente"
         assert M.correr("esto no es json {", raiz=w.raiz) == (0, "", b"")
         assert w.correr({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": None}) == (0, "", b"")
@@ -262,7 +281,10 @@ def test_un_hallazgo_invalido_calla_el_archivo_entero():
                   ', {"id": "T-02", "modo": "bloqueo", "severidad": "", "linea": None, "fragmento": None, "mensaje": ""}',
                   ', {"id": "", "modo": "bloqueo", "severidad": "", "linea": None, "fragmento": None, "mensaje": "sin id"}'):
         with Mundo() as w:
-            w.modulo("web", "def verificar(ctx):\n    return [%s%s]\n" % (valido, extra))
+            w.modulo("web", "import types\nREGLAS = (types.SimpleNamespace(id='T-02', sembrado='x'),)\n"
+                            "def verificar(ctx):\n    return [%s%s]\n" % (valido, extra))
+            if not extra:
+                w.calibrar("web")
             ruta = escribir(w.web, "Core/A.cs", "int a;\n")
             codigo, out, err = w.correr(evento(ruta))
             if extra:
@@ -274,6 +296,7 @@ def test_un_hallazgo_invalido_calla_el_archivo_entero():
 def test_sin_instancia_o_con_config_rota_calla():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
         assert w.correr(evento(ruta))[0] == 2, "control"
         escribir(w.raiz, "workspace.config.json", "{rota")
@@ -428,6 +451,7 @@ def test_salida_con_bloqueo_exit_2_stderr_en_bytes_utf8():
         commitear(w.web)
         ruta = escribir(w.web, "Core/N.cs", "a // MALO\nb // MALO BLOQ\nc\n")
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         codigo, out, err = w.correr(evento(ruta))
         assert codigo == 2 and out == "" and isinstance(err, bytes)
         lineas = err.decode("utf-8").rstrip("\n").split("\n")
@@ -435,6 +459,78 @@ def test_salida_con_bloqueo_exit_2_stderr_en_bytes_utf8():
         assert lineas[1] == "[T-02 CRITICAL] linea 2: está mal → así, molde: x/y.cs", lineas[1]
         assert lineas[2] == "[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs", lineas[2]
         assert len(lineas) == 3, lineas
+
+
+def contexto_de(salida):
+    codigo, out, err = salida
+    assert codigo == 0 and err == b"" and out, salida
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"].split("\n")
+
+
+SIN_CALIBRAR = " (aviso: sin calibrar; para que bloquee, correr `reglas.py --calibrar web <carpeta> --guardar`)"
+
+
+def test_un_bloqueo_sin_calibrar_llega_como_aviso_con_el_motivo_y_el_comando():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        ruta = escribir(w.web, "Core/N.cs", "a // MALO\nb // MALO BLOQ\n")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[0] == ("verificar-capa (aviso): Core/N.cs tiene 2 aviso(s); el cambio ya quedó escrito: "
+                             "corregirlo si es propio (no hace falta reintentar)."), lineas[0]
+        assert lineas[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+                              "[T-02 CRITICAL] linea 2: está mal → así, molde: x/y.cs" + SIN_CALIBRAR], lineas
+
+
+def test_calibrado_con_reglas_py_bloquea_y_si_el_modulo_cambia_avisa_que_la_calibracion_es_vieja():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        corpus = w.web / "Core"
+        salida = w.calibrar("web", corpus)
+        assert "T-02 puede bloquear" in salida.splitlines(), salida
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        assert w.correr(evento(ruta))[0] == 2, "calibrada, bloquea"
+        w.modulo("web", STUB_MALO.replace("\n", "\r\n"))
+        assert w.correr(evento(ruta))[0] == 2, "el fin de línea no invalida la calibración"
+        w.modulo("web", STUB_MALO + "\n")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1] == ("[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs (aviso: calibración vieja; para que bloquee, "
+                             "correr `reglas.py --calibrar web %s --guardar`)" % corpus), lineas
+
+
+def test_una_regla_sin_sembrado_o_un_modulo_sin_REGLAS_no_bloquea_aunque_el_registro_diga_que_si():
+    sin_sembrado = STUB_MALO.replace('sembrado="x = MALO BLOQ;"', 'otro="x"')
+    sin_reglas = STUB_MALO.replace("REGLAS = ", "_TODAS = ")
+    for fuente in (sin_sembrado, sin_reglas):
+        with Mundo() as w:
+            w.modulo("web", fuente)
+            huella = "sha256:" + __import__("hashlib").sha256(fuente.encode("utf-8")).hexdigest()
+            regla = {"huella": huella, "atrapa_su_sembrado": True, "aciertos": 0, "aciertos_en_bloqueo": 0, "archivos_del_corpus": 0,
+                     "corpus": {"repo": None, "commit": None, "ruta": "x"}, "fecha": "2026-11-20"}
+            escribir(w.raiz, ".claude/registro/calibracion.json", json.dumps({"version": 1, "capas": {"web": {"T-02": regla}}}))
+            ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+            lineas = contexto_de(w.correr(evento(ruta)))
+            assert lineas[1].endswith(" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS y correr "
+                                      "`reglas.py --calibrar web <carpeta> --guardar`)"), lineas
+
+
+def test_el_registro_roto_no_deja_bloquear_y_el_aviso_lo_dice():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        assert w.correr(evento(ruta))[0] == 2, "control: calibrada, bloquea"
+        escribir(w.raiz, ".claude/registro/calibracion.json", "{roto")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1].endswith(" (aviso: registro de calibración roto; para que bloquee, arreglar o borrar "
+                                  ".claude/registro/calibracion.json y correr `reglas.py --calibrar web <carpeta> --guardar`)"), lineas
+
+
+def test_un_hallazgo_sin_modo_no_calla_el_hook_y_llega_como_aviso_con_el_motivo():
+    with Mundo() as w:
+        w.modulo("web", 'def verificar(ctx):\n    return [{"id": "T-09", "linea": 1, "mensaje": "sin modo"}]\n')
+        ruta = escribir(w.web, "Core/N.cs", "b\n")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1:] == ["[T-09] linea 1: sin modo (aviso: modo inválido; el módulo tiene que devolver modo aviso o bloqueo)"], lineas
 
 
 def test_salida_solo_avisos_exit_0_con_additional_context():
@@ -467,6 +563,7 @@ def test_main_como_hook_real_con_un_modulo_que_importa_la_biblioteca():
         commitear(w.web)
         ruta = escribir(w.web, "Core/N.cs", "a\nb MALO\n")
         w.modulo("web", STUB_IMPORTA_LA_BIBLIOTECA)
+        w.calibrar("web")
         env = {k: v for k, v in _entorno_sin_git().items() if k not in ("PYTHONPATH", "PYTHONUTF8")}
         env.update(CLAUDE_PROJECT_DIR=str(w.raiz / "tickets"), PYTHONIOENCODING="cp1252")
         (w.raiz / "tickets").mkdir(exist_ok=True)
@@ -607,7 +704,8 @@ def test_linea_base_trackeado_diff_contra_head_de_la_instancia_y_relativa_repo()
 def test_linea_base_permite_las_reglas_con_alcance_por_carpeta():
     with Mundo(db={"src/legado/Proc_A.sql": PROC, "src/nuevo/Proc_B.sql": PROC.replace("Proc_A", "Proc_B")}) as w:
         w.modulo("sql", STUB_ALCANCE)
-        legado = w.taller("esq.Proc_A.sql", PROC.replace("\tSELECT 1;\n", "\tSELECT 1;\n\tXX;\n"))
+        w.calibrar("sql")
+        legado =w.taller("esq.Proc_A.sql", PROC.replace("\tSELECT 1;\n", "\tSELECT 1;\n\tXX;\n"))
         nuevo = w.taller("esq.Proc_B.sql", PROC.replace("Proc_A", "Proc_B").replace("\tSELECT 1;\n", "\tSELECT 1;\n\tXX;\n"))
         assert w.correr(evento(legado, "Write")) == (0, "", b"")
         codigo, _, err = w.correr(evento(nuevo, "Write"))
@@ -626,6 +724,7 @@ def test_repo_relativa_repo_es_la_relativa():
 def test_verificar_archivo_devuelve_hallazgos_ya_filtrados():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         escribir(w.web, "Core/A/B.cs", "uno\nx = MALO;\n")
         commitear(w.web)
         ruta = escribir(w.web, "Core/A/B.cs", "uno\nx = MALO;\ny = MALO BLOQ;\n")
@@ -663,6 +762,7 @@ def test_verificar_archivo_contra_otro_commit_ve_lo_commiteado_despues():
 def test_post_tool_use_usa_la_funcion_publica_sin_cambiar_la_salida():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         escribir(w.web, "Core/A/B.cs", "uno\n")
         commitear(w.web)
         ruta = escribir(w.web, "Core/A/B.cs", "uno\ny = MALO BLOQ;\n")
@@ -777,6 +877,7 @@ def test_sin_tiempo_para_git_falla_abierto_sin_colgarse():
 def test_la_raiz_sale_de_la_sesion_si_no_se_pasa():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         ruta = escribir(w.web, "Core/A.cs", "x MALO BLOQ\n")
         ticket = w.raiz / "tickets" / "T-1"
         ticket.mkdir(parents=True)
@@ -938,6 +1039,7 @@ def test_un_agent_id_que_no_es_texto_no_cuenta_como_principal():
 def test_sin_hook_event_name_calla_aunque_el_cambio_bloquee():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
         assert w.correr(evento(ruta))[0] == 2, "control positivo: con PostToolUse bloquea"
         sin = {k: v for k, v in evento(ruta).items() if k != "hook_event_name"}
@@ -1620,6 +1722,7 @@ def test_codex_un_parche_de_dos_capas_bloquea_una_vez_con_los_dos_primeros_toque
 def test_codex_post_combina_los_hallazgos_de_cada_archivo_y_salta_los_que_ya_no_estan():
     with git_aislado(), Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         escribir(w.web, "Core/A.cs", "a = MALO BLOQ;\n")
         escribir(w.web, "Core/B.cs", "b = MALO;\n")
         escribir(w.web, "Core/C.cs", "c = MALO;\n")
@@ -1643,6 +1746,7 @@ def test_codex_post_combina_los_hallazgos_de_cada_archivo_y_salta_los_que_ya_no_
 def test_codex_un_archivo_que_revienta_no_silencia_el_bloqueo_de_los_otros():
     with git_aislado(), Mundo(db={"src/Proc_X.sql": "select 0;\n"}) as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         w.modulo("sql", "raise RuntimeError('roto')\n")
         escribir(w.web, "Core/A.cs", "a = MALO BLOQ;\n")
         escribir(w.db, "src/Proc_X.sql", "select 1;\n")
@@ -1745,6 +1849,7 @@ def archivo_con_malo(w, texto="a // MALO BLOQ\n"):
 def test_paquetes_sus_hallazgos_se_suman_a_los_de_la_capa_en_orden_de_nombre():
     with git_aislado(), Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         poner_paquete(w, "zeta", "ZET")
         poner_paquete(w, "alfa-uno", "ALF")
         poner_paquete(w, "de-sql", "DSQ", capa="sql")
@@ -1776,6 +1881,7 @@ def test_paquetes_uno_roto_no_calla_la_capa_ni_a_los_otros():
     }
     with git_aislado(), Mundo() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         prefijos = {"excepcion": "EXC", "invalido": "INV", "mezcla": "MEZ", "fuera-de-prefijo": "FUE", "salida": "SAL",
                     "sintaxis": "SIN", "tipo": "TIP", "muta-el-ctx": "MUT"}
         for nombre, fuente in rotos.items():
@@ -1821,6 +1927,7 @@ def test_paquetes_con_el_lock_roto_se_ignoran_y_la_capa_sigue_verificando():
     for lock in ("{roto", json.dumps({"version": 2, "paquetes": {}}), json.dumps({"version": 1, "paquetes": {"Mal": {}}})):
         with git_aislado(), Mundo() as w:
             w.modulo("web", STUB_MALO)
+            w.calibrar("web")
             poner_paquete(w, "alfa", "ALF")
             escribir(w.raiz, ".claude/reglas/paquetes.json", lock)
             codigo, _, err = w.correr(evento(archivo_con_malo(w)))
