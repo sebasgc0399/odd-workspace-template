@@ -815,8 +815,8 @@ test("el hijo lee la marca solo en su primer prompt, la fija para toda su vida y
   const pre = await pi.emitir(llamada("bash", { command: "ls" }), ctx);
   assert.deepEqual(JSON.parse(pre.reason).entrada.oddWs, { agent: "writer-sql", agentId: "sesion-hija" }, "también en el pre");
   await pi.emitir({ type: "session_compact", reason: "manual" }, ctx);
-  const inicio = JSON.parse((await turno([pi.manejador("before_agent_start")], ctx)).opciones.appendSystemPrompt);
-  assert.deepEqual(inicio.entrada.oddWs, { agent: "writer-sql", agentId: "sesion-hija" }, "y al iniciar");
+  assert.equal((await turno([pi.manejador("before_agent_start")], ctx)).opciones.appendSystemPrompt, "", "al iniciar, el hijo no corre nada");
+  assert.deepEqual(await oddWsVisto(pi, ctx), { agent: "writer-sql", agentId: "sesion-hija" }, "y tras compactar sigue con su identidad");
 });
 
 test("sin una sola linea de marca, entera, en su primer prompt, el hijo no es writer: agent null y su id es el de la sesion", async () => {
@@ -1615,15 +1615,14 @@ function raizDePython(desde: string): string | null {
   return salida === "" ? null : salida;
 }
 
-test("resources_discover publica las skills de la instancia desde su raiz y desde cualquier subcarpeta, en el padre y en el hijo", async () => {
+test("resources_discover publica las skills de la instancia desde su raiz y desde cualquier subcarpeta en el padre, y en el hijo no publica nada", async () => {
   const inst = instancia(join(BASE, "skills-inst"));
   const skills = join(inst, ".claude", "skills");
   mkdirSync(join(inst, "tickets", "uno"), { recursive: true });
   for (const desde of [inst, join(inst, "tickets"), join(inst, "tickets", "uno"), join(inst, "no", "existe")]) {
-    for (const pi of [conPi(), conPiEn(PLUGIN, HIJO)]) {
-      for (const reason of ["startup", "reload"]) {
-        assert.deepEqual(await descubrir(pi, desde, reason), { skillPaths: [skills] }, `${desde} ${reason}`);
-      }
+    for (const reason of ["startup", "reload"]) {
+      assert.deepEqual(await descubrir(conPi(), desde, reason), { skillPaths: [skills] }, `padre ${desde} ${reason}`);
+      assert.equal(await descubrir(conPiEn(PLUGIN, HIJO), desde, reason), undefined, `hijo ${desde} ${reason}`);
     }
   }
 });
@@ -1689,4 +1688,139 @@ test("resources_discover publica las skills de la instancia solo si Pi dice que 
     }
     assert.equal(await descubrir(conPi(), inst, "startup", ctx), undefined, String(extra.isProjectTrusted));
   }
+});
+
+test("en el hijo, session_start y session_compact no lanzan Python ni suman nada al prompt, y en el padre si", async () => {
+  const registro = join(BASE, "inicio-del-hijo", "inicio.jsonl");
+  const uno = [{ hooks: [{ script: "inicio.py", args: [registro, "contexto", AVISO], timeout: 20 }] }];
+  const plugin = pluginFalso("inicio-del-hijo", { "inicio.py": GUARDA }, { session_start: uno, session_compact: uno });
+  const ctx = ctxFalso(BASE, { sesion: "sesion-hija" });
+  const hijo = conPiEn(plugin, HIJO);
+  for (const inicio of [{ type: "session_start", reason: "startup" }, { type: "session_compact", reason: "manual" }]) {
+    assert.equal(await hijo.emitir(inicio, ctx), undefined, inicio.type);
+    const visto = await turno([hijo.manejador("before_agent_start")], ctx);
+    assert.deepEqual([visto.devueltos, visto.opciones.appendSystemPrompt, veces(visto.pi, AVISO)], [[undefined], "", 0], inicio.type);
+  }
+  assert.deepEqual(payloads(registro), [], "el hijo no lanzó Python al iniciar");
+  const padre = conPiEn(plugin, {});
+  await padre.emitir({ type: "session_start", reason: "startup" }, ctx);
+  assert.equal(veces((await turno([padre.manejador("before_agent_start")], ctx)).pi, AVISO), 1, "el padre suma el aviso");
+  assert.equal(payloads(registro).length, 1, "y el padre sí lanzó Python");
+});
+
+test("de punta a punta, en el hijo no llegan al prompt ni el resumen del ticket activo ni el aviso de config rota, y en el padre si", async () => {
+  const { inst } = mundo("hijo-sin-ticket");
+  escribir(inst, ".claude/estado/ticket-activo", "tickets/T-7\n");
+  escribir(inst, "tickets/T-7/CLAUDE.md", "# T-7 algo\n\n## Objetivo\n\nhacer algo concreto\n");
+  const casos: [string, string][] = [["el resumen del ticket", "odd-ws: el ticket activo de esta instancia es tickets/T-7"],
+    ["el aviso de config rota", "odd-ws: la configuración de esta instancia está rota"]];
+  for (const [nombre, texto] of casos) {
+    if (nombre === "el aviso de config rota") {
+      escribir(inst, "workspace.config.json", "{roto");
+    }
+    for (const [quien, entorno, esperado] of [["padre", {}, 1], ["hijo", HIJO, 0]] as [string, Record<string, string>, number][]) {
+      const pi = conPiEn(PLUGIN, entorno);
+      const ctx = ctxFalso(inst, { sesion: `ticket-${quien}` });
+      await pi.emitir({ type: "session_start", reason: "startup" }, ctx);
+      assert.equal(veces((await turno([pi.manejador("before_agent_start")], ctx)).pi, texto), esperado, `${nombre} en el ${quien}`);
+    }
+  }
+});
+
+function skill(nombre: string, filePath: string) {
+  return { name: nombre, description: `La skill ${nombre}.`, filePath, baseDir: dirname(filePath), sourceInfo: {}, disableModelInvocation: false };
+}
+
+function catalogo(plugin: string, inst: string) {
+  return {
+    delPlugin: [skill("doctor", join(plugin, "skills", "doctor", "SKILL.md")), skill("revisar", join(plugin, "skills", "revisar", "SKILL.md"))],
+    deLaInstancia: [skill("criterios", join(inst, ".claude", "skills", "criterios", "SKILL.md"))],
+    ajenas: [skill("gentle-ajena", join(BASE, "otro-paquete", "skills", "gentle-ajena", "SKILL.md")),
+      skill("del-proyecto", join(inst, ".agents", "skills", "del-proyecto", "SKILL.md")),
+      skill("casi-del-plugin", join(plugin, "skills-casi", "x", "SKILL.md")),
+      skill("casi-de-la-instancia", join(inst, ".claude", "skills-casi", "x", "SKILL.md")),
+      { name: "sin-ruta" }, null],
+  };
+}
+
+function turnoConSkills(skills: unknown[]) {
+  return { type: "before_agent_start", messageType: "user", prompt: "hola", systemPrompt: "P", systemPromptOptions: { appendSystemPrompt: "", skills } };
+}
+
+test("en el hijo, before_agent_start saca del catalogo las skills del plugin y las de la instancia, en el mismo arreglo, y deja las demas", async () => {
+  const inst = instancia(join(BASE, "catalogo-hijo"));
+  const afuera = join(BASE, "catalogo-hijo-afuera");
+  mkdirSync(join(inst, "tickets", "uno"), { recursive: true });
+  mkdirSync(afuera, { recursive: true });
+  for (const desde of [inst, join(inst, "tickets", "uno"), afuera]) {
+    const { delPlugin, deLaInstancia, ajenas } = catalogo(PLUGIN, inst);
+    const skills = [delPlugin[0], ajenas[0], ...deLaInstancia, delPlugin[1], ...ajenas.slice(1)];
+    const evento = turnoConSkills(skills);
+    assert.equal(await conPiEn(PLUGIN, HIJO).emitir(evento, ctxFalso(desde)), undefined, desde);
+    assert.equal(evento.systemPromptOptions.skills, skills, "el mismo arreglo, como lo vacía gentle-shell");
+    const esperado = desde === afuera ? [ajenas[0], ...deLaInstancia, ...ajenas.slice(1)] : ajenas;
+    assert.deepEqual(skills, esperado, desde);
+  }
+});
+
+test("el catalogo se compara por la ruta canonica, como el resto del shim, y en Windows sin distinguir mayusculas ni barras", async () => {
+  const plugin = pluginFalso("catalogo-rutas", {}, {});
+  escribir(plugin, "skills/doctor/SKILL.md", "---\nname: doctor\ndescription: \"Doctor.\"\n---\n");
+  const inst = instancia(join(BASE, "catalogo-rutas", "inst"));
+  const enlace = join(BASE, "catalogo-rutas", "enlace-al-plugin");
+  symlinkSync(plugin, enlace, "junction");
+  const casos: [string, string, unknown][] = [["la skill por el enlace", plugin, skill("doctor", join(enlace, "skills", "doctor", "SKILL.md"))],
+    ["el plugin por el enlace", enlace, skill("doctor", join(plugin, "skills", "doctor", "SKILL.md"))]];
+  if (process.platform === "win32") {
+    casos.push(["con otras mayusculas y barras", plugin, skill("doctor", aPosix(join(plugin, "skills", "doctor", "SKILL.md")).toUpperCase())],
+      ["la instancia con otras mayusculas y barras", plugin, skill("criterios", aPosix(join(inst, ".claude", "skills", "criterios", "SKILL.md")).toUpperCase())]);
+  }
+  for (const [nombre, raiz, entrada] of casos) {
+    const evento = turnoConSkills([entrada]);
+    await conPiEn(raiz, HIJO).emitir(evento, ctxFalso(inst));
+    assert.deepEqual(evento.systemPromptOptions.skills, [], nombre);
+  }
+});
+
+test("en el padre fuera de una instancia, before_agent_start saca del catalogo solo las skills del plugin, y dentro de una instancia lo deja como esta", async () => {
+  const inst = instancia(join(BASE, "catalogo-padre"));
+  const afuera = join(BASE, "catalogo-padre-afuera", "a");
+  mkdirSync(join(inst, "tickets"), { recursive: true });
+  mkdirSync(afuera, { recursive: true });
+  const { delPlugin, deLaInstancia, ajenas } = catalogo(PLUGIN, inst);
+  const skills = [...delPlugin, ...deLaInstancia, ...ajenas];
+  const evento = turnoConSkills(skills);
+  assert.equal(await conPiEn(PLUGIN, {}).emitir(evento, ctxFalso(afuera)), undefined);
+  assert.equal(evento.systemPromptOptions.skills, skills, "el mismo arreglo");
+  assert.deepEqual(skills, [...deLaInstancia, ...ajenas], "fuera de una instancia, sin las del plugin");
+  for (const desde of [inst, join(inst, "tickets")]) {
+    const todas = [...delPlugin, ...deLaInstancia, ...ajenas];
+    const dentroDeLaInstancia = turnoConSkills(todas);
+    assert.equal(await conPiEn(PLUGIN, {}).emitir(dentroDeLaInstancia, ctxFalso(desde)), undefined, desde);
+    assert.deepEqual(todas, [...delPlugin, ...deLaInstancia, ...ajenas], `dentro de la instancia, desde ${desde}`);
+  }
+  const roto = { ...ctxFalso(afuera) };
+  Object.defineProperty(roto, "cwd", { get(): string { throw new Error("ctx inactivo"); } });
+  const intacto = [...delPlugin, ...ajenas];
+  assert.equal(await conPiEn(PLUGIN, {}).emitir(turnoConSkills(intacto), roto), undefined, "un ctx que falla no frena el turno");
+  assert.deepEqual(intacto, [...delPlugin, ...ajenas], "y sin saber el cwd, el catálogo queda como estaba");
+});
+
+test("en el hijo, con el inicio callado y el catalogo filtrado, los guards siguen igual: el push forzado, el primer toque y las reglas bloquean", async () => {
+  const { inst, db } = mundo("hijo-guards");
+  const hijo = conPiEn(PLUGIN, HIJO);
+  const ctx = ctxFalso(inst, { sesion: "hija-guards" });
+  await hijo.emitir({ type: "session_start", reason: "startup" }, ctx);
+  const evento = turnoConSkills([skill("doctor", join(PLUGIN, "skills", "doctor", "SKILL.md"))]);
+  await hijo.emitir(evento, ctx);
+  assert.deepEqual(evento.systemPromptOptions.skills, []);
+  const push = await hijo.emitir(llamada("bash", { command: "git push --force origin main" }), ctx);
+  assert.equal(push?.block, true);
+  assert.match(push.reason, /^guard-comandos bloqueó el comando: /);
+  const edicion = llamada("edit", { path: join(db, "x.sql"), edits: [] });
+  assert.match((await hijo.emitir(edicion, ctx))?.reason ?? "", /^primer toque \(capa-sql\): este edit no se aplicó/);
+  assert.equal(await hijo.emitir(edicion, ctx), undefined, "el reintento pasa");
+  const devuelto = await hijo.emitir(resultado("edit", { path: join(db, "malo.sql"), edits: [] }), ctx);
+  assert.equal(devuelto.isError, true);
+  assert.match(devuelto.content[1].text, /T-01/);
 });

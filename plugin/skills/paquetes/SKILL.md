@@ -1,6 +1,6 @@
 ---
 name: paquetes
-description: Importa, actualiza, quita o lista paquetes de reglas de una capa traídos de un repo git por etiqueta (se copian a .claude/reglas/paquetes/<nombre> y se fijan en .claude/reglas/paquetes.json). Usar cuando el usuario pide sumar reglas de otro repo, llevar un paquete a otra etiqueta, sacarlo o ver cuáles hay. Solo lo invoca el usuario.
+description: Importa, actualiza, quita o lista paquetes de reglas de una capa traídos de un repo git por etiqueta. Solo lo invoca el usuario.
 disable-model-invocation: true
 ---
 

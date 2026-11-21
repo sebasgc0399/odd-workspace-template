@@ -1,88 +1,61 @@
 ---
 name: revisar
-description: Revisar un cambio de un ticket con los revisores de la instancia (el de diseño y el de cada capa tocada). Usar antes del commit de un cambio, o antes de mostrárselo a un líder. Hace el triaje, anuncia el modo y su costo, espera el sí, lanza las corridas, consolida los reportes y deja un recibo atado al diff.
+description: Revisar un cambio de un ticket con los revisores de la instancia, antes del commit o antes de mostrárselo a un líder. Hace el triaje y deja un recibo atado al diff.
 ---
 
 # /odd-ws:revisar
 
 Orquesta la revisión de un cambio con los agentes de `.claude/agents/`: `revisor-diseno` (entre capas) y el `revisor-<capa>` de cada capa que toca el cambio. Los revisores solo leen: **el orquestador arma la entrada, lanza las corridas, rescata los reportes, los consolida y escribe el recibo.** Ningún revisor edita código ni commitea, y esta skill tampoco: ni `git add` ni `git commit`.
 
-En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
+En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`. El detalle está en `references/`, junto a este archivo: se lee solo cuando un paso lo pide, y ahí `<S>` quiere decir lo mismo.
 
 **Perfil `controles`.** Antes de nada, leé `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores ni recibos y la revisión es la de la herramienta del usuario (por ejemplo, el RDD de gentle-ai). Decilo en una línea y pará, sin correr nada.
 
-## Qué se sabe de estos revisores
-
-- **Hay varianza.** Dos corridas del mismo revisor sobre el mismo código pueden opinar distinto sobre la misma pieza.
-- **Varias corridas no suman aciertos sobre la mejor.** Sirven para protegerse de la corrida mala y para **mostrar los conflictos**: una corrida dice X y otra lo contrario. Un conflicto no se resuelve votando: es una señal de que la decisión es de dominio, y la toma el líder o se revisa a mano.
-
 ## Reglas duras
 
-1. **Nunca se lanza una revisión sin el sí del usuario**, aunque el modelo haya invocado la skill por su cuenta. La revisión cuesta corridas; el sí va después de anunciar el modo y su costo (paso 2). Hay dos excepciones, y en las dos el modo se anuncia igual:
-   - el modo `0`, que cuesta cero corridas, corre sin pedir el sí;
-   - el rechequeo que anunció, con su costo, el mensaje del lote de corrección: aprobar ese lote aprueba también el rechequeo (sección 9).
+1. **Nunca se lanza una revisión sin el sí del usuario**, aunque el modelo haya invocado la skill por su cuenta: el sí va después de anunciar el modo y su costo (paso 2). Sin sí corren solo el modo `0`, que cuesta cero corridas, y el rechequeo aprobado con su lote (sección 9), y los dos anuncian su modo igual.
 2. **Nunca dos revisiones a la vez.** Las corridas de una revisión se lanzan juntas; la siguiente revisión espera a que esta termine.
 3. **No hay bucle automático de corrección.** El usuario decide qué corrige, y una revisión se cierra con una corrección y un rechequeo (sección 9). Cualquier otra revisión después de corregir es un pedido nuevo y vuelve a pedir el sí.
-4. **Solo git de lectura en los repos del equipo.** No se cambia de rama, no se toca el índice (un archivo sin trackear entra al diff con `--no-index`, nunca con `git add -N`) y no se plantan archivos en esos repos: todo lo que escribe esta skill va dentro de la carpeta del ticket.
-5. **Todas las corridas de una revisión usan el mismo modelo.** No pases `model` a ninguna o pasale el mismo alias a todas, y no fijes IDs de modelo.
-6. **Esta skill no congela nada.** Si el usuario quiere que la revisión quede como caso del modo sombra, mandalo a `/odd-ws:eval-reviewers`.
+4. **Solo git de lectura en los repos del equipo:** ni cambiar de rama, ni tocar el índice (un archivo sin trackear entra al diff con `--no-index`, nunca con `git add -N`), ni plantar archivos. Todo lo que escribe esta skill va en la carpeta del ticket.
+5. **Todas las corridas de una revisión usan el mismo modelo:** no pases `model` a ninguna o pasale el mismo alias a todas, y no fijes IDs de modelo.
+6. **Esta skill no congela nada:** si el usuario quiere dejar la revisión como caso del modo sombra (por ejemplo, un `completo` que va a un líder), es de `/odd-ws:eval-reviewers`, que lo congela, lo puntúa y lo ratifica.
 
 ## 1. Las entradas
 
-- **El ticket.** Su carpeta es `tickets/<id>-<slug>/`. Si el usuario solo dio el id, buscala con el glob recursivo `tickets/**/<id>-*/CLAUDE.md` (la herramienta Glob lista archivos, no carpetas): un ticket archivado puede estar en una subcarpeta. Si el glob encuentra más de una carpeta, listalas y preguntale al usuario cuál es; nunca elijas una por tu cuenta, porque con ids que llevan guion la carpeta de un ticket puede coincidir también con el glob de otro id.
-- **Los repos tocados**, con su rama o worktree:
-  - la ruta de cada repo sale de `workspace.local.json` (`repos.<repo>.path`);
-  - el worktree y la rama del ticket están en su `CLAUDE.md`, en «Worktree y rama». Si el ticket trabaja en un worktree, ese es el `--repo`, no el árbol principal;
-  - si no está claro qué repos toca el cambio, preguntá.
-- **La base** de cada repo es la misma que usan el triaje y el recibo, y sale en este orden:
-  1. la explícita, si pasás `--repo <ruta>#<base>`;
-  2. con `--ticket`, el commit más nuevo que sellaron los recibos del ticket (`recibo.py --sellar`, después del commit de una unidad revisada), si es ancestro de `HEAD` y más nuevo que el merge-base con `origin/HEAD`;
-  3. si no, el merge-base con `origin/HEAD`.
-
-  Así una unidad ya revisada y commiteada no se vuelve a revisar. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario, porque habla con el remoto. Si un repo no tiene `origin/HEAD`, los scripts salen con 2 y piden `git remote set-head origin -a` o la base explícita con `--repo <ruta>#<base>`. Un repo sin ningún remoto, con la base explícita, cuenta sus consumidores en esa base; con remoto y sin `origin/HEAD`, la señal de consumidores queda inválida.
-- **Los archivos del ticket.** El triaje lista todo lo que cambió contra la base. Si entre esos archivos hay algunos que no son del ticket (por ejemplo, archivos del ambiente local que están modificados a propósito), separalos con el usuario: no entran a la entrada ni al recibo.
+- **El ticket** es `tickets/<id>-<slug>/`. Con solo el id, buscalo con Glob (lista archivos, no carpetas), recursivo porque un ticket archivado puede estar en una subcarpeta: `tickets/**/<id>-*/CLAUDE.md`. Si sale más de una carpeta, listalas y preguntá cuál; nunca elijas vos, porque con ids que llevan guion el glob de un id puede traer otro ticket.
+- **Los repos tocados** salen de `workspace.local.json` (`repos.<repo>.path`), y su worktree y rama, del `CLAUDE.md` del ticket («Worktree y rama»): si hay worktree, ese es el `--repo`, no el árbol principal. Si no está claro qué repos toca el cambio, preguntá.
+- **La base** la eligen el triaje y el recibo con la misma regla: la explícita (`--repo <ruta>#<base>`), si no el último sello de los recibos del ticket, y si no el merge-base con `origin/HEAD`. Los scripts no hacen `git fetch`: si el `origin/HEAD` local puede estar atrasado, proponé el `git fetch` de ese repo y corrélo solo con el sí del usuario.
+- **Los archivos que no son del ticket** (por ejemplo, los del ambiente local, modificados a propósito) se separan con el usuario: no entran a la entrada ni al recibo.
 
 ## 2. El triaje y el sí
 
-1. Corré el triaje, que solo lee:
+1. Corré el triaje, que solo lee, desde la carpeta de la instancia o con `--raiz`:
 
    ```bash
    python3 "<S>/triaje.py" --ticket "<ticket>" --repo <repo o worktree>[#<base>] [--repo …] [--taller <archivo del taller del ticket>] [--clon <repo>] [--raiz <raíz de la instancia>] [--json]
    ```
 
-   - Se corre desde la carpeta de la instancia o con `--raiz`. Con `--json` salen los hashes completos de la base, que se usan en el recibo.
-   - Pasá siempre `--ticket`: un `--repo` sin `#<base>` parte del último commit sellado del ticket. La línea `repo … (base …, <origen>)` dice de dónde salió (`sellada en revision/…`, `merge-base con origin/HEAD` o `explícita`), y en `--json` van `base_origen` y `base_recibo`. Mostrala junto al modo.
-   - Si el ticket tiene una unidad revisada que el usuario ya commiteó y nadie selló, sellala antes del triaje (ver «Después de la revisión»). Si `--sellar` sale con 1, seguí: el triaje usa el sello anterior o el merge-base.
-   - Sale con 0, o con 2 si falta un `--repo` o un `--taller`, o si hay un error de uso o de entorno (por ejemplo, un repo sin `origin/HEAD`): mostrá el mensaje tal cual y corregilo.
-2. **El modo lo propone el triaje y no se elige a ojo.** Las señales solo escalan:
+   Pasá siempre `--ticket`, y mostrá junto al modo la línea `repo … (base …, <origen>)`, que dice de dónde salió la base. Si una unidad revisada ya está commiteada y sin sellar, sellala antes (ver «Después de la revisión»); si `--sellar` sale con 1, seguí. Si el triaje sale con 2, mostrá el mensaje tal cual y corregilo.
+2. **El modo lo propone el triaje y no se elige a ojo.** Las señales solo escalan, y ante la duda se sube, porque un falso negativo es un hallazgo que llega al líder:
 
    | Modo | Sale cuando |
    |---|---|
-   | `sin-cambios` | no hay cambios contra la base: no hay nada que revisar, se avisa y se termina |
+   | `sin-cambios` | no hay nada que revisar: se avisa y se termina |
    | `0` | solo docs o notas del taller: lectura estructural, sin revisores |
    | `rapido` | todas las señales en negativo y el instrumento verificado |
    | `completo` | cualquier señal positiva o inválida |
 
-   Un falso positivo solo cuesta una revisión de más; un falso negativo cuesta un hallazgo que llega al líder. Ante la duda, subí. **Nunca bajes el modo por tu cuenta:** la bajada de un escalón la pide el usuario, con su motivo (paso 6).
-3. **Preguntá si el cambio va a un líder antes del commit.** El triaje no lo puede detectar: lo declara en «el triaje NO detecta». Si va a un líder, el modo es `completo` aunque todo haya salido en negativo.
-4. Si el triaje nombra archivos «fuera de la unidad» (generados sin trackear, como `__pycache__/` o `*.pyc`), no entran a la revisión ni al recibo; decíselo al usuario en una línea, porque puede borrarlos o ignorarlos en su repo. Mostrá también la lista «el triaje NO detecta» y aplicá tu criterio a lo que toque este cambio (consumidores fuera de los repos declarados, la forma de un resultado que consume otra capa, constantes compartidas).
-5. **Anunciá, antes de lanzar nada:**
-   - el modo y las señales que lo decidieron (o «va a un líder»);
-   - las capas tocadas, que salen de la columna `[capa]` del triaje. Un archivo `sin capa` no tiene revisor de capa: lo lee el de diseño, y se avisa;
-   - el costo, en corridas, sin inventar cifras: `modo 0` son 0 corridas; `rapido` son `1 + <capas tocadas>`; `completo` son `3 + <capas tocadas>`. Cada una cuesta lo que una corrida de revisor sobre este diff.
-   - salvo en modo `0`, el último costo medido, porque las corridas no dicen cuánto cuesta cada una. Corré `python3 "<S>/rescatar.py" --ultimo-costo "<ticket>"` y citá su línea tal cual: es el `costo.json` más nuevo del ticket o, si el ticket no tiene, el de la instancia (las carpetas `-sombra` no cuentan). Es una referencia, no una estimación: no la multipliques ni la ajustes a este diff. Si sale con 1, no hay ningún costo medido: anunciá solo las corridas.
-   - **la bajada, solo cuando cabe:** si el modo es `completo`, el usuario dijo que el cambio no va a un líder (paso 3) y todas las positivas son límites del instrumento, decí en una línea que puede bajarlo un escalón, a `rapido`, si deja el motivo. Un límite del instrumento es una señal `invalida`, o la de `capas` cuando en `--json` `sin_capa.unico_motivo_de_capas` es `true`; cualquier otra `positiva` es un riesgo real. No la recomiendes: decide el usuario.
-6. **Esperá el sí del usuario.** Sin sí explícito, no se lanza ni se escribe nada. Las dos excepciones de la regla 1:
-   - **modo `0`:** no hay nada que lanzar. Anunciá el modo y los archivos que vas a leer, y seguí con la sección 5 sin esperar;
-   - **un rechequeo** que el usuario aprobó junto con su lote de corrección: seguí sin volver a pedirlo.
+   **Nunca bajes el modo por tu cuenta.**
+3. **Preguntá si el cambio va a un líder antes del commit**, que el triaje no lo puede detectar: si va, el modo es `completo` aunque todo haya salido en negativo.
+4. Los archivos «fuera de la unidad» (generados sin trackear, como `__pycache__/` o `*.pyc`) no entran a la revisión ni al recibo: decíselo al usuario en una línea, porque puede borrarlos o ignorarlos. Mostrá la lista «el triaje NO detecta» y aplicá tu criterio (consumidores fuera de los repos declarados, la forma de un resultado que consume otra capa, constantes compartidas).
+5. **Anunciá, antes de lanzar nada,** el modo y las señales que lo decidieron (o «va a un líder»), las capas tocadas, de la columna `[capa]` (un archivo `sin capa` lo lee el de diseño, y se avisa), y el costo en corridas, sin inventar cifras: `0` son 0; `rapido`, `1 + <capas tocadas>`; `completo`, `3 + <capas tocadas>`. Salvo en modo `0`, citá tal cual la línea de `python3 "<S>/rescatar.py" --ultimo-costo "<ticket>"`, sin multiplicarla ni ajustarla a este diff; si sale con 1, anunciá solo las corridas.
+6. **Esperá el sí explícito del usuario:** sin él no se lanza ni se escribe nada, salvo en modo `0` (sección 5) o en un rechequeo aprobado con su lote de corrección.
 
-   **Si el usuario baja el modo**, su pedido es el sí de `rapido`, con su motivo. Es un escalón, de `completo` a `rapido`: nunca a `0` si hay código, nunca si el cambio va a un líder y nunca si el triaje vio un riesgo real. Si pide bajar sin haber respondido lo del líder, preguntáselo antes. La carpeta va con el modo bajado (`<fecha>-rapido`), su `entrada/triaje.json` es el que propuso `completo`, y el recibo lleva `--bajada` (paso 8).
+**La bajada**, de `completo` a `rapido`, la pide el usuario con su motivo, y su pedido es el sí de `rapido`; nunca si el cambio va a un líder (si no lo respondió, preguntáselo antes). Si el modo es `completo` y no va a un líder, leé «La bajada» en `references/recibo.md` antes de anunciar: cuándo cabe ofrecerla, en una línea y sin recomendarla.
 
 ## 3. La entrada de los revisores
 
-**La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. **Si ya existe** (otra ronda del mismo día y modo, por ejemplo el rechequeo después de una corrección), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, y en todo lo que sigue `<fecha>-<modo>` quiere decir esa carpeta con su número. El recibo de esa ronda se escribe con `--ronda <n>`.
-
-Con el sí, creá `<ticket>/revision/<fecha>-<modo>/entrada/` y guardá ahí un diff por repo, `<repo>.diff`, solo con los archivos del ticket, y el triaje en `triaje.json`:
+**La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. Si ya existe (otra ronda del mismo día y modo), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, que de acá en adelante es `<fecha>-<modo>`, y su recibo lleva `--ronda <n>`. Con el sí, guardá en su `entrada/` un diff por repo, `<repo>.diff`, solo con los archivos del ticket, y el triaje:
 
 ```bash
 git -C <repo> diff --no-color <base> -- <archivo> [<archivo>…] > "<entrada>/<repo>.diff"
@@ -90,55 +63,23 @@ git -C <repo> diff --no-color --no-index -- /dev/null <archivo nuevo sin trackea
 python3 "<S>/triaje.py" <los argumentos del paso 2> --json > "<entrada>/triaje.json"
 ```
 
-- La primera línea cubre los archivos trackeados (commiteados o no); la segunda se repite por cada archivo nuevo sin trackear y sale con 1, que es lo normal en `--no-index`.
-- `<base>` es la base completa del triaje.
-- Si el diff sale vacío, pará: algo de la lista no cuadra.
-- `triaje.json` es el triaje del paso 2 con `--json`, con los mismos argumentos. De ahí saca el rescate los motivos del modo para el costo de la revisión (paso 6). Trae la huella del diff de cada repo y de cada archivo, la misma que guarda el recibo, y con ella `recibo.py` sabe si el diff cambió después del triaje.
-- `triaje.json` y `recibo.json` no se editan a mano: los escriben los scripts, y `recibo.py` valida el triaje entero (las seis señales, y que el modo sea el que dan sus señales y sus archivos). Si algo no cuadra, se vuelve a correr el script.
+La primera línea cubre los archivos trackeados (commiteados o no); la segunda va por cada archivo nuevo sin trackear y sale con 1, que es lo normal. `<base>` es la base completa del triaje. Si el diff sale vacío, pará: algo de la lista no cuadra. `triaje.json` y `recibo.json` no se editan a mano: si algo no cuadra, se vuelve a correr el script.
 
 ## 4. Las corridas
 
-Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**. **En Pi (gentle-shell)**, cada corrida es un `subagent_run` con `mode: "background"`, uno por corrida y todos en el mismo mensaje, y cada lanzamiento devuelve su `task_id` («as task <id>»). Cuando una corrida termina, gentle-shell te entrega una copia de su reporte que puede venir cortada (a 16 KB por defecto): no la uses, porque el reporte entero sale del rescate (paso 6). Si el agente no existe (por ejemplo, `revisor-diseno` en una instancia que se generó antes de que el plugin lo trajera), no lo reemplaces con otro: decile al usuario que complete la instancia con `/odd-ws:bootstrap`, y que si el agente es nuevo en esta sesión hace falta reabrirla.
+Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**; en Pi (gentle-shell), antes de lanzar, leé «Pi» en `references/hosts.md`. Si un agente no existe, no lo reemplaces con otro: el usuario completa la instancia con `/odd-ws:bootstrap` y, si el agente es nuevo en esta sesión, la reabre.
 
-| Modo | Corridas |
-|---|---|
-| `0` | ninguna: lectura estructural (paso 5) |
-| `rapido` | `revisor-diseno` ×1, más `revisor-<capa>` ×1 por cada capa tocada |
-| `completo` | `revisor-diseno` ×3, con los archivos en un orden distinto en cada corrida (con un solo archivo el orden es el mismo y las 3 son muestras independientes: no lo anuncies como «en otro orden»), más `revisor-<capa>` ×1 por cada capa tocada |
+Son las del costo anunciado: `revisor-diseno` ×1 en `rapido` y ×3 en `completo`, más `revisor-<capa>` ×1 por cada capa tocada.
 
-**Un rechequeo** (sección 9) corre `revisor-diseno` ×1 más `revisor-<capa>` ×1 por cada capa de los rechequeados, también en modo `completo`: sin orden barajado ni frecuencias.
+**El prompt** de cada corrida sale de la plantilla de `references/prompt.md`, con el orden de lectura de cada corrida de diseño: leela antes de lanzar. Lleva copiadas las decisiones del ticket y pide el ID de la regla, pero nunca un ID de ejemplo, porque el revisor lo copiaría.
 
-**Orden barajado (modo `completo`).** La primera corrida de diseño recibe los archivos en el orden del triaje; la segunda, en el orden inverso; la tercera, en un orden barajado. El orden va escrito en el prompt como lectura sugerida.
+Anotá la tabla `nombre de corrida → agentId` (en Pi, `task_id`), con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). **No leas reportes parciales:** esperá a que terminen todas.
 
-**La forma del prompt:**
-
-```
-Revisá <el diseño | el código de la capa <capa>> del ticket <id> (<título>) antes del commit.
-
-Entrada:
-- Diff de <repo>: <ruta de <repo>.diff> (base <commit>, rama <rama>). El código completo está en <ruta del repo o worktree>: leé ahí el código, sus hermanos y sus consumidores.
-- (una línea por cada repo tocado)
-- Carpeta del ticket: <ruta>. Leé su CLAUDE.md del disco, aunque ya tengas uno cargado: el que cargaste al arrancar puede ser anterior al Paso 0. No leas su carpeta revision/: trae reportes de otras revisiones.
-- <solo capa> Archivos de tu capa: <lista>.
-- <solo diseño, modo completo> Orden de lectura sugerido: <lista>.
-
-Ya decidido en el ticket (## Decisiones), no lo vuelvas a plantear como hallazgo; si un CRITICAL lo contradice, reportalo y nombrá la decisión:
-- <una línea por decisión, copiada de ## Decisiones, o «ninguna»>
-
-Entregá el reporte con tu contrato. En cada hallazgo, justo después de la severidad, citá el ID de la regla de la matriz que rompe, o `sin ID` si no viene de una regla con ID:
-[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar
-```
-
-- **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
-- **El ID de la regla también va en el prompt**, y no en las plantillas de los revisores: un cambio de plantilla no llega a los revisores ya generados. `revisor-diseno` solo ve los IDs de `criterios`, así que `sin ID` es una respuesta normal. Nunca pongas un ID de ejemplo en el prompt: el revisor lo copiaría.
-
-- Anotá la tabla `nombre de corrida → agentId`, con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). Los `agentId` los devuelve cada lanzamiento; en Pi, la tabla lleva el `task_id`.
-- **No leas reportes parciales:** esperá a que terminen todas. Nunca lances otra revisión mientras tanto.
-- **Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.** Codex responde «agent thread limit reached» cuando se pasa de `agents.max_threads`, que Gentle AI pone en 4, o, en V2, de `max_concurrent_threads_per_session - 1`, que es 3, y un `completo` con 2 capas o más lanza 5 corridas o más. Ante ese rechazo, esperá a que termine una corrida en marcha, cerrala (en Codex, `close_agent` libera su lugar), relanzá la rechazada y decile al usuario que la revisión va por tandas. La regla es la misma en todos los hosts.
+**Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.** En Codex dice «agent thread limit reached». Ante ese rechazo, esperá a que termine una corrida en marcha, cerrala (en Codex, `close_agent` libera su lugar), relanzá la rechazada y decile al usuario que la revisión va por tandas. La regla es la misma en todos los hosts, y sus límites están en `references/hosts.md`.
 
 ## 5. El modo 0
 
-No hay corridas, así que no se pide el sí: se anuncia el modo y se sigue. Leé vos los archivos de docs o notas cambiados y revisá su estructura: encabezados, enlaces y rutas que citan, que lo que afirman exista, y que no queden restos de borrador. Mostrá el resultado, escribí el recibo (paso 8) con `--modo 0`, sin `--reviewer`, y dejá la lectura en `--verificacion "lectura estructural: <resultado>"`.
+Sin corridas ni sí: anunciá el modo y los archivos que vas a leer, y leé vos los docs o notas cambiados. Revisá su estructura: encabezados, enlaces y rutas que citan, que lo que afirman exista, y que no queden restos de borrador. Mostrá el resultado y escribí el recibo (paso 8) con `--modo 0`, sin `--reviewer`, y `--verificacion "lectura estructural: <resultado>"`.
 
 ## 6. El rescate
 
@@ -148,27 +89,19 @@ Cuando terminan todas las corridas:
 python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<agentId> --corrida … --costo
 ```
 
-- `--sesion` es la carpeta `subagents` de esta sesión, bajo `~/.claude/projects/<proyecto>/<sesión>/`. También acepta la carpeta de la sesión que la contiene. Si no la encontrás, buscala con Glob: `~/.claude/projects/*/*/subagents/agent-<agentId>.jsonl`.
-- Por cada corrida escribe `<nombre>.md` (el reporte), `.prompt.txt`, `.lecturas.json`, con el costo de la corrida en `costo`, y, si hubo comandos, `.comandos.json`. El reporte sale del `SubagentHandback` o, si no hubo, del último texto.
-- Con `--costo` escribe también `corridas/costo.json`: el modo, los motivos de `entrada/triaje.json`, cada corrida con su costo (también la cortada, que se pagó igual), las líneas de los diffs de `entrada/`, el costo de esta sesión desde el último `triaje.py` antes de lanzar las corridas (`orquestador`, leído de `<sesión>.jsonl`, junto a la carpeta de la sesión) y si las corridas corrieron en serie (`en_serie`). Es lo que lee `--ultimo-costo` en el anuncio (paso 2). Un rescate posterior en la misma carpeta, por ejemplo el de una corrida relanzada, suma sus corridas sin pisar las anteriores. Si falta `triaje.json` o los diffs, lo avisa y deja ese campo en `null`; si no encuentra el tramo de esta sesión, deja `orquestador` en `null`, también con aviso, y no es una falla del rescate. `--costo` va solo con el `--destino` de una revisión (`<ticket>/revision/<fecha>-<modo>[-<n>]/corridas`); con otro sale con 2 sin escribir nada.
-- Sale con 0 si todas están bien, con 1 si alguna corrida no dejó reporte (`FAIL … sin SubagentHandback` o `no existe agent-…`) y con 2 por error de uso.
-- **En Pi**, el rescate lee la tarea que gentle-shell guarda por corrida, con el reporte entero, y escribe los mismos archivos:
+`--sesion` es `~/.claude/projects/<proyecto>/<sesión>/subagents` (si no la encontrás, Glob `~/.claude/projects/*/*/subagents/agent-<agentId>.jsonl`). **En Pi**, antes de rescatar, leé «Pi» en `references/hosts.md`:
 
-  ```bash
-  python3 "<S>/rescatar.py" --host pi --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<task_id> --corrida … --costo
-  ```
+```bash
+python3 "<S>/rescatar.py" --host pi --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<task_id> --corrida … --costo
+```
 
-  - La tarea es `<agentHome>/gentle-agents/tasks/<task_id>.json`, y `agentHome` es `GENTLE_PI_AGENT_HOME`, si no `PI_CODING_AGENT_DIR`, si no `~/.pi/agent`. gentle-shell define las dos variables en su sesión, así que corré el rescate desde ahí; `--sesion <carpeta>` las reemplaza con la carpeta de tareas o con el `agentHome`. Fuera de una sesión de gentle-shell, su home por defecto es `~/.gentle-shell/agent`: pasá `--sesion ~/.gentle-shell/agent`.
-  - Las lecturas son `read`, `grep` y `find`; cualquier otra herramienta sale como «NO auditada». En `costo.json`, `orquestador` queda en `null` con un aviso, porque solo se mide en Claude Code.
-  - Una tarea que no terminó en `completed` es una corrida cortada: `FAIL … tarea <task_id> en estado <estado>, sin reporte`. Si el estado es `running` y la corrida ya avisó que terminó, gentle-shell todavía no guardó la tarea: volvé a rescatar esa corrida un momento después antes de darla por cortada.
-  - **Si el rescate de una corrida falla** (`FAIL … no existe <task_id>.json`, `no es una tarea de gentle-shell`, o la carpeta de tareas no existe), pedí su reporte con `subagent_result` y su `task_id`, que lo devuelve entero, y guardalo en `corridas/<nombre>.md`. Decile al usuario que esa corrida salió de `subagent_result`, sin lecturas ni costo.
-- **Una corrida cortada se informa y no se reintenta en silencio.** Decile al usuario cuál falló y preguntá: relanzar solo esa o seguir sin ella. Si se sigue sin ella, la frecuencia se cuenta sobre las corridas que sí hay (k/2) y se dice.
-- Un lanzamiento que el host rechazó por su límite de concurrencia no es una corrida cortada: se relanzó por tandas (paso 4) y se rescata con las demás.
-- Una herramienta «NO auditada» en la salida (`Bash`, `PowerShell`) en un revisor que solo debería leer se informa: no es una corrida limpia.
+- Deja cada reporte en `corridas/<nombre>.md` y, con `--costo`, `corridas/costo.json`, el que lee `--ultimo-costo`. Si avisa que le falta algo, leé `references/rescate.md`.
+- Sale con 0, con 1 si alguna corrida no dejó reporte (`FAIL …`) o con 2 por error de uso. **Una corrida cortada se informa y no se reintenta en silencio:** decile al usuario cuál falló y preguntá si se relanza solo esa o se sigue sin ella; si se sigue, la frecuencia es sobre las que sí hay (k/2), y se dice. Un rechazo por el límite de concurrencia no es una corrida cortada (paso 4).
+- Una herramienta «NO auditada» (`Bash`, `PowerShell`) en un revisor que solo debería leer se informa: no es una corrida limpia.
 
 ## 7. La consolidación
 
-La hace el orquestador, en prosa, leyendo los reportes de `corridas/`. La regla de un hallazgo es la que citó el revisor: con ID, la regla es su ID; con `sin ID`, lo que viola.
+La hace el orquestador, en prosa, con los reportes de `corridas/`, en `consolidado.md` de la carpeta de la revisión. La regla de un hallazgo es la que citó el revisor: con ID, la regla es su ID; con `sin ID`, lo que viola.
 
 - **El rendimiento** va en la primera línea de `consolidado.md`, siempre con esta forma:
 
@@ -176,105 +109,44 @@ La hace el orquestador, en prosa, leyendo los reportes de `corridas/`. La regla 
   Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · CRITICAL <x>, WARNING <y>, SUGGESTION <z> · destino: pendiente
   ```
 
-  - `<n>` cuenta cada hallazgo de la consolidación una vez, de diseño y de capa. No cuenta los conflictos, las preguntas para el líder, los límites, lo que ya estaba antes del cambio ni lo que reabre una decisión sin ser `CRITICAL`.
-  - El acuerdo va solo en `completo`, y cuenta los hallazgos de diseño por su frecuencia. En `rapido` y en un rechequeo, la línea no lo trae.
-  - La severidad de cada hallazgo es la que le dio su revisor.
-  - El destino queda `pendiente` hasta el recibo (paso 8).
-
-  Es lo que mide qué rinde cada corrida: con esos datos se decide si un `completo` puede bajar a 2 corridas de diseño.
-- **Modo `rapido`, y todo rechequeo:** junta los reportes de diseño y de capa. Cada hallazgo, una vez, con su ubicación y su regla.
-- **Modo `completo`:**
-  - **Hallazgos con su frecuencia** entre las tres corridas de diseño (3/3, 2/3, 1/3), unidos por ubicación y regla (con ID, la regla es su ID). Los que salieron 1/3 van marcados **«a confirmar»**.
-  - **Conflictos:** la misma pieza con veredictos opuestos entre corridas (por ejemplo, «quitar» contra «consumido»). Van en su propia sección, **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**.
-- **En los dos modos:**
-  - **La severidad de diseño y la de capa van separadas.** Cada hallazgo conserva la del revisor que lo dijo (`CRITICAL`, `WARNING`, `SUGGESTION`); no se promedian ni se unifican.
-  - **Lo derivado:** lo que diseño pasó a un revisor de capa y lo que ese revisor devolvió. Una derivación que nadie toma (diseño se la pasa a la capa y la capa se la devuelve) se marca **«sin dueño»** y se la lleva el usuario.
-  - **Preguntas para el líder**, aparte: las que cualquier corrida dejó como pregunta, no como hallazgo.
-  - Lo que ya estaba antes del cambio y los límites que declaró cada revisor van aparte; un límite declarado no es un hallazgo.
-  - **Lo que reabre una decisión del ticket** y no es `CRITICAL` tampoco es un hallazgo: va aparte, con la decisión que contradice, y no entra al lote de corrección. Un `CRITICAL` que la contradice sí es un hallazgo, y nombra la decisión.
-- Guardá la consolidación en `<ticket>/revision/<fecha>-<modo>/consolidado.md`.
+  `<n>` cuenta cada hallazgo una vez, de diseño y de capa, sin los conflictos ni lo que va aparte. El acuerdo va solo en `completo`, con los hallazgos de diseño por su frecuencia; en `rapido` y en un rechequeo, la línea no lo trae. El destino queda `pendiente` hasta el recibo.
+- **En `rapido` y en todo rechequeo**, cada hallazgo va una vez, con su ubicación y su regla.
+- **En `completo`**, los de diseño van con su frecuencia entre las tres corridas (3/3, 2/3, 1/3), unidos por ubicación y regla (con ID, la regla es su ID), y los de 1/3, marcados **«a confirmar»**. Hay varianza, y varias corridas no suman aciertos: protegen de la corrida mala y muestran los **conflictos**, la misma pieza con veredictos opuestos («quitar» contra «consumido»), que van en **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**, porque la decisión es de dominio.
+- La severidad de diseño y la de capa van separadas: cada hallazgo, con la de su revisor, sin promediar. Lo que diseño derivó a una capa y lo que esa capa devolvió va aparte, y lo que nadie toma se marca **«sin dueño»** y se lo lleva el usuario.
+- No son hallazgos, y van aparte: las preguntas para el líder, lo que ya estaba antes del cambio, los límites que declaró cada revisor y lo que reabre una decisión del ticket sin ser `CRITICAL` (con la decisión que contradice, y fuera del lote de corrección). Un `CRITICAL` que la contradice sí es un hallazgo, y nombra la decisión.
 
 ## 8. Presentar y dejar el recibo
 
-1. **Presentá** la consolidación al usuario. Él decide qué corrige. No corrijas por tu cuenta ni lances otra revisión: la corrección y su rechequeo siguen la sección 9.
-2. **Escribí el recibo** al cerrar la revisión. Lleva la lista **explícita** de los archivos revisados por repo, nunca el working tree entero: `--archivo` es obligatorio y, con más de un `--repo`, cada uno es una ruta absoluta.
+1. **Presentá** la consolidación: el usuario decide qué corrige. No corrijas ni lances otra revisión por tu cuenta (sección 9).
+2. **Escribí el recibo** al cerrar la revisión, con los archivos revisados **explícitos**, nunca el working tree entero: `--archivo` es obligatorio y, con más de un `--repo`, va con ruta absoluta.
 
    ```bash
    python3 "<S>/recibo.py" --write --ticket "<ticket>" --repo <repo>#<base> [--repo …] --archivo <ruta absoluta> [--archivo …] --modo <0|rapido|completo> --fecha <AAAA-MM-DD> [--ronda <n>] --reviewer <agente> [--reviewer …] --verificacion "<comando>: <resultado>" [--verificacion …] --estado <limpio|con-hallazgos|pendiente> [--derivado "<hallazgo>=<destino>" …] [--bajada "<motivo>" --va-a-lider no]
    ```
 
-   - `--fecha` es la misma de la carpeta de la revisión: sin ella toma el día de hoy, y puede no coincidir.
-   - `--bajada "<motivo>" --va-a-lider no` va solo cuando el usuario bajó el modo (sección 2, paso 6), con su motivo y su respuesta sobre el líder. `recibo.py` lo valida contra `entrada/triaje.json` de la carpeta de la revisión: el triaje tiene que proponer `completo`, `--modo` tiene que ser `rapido` y no puede haber un riesgo real. Ese triaje tiene que ser de este diff: cada repo y cada archivo del recibo tienen que estar en el triaje, con la misma base y la misma huella, así que un archivo editado después del triaje lo deja viejo. El triaje puede haber visto más que el recibo, como los archivos del ambiente local que separaste en la sección 1: eso no rechaza, y `recibo.py` los nombra en un aviso. Si alguno es del ticket, revisalo y sumalo con `--archivo`. Si `recibo.py` dice que `no es de este diff`, volvé a correr el triaje con `--json` y los mismos argumentos que el recibo, guardalo en `entrada/triaje.json` y mirá de nuevo su modo, porque la edición pudo traer un riesgo real. Guarda en el recibo `bajada` con `de`, `a`, `motivo` y `va_a_lider`. Cualquier otro par de modos, un motivo vacío, `--va-a-lider si` o sin `--bajada`, un triaje que falta, no se lee o no trae su huella, o un riesgo real es un error de uso: sale con 2 sin escribir nada.
-   - **El modo no baja sin `--bajada`.** Si la carpeta de la revisión tiene `entrada/triaje.json`, `--modo` es igual o más alto que el que propuso, y el triaje tiene que leerse y ser válido aunque no vaya `--bajada`. Salvo con `--modo completo`, que no tiene piso que violar, ese triaje también tiene que ser de este diff, igual que con la bajada: un triaje viejo en `rapido` no habilita `rapido` después de una edición que pudo sumar riesgo. Con `--previo`, `--modo` también es igual o más alto que el del recibo anterior. Un modo más bajo es un error de uso: sale con 2 sin escribir nada.
-   - `--derivado` anota un hallazgo que no se corrige en esta unidad y va a otra tarea, otro ticket o el backlog (sección 9). Es repetible, y el destino es lo que va después del último `=`. Uno sin `=`, o con un lado vacío, es un error de uso.
-   - `--ronda <n>` va solo desde la segunda ronda del mismo día y modo, con el número de su carpeta. `--check` toma la ronda más alta, o la de `--recibo`.
-   - `<base>` es la base completa del triaje, para que el recibo cubra el mismo diff que se revisó. Un `--repo` sin `#<base>` toma la misma que el triaje con `--ticket`, con la misma función: la explícita, el sello vivo más nuevo del ticket o el merge-base. Al reescribir un recibo, toma la que ese recibo guarda.
-   - Los `--reviewer` son los agentes que corrieron (cada nombre una vez). `--estado` es `limpio` si no hubo hallazgos, `pendiente` si los hubo y el usuario todavía no los resolvió, o `con-hallazgos` si los hubo y ya los resolvió (corregidos, o descartados con su motivo). Cuando el usuario resuelve los de un recibo `pendiente` sin tocar lo revisado (los descarta o los deriva), volvé a escribirlo con `con-hallazgos` y los mismos argumentos; si era un rechequeo, también con su `--previo`. Si resolverlos cambió lo revisado, no se reescribe: es un rechequeo (sección 9). `--verificacion` anota lo que se corrió de verdad y su resultado.
-   - **Completá el destino** en la línea de rendimiento de `consolidado.md` cuando escribís el recibo con `con-hallazgos` o `limpio`, también al reescribir uno `pendiente`: `destino: corregidos <c>, derivados <d>, descartados <e>`. Los derivados son los que van con `--derivado`, y los descartados, los que el usuario descartó con su motivo. En un rechequeo, completá también el de la ronda anterior: lo que el rechequeo vio resuelto cuenta como corregido. Con `pendiente`, el destino sigue `pendiente`.
-   - Escribe `revision/<fecha>-<modo>[-<n>]/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, con 1 si ese recibo ya existe con otro diff, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
-   - **Si el recibo ya existe**, `recibo.py` compara el diff de esta llamada (repos, bases, archivos y el hash de cada uno) con el que guarda. Si es el mismo, cambia el estado y conserva el sello y lo demás: lo que la llamada nombra (`--reviewer`, `--verificacion`, `--derivado`, `--bajada`) reemplaza lo guardado, y lo que no nombra queda. Si es otro (un archivo cambió, sobra o falta, o falta un repo), sale con 1 sin escribir y nombra cada diferencia: lo que cambió va en un rechequeo con `--previo` en la ronda siguiente (sección 9); si es el mismo diff, repetí los mismos `--repo`, `--archivo` y `--previo`.
-3. **Antes de decir «listo» o «listo para commit», corré `--check`:**
+   **Antes de usar `--bajada`, `--derivado` o `--ronda`, de reescribir un recibo, o si `recibo.py` sale con 1 o 2, leé `references/recibo.md`.** `<base>` es la base completa del triaje; `--fecha`, la de la carpeta (sin ella, la de hoy); `--reviewer`, los agentes que corrieron, y `--verificacion`, lo que se corrió de verdad. `--estado` es `limpio` sin hallazgos, `pendiente` si el usuario todavía no los resolvió y `con-hallazgos` si ya los corrigió o los descartó con su motivo; un `pendiente` resuelto sin tocar lo revisado se reescribe con `con-hallazgos`, y si se tocó, es un rechequeo (sección 9).
+
+   **Completá el destino** en la línea de rendimiento de `consolidado.md` cuando el recibo queda `con-hallazgos` o `limpio`: `destino: corregidos <c>, derivados <d>, descartados <e>`. En un rechequeo, también el de la ronda anterior, donde lo que el rechequeo vio resuelto cuenta como corregido.
+3. **Antes de decir «listo» o «listo para commit», corré `--check`** con la carpeta de esta revisión:
 
    ```bash
    python3 "<S>/recibo.py" --check "<ticket>/revision/<fecha>-<modo>"
    ```
 
-   - Pasá la carpeta de esta revisión. Si pasás la del ticket, toma el recibo más reciente, y a igual fecha el de modo `completo`, que puede no ser el de esta revisión; en ese caso filtrá con `--modo <m>` o apuntá con `--recibo <ruta>`.
-   - La segunda línea dice el estado, el modo y la bajada del recibo: `estado: <estado>; modo: <modo>; bajada: no`, o `bajada: de completo a rapido (<motivo>)`.
-   - **Lo que entraría al commit.** `--check` le aplica al índice el criterio de `--sellar`: lo revisado no puede estar stageado en otra versión, y el índice no puede traer, contra la base, archivos fuera del recibo (lo ya commiteado desde la base también cuenta). Los cambios del working tree fuera del recibo que no están en el índice salen como aviso por stderr: no entran al commit salvo que los stagees. Un recibo ya sellado no mira el índice, porque su commit ya pasó.
-   - **Exit 0:** el recibo vale: no cambió un byte de lo revisado y el índice no trae otra cosa.
-   - **Exit 1, `NO vale … cambio el diff revisado`:** cambió el diff revisado y el recibo no vale. Re-revisá **la divergencia** que nombra (repo y archivos) con un rechequeo (sección 9), que pide su sí salvo que el usuario lo haya aprobado con su lote de corrección. Un recibo viejo no autoriza nada.
-   - **Exit 1, `NO vale para el commit`:** lo revisado no cambió, pero el índice no es lo revisado. Lo stageado en otra versión se stagea tal cual; lo que no es de esta unidad se saca del índice; lo que sí es, o ya está commiteado desde la base, se rechequea con `--previo`, como propone el mensaje.
-   - **Exit 2:** error de uso o de entorno (no hay recibo, el repo ya no existe, `--modo` contradice al recibo). Mostrá el mensaje y no digas «listo».
-4. **Qué decir.** Con exit 0, el estado del recibo y lo pendiente del usuario: un recibo `pendiente` no se sella hasta reescribirlo con `con-hallazgos` o `limpio`. Con 1 o 2, nunca «listo para commit».
+   Con 0, el recibo vale: decí su estado y lo pendiente (un `pendiente` no se sella hasta reescribirlo con `con-hallazgos` o `limpio`). Con 1 y `NO vale … cambio el diff revisado`, la divergencia que nombra va a un rechequeo (sección 9), que pide su sí salvo que viniera aprobado con su lote: un recibo viejo no autoriza nada. Con 1 y `NO vale para el commit`, el índice no es lo revisado: seguí lo que propone el mensaje. Con 1 o 2, nunca «listo para commit».
 
 ## 9. El cierre: una corrección y un rechequeo
 
-Una revisión se cierra así, para que corregir no se vuelva un bucle ni cueste una revisión entera por vuelta. En un ticket real, la re-revisión después de una corrección volvió a revisar la unidad entera, al mismo costo que la primera, y no se podía sellar una parcial; los hallazgos que quedaron para después terminaron dentro de la tabla de Tareas, y la rompieron.
-
-1. **Una sola corrección.** Con la consolidación, el usuario elige qué se corrige, y eso es un lote. El mensaje que propone el lote anuncia también el rechequeo y su costo en corridas (abajo), con el último costo medido como en el paso 2: si el usuario aprueba el lote, aprueba el rechequeo.
-2. **Un rechequeo** cuando termina el lote. Verifica los hallazgos anteriores y revisa solo lo que cambió desde la ronda anterior:
-   - **Qué entra.** Los rechequeados son los archivos que nombra `recibo.py --check "<carpeta de la ronda anterior>"` cuando sale con 1 (los que cambiaron), más los que el triaje lista y el recibo anterior no tiene (los que sumó la corrección, como un test nuevo). Si `--check` sale con 0 y la corrección no sumó archivos, no hay nada que rechequear. Un archivo sumado nunca se salta: sin su rechequeo queda sin revisar y `--sellar` rechaza el commit que lo trae.
-   - **La base** es la del recibo anterior, y el triaje con `--ticket` da esa misma mientras la unidad no se selle. **El modo** es el de la ronda anterior, y la carpeta es la ronda siguiente (`<fecha>-<modo>-<n>`); `recibo.py` no deja bajarlo, tampoco con una fecha posterior. Si el triaje de ahora da otra base o propone un modo más alto, no es un rechequeo: es una revisión nueva de la unidad entera, que pide su sí.
-   - **Después de una bajada** (el recibo anterior trae `bajada`), el rechequeo se mide contra el modo bajado: sigue en `rapido`, y que el triaje vuelva a proponer `completo` no es un modo más alto. Un riesgo real nuevo sí lo es, y la revisión nueva va en `completo`. El recibo del rechequeo hereda la bajada sin volver a pasarla, y `recibo.py` valida el `triaje.json` de la entrada de esta ronda: sin él, con un riesgo real o si no es de este diff (los archivos de toda la unidad, con su huella de ahora), sale con 2 sin escribir nada.
-   - **Las corridas** son una de `revisor-diseno` más una por cada capa de los archivos rechequeados, `1 + <capas>`, tanto en `rapido` como en `completo`, sobre un diff que trae solo esos archivos. En modo `0` son cero. El rechequeo verifica una corrección acotada y no repite las tres corridas de `completo`: en un ticket real, dos rechequeos de una corrida, con los hallazgos anteriores en el prompt, cerraron bien. Si los rechequeados tocan una capa que el mensaje del lote no anunció, el costo cambió: anunciá el nuevo, con las corridas y el último costo medido, y pedí el sí.
-   - **La entrada** es el diff de los rechequeados contra la base, con su `triaje.json` (paso 3). El prompt suma los hallazgos de la ronda anterior, con su ubicación, su regla y su severidad, copiados del `consolidado.md`, y pide decir de cada uno si quedó resuelto. La regla de no leer `revision/` sigue.
-   - **El recibo** hereda lo que no cambió:
-
-     ```bash
-     python3 "<S>/recibo.py" --write --ticket "<ticket>" --repo <repo>#<base> [--repo …] --archivo <rechequeado> [--archivo …] --previo "<ticket>/revision/<carpeta de la ronda anterior>" --modo <modo> --fecha <AAAA-MM-DD> --ronda <n> --reviewer <agente> [--reviewer …] --verificacion "<comando>: <resultado>" [--verificacion …] --estado <limpio|con-hallazgos|pendiente> [--derivado "<hallazgo>=<destino>" …]
-     ```
-
-     - `--archivo` lista solo lo rechequeado, y el recibo cubre la unidad entera: lo rechequeado, con su hash de ahora, y cada archivo del recibo anterior que no se pasó, que tiene que estar igual que entonces. Un repo del recibo anterior sin nada rechequeado no se pasa: se hereda entero. Un `--repo` sin `#<base>` toma la base del recibo anterior.
-     - Un archivo nuevo de la unidad que la corrección quitó se pasa con `--archivo`: queda en `retirados`, fuera del recibo.
-     - **Exit 1**, sin escribir nada: un archivo del recibo anterior cambió y no está en `--archivo` (rechequealo), o la base no es la del recibo anterior.
-     - **Exit 2:** `--previo` no es un recibo de este ticket, `--modo` es más bajo que el suyo, o el rechequeo no queda después de él: tiene que ir en la misma fecha y modo con una `--ronda` más alta, o en una fecha posterior.
-     - Con eso, `--check` y `--sellar` valen para la unidad entera.
-3. **Lo que trae el rechequeo:**
-   - un hallazgo `CRITICAL`, nuevo o uno anterior que sigue abierto, se corrige en esta unidad, como un lote nuevo con su rechequeo, y los dos siguen esta misma regla;
-   - un hallazgo que no es `CRITICAL`, nuevo o uno anterior que sigue abierto, **se deriva**: no se corrige en esta unidad, sino que va a otra tarea, otro ticket o el backlog. Anotalo en el recibo con `--derivado "<hallazgo>=<destino>"` y en `## Seguimientos` del ticket, una línea por hallazgo (`<fecha>: <qué> → <destino>`), nunca en la tabla de Tareas;
-   - con eso la revisión queda cerrada: el recibo del rechequeo es el de la unidad, y después del commit se sella.
+1. **Una sola corrección**, para que corregir no sea un bucle: el usuario elige de la consolidación qué se corrige, y eso es un lote. El mensaje que lo propone anuncia también el rechequeo y su costo, `1 + <capas>` corridas (una de `revisor-diseno` y una por capa rechequeada, también en `completo`; cero en modo `0`), con el último costo medido: aprobar el lote aprueba el rechequeo.
+2. **Un rechequeo** cuando termina el lote: verifica los hallazgos anteriores y revisa solo lo que cambió. **Antes de armarlo, leé `references/rechequeo.md`.** Si el triaje de ahora da otra base o un modo más alto, es una revisión nueva de la unidad entera, que pide su sí; si los rechequeados tocan una capa que el lote no anunció, anunciá el costo nuevo y pedí el sí. El prompt suma los hallazgos de la ronda anterior (ubicación, regla y severidad, del `consolidado.md`) y pide decir de cada uno si quedó resuelto.
+3. **Lo que trae el rechequeo:** un `CRITICAL`, nuevo o anterior que sigue abierto, se corrige en esta unidad, como un lote nuevo con su rechequeo y esta misma regla. Lo que no es `CRITICAL` **se deriva** a otra tarea, otro ticket o el backlog: en el recibo con `--derivado "<hallazgo>=<destino>"` y en `## Seguimientos` del ticket, una línea por hallazgo (`<fecha>: <qué> → <destino>`), nunca en la tabla de Tareas. Con eso la revisión queda cerrada: el recibo del rechequeo es el de la unidad.
 
 ## Después de la revisión
 
-- El commit es del usuario. Esta skill no commitea nada, y en los repos del equipo nunca se commitea sin una autorización puntual.
-- **Después del commit de una unidad revisada, sellá su recibo**, antes de cualquier otro commit, y mostrá su línea:
+El commit es del usuario, y en los repos del equipo, solo con una autorización puntual. **Después del commit de una unidad revisada, y antes de cualquier otro, sellá su recibo** con la carpeta de su última ronda (la del rechequeo, si lo hubo), y mostrá su línea:
 
-  ```bash
-  python3 "<S>/recibo.py" --sellar "<ticket>/revision/<carpeta de la unidad>"
-  ```
+```bash
+python3 "<S>/recibo.py" --sellar "<ticket>/revision/<carpeta de la unidad>"
+```
 
-  - Por qué: anota en el recibo el commit que guarda lo revisado, y el triaje de la unidad siguiente parte de ese commit en vez del merge-base. Sin sello, vuelve a contar lo ya revisado (en un ticket real, 83 archivos en vez de los 21 de la unidad nueva).
-  - Pasá la carpeta del recibo de la unidad: la de su última ronda, la del rechequeo si lo hubo. Con la carpeta del ticket toma el recibo más nuevo por fecha, modo y ronda, que puede no ser el de esta unidad (por ejemplo, una unidad en modo `0` revisada el mismo día después de una en `rapido`). Sellar de nuevo sin mover `HEAD` no cambia nada.
-  - **Exit 0:** `recibo sellado: <recibo> (<commit> en <n> repo(s))`.
-  - **Exit 1:** no sella y no toca el recibo: cambió el diff revisado, hay archivos revisados sin commitear («commitea primero lo revisado»), `HEAD` trae cambios fuera de lo revisado (por ejemplo, un commit de otra unidad), o el recibo está `pendiente`. Mostrá el motivo; no lo fuerces, porque un sello sobre lo no revisado lo dejaría fuera del triaje siguiente. Con cambios fuera de lo revisado, el mensaje propone el rechequeo con `--previo` de este recibo y esos archivos en `--archivo`: su recibo cubre la unidad entera, y ese sí se sella. Con `pendiente`, reescribilo con `con-hallazgos` o `limpio` (paso 2 de la sección 8) y sellá.
-  - **Exit 2:** error de uso o de entorno. Mostrá el mensaje.
-- Si el modo fue `completo` y el cambio va a un líder, y el usuario quiere dejar la revisión como caso del modo sombra, `/odd-ws:eval-reviewers`. Ahí se congela, se puntúa y se ratifica; esta skill no toca ninguna de esas etapas.
-
-## Scripts
-
-| Script | Para qué | Salidas |
-|---|---|---|
-| `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
-| `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente o, con `--host pi`, desde la tarea que guarda gentle-shell; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
-| `recibo.py` | `--write` escribe el recibo, con `--previo` el de un rechequeo, que hereda lo que no cambió, y con `--bajada` la bajada de un escalón que pidió el usuario; `--check` lo compara con el diff actual y con lo que entraría al commit; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió, el índice no es lo revisado, el recibo ya existe con otro diff, no se puede sellar o el rechequeo no puede heredar · 2 error de uso o de entorno |
+Con 1 no sella: mostrá el motivo y no lo fuerces, porque un sello sobre lo no revisado lo sacaría del triaje siguiente. Con `pendiente`, reescribilo con `con-hallazgos` o `limpio` y sellá; con otro motivo, leé `references/recibo.md`. Con 2, mostrá el mensaje.

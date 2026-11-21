@@ -1,6 +1,6 @@
 ---
 name: eval-reviewers
-description: Medir los revisores de la instancia (los agentes de .claude/agents que revisan un cambio) contra la revisión real de un líder, a ciegas y de forma repetible. Usar cuando el usuario pide medir un revisor, comparar dos versiones de su prompt o correr el modo sombra antes de una revisión real.
+description: Mide los revisores de la instancia contra la revisión real de un líder, a ciegas. Usar cuando el usuario pide medir un revisor, comparar dos versiones de su prompt o correr el modo sombra.
 ---
 
 # /odd-ws:eval-reviewers

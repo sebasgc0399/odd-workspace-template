@@ -1052,10 +1052,18 @@ def test_pi_sesion_con_una_carpeta_sin_la_de_tareas_sale_con_2_sin_escribir_nada
 
 OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+REFERENCIA_RE = re.compile(r"references/([\w.-]+\.md)")
+
+
+def texto_de_revisar():
+    nucleo = SKILL_REVISAR.read_text(encoding="utf-8")
+    referencias = [(SKILL_REVISAR.parent / "references" / nombre).read_text(encoding="utf-8")
+                   for nombre in sorted(set(REFERENCIA_RE.findall(nucleo)))]
+    return "\n\n".join([nucleo, *referencias])
 
 
 def test_los_rescates_que_da_la_skill_revisar_usan_opciones_que_existen_y_traen_el_de_pi():
-    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    texto = texto_de_revisar()
     lineas = [l.split("rescatar.py", 1)[1] for l in texto.split("\n") if "rescatar.py\"" in l and "--destino" in l]
     assert len(lineas) == 2, lineas
     opciones = {o for accion in m()._parser()._actions for o in accion.option_strings}

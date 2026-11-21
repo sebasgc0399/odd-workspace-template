@@ -17,6 +17,7 @@ export const AGENTES_POR_EVENTO: Readonly<Record<string, readonly string[]>> = {
 };
 const CONFIG_DE_LA_INSTANCIA = "workspace.config.json";
 const SKILLS_DE_LA_INSTANCIA = join(".claude", "skills");
+const SKILLS_DEL_PLUGIN = "skills";
 const MARCA_DE_GIT = ".git";
 const UTF8_ESTRICTO = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const LANZAR = "subagent_run";
@@ -579,6 +580,47 @@ function skillsDeLaInstancia(evento: EventoDePi, ctx: Partial<ContextoDePi>): { 
   }
 }
 
+function cwdDe(ctx: Partial<ContextoDePi>): string | null {
+  try {
+    return typeof ctx.cwd === "string" && ctx.cwd !== "" ? ctx.cwd : null;
+  } catch {
+    return null;
+  }
+}
+
+function carpetasDeOddWs(plugin: string, hijo: boolean, ctx: Partial<ContextoDePi>): string[] {
+  const cwd = cwdDe(ctx);
+  const raiz = cwd === null ? null : raizDeLaInstancia(cwd);
+  const delPlugin = join(plugin, SKILLS_DEL_PLUGIN);
+  if (hijo) {
+    return raiz === null ? [delPlugin] : [delPlugin, join(raiz, SKILLS_DE_LA_INSTANCIA)];
+  }
+  return cwd !== null && raiz === null ? [delPlugin] : [];
+}
+
+function sinLasSkillsDeOddWs(evento: EventoDePi, ctx: Partial<ContextoDePi>, plugin: string, hijo: boolean): void {
+  try {
+    const opciones = evento.systemPromptOptions;
+    const skills: unknown = esObjeto(opciones) ? opciones.skills : undefined;
+    if (!Array.isArray(skills)) {
+      return;
+    }
+    const raices = carpetasDeOddWs(plugin, hijo, ctx).flatMap((carpeta) => [resolve(carpeta), canonica(carpeta)]);
+    if (raices.length === 0) {
+      return;
+    }
+    const quedan = skills.filter((skill) => {
+      const ruta = esObjeto(skill) && typeof skill.filePath === "string" && skill.filePath !== "" ? skill.filePath : null;
+      return ruta === null || ![resolve(ruta), canonica(ruta)].some((candidata) => raices.some((raiz) => dentro(raiz, candidata)));
+    });
+    if (quedan.length !== skills.length) {
+      skills.splice(0, skills.length, ...quedan);
+    }
+  } catch {
+    return;
+  }
+}
+
 export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<string, string | undefined> = process.env): void {
   if (typeof entorno.CLAUDE_PLUGIN_ROOT !== "string" || entorno.CLAUDE_PLUGIN_ROOT === "") {
     entorno.CLAUDE_PLUGIN_ROOT = plugin;
@@ -587,15 +629,19 @@ export function registrar(pi: ApiDePi, plugin: string = PLUGIN, entorno: Record<
   let deInicio = "";
   const iniciar = async (evento: EventoDePi, ctx: ContextoDePi): Promise<void> => {
     deInicio = "";
-    deInicio = await alIniciar(plugin, evento, ctx, estado);
+    if (!estado.hijo) {
+      deInicio = await alIniciar(plugin, evento, ctx, estado);
+    }
   };
   pi.on("tool_call", (evento: EventoDePi, ctx: ContextoDePi) => antesDeLaHerramienta(plugin, evento, ctx, estado));
   pi.on("tool_result", (evento: EventoDePi, ctx: ContextoDePi) => despuesDeLaHerramienta(plugin, evento, ctx, estado));
   pi.on("session_start", iniciar);
   pi.on("session_compact", iniciar);
-  pi.on("resources_discover", (evento: EventoDePi, ctx: Partial<ContextoDePi>) => skillsDeLaInstancia(evento, ctx ?? {}));
+  pi.on("resources_discover", (evento: EventoDePi, ctx: Partial<ContextoDePi>) =>
+    estado.hijo ? undefined : skillsDeLaInstancia(evento, ctx ?? {}));
   pi.on("before_agent_start", async (evento: EventoDePi, ctx: ContextoDePi) => {
     fijarIdentidad(estado, evento, ctx);
+    sinLasSkillsDeOddWs(evento, ctx ?? {}, plugin, estado.hijo);
     if (!estado.hijo) {
       await alEmpezarElTurnoDelPrincipal(plugin, evento, ctx, estado);
     }

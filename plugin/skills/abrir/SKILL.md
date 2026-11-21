@@ -1,6 +1,6 @@
 ---
 name: abrir
-description: Abre un ticket de la instancia a partir de un pedido. Usar al empezar un ticket nuevo, para crear su carpeta desde la plantilla, llenar objetivo, criterios de aceptación y alcance, marcar las preguntas por fijar con el líder, mapear los docs de dominio que toca y traer los candidatos a graduar de los tickets hermanos. Solo lo invoca el usuario.
+description: Abre un ticket nuevo de la instancia desde la plantilla, con su objetivo, sus criterios y su alcance. Solo lo invoca el usuario.
 disable-model-invocation: true
 ---
 

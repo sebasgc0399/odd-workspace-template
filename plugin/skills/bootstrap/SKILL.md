@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: Genera una instancia de la plantilla ODD con una sola propuesta, o completa una que ya existe sin pisar nada (config, writers, revisores, skills de capa, reglas vacías, CLAUDE.md, plantilla de ticket, pre-commit, settings.json, git init, core.hooksPath y el primer commit). Usar cuando el usuario pide arrancar una instancia nueva o completar la que tiene.
+description: Genera una instancia de la plantilla ODD, o completa la que ya existe sin pisar nada. Solo lo invoca el usuario.
 disable-model-invocation: true
 ---
 

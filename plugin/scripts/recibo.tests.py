@@ -1526,6 +1526,9 @@ def test_write_check_y_sellar_de_una_unidad_limpia_salen_como_antes():
 
 
 SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+REFERENCIAS_DE_REVISAR = SKILL_REVISAR.parent / "references"
+REFERENCIA_RE = re.compile(r"references/([\w.-]+\.md)")
+NUCLEO_MAXIMO = 17 * 1024
 ID_LITERAL_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[0-9]{2,}\b")
 FORMATO_CON_ID = "[SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar"
 RENDIMIENTO = ("Rendimiento: <n> hallazgos · acuerdo 3/3 <a>, 2/3 <b>, 1/3 <c> · "
@@ -1549,6 +1552,14 @@ def seccion_de(texto, titulo):
     return "\n".join(partes)
 
 
+def texto_de_revisar(titulo=None):
+    nucleo = SKILL_REVISAR.read_text(encoding="utf-8")
+    parte = nucleo if titulo is None else seccion_de(nucleo, titulo)
+    referencias = [(REFERENCIAS_DE_REVISAR / nombre).read_text(encoding="utf-8")
+                   for nombre in sorted(set(REFERENCIA_RE.findall(parte)))]
+    return "\n\n".join([parte, *referencias])
+
+
 def bloques_de_codigo(texto):
     bloques, actual = [], None
     for linea in texto.split("\n"):
@@ -1563,25 +1574,43 @@ def bloques_de_codigo(texto):
     return bloques
 
 
+def test_s3_el_nucleo_de_revisar_cabe_en_lo_que_claude_code_vuelve_a_adjuntar_tras_compactar():
+    tamano = len(SKILL_REVISAR.read_bytes())
+    assert tamano < NUCLEO_MAXIMO, "el SKILL.md de revisar pesa %d bytes, %d o más: el detalle va a references/" % (
+        tamano, NUCLEO_MAXIMO)
+
+
+def test_s3_cada_reference_de_revisar_existe_la_nombra_el_nucleo_y_usa_el_marcador_de_los_scripts():
+    assert REFERENCIA_RE.findall("leé `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
+    nombradas = set(REFERENCIA_RE.findall(SKILL_REVISAR.read_text(encoding="utf-8")))
+    archivos = {r.name for r in REFERENCIAS_DE_REVISAR.glob("*.md")} if REFERENCIAS_DE_REVISAR.is_dir() else set()
+    assert nombradas, "el núcleo de revisar no nombra ninguna reference"
+    assert nombradas == archivos, "nombradas sin archivo: %s; archivos que el núcleo no nombra: %s" % (
+        sorted(nombradas - archivos), sorted(archivos - nombradas))
+    for nombre in sorted(archivos):
+        texto = (REFERENCIAS_DE_REVISAR / nombre).read_text(encoding="utf-8")
+        assert "${CLAUDE_PLUGIN_ROOT}" not in texto, "%s usa ${CLAUDE_PLUGIN_ROOT}, que solo se reemplaza en el SKILL.md" % nombre
+        comandos = [linea for linea in texto.split("\n") if re.search(r"python3? \"", linea)]
+        assert all('"<S>/' in linea for linea in comandos), (nombre, comandos)
+
+
 def test_el_prompt_de_revisar_pide_el_id_de_la_regla_sin_un_id_literal():
-    texto = SKILL_REVISAR.read_text(encoding="utf-8")
-    prompts = [b for b in bloques_de_codigo(seccion_de(texto, "## 4.")) if b.startswith("Revisá ")]
+    prompts = [b for b in bloques_de_codigo(texto_de_revisar("## 4.")) if b.startswith("Revisá ")]
     assert len(prompts) == 1, prompts
     prompt = prompts[0]
     assert FORMATO_CON_ID in prompt and "sin ID" in prompt, prompt
     literal = ID_LITERAL_RE.search(prompt)
     assert literal is None, "el prompt nombra un ID literal: %s" % (literal and literal.group(0))
     assert ID_LITERAL_RE.search(prompt.replace("<ID de la regla | sin ID>", "SQL-01")), "control positivo: un ID literal se detecta"
-    consolidacion = seccion_de(texto, "## 7.")
+    consolidacion = texto_de_revisar("## 7.")
     assert "unidos por ubicación y regla" in consolidacion and "con ID, la regla es su ID" in consolidacion, consolidacion
 
 
 def test_la_consolidacion_abre_con_el_rendimiento_y_el_recibo_completa_su_destino():
-    texto = SKILL_REVISAR.read_text(encoding="utf-8")
-    consolidacion = seccion_de(texto, "## 7.")
+    consolidacion = texto_de_revisar("## 7.")
     assert RENDIMIENTO in bloques_de_codigo(consolidacion), bloques_de_codigo(consolidacion)
     assert "solo en `completo`" in consolidacion and "primera línea de `consolidado.md`" in consolidacion, consolidacion
-    recibo = seccion_de(texto, "## 8.")
+    recibo = texto_de_revisar("## 8.")
     assert DESTINO in recibo and "`con-hallazgos` o `limpio`" in recibo, recibo
 
 
@@ -1598,11 +1627,11 @@ def opciones_de_recibo_en(texto):
 
 
 def test_las_opciones_de_recibo_que_da_la_skill_revisar_existen_y_traen_la_bajada():
-    texto = SKILL_REVISAR.read_text(encoding="utf-8")
+    texto = texto_de_revisar()
     opciones = {o for accion in M._parser()._actions for o in accion.option_strings}
     nombradas = opciones_de_recibo_en(texto)
     assert nombradas <= opciones, "la skill da opciones que recibo.py no tiene: %s" % sorted(nombradas - opciones)
-    paso_8 = opciones_de_recibo_en(seccion_de(texto, "## 8."))
+    paso_8 = opciones_de_recibo_en(texto_de_revisar("## 8."))
     assert {"--write", "--check", "--bajada", "--va-a-lider"} <= paso_8, sorted(paso_8)
     mutada = opciones_de_recibo_en(texto.replace("--va-a-lider", "--va-al-lider", 1))
     assert mutada - opciones == {"--va-al-lider"}, "control positivo: una opción que no existe se detecta"
@@ -1616,8 +1645,7 @@ PASOS_DE_LA_TANDA = ("esperá a que termine una corrida en marcha", "cerrala", "
 
 
 def test_revisar_relanza_por_tandas_lo_que_el_host_rechaza_por_su_limite_de_concurrencia():
-    texto = SKILL_REVISAR.read_text(encoding="utf-8")
-    corridas, rescate = seccion_de(texto, "## 4."), seccion_de(texto, "## 6.")
+    corridas, rescate = texto_de_revisar("## 4."), texto_de_revisar("## 6.")
     for frase in LIMITE_DE_CONCURRENCIA + PASOS_DE_LA_TANDA:
         assert frase in corridas, (frase, corridas)
     posiciones = [corridas.index(paso) for paso in PASOS_DE_LA_TANDA]
@@ -1868,7 +1896,7 @@ def test_s2_la_bajada_recalcula_si_sin_capa_es_el_unico_motivo_de_capas_desde_lo
 
 
 def test_s2_la_skill_revisar_dice_que_el_triaje_y_el_recibo_no_se_editan_a_mano():
-    entrada = seccion_de(SKILL_REVISAR.read_text(encoding="utf-8"), "## 3.")
+    entrada = texto_de_revisar("## 3.")
     assert "`triaje.json` y `recibo.json` no se editan a mano" in entrada, entrada
 
 
