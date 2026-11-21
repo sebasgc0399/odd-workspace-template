@@ -354,6 +354,43 @@ def test_la_instancia_generada_no_pisa_un_indice_existente():
         assert (e.raiz / "tickets" / "_plantilla" / "CLAUDE.md").is_file()
 
 
+def spec_de_controles(nombre=NOMBRE, perfil="controles"):
+    spec = spec_de(nombre)
+    spec["config"]["profile"] = perfil
+    return spec
+
+
+def test_en_controles_sale_solo_el_indice_reducido_con_su_marca_y_sin_la_plantilla_del_ticket():
+    generados = t().generar(spec_de_controles())
+    assert [ruta for ruta, _ in generados] == ["CLAUDE.md"], generados
+    texto = generados[0][1]
+    plantilla = (PLANTILLAS / "CLAUDE.controles.md").read_text(encoding="utf-8")
+    assert texto == plantilla.replace("{{nombre}}", NOMBRE) and "{{" not in texto and "}}" not in texto
+    marca = importlib.import_module("doctor").MARCA_CONTROLES
+    assert [linea for linea in texto.split("\n") if linea.strip() == marca] == [marca], texto
+    assert 35 <= len(texto.splitlines()) <= 60, len(texto.splitlines())
+    assert NOMBRE in texto.splitlines()[0] and texto != textos()["CLAUDE.md"]
+
+
+def test_el_indice_reducido_dice_que_controla_como_nacen_las_reglas_y_que_no_aplica():
+    texto = dict(t().generar(spec_de_controles()))["CLAUDE.md"]
+    for pedazo in ("guard_comandos", "verificar_capa", "revisar_turno", "pre-commit", "/odd-ws:doctor", "capa-<capa>",
+                   "/odd-ws:cerrar memorias", ".claude/reglas/matriz.csv", "evidencia.md", "/odd-ws:abrir", "/odd-ws:revisar",
+                   "/odd-ws:eval-reviewers", "no aplican", "gentle-ai", '"profile": "controles"', "/odd-ws:bootstrap"):
+        assert pedazo in texto, pedazo
+    for ajeno in ("writer-<capa>", "tickets/", "odd/tasks", "http://", "https://", "C:\\", "C:/"):
+        assert ajeno not in texto, ajeno
+
+
+def test_con_profile_completo_sale_lo_mismo_que_sin_la_clave():
+    assert t().generar(spec_de_controles(perfil="completo")) == t().generar(spec_de())
+
+
+def test_la_plantilla_reducida_es_lf_sin_bom():
+    crudo = (PLANTILLAS / "CLAUDE.controles.md").read_bytes()
+    assert b"\r" not in crudo and not crudo.startswith(b"\xef\xbb\xbf") and crudo.endswith(b"\n") and not crudo.endswith(b"\n\n")
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

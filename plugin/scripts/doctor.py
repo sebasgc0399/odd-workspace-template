@@ -45,6 +45,15 @@ AYUDA_RDD = ("D3: el RDD nativo no ve el dominio (su reviewer corre sin herramie
              "de esta instancia, y solo si lo pedís con --arreglar rdd: tus otros proyectos siguen con el RDD como estaba.")
 AYUDA_RDD_SIN_REPO = ("D3: gentle-ai apaga el RDD por clon, y esta instancia no está en un repo git, así que no hay arreglo automático. "
                       "Para apagarlo en toda la máquina, corré a mano gentle-ai review mode disable: afecta también a tus otros proyectos.")
+AYUDA_RDD_CONTROLES = ("En el perfil controles, odd-ws no trae revisores: la revisión es la de tu herramienta. Prendé el RDD de gentle-ai "
+                       "(gentle-ai review mode enable, con el mismo --scope con que se apagó) o revisá con otra herramienta. El doctor no "
+                       "lo prende por vos.")
+MARCA_CONTROLES = "<!-- odd-ws:perfil controles -->"
+SIN_WRITERS = (f'la instancia tiene el perfil controles ("profile": "controles" en {config_loader.NOMBRE}): no lleva writers ni '
+               "revisores de odd-ws")
+AYUDA_PERFIL = ("Para pasar a completo, borrá ese CLAUDE.md y corré /odd-ws:bootstrap, que genera el completo y lo que falta sin pisar "
+                "nada; si lo habías editado, pasá tus cambios al nuevo. Si la instancia es de controles, volvé a poner "
+                f'"profile": "controles" en {config_loader.NOMBRE} (es tu archivo: el doctor no lo toca).')
 AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
 AYUDA_ENGRAM = "Actualizá engram a 3.5 o superior desde su release oficial (en Windows, renombrá el .exe en uso antes de reemplazarlo)."
 AYUDA_JQ = "scoop install jq (lo exige engram setup)."
@@ -80,6 +89,9 @@ PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
 AYUDA_TICKETS = ('Corregí "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
                  "y siga con letras, números o guion bajo (es tu archivo: el doctor no lo toca).")
 AYUDA_CLAVE = "Corregí esa clave en workspace.config.json (es tu archivo: el doctor no lo toca)."
+AYUDA_HOOKS_APAGADOS = (f"Si no fue a propósito, sacalo de {config_loader.CLAVE_DE_HOOKS_APAGADOS} en {config_loader.NOMBRE} (es tu archivo: "
+                        "el doctor no lo toca). Un hook apagado deja pasar todo en Claude Code, Codex y Pi.")
+AYUDA_GUARD_APAGADO = " Con guard_comandos apagado, nada frena un force push, un reset --hard ni un borrado recursivo del agente."
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -270,7 +282,8 @@ def chequear_cobertura(ctx, raiz):
     detalle = config_loader.cobertura_de_los_repos(config, versionados)
     if detalle is None:
         return resultado(id, OK, "todo lo versionado en los repos tiene capa o es doc")
-    return resultado(id, AVISO, detalle, None, config_loader.AYUDA_COBERTURA)
+    ayuda = config_loader.AYUDA_COBERTURA_CONTROLES if config_loader.es_controles(raiz) else config_loader.AYUDA_COBERTURA
+    return resultado(id, AVISO, detalle, None, ayuda)
 
 
 def chequear_config(raiz):
@@ -279,12 +292,39 @@ def chequear_config(raiz):
     except config_loader.ConfigRota as error:
         return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
     for validar, ayuda in ((config_loader.prefijo_de_tickets, AYUDA_TICKETS), (config_loader.pide_aprobar_commits, AYUDA_CLAVE),
-                           (config_loader.repos_propios, AYUDA_CLAVE)):
+                           (config_loader.repos_propios, AYUDA_CLAVE), (config_loader.hooks_apagados, AYUDA_CLAVE),
+                           (config_loader.perfil, AYUDA_CLAVE)):
         try:
             validar(raiz)
         except config_loader.ConfigRota as error:
             return resultado("config", FALTA, str(error), None, ayuda)
     return resultado("config", OK, f"{len(config['repos'])} repos con su ruta y {len(config['layers'])} capas")
+
+
+def chequear_hooks_apagados(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id = "hooks-apagados"
+    try:
+        apagados = config_loader.hooks_apagados(raiz)
+    except config_loader.ConfigRota as error:
+        return [resultado(id, NO_APLICA, f"no apaga ninguno ({error}): lo dice el ítem config")]
+    if not apagados:
+        return [resultado(id, OK, f"los {len(config_loader.HOOKS)} hooks del plugin corren en esta instancia")]
+    ayuda = AYUDA_HOOKS_APAGADOS + (AYUDA_GUARD_APAGADO if "guard_comandos" in apagados else "")
+    return [resultado(id, AVISO, f"apagados en {config_loader.NOMBRE}: {', '.join(apagados)}", None, ayuda)]
+
+
+def chequear_perfil(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None or config_loader.es_controles(raiz):
+        return []
+    texto = leer_texto(raiz / convencion.INDICE)
+    if texto is None or MARCA_CONTROLES not in (linea.strip() for linea in texto.splitlines()):
+        return []
+    return [resultado("perfil", AVISO, f'{convencion.INDICE} es el reducido del perfil controles, y {config_loader.NOMBRE} no declara '
+                                       '"profile": "controles"', None, AYUDA_PERFIL)]
 
 
 def raiz_del_repo_de(ctx, raiz):
@@ -369,6 +409,8 @@ def chequear_writers(ctx):
     raiz = raiz_de_instancia(ctx)
     if raiz is None:
         return []
+    if config_loader.es_controles(raiz):
+        return [resultado("writers", NO_APLICA, SIN_WRITERS)]
     try:
         declaradas = config_loader.capas(raiz)
     except config_loader.ConfigRota as error:
@@ -596,6 +638,8 @@ def chequear_rdd(ctx, hay_gentle):
         return resultado("rdd", NO_APLICA, "gentle-ai no está instalado")
     codigo, salida = ctx.ejecutar(["gentle-ai", "review", "mode", "status"])
     estado = primera_linea(salida)
+    if config_loader.es_controles(raiz_de_instancia(ctx)):
+        return rdd_en_controles(codigo, estado)
     if codigo == 0 and re.search(r":\s*off\b", estado):
         return resultado("rdd", OK, estado)
     if codigo == 0 and re.search(r":\s*on\b", estado):
@@ -607,6 +651,16 @@ def chequear_rdd(ctx, hay_gentle):
             return resultado("rdd", AVISO, estado, None, AYUDA_RDD_SIN_REPO)
         return resultado("rdd", AVISO, estado, [*APAGAR_RDD, "--scope", "clone", "--cwd", str(repo)], AYUDA_RDD)
     return resultado("rdd", AVISO, f"no se pudo leer el estado del RDD: {estado or '(vacío)'}", None, AYUDA_RDD)
+
+
+def rdd_en_controles(codigo, estado):
+    if codigo == 0 and re.search(r":\s*on\b", estado):
+        return resultado("rdd", OK, f"{estado}; en el perfil controles, el RDD nativo es la revisión de la instancia")
+    if codigo == 0 and re.search(r":\s*off\b", estado):
+        detalle = f"{estado}: la instancia tiene el perfil controles y queda sin revisión"
+    else:
+        detalle = f"no se pudo leer el estado del RDD: {estado or '(vacío)'}; con el perfil controles, la instancia puede quedar sin revisión"
+    return resultado("rdd", AVISO, detalle, None, AYUDA_RDD_CONTROLES)
 
 
 def chequear_telemetria(ctx, hay_gentle):
@@ -717,7 +771,7 @@ NUCLEO = types.SimpleNamespace(
     OK=OK, FALTA=FALTA, AVISO=AVISO, NO_APLICA=NO_APLICA, MARKETPLACE=MARKETPLACE, URL_MARKETPLACE=URL_MARKETPLACE, PLUGIN=PLUGIN,
     CLAVE_PLUGIN=CLAVE_PLUGIN, AYUDA_CONFIG=AYUDA_CONFIG, CLI_INSTALADO=CLI_INSTALADO, CLI_AUSENTE=CLI_AUSENTE,
     CLI_DE_OTRO_HOST=CLI_DE_OTRO_HOST, resultado=resultado, chequear_version=chequear_version, raiz_del_repo_de=raiz_del_repo_de,
-    leer_version=leer_version, texto_version=texto_version, primera_linea=primera_linea,
+    leer_version=leer_version, texto_version=texto_version, primera_linea=primera_linea, raiz_de_instancia=raiz_de_instancia,
 )
 
 
@@ -732,6 +786,8 @@ def diagnosticar(ctx):
         chequear_lista_negra(ctx, raiz),
         chequear_plugin_root(ctx),
         *chequear_instancia(ctx),
+        *chequear_hooks_apagados(ctx),
+        *chequear_perfil(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),

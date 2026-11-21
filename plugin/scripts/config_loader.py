@@ -18,15 +18,22 @@ CLAVES_DE_CONOCIMIENTO = ("docs", "index", "index_max_lines", "scan", "quantitie
 INDICE_POR_DEFECTO = "CLAUDE.md"
 TOPE_DEL_INDICE_POR_DEFECTO = 200
 HOSTS_POR_DEFECTO = ("claude-code",)
+HOOKS = ("verificar_capa", "guard_comandos", "revisar_turno", "writer_guard", "writer_stop")
+CLAVE_DE_HOOKS_APAGADOS = "disabled_hooks"
+PERFILES = ("completo", "controles")
+COMPLETO, CONTROLES = PERFILES
+CLAVE_DE_PERFIL = "profile"
 CLAVE_DE_TICKETS = "tickets"
 PREFIJO_DE_TICKETS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 EXTENSIONES_DE_DOCS = (".md", ".txt", ".rst")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 8
 ID_COBERTURA = "capas-cobertura"
+SUMAR_A_UNA_CAPA = ("Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
+                    f"{NOMBRE}; si no, es esperado y el aviso queda.")
 AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. "
-                   "Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
-                   f"{NOMBRE}; si no, es esperado y el aviso queda.")
+                   + SUMAR_A_UNA_CAPA)
+AYUDA_COBERTURA_CONTROLES = "Ninguna capa cubre esos archivos, así que ninguna regla de capa los chequea. " + SUMAR_A_UNA_CAPA
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 
@@ -298,6 +305,62 @@ def hosts(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     return hosts_de(config)
+
+
+def hooks_apagados_de(config):
+    if CLAVE_DE_HOOKS_APAGADOS not in config:
+        return []
+    valor = config[CLAVE_DE_HOOKS_APAGADOS]
+    conocidos = ", ".join(HOOKS)
+    if not isinstance(valor, list) or not all(isinstance(nombre, str) for nombre in valor):
+        raise ConfigRota(f"{CLAVE_DE_HOOKS_APAGADOS} debe ser una lista de nombres de hook ({conocidos})")
+    vistos = []
+    for nombre in valor:
+        if nombre not in HOOKS:
+            raise ConfigRota(f"{CLAVE_DE_HOOKS_APAGADOS}: {nombre!r} no es un hook conocido ({conocidos})")
+        if nombre in vistos:
+            raise ConfigRota(f"{CLAVE_DE_HOOKS_APAGADOS}: {nombre!r} está repetido")
+        vistos.append(nombre)
+    return vistos
+
+
+def hooks_apagados(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return hooks_apagados_de(config)
+
+
+def hook_apagado(raiz, nombre):
+    if raiz is None:
+        return False
+    try:
+        return nombre in hooks_apagados(raiz)
+    except ConfigRota:
+        return False
+
+
+def perfil_de(config):
+    if CLAVE_DE_PERFIL not in config:
+        return COMPLETO
+    valor = config[CLAVE_DE_PERFIL]
+    if not isinstance(valor, str) or valor not in PERFILES:
+        raise ConfigRota(f"{CLAVE_DE_PERFIL} {valor!r} no es válido ({' | '.join(PERFILES)})")
+    return valor
+
+
+def perfil(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return perfil_de(config)
+
+
+def es_controles(raiz):
+    if raiz is None:
+        return False
+    try:
+        return perfil(raiz) == CONTROLES
+    except ConfigRota:
+        return False
 
 
 def tickets_de(config):

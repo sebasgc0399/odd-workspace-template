@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker, o el consecutivo de la instancia si no hay tracker, y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
+**Perfil `controles`.** Antes de nada, leé `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene tickets: el método y la orquestación son los de la herramienta del usuario. Decilo en una línea y pará, sin escribir nada.
+
 ## Reglas duras
 
 1. **Nada se escribe antes del sí.** La carpeta se crea con el sí del paso 2, y el contenido del ticket se escribe con el sí del paso 8. Mostrar primero, escribir después.

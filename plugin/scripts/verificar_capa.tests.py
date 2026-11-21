@@ -1967,6 +1967,49 @@ def test_paquetes_una_skill_de_la_capa_ilegible_no_calla_los_de_los_paquetes():
         assert texto is not None and texto.split("\n", 1)[1] == texto_de_paquete("alfa", "ALF"), texto
 
 
+def apagar(raiz, valor):
+    ruta = Path(raiz) / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_apagado_en_disabled_hooks_deja_pasar_todo_sin_marcas_ni_avisos():
+    with git_aislado(), Toque() as w:
+        w.modulo("web", STUB_MALO)
+        malo = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
+        assert w.correr(evento(malo))[0] == 2, "control: la regla de la capa bloquea"
+        assert w.correr(a_escribir(w.sql, sesion="c1"))[0] == 2, "control: el primer toque bloquea"
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", TICKET_ACTIVO)
+        assert w.correr(inicio_en("startup", w.raiz))[1], "control: el inicio inyecta el ticket activo"
+        texto = parche_codex("*** Update File: %s" % w.sql, "@@", "-a", "+b")
+        assert negado_en_codex(M.correr(codex(texto, agent_id="a8"), raiz=w.raiz, plazo=25, host="codex")), "control en Codex"
+        antes = w.marcas()
+        apagar(w.raiz, ["verificar_capa"])
+        assert w.correr(evento(malo)) == (0, "", b"")
+        assert w.correr(a_escribir(w.sql, sesion="s7")) == (0, "", b"")
+        assert w.correr(leer(w.sql, sesion="s8")) == (0, "", b"")
+        assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b"")
+        assert M.correr(codex(texto, agent_id="a9"), raiz=w.raiz, plazo=25, host="codex") == (0, "", b"")
+        assert w.marcas() == antes, w.marcas()
+        os.remove(w.raiz / "workspace.local.json")
+        assert w.correr(inicio("startup")) == (0, "", b""), "apagado tampoco avisa de la config rota"
+
+
+def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_verificar_capa():
+    otros = ["guard_comandos", "revisar_turno", "writer_guard", "writer_stop"]
+    with git_aislado(), Toque() as w:
+        w.modulo("web", STUB_MALO)
+        malo = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
+        for i, valor in enumerate((otros, "verificar_capa", ["verificar_capa", "verificar_capa"], ["verificar-capa"], [None],
+                                   {"verificar_capa": True})):
+            apagar(w.raiz, valor)
+            assert w.correr(evento(malo))[0] == 2, valor
+            codigo, _, err = w.correr(a_escribir(w.sql, sesion="v%d" % i))
+            assert codigo == 2 and (REGLA % "SQL").encode("utf-8") in err, (valor, err)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

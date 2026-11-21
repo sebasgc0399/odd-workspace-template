@@ -239,6 +239,19 @@ def test_la_instalacion_no_toca_la_config_global_de_git():
         assert git_aislado("config", "--local", "--get", "core.hooksPath", cwd=e.raiz)[1] == ".githooks"
 
 
+def test_en_controles_no_sale_el_settings_de_la_plantilla_del_ticket_y_lo_demas_es_igual():
+    with Escenario() as e:
+        completo = g().generar(e.spec())
+        for perfil, esperadas in (("controles", [a for a in completo if not (isinstance(a, tuple) and a[0] == c().TICKET_SETTINGS)]),
+                                  ("completo", completo)):
+            spec = e.spec()
+            spec["config"]["profile"] = perfil
+            assert g().generar(spec) == esperadas, perfil
+        rutas = [a[0] for a in g().generar(dict(e.spec(), config=dict(e.spec()["config"], profile="controles")))
+                 if not isinstance(a, b().AccionDeGit)]
+        assert rutas == [".githooks/pre-commit", ".gitattributes", ".claude/settings.json"], rutas
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

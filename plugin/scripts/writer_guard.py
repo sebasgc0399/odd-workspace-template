@@ -1486,7 +1486,7 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, bitacora=False):
         if raiz is None:
             return Permitir()
         estado = config_loader.estado(raiz)
-        if estado.tipo != "ok":
+        if estado.tipo != "ok" or config_loader.hook_apagado(estado.raiz, "writer_guard"):
             return Permitir()
         if evento.tipo == "edicion":
             if bitacora and evento.rutas:

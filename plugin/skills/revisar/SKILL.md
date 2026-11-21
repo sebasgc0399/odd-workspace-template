@@ -9,6 +9,8 @@ Orquesta la revisión de un cambio con los agentes de `.claude/agents/`: `reviso
 
 En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
+**Perfil `controles`.** Antes de nada, leé `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores ni recibos y la revisión es la de la herramienta del usuario (por ejemplo, el RDD de gentle-ai). Decilo en una línea y pará, sin correr nada.
+
 ## Qué se sabe de estos revisores
 
 - **Hay varianza.** Dos corridas del mismo revisor sobre el mismo código pueden opinar distinto sobre la misma pieza.

@@ -920,7 +920,7 @@ def contexto_del_doctor(base, windows=False, respuestas=None):
             raise AssertionError("sin el CLI de Pi, el doctor de Pi no corre nada: %r" % (args,))
         return respuestas.get(tuple(args), (None, ""))
 
-    return types.SimpleNamespace(plugin=PLUGIN, home=base / "home", entorno={}, windows=windows, which=lambda nombre: None,
+    return types.SimpleNamespace(plugin=PLUGIN, home=base / "home", cwd=base, entorno={}, windows=windows, which=lambda nombre: None,
                                  ejecutar=ejecutar, llamadas=llamadas)
 
 
@@ -967,6 +967,21 @@ def test_sin_agent_before_settle_la_version_es_falta_y_cita_el_changelog():
         for salida, estado in (("0.86.9\n", nucleo.FALTA), ("0.87.0\n", nucleo.AVISO), ("1.5.0\n", nucleo.OK)):
             version, instalado = m().version(contexto_del_doctor(base, respuestas={("pi", "--version"): (0, salida)}), nucleo)
             assert (version.estado, instalado) == (estado, True), (salida, version)
+
+
+def test_en_controles_la_version_sin_agent_before_settle_no_habla_del_writer():
+    nucleo = nucleo_del_doctor()
+    assert m().SIN_COMPUERTA.startswith(m().SIN_AGENT_BEFORE_SETTLE) and m().SIN_COMPUERTA_EN_CONTROLES.startswith(m().SIN_AGENT_BEFORE_SETTLE)
+    assert "writer" not in m().SIN_COMPUERTA_EN_CONTROLES and "revisión del fin del turno" in m().SIN_COMPUERTA_EN_CONTROLES
+    with temporal() as base:
+        respuestas = {("pi", "--version"): (0, "0.86.9\n")}
+        (base / "workspace.config.json").write_text(json.dumps(CONFIG_MINIMA), encoding="utf-8")
+        version, _ = m().version(contexto_del_doctor(base, respuestas=respuestas), nucleo)
+        assert version.estado == nucleo.FALTA and version.detalle.endswith(m().SIN_COMPUERTA), version
+        (base / "workspace.config.json").write_text(json.dumps(dict(CONFIG_MINIMA, profile="controles")), encoding="utf-8")
+        version, instalado = m().version(contexto_del_doctor(base, respuestas=respuestas), nucleo)
+        assert (version.estado, instalado) == (nucleo.FALTA, True) and version.detalle.endswith(m().SIN_COMPUERTA_EN_CONTROLES), version
+        assert "writer" not in version.detalle + version.ayuda, version
 
 
 def test_la_version_minima_es_la_de_las_apis_que_usa_odd_ws_con_su_fuente():

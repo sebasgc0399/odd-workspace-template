@@ -2294,6 +2294,51 @@ def test_ask_before_commit_y_own_invalidos_rechazan_la_spec():
         rechazada(e, spec, "own y agent_readonly")
 
 
+def test_disabled_hooks_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in ("guard_comandos", ["guard-comandos"], [3], ["writer_stop", "writer_stop"], {"guard_comandos": True}):
+            spec = e.spec()
+            spec["config"]["disabled_hooks"] = valor
+            rechazada(e, spec, "disabled_hooks")
+        spec = e.spec()
+        spec["config"]["disabled_hooks"] = ["revisar_turno"]
+        raiz = e.base / "instancia-con-hooks-apagados"
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+
+
+def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in ("control", "Controles", "", None, 1, ["controles"], {"controles": True}):
+            spec = e.spec()
+            spec["config"]["profile"] = valor
+            rechazada(e, spec, "profile")
+        for valor in ("controles", "completo"):
+            spec = e.spec()
+            spec["config"]["profile"] = valor
+            raiz = e.base / ("instancia-" + valor)
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+            assert codigo == 0 and errores == "", (valor, codigo, errores)
+            assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"]), valor
+
+
+SKILL_BOOTSTRAP = AQUI.parent / "skills" / "bootstrap" / "SKILL.md"
+
+
+def test_la_skill_del_bootstrap_propone_el_perfil_y_dice_como_pasar_a_completo():
+    texto = SKILL_BOOTSTRAP.read_text(encoding="utf-8")
+    propuesta = texto[texto.index("## 3. La propuesta y el ensayo"):texto.index("### La spec")]
+    linea = next(l for l in propuesta.split("\n") if l.startswith("- **El perfil**"))
+    for pedazo in ('"profile": "controles"', "`completo`", "`controles`", "orquestación", "revisión"):
+        assert pedazo in linea, (pedazo, linea)
+    raiz = texto[texto.index("## 1. La raíz"):texto.index("## 2. Detectar")]
+    for pedazo in (importlib.import_module("doctor").MARCA_CONTROLES, "borr", "completo", "no se soporta"):
+        assert pedazo in raiz, (pedazo, raiz)
+    siguiente = texto[texto.index("## 6. El siguiente paso"):texto.index("## Reglas")]
+    assert "`controles`" in siguiente and "/odd-ws:cerrar memorias" in siguiente, siguiente
+
+
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
     with Escenario() as e:
         if hay_repo_arriba(e.base):

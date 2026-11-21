@@ -1124,6 +1124,8 @@ def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
         if raiz is None:
             return Permitir()
         protegidos = Protegidos.de_instancia(raiz)
+        if config_loader.hook_apagado(raiz, "guard_comandos"):
+            return Permitir()
         resultado, motivo = analizar(comando, cwd, entorno, protegidos, evento.dialecto)
         if resultado == "block":
             return Bloquear(_mensaje(motivo))

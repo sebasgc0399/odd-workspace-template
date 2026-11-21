@@ -658,6 +658,8 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
         if raiz is None:
             return Permitir()
         estado = config_loader.estado(raiz)
+        if config_loader.hook_apagado(estado.raiz, "verificar_capa"):
+            return Permitir()
         if estado.tipo == "rota":
             return _aviso_de_config_rota(evento, estado.razon)
         if estado.tipo != "ok":

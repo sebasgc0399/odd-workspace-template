@@ -714,6 +714,32 @@ def test_generar_con_pi_es_pura_y_determinista():
     assert len(primero) == 8 + 5 + 1 + 5, [accion[0] for accion in primero]
 
 
+def con_perfil(spec, perfil):
+    spec["config"]["profile"] = perfil
+    return spec
+
+
+def test_en_controles_salen_solo_las_skills_de_capa_y_la_config_de_codex_en_los_tres_hosts():
+    completo = dict(a().generar(spec_de(*CAPAS), HOY))
+    for hosts in (None, ["claude-code"], ["codex"], ["pi"], ["claude-code", "codex", "pi"], ["pi", "codex"]):
+        spec = con_perfil(spec_de(*CAPAS) if hosts is None else con_hosts(hosts, *CAPAS), "controles")
+        acciones = a().generar(spec, HOY)
+        esperadas = [capas.skill(capa) for capa in CAPAS] + ([capas.CODEX_CONFIG] if hosts and "codex" in hosts else [])
+        assert [accion[0] for accion in acciones] == esperadas, (hosts, [accion[0] for accion in acciones])
+        for capa in CAPAS:
+            assert dict(acciones)[capas.skill(capa)] == completo[capas.skill(capa)], (hosts, capa)
+        if hosts and "codex" in hosts:
+            assert acciones[-1] == (capas.CODEX_CONFIG, codex().CONFIG_DEL_PROYECTO), acciones[-1]
+    assert a().generar(con_perfil(spec_de("SQL", "sql"), "controles"), HOY) == [(capas.skill("sql"), completo[capas.skill("sql")])]
+
+
+def test_con_profile_completo_sale_byte_a_byte_lo_de_sin_la_clave():
+    for hosts in (None, ["claude-code", "codex", "pi"]):
+        sin = a().generar(spec_de(*CAPAS) if hosts is None else con_hosts(hosts, *CAPAS), HOY)
+        con = a().generar(con_perfil(spec_de(*CAPAS) if hosts is None else con_hosts(hosts, *CAPAS), "completo"), HOY)
+        assert con == sin, hosts
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

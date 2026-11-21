@@ -904,7 +904,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1043,6 +1043,56 @@ def test_config_rota_por_otra_causa_tambien_es_falta_con_el_mensaje_de_config_ro
         (raiz / "workspace.config.json").write_text('{"schema_version": 7, "layers": {}}', encoding="utf-8")
         r = por_id(Falso(e.base, cwd=raiz))["config"]
         assert r.estado == "FALTA" and "schema_version" in r.detalle, r
+
+
+def con_disabled_hooks(raiz, valor):
+    ruta = raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_config_con_disabled_hooks_invalido_es_falta_y_valido_es_ok():
+    for valor, estado in (("guard_comandos", "FALTA"), (["guard-comandos"], "FALTA"), ([3], "FALTA"),
+                          (["writer_stop", "writer_stop"], "FALTA"), ([], "OK"), (["guard_comandos", "revisar_turno"], "OK")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            con_disabled_hooks(raiz, valor)
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado, (valor, r)
+            assert estado == "OK" or (r.detalle.startswith("disabled_hooks") and "workspace.config.json" in r.ayuda), (valor, r)
+
+
+def test_hooks_apagados_es_ok_sin_la_clave_y_aviso_con_sus_nombres_sin_arreglo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "OK" and r.comando is None and r.arreglo is None, r
+        con_disabled_hooks(raiz, [])
+        assert por_id(ctx)["hooks-apagados"].estado == "OK"
+        con_disabled_hooks(raiz, ["revisar_turno", "verificar_capa"])
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "AVISO" and "revisar_turno, verificar_capa" in r.detalle, r
+        assert r.comando is None and r.arreglo is None and "disabled_hooks" in r.ayuda and "guard_comandos" not in r.ayuda, r
+        con_disabled_hooks(raiz, ["guard_comandos"])
+        r = por_id(ctx)["hooks-apagados"]
+        assert r.estado == "AVISO" and "guard_comandos" in r.detalle and "force push" in r.ayuda, r
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("hooks-apagados "))
+        assert lineas[i].split()[:2] == ["hooks-apagados", "AVISO"] and "cómo:" in lineas[i + 1], lineas[i:i + 2]
+        codigo, salida = correr(["--arreglar", "hooks-apagados"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))["disabled_hooks"] == ["guard_comandos"]
+
+
+def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config():
+    with Escenario() as e:
+        raiz = e.instancia()
+        con_disabled_hooks(raiz, ["guard_comandos", "otro"])
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert r["config"].estado == "FALTA", r["config"]
+        assert r["hooks-apagados"].estado == "NO APLICA" and "config" in r["hooks-apagados"].detalle, r["hooks-apagados"]
 
 
 def test_instancia_hooks_no_aplica_si_la_raiz_no_esta_en_un_repo_git():
@@ -3193,6 +3243,174 @@ def test_paquetes_con_la_config_rota_y_un_lock_es_falta():
         poner(raiz, "workspace.config.json", '{"schema_version": 1, "layers": {}}')
         r = por_id(Falso(e.base, cwd=raiz))["paquetes"]
         assert r.estado == "FALTA" and "no se pueden revisar los paquetes" in r.detalle and "layers" in r.detalle, r
+
+
+def con_profile(raiz, valor):
+    ruta = raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["profile"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_config_con_profile_invalido_es_falta_y_valido_es_ok():
+    for valor, estado in (("control", "FALTA"), ("Controles", "FALTA"), (3, "FALTA"), (["controles"], "FALTA"), ("completo", "OK"),
+                          ("controles", "OK")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            con_profile(raiz, valor)
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado, (valor, r)
+            assert estado == "OK" or (r.detalle.startswith("profile") and "completo | controles" in r.detalle
+                                      and "workspace.config.json" in r.ayuda and r.comando is None and r.arreglo is None), (valor, r)
+
+
+def test_en_controles_writers_es_un_solo_no_aplica_que_no_propone_crear_writers():
+    with Escenario() as e:
+        raiz = e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")}), capas=("sql", "web", "C_Sharp"))
+        con_profile(raiz, "controles")
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)
+        assert [i for i in r if i.startswith("writer")] == ["writers"], list(r)
+        writers = r["writers"]
+        assert writers.estado == "NO APLICA" and writers.comando is None and writers.arreglo is None and writers.ayuda == "", writers
+        assert "controles" in writers.detalle and "falta" not in writers.detalle, writers
+        codigo, salida = correr([], ctx)
+        assert "--arreglar writer" not in salida, salida
+        poner(raiz, "workspace.config.json", '{"schema_version": 1, "profile": "controles", "layers": {}}')
+        r = por_id(ctx)
+        assert [i for i in r if i.startswith("writer")] == ["writers"] and r["writers"].estado == "NO APLICA", r["writers"]
+
+
+def test_con_profile_completo_los_writers_son_los_de_siempre():
+    with Escenario() as e:
+        raiz = e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")}))
+        sin_clave = por_id(Falso(e.base, cwd=raiz))["writer-sql"]
+        con_profile(raiz, "completo")
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert "writers" not in r and r["writer-sql"]._replace(arreglo=None) == sin_clave._replace(arreglo=None), r["writer-sql"]
+        assert r["writer-sql"].estado == "AVISO" and r["writer-sql"].arreglo is not None, r["writer-sql"]
+
+
+RDD_APAGADO = {("gentle-ai", "review", "mode", "status"): (0, "receipt-driven development: off (decided by global)\n")}
+
+
+def test_en_controles_el_rdd_encendido_es_ok_porque_es_la_revision_y_no_se_ofrece_apagarlo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        con_profile(raiz, "controles")
+        ctx = Falso(e.base, cwd=raiz, respuestas={**RDD_ENCENDIDO, ("git", "-C", str(raiz), "rev-parse", "--show-toplevel"): (0, str(raiz) + "\n")})
+        r = por_id(ctx)["rdd"]
+        assert r.estado == "OK" and r.comando is None and r.arreglo is None, r
+        assert r.detalle.startswith("receipt-driven development: on") and "controles" in r.detalle, r.detalle
+        codigo, salida = correr(["--arreglar", "rdd"], ctx)
+        assert codigo == 0 and "no hay nada que arreglar" in salida and not [c for c in ctx.llamadas if c[:4] == APAGAR_RDD], salida
+
+
+def test_en_controles_el_rdd_apagado_o_ilegible_es_aviso_sin_arreglo_porque_la_instancia_queda_sin_revision():
+    for respuestas, inicio in ((RDD_APAGADO, "receipt-driven development: off"),
+                               ({("gentle-ai", "review", "mode", "status"): (1, "boom\n")}, "no se pudo leer el estado del RDD")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            con_profile(raiz, "controles")
+            ctx = Falso(e.base, cwd=raiz, respuestas=respuestas)
+            r = por_id(ctx)["rdd"]
+            assert r.estado == "AVISO" and r.comando is None and r.arreglo is None, r
+            assert r.detalle.startswith(inicio) and "sin revisión" in r.detalle, r.detalle
+            assert "controles" in r.ayuda and "D3" not in r.ayuda and "disable" not in r.ayuda, r.ayuda
+            codigo, salida = correr(["--arreglar", "rdd"], ctx)
+            assert codigo == 2 and "no tiene arreglo automático" in salida and not [c for c in ctx.llamadas if c[:4] == APAGAR_RDD], salida
+
+
+def test_en_completo_el_rdd_apagado_sigue_ok_y_sin_gentle_ai_sigue_no_aplicando():
+    for valor in (None, "completo"):
+        with Escenario() as e:
+            raiz = e.instancia()
+            if valor:
+                con_profile(raiz, valor)
+            r = por_id(Falso(e.base, cwd=raiz, respuestas=RDD_APAGADO))["rdd"]
+            assert (r.estado, r.detalle, r.comando, r.ayuda) == ("OK", "receipt-driven development: off (decided by global)", None, ""), r
+    with Escenario() as e:
+        raiz = e.instancia()
+        con_profile(raiz, "controles")
+        r = por_id(Falso(e.base, cwd=raiz, respuestas={("gentle-ai",): None}))["rdd"]
+        assert (r.estado, r.detalle) == ("NO APLICA", "gentle-ai no está instalado"), r
+
+
+def test_en_controles_la_ayuda_de_capas_cobertura_no_habla_de_revisar():
+    import config_loader
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "scripts/x.mjs": "x"})
+        con_profile(raiz, "controles")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
+        assert r.estado == "AVISO" and r.detalle == "extensiones versionadas sin capa: .mjs (1)", r
+        assert r.ayuda == config_loader.AYUDA_COBERTURA_CONTROLES and r.comando is None and r.arreglo is None, r
+        assert "revisar" not in r.ayuda and "triaje" not in r.ayuda and "extensions" in r.ayuda and "workspace.config.json" in r.ayuda, r.ayuda
+        con_profile(raiz, "completo")
+        assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].ayuda == config_loader.AYUDA_COBERTURA
+
+
+def test_el_claude_md_reducido_con_el_perfil_completo_es_aviso_sin_arreglo():
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz)
+        assert "perfil" not in por_id(ctx)
+        poner(raiz, "CLAUDE.md", "# X\n\n%s\n\nTexto.\n" % d().MARCA_CONTROLES)
+        ids = [r.id for r in d().diagnosticar(ctx)]
+        assert ids.index("perfil") == ids.index("hooks-apagados") + 1, ids
+        r = por_id(ctx)["perfil"]
+        assert r.estado == "AVISO" and r.comando is None and r.arreglo is None, r
+        assert "CLAUDE.md" in r.detalle and "controles" in r.detalle, r.detalle
+        assert "/odd-ws:bootstrap" in r.ayuda and "borr" in r.ayuda, r.ayuda
+        codigo, salida = correr(["--arreglar", "perfil"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert (raiz / "CLAUDE.md").read_text(encoding="utf-8").count(d().MARCA_CONTROLES) == 1
+        con_profile(raiz, "controles")
+        assert "perfil" not in por_id(ctx)
+        con_profile(raiz, "completo")
+        assert por_id(ctx)["perfil"].estado == "AVISO"
+        poner(raiz, "CLAUDE.md", "# X\n\nLa marca %s citada en un texto no cuenta.\n" % d().MARCA_CONTROLES)
+        assert "perfil" not in por_id(ctx)
+
+
+def instancia_pi_de_controles(e):
+    raiz = con_hosts(e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")})), ["pi"])
+    con_profile(raiz, "controles")
+    poner(raiz, ".claude/skills/capa-sql/SKILL.md", skill_con("capa-sql"))
+    return raiz
+
+
+def pi_de_controles(e, raiz, **extra):
+    ctx = falso_de_pi(e, raiz, **extra)
+    poner_paquetes(de_pi(ctx), str(ctx.plugin))
+    poner_paquetes(aislado(ctx), str(ctx.plugin))
+    ctx.respuestas[("git", "-C", str(raiz), "rev-parse", "--show-toplevel")] = (0, str(raiz.parent) + "\n")
+    return ctx
+
+
+def sin_writers(r):
+    return not [(i, r[i]) for i in ITEMS_DE_PI if "writer" in (r[i].detalle + r[i].ayuda).lower()]
+
+
+def test_en_controles_los_items_de_pi_no_hablan_de_writers():
+    with Escenario() as e:
+        raiz = instancia_pi_de_controles(e)
+        r = por_id(pi_de_controles(e, raiz, gentle=False))
+        assert sin_writers(r), {i: r[i] for i in ITEMS_DE_PI}
+        g = r["gentle-shell"]
+        assert g.estado == "NO APLICA" and "gentle-shell no está instalado" in g.detalle and "controles" in g.detalle, g
+        assert r["pi"].estado == "OK" and r["pi-plugin"].estado == "OK" and r["pi-agentes"].estado == "NO APLICA", r
+        r = por_id(pi_de_controles(e, raiz))
+        assert sin_writers(r) and r["gentle-shell"].estado == "OK", r["gentle-shell"]
+        r = por_id(pi_de_controles(e, raiz, version="0.86.3\n", gentle=False))
+        assert sin_writers(r), r["pi"]
+        assert r["pi"].estado == "FALTA" and "agent_before_settle" in r["pi"].detalle and "revisión del fin del turno" in r["pi"].detalle, r["pi"]
+        ctx = pi_de_controles(e, raiz)
+        for respuesta, estado in ((gentle_shell_dice(ctx, pi="0.86.3"), "FALTA"), ((1, "gentle-shell: algo se rompió\n"), "AVISO"),
+                                  ((0, "sin numeros\n"), "AVISO")):
+            r = por_id(pi_de_controles(e, raiz, gentle=respuesta))
+            assert sin_writers(r) and r["gentle-shell"].estado == estado and r["gentle-shell"].ayuda, (respuesta, r["gentle-shell"])
+        r = por_id(pi_de_controles(e, raiz, version=None, gentle=gentle_shell_dice(ctx, pi="0.86.3")))
+        assert sin_writers(r) and r["pi"].estado == "FALTA" and "gentle-shell" in r["pi"].detalle, r["pi"]
 
 
 def main():

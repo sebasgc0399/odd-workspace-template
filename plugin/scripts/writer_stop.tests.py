@@ -1145,6 +1145,38 @@ def test_claude_code_no_lee_la_bitacora():
             assert (est["archivos"], est["escritos_por_bash"], est["errores_internos"]) == ([], [], []), (host, est)
 
 
+def apagar(inst, valor):
+    ruta = Path(inst) / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_apagado_en_disabled_hooks_deja_cerrar_al_writer_sin_escribir_ni_borrar_nada():
+    with temporal() as base:
+        repo, archivo, inst = escenario(base)
+        t = transcript(base, [("Edit", {"file_path": str(archivo)})])
+        assert bloqueo(correr(evento(t, "sin bloque"), inst)[1]) is not None, "control: la compuerta frena"
+        apagar(inst, ["writer_stop"])
+        fotos = carpeta_de_fotos(inst, sesion="sesion2")
+        fotos.mkdir(parents=True)
+        for host in ({}, {"host": "codex"}):
+            assert correr(evento(t, "sin bloque", sesion="sesion2"), inst, **host) == SILENCIO, host
+            assert estado_escrito(inst, sesion="sesion2") is None, host
+            assert fotos.is_dir(), "apagado tampoco borra las fotos: %r" % (host,)
+
+
+def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_writer_stop():
+    for valor in (["verificar_capa", "guard_comandos", "revisar_turno", "writer_guard"], "writer_stop", ["writer-stop"], [False],
+                  ["writer_stop", "writer_stop"], {"writer_stop": True}):
+        with temporal() as base:
+            repo, archivo, inst = escenario(base)
+            apagar(inst, valor)
+            t = transcript(base, [("Edit", {"file_path": str(archivo)})])
+            assert bloqueo(correr(evento(t, "sin bloque"), inst)[1]) is not None, valor
+            assert estado_escrito(inst) is not None, valor
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

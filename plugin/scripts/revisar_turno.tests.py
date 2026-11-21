@@ -653,6 +653,42 @@ def test_de_punta_a_punta_un_subagente_no_saca_foto_y_su_cierre_no_toca_la_del_p
             assert foto(inst).is_dir(), "el cierre de un writer es de writer_stop: %s" % host
 
 
+def apagar(inst, valor):
+    ruta = Path(inst) / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["disabled_hooks"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_apagado_en_disabled_hooks_no_saca_foto_ni_hace_seguir_en_los_tres_hosts():
+    for host in ("claude-code", "codex", "pi"):
+        with temporal() as base:
+            repo, inst = escenario(base)
+            apagar(inst, ["revisar_turno"])
+            empezar, terminar, _ = _turno_por_host(host, inst)
+            escribir(repo, "db/a.sql", "uno\ndos\nsucio\n")
+            assert R.correr(empezar, raiz=str(inst), plazo=60, host=host) == SILENCIO, host
+            assert not turnos(inst).exists(), "apagado no escribe la carpeta de la foto: %s" % host
+            agregar(repo / "db" / "b.sql", "x MALO BLOQ\n")
+            assert R.correr(terminar, raiz=str(inst), plazo=60, host=host) == SILENCIO, host
+            assert not turnos(inst).exists(), host
+            apagar(inst, ["verificar_capa", "guard_comandos", "writer_guard", "writer_stop"])
+            assert R.correr(empezar, raiz=str(inst), plazo=60, host=host) == SILENCIO and foto(inst).is_dir(), "control: %s" % host
+            agregar(repo / "db" / "a.sql", "y MALO BLOQ\n")
+            texto = _motivo_de_la_salida(host, R.correr(terminar, raiz=str(inst), plazo=60, host=host))
+            assert nombra(texto, repo / "db" / "a.sql"), (host, texto)
+
+
+def test_disabled_hooks_invalido_no_apaga_revisar_turno():
+    for valor in ("revisar_turno", ["revisar-turno"], [None], ["revisar_turno", "revisar_turno"], {"revisar_turno": True}):
+        with temporal() as base:
+            repo, inst = escenario(base)
+            apagar(inst, valor)
+            assert inicio(inst) == Permitir() and foto(inst).is_dir(), valor
+            agregar(repo / "db" / "a.sql", "x MALO BLOQ\n")
+            assert nombra(motivo(fin(inst)), repo / "db" / "a.sql"), valor
+
+
 def test_main_lee_stdin_y_falla_abierto():
     with temporal() as base:
         env = _entorno()

@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -1002,6 +1003,150 @@ def test_own_que_no_es_booleano_o_con_agent_readonly_es_rota_y_cargar_no_lo_ve()
                 pass
             else:
                 raise AssertionError(f"repos_propios() debe lanzar ConfigRota para {valores!r}")
+
+
+CINCO_HOOKS = ["verificar_capa", "guard_comandos", "revisar_turno", "writer_guard", "writer_stop"]
+
+
+def test_los_hooks_que_se_pueden_apagar_son_los_cinco_scripts_registrados_en_los_tres_hosts():
+    assert list(m().HOOKS) == CINCO_HOOKS, m().HOOKS
+    for archivo in ("hooks.json", "hooks.codex.json", "hooks.pi.json"):
+        texto = (AQUI.parent / "hooks" / archivo).read_text(encoding="utf-8")
+        registrados = {Path(nombre).stem for nombre in re.findall(r"[a-z_]+\.py", texto)}
+        assert registrados == set(CINCO_HOOKS), (archivo, registrados)
+
+
+def test_sin_disabled_hooks_no_se_apaga_ninguno():
+    assert m().hooks_apagados_de({}) == []
+    with Instancia() as i:
+        assert m().hooks_apagados(i.raiz) == []
+        assert not [nombre for nombre in CINCO_HOOKS if m().hook_apagado(i.raiz, nombre)]
+
+
+def test_disabled_hooks_valido_apaga_solo_los_que_nombra_en_su_orden():
+    for valor in ([], ["guard_comandos"], ["writer_stop", "verificar_capa"], list(CINCO_HOOKS), list(reversed(CINCO_HOOKS))):
+        assert m().hooks_apagados_de({"disabled_hooks": list(valor)}) == valor, valor
+        with Instancia(config=con_clave("disabled_hooks", list(valor))) as i:
+            assert m().hooks_apagados(i.raiz) == valor, valor
+            apagados = [nombre for nombre in CINCO_HOOKS if m().hook_apagado(i.raiz, nombre)]
+            assert apagados == [nombre for nombre in CINCO_HOOKS if nombre in valor], (valor, apagados)
+
+
+def test_disabled_hooks_invalido_es_rota_y_no_apaga_ninguno():
+    malos = ("guard_comandos", None, 3, True, {"guard_comandos": True}, [1], [None], [["guard_comandos"]], ["guard-comandos"],
+             ["guard_comandos.py"], ["Guard_comandos"], [" guard_comandos"], ["recibo"], ["guard_comandos", "guard_comandos"],
+             ["guard_comandos", 2])
+    for malo in malos:
+        try:
+            m().hooks_apagados_de({"disabled_hooks": malo})
+        except m().ConfigRota as error:
+            assert str(error).startswith("disabled_hooks"), (malo, str(error))
+        else:
+            raise AssertionError(f"hooks_apagados_de() debe lanzar ConfigRota para {malo!r}")
+        with Instancia(config=con_clave("disabled_hooks", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().hooks_apagados(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"hooks_apagados() debe lanzar ConfigRota para {malo!r}")
+            assert not [nombre for nombre in CINCO_HOOKS if m().hook_apagado(i.raiz, nombre)], malo
+
+
+def test_cargar_ignora_disabled_hooks_y_hook_apagado_lee_solo_la_clave_y_la_version():
+    with Instancia(config=con_clave("disabled_hooks", ["guard_comandos"])) as i:
+        cargada = m().cargar(i.raiz)
+        (i.raiz / "workspace.config.json").write_text(json.dumps(config_valida()), encoding="utf-8")
+        assert "disabled_hooks" not in cargada and cargada == m().cargar(i.raiz), cargada
+    with Instancia(config=con_clave("disabled_hooks", ["guard_comandos"]), local=False) as i:
+        assert m().estado(i.raiz).tipo == "rota"
+        assert m().hook_apagado(i.raiz, "guard_comandos") is True
+    config = con_clave("disabled_hooks", ["guard_comandos"])
+    config["schema_version"] = 2
+    with Instancia(config=config) as i:
+        assert m().hook_apagado(i.raiz, "guard_comandos") is False
+    with Instancia(config='{"schema_version": 1, "disabled_hooks": ["guard_comandos"]') as i:
+        assert m().hook_apagado(i.raiz, "guard_comandos") is False
+    with Instancia(config=False) as i:
+        assert m().hook_apagado(i.raiz, "guard_comandos") is False
+
+
+def test_sin_profile_el_perfil_es_completo():
+    assert (m().COMPLETO, m().CONTROLES, m().CLAVE_DE_PERFIL) == ("completo", "controles", "profile")
+    assert m().perfil_de({}) == "completo"
+    with Instancia() as i:
+        assert m().perfil(i.raiz) == "completo"
+        assert m().es_controles(i.raiz) is False
+
+
+def test_profile_valido_se_devuelve_tal_cual():
+    for valor in ("completo", "controles"):
+        assert m().perfil_de({"profile": valor}) == valor
+        with Instancia(config=con_clave("profile", valor)) as i:
+            assert m().perfil(i.raiz) == valor
+            assert m().es_controles(i.raiz) is (valor == "controles"), valor
+
+
+def test_profile_invalido_es_rota_y_no_es_controles():
+    for malo in ("Controles", "control", " controles", "", None, 1, True, ["controles"], {"controles": True}):
+        try:
+            m().perfil_de({"profile": malo})
+        except m().ConfigRota as error:
+            assert str(error).startswith("profile") and "completo" in str(error) and "controles" in str(error), (malo, str(error))
+        else:
+            raise AssertionError(f"perfil_de() debe lanzar ConfigRota para {malo!r}")
+        with Instancia(config=con_clave("profile", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().perfil(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"perfil() debe lanzar ConfigRota para {malo!r}")
+            assert m().es_controles(i.raiz) is False, malo
+
+
+def test_cargar_ignora_profile_y_es_controles_lee_solo_la_clave_y_la_version():
+    with Instancia(config=con_clave("profile", "controles")) as i:
+        cargada = m().cargar(i.raiz)
+        (i.raiz / "workspace.config.json").write_text(json.dumps(config_valida()), encoding="utf-8")
+        assert "profile" not in cargada and cargada == m().cargar(i.raiz), cargada
+    with Instancia(config=con_clave("profile", "controles"), local=False) as i:
+        assert m().estado(i.raiz).tipo == "rota"
+        assert m().es_controles(i.raiz) is True
+    config = con_clave("profile", "controles")
+    config["schema_version"] = 2
+    with Instancia(config=config) as i:
+        assert m().es_controles(i.raiz) is False
+    with Instancia(config='{"schema_version": 1, "profile": "controles"') as i:
+        assert m().es_controles(i.raiz) is False
+    with Instancia(config=False) as i:
+        assert m().es_controles(i.raiz) is False
+    assert m().es_controles(None) is False
+
+
+SKILLS = AQUI.parent / "skills"
+GUARDA_DE_CONTROLES = "**Perfil `controles`.**"
+
+
+def test_las_skills_que_no_aplican_en_controles_lo_dicen_antes_de_su_primer_paso():
+    clave = f'"{m().CLAVE_DE_PERFIL}": "{m().CONTROLES}"'
+    for nombre in ("revisar", "abrir", "cerrar", "eval-reviewers"):
+        lineas = (SKILLS / nombre / "SKILL.md").read_text(encoding="utf-8").split("\n")
+        guardas = [n for n, linea in enumerate(lineas) if linea.startswith(GUARDA_DE_CONTROLES)]
+        assert len(guardas) == 1, (nombre, guardas)
+        guarda = lineas[guardas[0]]
+        primera_seccion = next(n for n, linea in enumerate(lineas) if linea.startswith("## "))
+        assert guardas[0] < primera_seccion, (nombre, guardas[0], primera_seccion)
+        for pedazo in (clave, m().NOMBRE, "no aplica", "pará"):
+            assert pedazo in guarda, (nombre, pedazo, guarda)
+    cerrar = next(linea for linea in (SKILLS / "cerrar" / "SKILL.md").read_text(encoding="utf-8").split("\n")
+                  if linea.startswith(GUARDA_DE_CONTROLES))
+    assert "memorias" in cerrar and "/odd-ws:cerrar memorias" in cerrar, cerrar
+    for nombre in ("bootstrap", "doctor", "conocimiento", "enlaces", "paquetes"):
+        texto = (SKILLS / nombre / "SKILL.md").read_text(encoding="utf-8")
+        assert GUARDA_DE_CONTROLES not in texto, nombre
 
 
 def main():
