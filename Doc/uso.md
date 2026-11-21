@@ -121,6 +121,7 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 - **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan agrupado por capa, con aparte las líneas que piden atención. Solo con tu sí escribe.
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.
+- **El perfil.** La propuesta trae una fila más, el perfil, en `completo`: la plantilla entera. Si le dices que ya tienes tu propia orquestación o revisión (por ejemplo, gentle-ai con su RDD), la pasa a `controles`, que trae solo los guards, las reglas por capa y el doctor. Ver [El perfil `controles`](#el-perfil-controles).
 - **El prefijo de los tickets.** Si no usas un tracker (Jira, Azure Boards, GitHub Issues, Linear…), la clave `tickets` fija el prefijo de los ids: `"tickets": {"prefix": "T"}`. Con ella, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) sin preguntarte. El bootstrap te pregunta si usas uno.
 - **Hace el primer commit.** Con los archivos que creó, con el hook ya marcado como ejecutable, y nunca hace push. `workspace.local.json` nunca entra, porque tiene las rutas de tu máquina. También suma lo que ya estaba sin trackear y es de la instancia: el `.claude/settings.json` igual al que escribe el bootstrap (el que deja `claude plugin install --scope project`) y el `.code-workspace` de la raíz con rutas relativas. Lo que no entra lo dice con su motivo (`no entró al commit …`), por ejemplo un `settings.json` con otro contenido o un `.code-workspace` con una ruta absoluta: si es tuyo, lo commiteas tú. Si prefieres aprobar cada commit, pon `"ask_before_commit": true` en `workspace.config.json`: entonces no commitea y te dice qué hacer.
 - **Termina con el doctor y el siguiente paso:** abrir tu primer ticket con `/odd-ws:abrir`. La matriz arranca vacía y se llena al cerrar tickets; para no arrancar de cero, `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`. Si tu repo ya tiene reglas escritas (su `CLAUDE.md`, sus gotchas, sus docs), te propone que el primer ticket sea sembrarlas: leerlas, anotarlas en la bitácora con su archivo y su commit, y graduarlas con `/odd-ws:cerrar`.
@@ -133,6 +134,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - Arregla de a un ítem, solo con tu sí (`doctor.py --arreglar <id>`).
 - **Las extensiones sin capa (`capas-cobertura`).** Te avisa qué extensiones versionadas de tus repos no cubre ninguna capa, porque un cambio en esos archivos lleva el triaje de `/odd-ws:revisar` a modo `completo`. Si son del mismo lenguaje que una capa (`.mjs` en una capa `ts`), súmalas a sus `extensions`. El mismo aviso lo repiten el triaje, cada vez que un archivo sin capa está entre sus motivos, y `/odd-ws:abrir`, cuando la instancia tiene extensiones versionadas sin capa.
 - **Los hooks apagados (`hooks-apagados`).** Si la clave `disabled_hooks` de `workspace.config.json` apaga alguno de los cinco hooks (`"disabled_hooks": ["revisar_turno"]`), te avisa con su nombre, y con el riesgo si es `guard_comandos`. No tiene arreglo: para prenderlo, lo sacas de la lista. Un valor inválido no apaga ninguno y sale como FALTA en el ítem `config`. Cómo y cuándo apagar uno, en [Hooks](hooks.md#apagar-un-hook).
+- **Con el perfil `controles`,** `writers` sale una sola vez, en NO APLICA, y `rdd` cambia de sentido: encendido es OK, porque es tu revisión, y apagado es AVISO. Si el `CLAUDE.md` raíz sigue siendo el reducido y la instancia ya no es `controles`, te avisa en el ítem `perfil`. Ver [El perfil `controles`](#el-perfil-controles).
 - Revisa cada CLI solo si la instancia lo declara en `hosts` (sin la clave, Claude Code). Con `codex` suma la versión de Codex (0.144 o más), el plugin instalado y habilitado, la confianza de los hooks y del proyecto, `.codex/config.toml` y que cada `.codex/agents/<agente>.toml` sea el que sale de su `.md` (`codex-agentes`), además de `hooks-host`, que ningún hook lleve un `--host` desconocido, vacío o de otro host. No escribe en la carpeta de Codex, y no verifica que el hash de la confianza siga fresco.
 - **Sumar Codex a una instancia que ya existe:** agrega `"codex"` a `hosts` y corre `doctor.py --arreglar codex-config` y `doctor.py --arreglar codex-agentes`. Los TOML salen de los `.md` de `.claude/agents`, con su `description` y sus bloques; uno editado a mano queda en AVISO y no se pisa.
 - Sin el plugin instalado, se corre desde un clon: `python3 plugin/scripts/doctor.py`.
@@ -276,3 +278,20 @@ Cómo se escribe un paquete, qué revisa el doctor y por qué funciona así: [Pa
 No los genera: la carpeta de docs de `knowledge`, el estado de ejecución (`.claude/estado/`, ignorado por git) ni las carpetas `revision/` de cada ticket.
 
 Las reglas de cada capa se escriben después, en la instancia: ver [Capas y reglas propias](capas-y-reglas.md).
+
+## El perfil `controles`
+
+Si ya trabajas con gentle-ai completo, con su orquestación y su RDD, puedes instalar solo los controles de `odd-ws`: los guards, las reglas por capa y el doctor, sin `/odd-ws:revisar`, recibos, tickets ni writers. Se elige con una clave de `workspace.config.json`:
+
+```json
+"profile": "controles"
+```
+
+- **Lo que genera:** la config y `.gitignore`; la matriz, la evidencia y el chequeo y la prueba de cada capa; la skill `capa-<capa>` de cada capa, de donde los hooks leen los no-negociables; el pre-commit, `.gitattributes`, `.claude/settings.json`, `git init` y `core.hooksPath`; y `.codex/config.toml`, si declaras Codex. El `CLAUDE.md` es uno reducido, de unas 45 líneas.
+- **Lo que no genera:** los writers, los revisores, `revisor-diseno` ni `criterios`, ni sus derivados de Codex y Pi, ni `tickets/_plantilla/`.
+- **Los hooks son los mismos** y ninguno se apaga por el perfil (ver [Hooks](hooks.md#apagar-un-hook)).
+- **Las skills que no aplican** (`/odd-ws:abrir`, `/odd-ws:cerrar` en su modo normal, `/odd-ws:revisar` y `/odd-ws:eval-reviewers`) lo dicen y no corren. Las reglas nacen con `/odd-ws:cerrar memorias`, que sí corre, y con `/odd-ws:paquetes`.
+- **La revisión es la de tu herramienta.** El doctor no te propone apagar el RDD de gentle-ai: encendido es OK, y apagado es AVISO, porque la instancia queda sin revisión. `writers` sale en NO APLICA.
+- **Sin la clave** el perfil es `completo`, y una instancia que ya existía no cambia. Un valor que no sea `completo` ni `controles` lo rechaza el bootstrap, y el doctor lo marca como FALTA en el ítem `config`.
+- **Pasar a completo:** quita `"profile": "controles"`, borra el `CLAUDE.md` reducido si no lo editaste y corre `/odd-ws:bootstrap`, que completa lo que falta sin pisar nada. Si no lo borras, el bootstrap no lo reemplaza, y el doctor te avisa en el ítem `perfil`.
+- **Bajar de completo a `controles` no se soporta** en esta versión: el bootstrap no borra nada, así que los writers, los revisores, los tickets y el `CLAUDE.md` completo quedan.

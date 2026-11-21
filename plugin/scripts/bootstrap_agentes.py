@@ -41,6 +41,11 @@ def _hosts_de(spec):
     return config_loader.hosts_de(config if isinstance(config, dict) else {})
 
 
+def _completo(spec):
+    config = spec.get("config") if isinstance(spec, dict) else None
+    return config_loader.perfil_de(config if isinstance(config, dict) else {}) == config_loader.COMPLETO
+
+
 def _sustituir(ruta, capa, fecha):
     texto = plantilla_writer.leer_plantilla(ruta)
     return texto.replace("{{capa}}", capa).replace("{{fecha}}", fecha)
@@ -88,14 +93,17 @@ def generar(spec, hoy=None):
     fecha = _fecha(hoy)
     acciones = []
     por_capa = _capas_de(spec)
+    completo = _completo(spec)
     for capa in por_capa:
-        acciones.append((capas.writer(capa), plantilla_writer.generar(capa)))
-        acciones.append((capas.revisor(capa), generar_revisor(capa)))
+        if completo:
+            acciones.append((capas.writer(capa), plantilla_writer.generar(capa)))
+            acciones.append((capas.revisor(capa), generar_revisor(capa)))
         acciones.append((capas.skill(capa), _sustituir(PLANTILLA_CAPA, capa, fecha)))
-    if por_capa:
+    if completo and por_capa:
         acciones.append((capas.REVISOR_DISENO, generar_revisor_diseno()))
-    acciones.append((capas.CRITERIOS_SKILL, _sustituir(PLANTILLA_CRITERIOS, "", fecha)))
+    if completo:
+        acciones.append((capas.CRITERIOS_SKILL, _sustituir(PLANTILLA_CRITERIOS, "", fecha)))
     for host in _hosts_de(spec):
-        agentes = [plantilla_writer.agente(texto) for texto in _armados(por_capa, host)]
+        agentes = [plantilla_writer.agente(texto) for texto in _armados(por_capa if completo else [], host)]
         acciones.extend(_accion(archivo) for archivo in hosts.adaptador(host).archivos(agentes))
     return acciones

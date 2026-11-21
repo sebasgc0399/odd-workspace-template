@@ -18,6 +18,8 @@ Arma una spec en JSON y se la pasa a un script determinista, `bootstrap.py`, que
   - La spec lleva esa config **tal cual**, y como `local` lo que diga `workspace.local.json`, sin `plugin_root`.
   - Proponé solo lo que no está en la config: el nombre del proyecto.
   - No la cambies para que la spec pase. La config es del usuario y el script no la reescribe.
+- **Pasar de `controles` a completo.** Si la config ya no tiene `profile` y el `CLAUDE.md` raíz es el reducido (tiene la línea `<!-- odd-ws:perfil controles -->`), el usuario está pasando a completo. Antes del ensayo, decile que lo borre si no lo editó: el script no lo reemplaza, y sin borrarlo la instancia queda con el reducido y el doctor lo avisa. Si lo editó, que lo borre igual y pase sus cambios al completo después. El resto (writers, revisores, criterios y la plantilla del ticket) lo completa el script sin pisar nada.
+- **Bajar de completo a `controles` no se soporta** en esta versión: si la config de una instancia completa pasa a `"profile": "controles"`, el script no borra nada, y los writers, los revisores, los tickets y el `CLAUDE.md` completo quedan.
 
 ## 2. Detectar (instancia nueva)
 
@@ -51,6 +53,7 @@ Armá la propuesta completa en una tabla. Cada término que aparezca lleva su ex
 - **El molde** (`defaults.mold_source`): `repo` quiere decir que los revisores comparan cada cambio contra el código que ya está en el repo; `propio`, que la instancia va a tener sus propios moldes. Proponé `repo`.
 - **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), proponé un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo.
 - **Los commits.** En la instancia, el agente commitea sin pedir aprobación: el primer commit lo hace este script, y los siguientes, las skills. Con `"ask_before_commit": true`, pide el sí antes de cada uno. Proponé dejarlo sin la clave.
+- **El perfil** (`profile`): `completo` es la plantilla entera, con tickets, writers, revisores y recibos; `controles` trae solo los guards, las reglas por capa y el doctor, para quien ya tiene su propia orquestación o revisión (por ejemplo, gentle-ai con su RDD). Proponé `completo`, y pasá a `controles` si el usuario dice que ya tiene su propia orquestación o revisión. En `completo` la spec no lleva la clave; en `controles` va dentro de `config` como `"profile": "controles"`, una capa cuesta solo su skill y su regla, y la fila de los tickets no va.
 
 `knowledge` y `hosts` son opcionales: sumalas solo si el usuario las menciona. `hosts` dice en qué CLI se trabaja la instancia (sin ella, solo Claude Code); el plugin conoce `claude-code`, `codex` y `pi`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`.
 
@@ -89,7 +92,7 @@ En la raíz de un repo de código, y solo si el usuario la eligió (paso 2), el 
 Mostralo **agrupado**, no línea por línea:
 
 - por capa: su writer, su revisor, su skill, su regla y la prueba de la regla;
-- lo común: la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md`, la plantilla del ticket, el revisor de diseño, los criterios, la matriz, la evidencia, los `settings.json` y el `pre-commit`;
+- lo común: la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md`, la plantilla del ticket, el revisor de diseño, los criterios, la matriz, la evidencia, los `settings.json` y el `pre-commit`. En `controles` no salen los writers, los revisores, el revisor de diseño, los criterios ni la plantilla del ticket, ni sus derivados de Codex y Pi, y el `CLAUDE.md` es el reducido;
 - git: `git init`, `core.hooksPath` y el primer commit;
 - **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …`, `no entraría al commit …` y `no se crearía …`.
 
@@ -129,6 +132,7 @@ Cerrá con lo que sigue, en pocas líneas:
 - **Que la matriz esté vacía es lo normal.** Las reglas nacen al cerrar tickets: `/odd-ws:cerrar` gradúa lo aprendido. No las cargues a mano ahora.
 - **Dos atajos:** `/odd-ws:cerrar memorias` pasa a la matriz las reglas que ya están en las memorias del proyecto (las de la instancia y las de cada repo), y `/odd-ws:paquetes` trae las reglas de una capa desde otro repo git.
 - **Si el repo ya tiene reglas escritas** (su `CLAUDE.md`, una carpeta de gotchas, sus docs o sus propios agentes), proponé que el primer ticket sea **sembrarlas**: abrir un ticket «sembrar las reglas de <capa>», leer esas fuentes y anotar en la bitácora cada regla con su archivo y el commit del repo, para graduarlas al cerrarlo con `/odd-ws:cerrar`. La matriz cita la bitácora del ticket, porque un archivo de un repo de código no se puede citar directo como origen.
+- **En `controles`, lo de los tickets no aplica:** no hay `/odd-ws:abrir` ni cierre de tickets. Las reglas nacen con `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`, y la revisión sigue siendo la de la herramienta del usuario (el doctor avisa si su RDD está apagado).
 
 ## Reglas
 

@@ -137,9 +137,11 @@ SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, 
                 "falta, pídele al usuario que lo corra él.")
 VERSION_MINIMA = (1, 5, 0)
 VERSION_DE_LA_COMPUERTA = (0, 87, 0)
-SIN_COMPUERTA = ("no existe agent_before_settle (CHANGELOG de Pi, 0.87.0: «Added actionable `turn_end` and `agent_before_settle` "
-                 "extension boundaries»), así que la compuerta de cierre del writer no corre y el writer cierra sin ella, y la "
+SIN_AGENT_BEFORE_SETTLE = ("no existe agent_before_settle (CHANGELOG de Pi, 0.87.0: «Added actionable `turn_end` and "
+                           "`agent_before_settle` extension boundaries»), así que ")
+SIN_COMPUERTA = (SIN_AGENT_BEFORE_SETTLE + "la compuerta de cierre del writer no corre y el writer cierra sin ella, y la "
                  "revisión del fin del turno del agente principal tampoco corre")
+SIN_COMPUERTA_EN_CONTROLES = SIN_AGENT_BEFORE_SETTLE + "la revisión del fin del turno del agente principal no corre"
 USOS = ("odd-ws usa agent_before_settle (desde 0.87.0), appendSystemPrompt de systemPromptOptions en before_agent_start (desde "
         "0.68.0), resources_discover (desde 0.50.8) e isProjectTrusted (desde 0.79.1, y Pi respeta un «Do not trust» guardado recién "
         "desde 1.5.0)")
@@ -150,6 +152,9 @@ SIN_GENTLE_SHELL = ("con Pi a secas no hay subagentes, así que un writer corre 
 AYUDA_GENTLE_SHELL = ("Instalá gentle-shell (npm i -g gentle-pi) y abrí la instancia con gentle-shell desde su raíz, que es donde lee "
                       ".pi/agents. Pi a secas también sirve, pero sin writers.")
 AYUDA_SUBCARPETA = "Con gentle-shell, los writers solo existen si la instancia es la raíz de su repo git: haz de la instancia la raíz de uno."
+SIN_GENTLE_SHELL_EN_CONTROLES = "el perfil controles no lo necesita: Pi a secas corre todos sus hooks"
+AYUDA_GENTLE_SHELL_EN_CONTROLES = ("Si usás gentle-shell, reinstalalo o actualizalo (npm i -g gentle-pi). El perfil controles no lo "
+                                   "necesita: Pi a secas corre todos sus hooks.")
 AYUDA_PAQUETE = ("Instalá el paquete de odd-ws en el home activo, con gentle-shell install <fuente> (o pi install <fuente> con Pi a "
                  "secas): la fuente es git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>, o la raíz de un clon "
                  "del repositorio, no su carpeta plugin/. odd-ws no está en npm. El doctor no escribe en los homes de Pi.")
@@ -479,21 +484,22 @@ def _gentle_shell(ctx, nucleo):
     return GentleShell(ruta, codigo, salida, nucleo.leer_version(tras("gentle-shell ")), tras("pi "), modo, home)
 
 
-def _segun_la_version(numero, nucleo, cual=""):
+def _segun_la_version(numero, nucleo, cual="", controles=False):
     texto = nucleo.texto_version(numero) + cual
     if numero < VERSION_DE_LA_COMPUERTA:
-        return nucleo.FALTA, f"{texto}, menor que {nucleo.texto_version(VERSION_DE_LA_COMPUERTA)}: {SIN_COMPUERTA}"
+        sin_compuerta = SIN_COMPUERTA_EN_CONTROLES if controles else SIN_COMPUERTA
+        return nucleo.FALTA, f"{texto}, menor que {nucleo.texto_version(VERSION_DE_LA_COMPUERTA)}: {sin_compuerta}"
     if numero < VERSION_MINIMA:
         return nucleo.AVISO, f"{texto}, menor que {nucleo.texto_version(VERSION_MINIMA)}: {USOS}"
     return nucleo.OK, texto
 
 
-def _item_de_version(numero, nucleo, cual=""):
-    estado, detalle = _segun_la_version(numero, nucleo, cual)
+def _item_de_version(numero, nucleo, cual="", controles=False):
+    estado, detalle = _segun_la_version(numero, nucleo, cual, controles)
     return nucleo.resultado(ID_VERSION, estado, detalle, None, "" if estado == nucleo.OK else AYUDA_PI)
 
 
-def _de_gentle_shell(ctx, nucleo, ausente):
+def _de_gentle_shell(ctx, nucleo, ausente, controles):
     gentle = _gentle_shell(ctx, nucleo)
     if gentle.codigo not in (None, 0):
         primera = nucleo.primera_linea(gentle.salida)[:80] or "(vacío)"
@@ -501,26 +507,35 @@ def _de_gentle_shell(ctx, nucleo, ausente):
     numero = nucleo.leer_version(gentle.pi) if gentle.codigo == 0 else None
     if numero is None:
         return ausente, False
-    return _item_de_version(numero, nucleo, DEL_GENTLE_SHELL), True
+    return _item_de_version(numero, nucleo, DEL_GENTLE_SHELL, controles), True
+
+
+def _controles(raiz):
+    import config_loader
+
+    return config_loader.es_controles(raiz)
 
 
 def version(ctx, nucleo):
+    controles = _controles(nucleo.raiz_de_instancia(ctx))
     ruta = ctx.which("pi")
     resultado, instalado = nucleo.chequear_version(ctx, ID_VERSION, [ruta or "pi", "--version"], VERSION_MINIMA, AYUDA_PI)
     if not instalado and ruta:
         return resultado._replace(detalle=f"{ruta} no se pudo ejecutar"), False
     if not instalado:
-        return _de_gentle_shell(ctx, nucleo, resultado)
+        return _de_gentle_shell(ctx, nucleo, resultado, controles)
     if resultado.estado == nucleo.AVISO:
         return resultado, True
-    return _item_de_version(nucleo.leer_version(resultado.detalle), nucleo), True
+    return _item_de_version(nucleo.leer_version(resultado.detalle), nucleo, controles=controles), True
 
 
 def chequeos(ctx, raiz, nucleo, cli):
     resultados = []
+    controles = _controles(raiz)
     if cli == nucleo.CLI_INSTALADO:
         gentle = _gentle_shell(ctx, nucleo)
-        resultados += [_en_subcarpeta(ctx, raiz, nucleo, _item_gentle_shell(gentle, nucleo)), _paquete(ctx, raiz, nucleo, gentle)]
+        item = _item_gentle_shell(gentle, nucleo, controles)
+        resultados += [item if controles else _en_subcarpeta(ctx, raiz, nucleo, item), _paquete(ctx, raiz, nucleo, gentle)]
         if raiz is not None:
             resultados.append(_confianza(ctx, Path(raiz), nucleo, gentle))
     else:
@@ -544,22 +559,25 @@ def _en_subcarpeta(ctx, raiz, nucleo, item):
                          ayuda=(item.ayuda + " " if item.ayuda else "") + AYUDA_SUBCARPETA)
 
 
-def _item_gentle_shell(gentle, nucleo):
+def _item_gentle_shell(gentle, nucleo, controles=False):
     id = ID_GENTLE_SHELL
+    ayuda = AYUDA_GENTLE_SHELL_EN_CONTROLES if controles else AYUDA_GENTLE_SHELL
     if gentle.codigo is None:
         quien = f"{gentle.ruta} no se pudo ejecutar" if gentle.ruta else "gentle-shell no está instalado"
-        return nucleo.resultado(id, nucleo.AVISO, f"{quien}: {SIN_GENTLE_SHELL}", None, AYUDA_GENTLE_SHELL)
+        if controles:
+            return nucleo.resultado(id, nucleo.NO_APLICA, f"{quien}; {SIN_GENTLE_SHELL_EN_CONTROLES}")
+        return nucleo.resultado(id, nucleo.AVISO, f"{quien}: {SIN_GENTLE_SHELL}", None, ayuda)
     primera = nucleo.primera_linea(gentle.salida)[:80] or "(vacío)"
     if gentle.codigo != 0:
-        return nucleo.resultado(id, nucleo.AVISO, f"gentle-shell --version sale con {gentle.codigo}: {primera}", None, AYUDA_GENTLE_SHELL)
+        return nucleo.resultado(id, nucleo.AVISO, f"gentle-shell --version sale con {gentle.codigo}: {primera}", None, ayuda)
     if gentle.version is None or gentle.home is None:
         return nucleo.resultado(id, nucleo.AVISO, f"no se pudo leer la versión y el home de gentle-shell --version: {primera}", None,
-                                AYUDA_GENTLE_SHELL)
+                                ayuda)
     propia = nucleo.texto_version(gentle.version)
     numero = nucleo.leer_version(gentle.pi)
     if numero is None:
         return nucleo.resultado(id, nucleo.AVISO, f"gentle-shell {propia} no encuentra Pi (pi {gentle.pi or '(vacío)'})", None, AYUDA_PI)
-    estado, detalle = _segun_la_version(numero, nucleo)
+    estado, detalle = _segun_la_version(numero, nucleo, controles=controles)
     if estado != nucleo.OK:
         return nucleo.resultado(id, estado, f"gentle-shell {propia} corre pi {detalle}", None, AYUDA_PI)
     return nucleo.resultado(id, nucleo.OK, f"{propia}, con pi {nucleo.texto_version(numero)} y el home {gentle.modo} {gentle.home}")

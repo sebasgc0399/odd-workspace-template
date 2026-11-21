@@ -4,12 +4,14 @@ sys.dont_write_bytecode = True
 
 from pathlib import Path
 
+import config_loader
 from odd_ws import capas as convencion
 
 CLAVES = ("proyecto",)
 CLAVES_DEL_PROYECTO = ("nombre",)
 PLANTILLAS = Path(__file__).resolve().parent.parent / "plantillas"
 PLANTILLA_INDICE = "CLAUDE.md"
+PLANTILLA_INDICE_DE_CONTROLES = "CLAUDE.controles.md"
 PLANTILLA_TICKET = "ticket.md"
 
 
@@ -39,5 +41,8 @@ def _plantilla(nombre):
 
 
 def generar(spec):
-    indice = _plantilla(PLANTILLA_INDICE).replace("{{tickets}}", convencion.TICKETS).replace("{{nombre}}", spec["proyecto"]["nombre"])
+    nombre = spec["proyecto"]["nombre"]
+    if config_loader.perfil_de(spec["config"]) == config_loader.CONTROLES:
+        return [(convencion.INDICE, _plantilla(PLANTILLA_INDICE_DE_CONTROLES).replace("{{nombre}}", nombre))]
+    indice = _plantilla(PLANTILLA_INDICE).replace("{{tickets}}", convencion.TICKETS).replace("{{nombre}}", nombre)
     return [(convencion.INDICE, indice), (convencion.TICKET_PLANTILLA, _plantilla(PLANTILLA_TICKET))]

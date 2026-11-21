@@ -10,6 +10,8 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 
 **Con el argumento `memorias`** (`/odd-ws:cerrar memorias`; en Codex, `$cerrar memorias`) no se cierra ningún ticket: seguí el «Modo memorias», al final, y no los pasos 1 a 10.
 
+**Perfil `controles`.** Antes de nada, leé `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"` y no vino el argumento `memorias`, el cierre de un ticket no aplica, porque esa instancia no tiene tickets. Decilo en una línea, recordá que `/odd-ws:cerrar memorias` sí corre ahí, porque es por donde nacen sus reglas, y pará. Con `memorias`, seguí el «Modo memorias» como en cualquier instancia.
+
 ## Reglas duras
 
 1. **Nada se escribe antes del sí** a la propuesta del paso 4. Mostrar primero, escribir después.
@@ -223,6 +225,7 @@ El cierre gradúa cuando el conocimiento está verificado, no cuando el código 
 3. **El slug viaja en el `origen`.** Si el nombre del archivo trae el nombre de una persona o algo que no debe salir de la máquina, no la gradúes. Decilo en la propuesta, con dos salidas: que el usuario renombre la memoria (el archivo está fuera de la instancia, así que lo renombra él, con su link en `MEMORY.md`) y vuelva a correr el modo, o que quede como `vista`. Nunca inventes otro slug para el `origen`. Lo mismo si el slug tiene algo que no sea letra, dígito, `_`, `.` o `-`, porque `matriz.py` no lo acepta.
 4. **La propuesta muestra exactamente lo que va a quedar escrito:** la fila con todos sus campos, el texto de la regla en su destino y la entrada de `evidencia.md`.
 5. **Esta revisión es la única barrera.** La matriz viaja en el repo de la instancia, y ahí no corre ningún barrido de confidencialidad.
+6. **En una instancia con `"profile": "controles"` no hay revisores ni `criterios`:** el destino de una fila es `chequeo`, `pasiva`, `skill`, `evidencia` o `descarte`, nunca `reviewer-PR` ni `criterios`.
 
 ### M1. Correr `memorias.py`
 

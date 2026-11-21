@@ -36,8 +36,8 @@ Origen: la I62 del roadmap, tal cual: «Instalar solo los controles: guards, reg
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T1 | S6, S8 | La I5: `disabled_hooks` en `config_loader`, en los cinco hooks y en el ítem `hooks-apagados` del doctor | delegada a un writer, por el respaldo de contexto del padre y para avanzar en paralelo con la entrega de la `0.11.0`. Risk: item 2, porque es un interruptor que apaga guards; lleva verificador | escrita y en verde (L3); falta el verificador | |
-| T2 | S1, S2, S3, S4, S5, S7, S8 | El perfil `controles`: la clave, los generadores, la plantilla reducida, el doctor, las skills y los docs | delegada a un writer, después de T1, porque comparte `config_loader.py` y `doctor.py` | pendiente | |
+| T1 | S6, S8 | La I5: `disabled_hooks` en `config_loader`, en los cinco hooks y en el ítem `hooks-apagados` del doctor | delegada a un writer, por el respaldo de contexto del padre y para avanzar en paralelo con la entrega de la `0.11.0`. Risk: item 2, porque es un interruptor que apaga guards; lleva verificador, al final de la feature | hecha (L3) | `9049346` |
+| T2 | S1, S2, S3, S4, S5, S7, S8 | El perfil `controles`: la clave, los generadores, la plantilla reducida, el doctor, las skills y los docs | delegada a un writer, después de T1, porque comparte `config_loader.py` y `doctor.py` | escrita y en verde (L4); el verificador va al final de la feature | |
 | T3 | todas | El verificador independiente de la feature y el cierre | inline | pendiente | |
 
 ## Log
@@ -67,3 +67,18 @@ Origen: la I62 del roadmap, tal cual: «Instalar solo los controles: guards, reg
     - Un nombre repetido es inválido, y una lista vacía es válida.
   - **Para T2:** no cambiar el conjunto de ids de `chequear_instancia` sin actualizar ese test. El CHANGELOG y el README van con la entrega.
   - **Scratch del writer, a borrar a mano:** `%TEMP%	mp.Eav07ZDPhh`.
+- **L4** (2026-11-20) T2, el perfil `controles`, escrita por un writer en `i62`. Son +638/−36 en 25 archivos, más la plantilla nueva `CLAUDE.controles.md` (47 líneas).
+  - **La clave y su lectura:** `config_loader` suma `PERFILES`, `perfil_de`, `perfil` y `es_controles`, este último tolerante: ante una config rota devuelve `False`. Los generadores leen el perfil de la spec, y el doctor y Pi con `es_controles`.
+  - **Los generadores:** `agentes` deja solo `capa-<capa>` y les pasa una lista vacía a los adaptadores, así que Codex queda con su `config.toml` y Pi sin nada. `textos` escribe el `CLAUDE.md` reducido, sin la plantilla de tickets, e `instalacion` saltea el `settings.json` de la plantilla.
+  - **El doctor:** `writers` es un solo NO APLICA. `rdd` encendido es OK, y apagado o ilegible es AVISO sin arreglo. `capas-cobertura` lleva una ayuda sin `revisar`. El ítem nuevo `perfil` es condicional: aparece solo si la marca `<!-- odd-ws:perfil controles -->` sigue en el `CLAUDE.md` raíz con el perfil `completo`. Los ítems de Pi no hablan de writers.
+  - **Las skills:** una línea de guarda en `revisar`, `abrir`, `cerrar` y `eval-reviewers`. El bootstrap suma la fila del perfil y el paso a completo.
+  - **Las suites:** `config_loader` 105/105, `bootstrap` 186/186, `bootstrap_agentes` 56/56, `bootstrap_textos` 33/33, `bootstrap_instalacion` 14/14, `bootstrap_reglas` 22/22, `bootstrap_e2e` 29/29, `doctor` 217/217, `pi.tests` 69/69, `codex.tests` 46/46 y el shim 68/68. Rojo observado en cada regla. El padre repitió `config_loader`: 105/105.
+  - **El diferencial sin la clave contra `9049346`:** 0 diferencias. El control positivo, con `controles`, da 10.
+  - **El chequeo del señuelo:** con `GIT_DIR` apuntando a un repo de prueba, las suites dieron verde y el señuelo quedó intacto. El control positivo lo movió.
+  - **Decisiones del writer, que el padre acepta:**
+    - Un perfil inválido es FALTA en `config`, y lo demás se comporta como `completo` hasta corregirlo.
+    - `gentle-shell` ausente es NO APLICA en `controles`.
+    - El bootstrap no pregunta por tickets en `controles`.
+    - `AYUDA_RDD_CONTROLES` dice que se encienda con el mismo `--scope` con que se apagó. El padre lo verificó con la ayuda de gentle-ai: `enable` y `disable` aceptan `--scope global|clone`.
+  - **El padre sumó** la plantilla nueva a la lista de `CONTRIBUTING.md:70`. El CHANGELOG va con la entrega.
+  - **Scratch del writer, a borrar a mano:** `%TEMP%	mp.kcgJLhhq64`, `tmp.kcgJLhhq64-red`, `diferencial-i62-tpmqzacc`, `diferencial-i62-8g4_p6f5`, `tmp.J3gi3eZ5d6` y `tmp.SS3gUehwqe`.

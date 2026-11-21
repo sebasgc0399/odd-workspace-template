@@ -24,7 +24,8 @@ DOCTOR = (
     "sys.path.insert(0, %r)\n"
     "import doctor\n"
     "ctx = doctor.Contexto()\n"
-    "filas = [doctor.chequear_plugin_root(ctx), *doctor.chequear_instancia(ctx), *doctor.chequear_writers(ctx), *doctor.chequear_agentes(ctx)]\n"
+    "filas = [doctor.chequear_plugin_root(ctx), *doctor.chequear_instancia(ctx), *doctor.chequear_perfil(ctx), *doctor.chequear_writers(ctx),\n"
+    "         *doctor.chequear_agentes(ctx)]\n"
     "print(json.dumps([[r.id, r.estado, r.detalle] for r in filas]))\n"
 ) % str(AQUI)
 LIMPIEZA = []
@@ -618,6 +619,82 @@ def test_completar_una_instancia_que_vive_en_la_raiz_de_un_repo_no_pide_confirma
     assert "creado CLAUDE.md" in salida.splitlines(), salida
     commit = lineas_de_commit(salida)
     assert len(commit) == 1 and re.fullmatch(r"commit: [0-9a-f]{7,} con 1 archivos", commit[0]), commit
+
+
+MARCA_CONTROLES = "<!-- odd-ws:perfil controles -->"
+SOLO_EN_COMPLETO = [f".claude/agents/writer-{CAPA}.md", f".claude/agents/revisor-{CAPA}.md", ".claude/agents/revisor-diseno.md",
+                    ".claude/skills/criterios/SKILL.md", "tickets/_plantilla/CLAUDE.md", "tickets/_plantilla/.claude/settings.json"]
+
+
+def spec_de_controles(caja, hosts=None):
+    spec = caja.spec()
+    spec["config"]["profile"] = "controles"
+    if hosts:
+        spec["config"]["hosts"] = hosts
+    return spec
+
+
+def archivos_de_controles():
+    return [ruta for ruta in archivos_esperados() if ruta not in SOLO_EN_COMPLETO]
+
+
+def test_una_instancia_de_controles_trae_solo_los_controles_en_los_tres_hosts_y_la_segunda_corrida_no_cambia_ningun_byte():
+    caja = Caja()
+    spec = spec_de_controles(caja, ["claude-code", "codex", "pi"])
+    codigo, salida, errores = caja.cli(spec, "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    lineas = salida.splitlines()
+    creados = {linea[len("creado "):] for linea in lineas if linea.startswith("creado ")}
+    assert creados == set(archivos_de_controles()) | {".codex/config.toml"}, sorted(creados)
+    for ausente in SOLO_EN_COMPLETO + [".claude/agents", "tickets", ".pi", ".codex/agents"]:
+        assert not (caja.raiz / ausente).exists(), ausente
+    indice = (caja.raiz / "CLAUDE.md").read_text(encoding="utf-8")
+    assert MARCA_CONTROLES in indice.split("\n") and "Proyecto Sintetico" in indice.split("\n")[0], indice
+    assert "git init: repo creado" in lineas and "core.hooksPath = .githooks: configurado (--local)" in lineas, lineas
+    commit = lineas_de_commit(salida)
+    assert len(commit) == 1 and commit[0].endswith(f"con {len(creados) - 1} archivos (el hook, ejecutable)"), commit
+    doctor = caja.doctor()
+    for id in ("plugin-root", "config", "instancia-hooks", "instancia-eol", "instancia-plugin"):
+        assert doctor[id][0] == "OK", (id, doctor[id])
+    assert [id for id in doctor if id.startswith("writer")] == ["writers"] and doctor["writers"][0] == "NO APLICA", doctor
+    assert doctor["agentes-skills"][0] == "NO APLICA" and "perfil" not in doctor, doctor
+    assert not [id for id, (estado, _) in doctor.items() if estado == "FALTA"], doctor
+    sh = localizar_sh()
+    if sh:
+        pre_commit = subprocess.run([sh, ".githooks/pre-commit"], cwd=caja.raiz, capture_output=True, env=caja.entorno, timeout=300)
+        assert pre_commit.returncode == 0 and SUITE_EN_VERDE in pre_commit.stdout + pre_commit.stderr, (pre_commit.stdout, pre_commit.stderr)
+    antes = caja.arbol()
+    codigo, salida, errores = caja.cli(spec, "--commitear", entorno=IDENTIDAD_ENV)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    assert not any(l.startswith("creado ") for l in salida.splitlines()), salida
+    assert salida.splitlines()[-1] == f"resumen: 0 creados, {len(creados)} ya existían", salida
+    assert caja.arbol() == antes and caja.git(caja.raiz, "status", "--porcelain") == ""
+
+
+def test_pasar_de_controles_a_completo_completa_lo_que_falta_sin_pisar_nada_y_el_doctor_avisa_el_indice_reducido():
+    caja = Caja()
+    assert caja.cli(spec_de_controles(caja))[0] == 0
+    antes = caja.arbol()
+    completo = caja.spec()
+    config = json.dumps(completo["config"], indent=2) + "\n"
+    (caja.raiz / "workspace.config.json").write_text(config, encoding="utf-8")
+    doctor = caja.doctor()
+    assert doctor["perfil"][0] == "AVISO" and "CLAUDE.md" in doctor["perfil"][1], doctor.get("perfil")
+    assert [id for id in doctor if id.startswith("writer")] == [f"writer-{CAPA}"] and doctor[f"writer-{CAPA}"][0] == "AVISO", doctor
+    (caja.raiz / "CLAUDE.md").unlink()
+    codigo, salida, errores = caja.cli(completo)
+    assert codigo == 0 and errores == "", (codigo, errores)
+    creados = {linea[len("creado "):] for linea in salida.splitlines() if linea.startswith("creado ")}
+    assert creados == set(SOLO_EN_COMPLETO) | {"CLAUDE.md"}, sorted(creados)
+    despues = caja.arbol()
+    for ruta, contenido in antes.items():
+        if ruta not in ("CLAUDE.md", "workspace.config.json"):
+            assert despues[ruta] == contenido, ruta
+    assert (caja.raiz / "workspace.config.json").read_text(encoding="utf-8") == config
+    assert MARCA_CONTROLES not in (caja.raiz / "CLAUDE.md").read_text(encoding="utf-8")
+    doctor = caja.doctor()
+    verificar_instancia_ok(doctor)
+    assert "perfil" not in doctor and "writers" not in doctor, doctor
 
 
 def test_el_aislamiento_de_git_dejo_vacias_las_config_global_y_del_sistema():

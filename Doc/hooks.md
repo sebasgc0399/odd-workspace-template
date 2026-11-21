@@ -45,6 +45,7 @@ Un plugin no puede quitar un hook en un solo proyecto, así que se apaga desde l
 - **Un valor inválido no apaga ninguno:** si no es una lista, o si un nombre no es de los cinco o se repite, los cinco siguen prendidos. El ítem `config` de `/odd-ws:doctor` lo marca como FALTA y el bootstrap rechaza esa config.
 - **El doctor avisa** en el ítem `hooks-apagados` mientras haya alguno apagado, con su nombre. Para prenderlo, sácalo de la lista.
 - **Apagar `guard_comandos` es el riesgo mayor:** nada frena un force push, un `reset --hard`, un `clean -f`, un borrado recursivo fuera del scratch ni la escritura por shell de un archivo de capa, y el git de escritura en un repo con `agent_readonly: true` ya no pregunta. Apágalo solo si otra herramienta cumple ese papel, por ejemplo el sandbox de tu CLI.
+- **El perfil `controles` no apaga ninguno.** Una instancia con `"profile": "controles"` corre los mismos cinco hooks, que no dependen de tickets, recibos ni de `/odd-ws:revisar`. Como no tiene writers, `writer_guard` y `writer_stop` quedan dormidos; ver [el perfil `controles`](uso.md#el-perfil-controles).
 
 ## En Codex
 

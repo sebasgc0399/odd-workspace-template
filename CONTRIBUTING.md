@@ -67,7 +67,7 @@ La sección `## <versión>` es lo que lee la comunidad en el release, así que v
 | `plugin/skills/` | Las 8 skills |
 | `plugin/hooks/hooks.json` | Los hooks del plugin |
 | `plugin/scripts/` | Los scripts de las skills y los hooks, cada uno con su `*.tests.py`. `odd_ws/` es la biblioteca que importan los hooks y las reglas de la instancia |
-| `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md`, `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
+| `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md` (o `CLAUDE.controles.md` con el perfil `controles`), `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
 | `tools/` | `barrido.py` (el barrido de confidencialidad), `entrega.py` (el chequeo de la entrega) y `notas.py` (saca del CHANGELOG las notas de una versión). Son del repo, no viajan con el plugin |
 | `.githooks/` | Los hooks de git del repo |
 | `.github/workflows/release.yml` | Publica el release de cada etiqueta `odd-ws--v*` |

@@ -53,6 +53,7 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 
 - **Con engram,** `/odd-ws:cerrar` lee las memorias del proyecto y te muestra cuáles vale la pena convertir en reglas.
 - **Con gentle-ai,** el doctor te propone apagar su revisión nativa (`rdd`) solo en el clon de la instancia, porque ahí la instancia trae revisores propios que leen el repo y las reglas de cada capa. Tus otros proyectos siguen con la revisión de gentle-ai, y el doctor nunca la apaga solo.
+- **Si prefieres quedarte con la revisión de gentle-ai,** el bootstrap te ofrece el perfil `controles`: solo los guards, las reglas por capa y el doctor, sin tickets, writers ni la revisión de `odd-ws`. Ahí no se pisan, y el doctor no te propone apagar el RDD. Ver [El perfil `controles`](Doc/uso.md#el-perfil-controles).
 
 ## Instalación
 
