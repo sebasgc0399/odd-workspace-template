@@ -37,8 +37,8 @@ Origen: la I62 del roadmap, tal cual: «Instalar solo los controles: guards, reg
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T1 | S6, S8 | La I5: `disabled_hooks` en `config_loader`, en los cinco hooks y en el ítem `hooks-apagados` del doctor | delegada a un writer, por el respaldo de contexto del padre y para avanzar en paralelo con la entrega de la `0.11.0`. Risk: item 2, porque es un interruptor que apaga guards; lleva verificador, al final de la feature | hecha (L3) | `9049346` |
-| T2 | S1, S2, S3, S4, S5, S7, S8 | El perfil `controles`: la clave, los generadores, la plantilla reducida, el doctor, las skills y los docs | delegada a un writer, después de T1, porque comparte `config_loader.py` y `doctor.py` | escrita y en verde (L4); el verificador va al final de la feature | |
-| T3 | todas | El verificador independiente de la feature y el cierre | inline | pendiente | |
+| T2 | S1, S2, S3, S4, S5, S7, S8 | El perfil `controles`: la clave, los generadores, la plantilla reducida, el doctor, las skills y los docs | delegada a un writer, después de T1, porque comparte `config_loader.py` y `doctor.py` | hecha (L4) | `b192aa5` |
+| T3 | todas | El verificador independiente de la feature y el cierre | inline | hecha: verificador PASS, sin bloqueantes (L5) | |
 
 ## Log
 
@@ -82,3 +82,18 @@ Origen: la I62 del roadmap, tal cual: «Instalar solo los controles: guards, reg
     - `AYUDA_RDD_CONTROLES` dice que se encienda con el mismo `--scope` con que se apagó. El padre lo verificó con la ayuda de gentle-ai: `enable` y `disable` aceptan `--scope global|clone`.
   - **El padre sumó** la plantilla nueva a la lista de `CONTRIBUTING.md:70`. El CHANGELOG va con la entrega.
   - **Scratch del writer, a borrar a mano:** `%TEMP%	mp.kcgJLhhq64`, `tmp.kcgJLhhq64-red`, `diferencial-i62-tpmqzacc`, `diferencial-i62-8g4_p6f5`, `tmp.J3gi3eZ5d6` y `tmp.SS3gUehwqe`.
+- **L5** (2026-11-20) El verificador independiente de toda la feature (`2ef0c3b..b192aa5`): PASS de S1 a S8, sin bloqueantes. Trabajó con copias, git aislado, stubs de `gentle-ai`, `claude`, `pi` y `gentle-shell`, y sin `--arreglar` real.
+  - **Lo que midió:**
+    - 36 payloads de hooks por subproceso, en los tres hosts: con los cinco apagados, ninguna salida y ningún cambio en disco; con uno solo, cambia solo su hook.
+    - Diez valores inválidos o de borde de `disabled_hooks`: dan lo mismo que sin la clave.
+    - El bootstrap de `controles` en los tres hosts: 13 archivos, sin writers, revisores, `criterios` ni tickets.
+    - El paso a completo, sin pisar nada.
+    - Sin las claves, todo idéntico a la base, también sobre instancias de la `0.11.0`.
+  - **Las suites:** sobre su copia, 14 suites en verde, también con `GIT_DIR` apuntando a un repo señuelo, que quedó intacto.
+  - **Los avisos, todos de redacción o anteriores:**
+    - En «Capa 1» de `Doc/diseno.md` faltaba decir que `disabled_hooks` apaga el guard aunque el resto de la config esté roto. El padre la corrigió.
+    - Un perfil con un error de tipeo es FALTA y lo demás actúa como `completo`. Es la decisión de L4.
+    - La plantilla `capa.md` nombra writers y `criterios` también en `controles`. Queda como seguimiento.
+    - `CONTRIBUTING.md` decía «8 skills», y son 9. Ya pasaba antes; el padre lo corrigió.
+  - **Las sondas que conviene volver tests:** los hooks por subproceso en los tres hosts, una foto de turno que sobrevive con `revisar_turno` apagado, el paso a completo de punta a punta, `--arreglar rdd` en `controles` que sale con 2 sin ejecutar nada, y la config rota con `guard_comandos` apagado.
+  - **Scratch del verificador, a borrar a mano:** `%TEMP%	mp.JRitMDDJ1N`.
