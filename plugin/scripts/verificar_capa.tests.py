@@ -533,6 +533,35 @@ def test_un_hallazgo_sin_modo_no_calla_el_hook_y_llega_como_aviso_con_el_motivo(
         assert lineas[1:] == ["[T-09] linea 1: sin modo (aviso: modo inválido; el módulo tiene que devolver modo aviso o bloqueo)"], lineas
 
 
+DISPUTADA = (" (aviso: disputada; se cierra borrando .claude/registro/disputas/%s.md en el commit que arregla el chequeo, "
+             "y después correr `reglas.py --calibrar web <carpeta> --guardar`)")
+DISPUTA = "Abre: Ana, con el sí del usuario\nBloqueo: %s en Core/N.cs\nPor qué: falso positivo en un comentario\n"
+
+
+def test_una_disputa_abierta_vuelve_a_aviso_y_borrarla_vuelve_a_bloquear():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        assert w.correr(evento(ruta))[0] == 2, "control: calibrada, bloquea"
+        disputa = escribir(w.raiz, ".claude/registro/disputas/T-02.md", DISPUTA % "T-02")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs" + DISPUTADA % "T-02"], lineas
+        disputa.unlink()
+        assert w.correr(evento(ruta))[0] == 2, "cerrada la disputa, vuelve a bloquear"
+
+
+def test_una_carpeta_de_disputas_ilegible_no_deja_bloquear_y_lo_dice():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        escribir(w.raiz, ".claude/registro/disputas", "no soy una carpeta")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1].endswith(" (aviso: disputas ilegibles; para que bloquee, .claude/registro/disputas tiene que ser una carpeta "
+                                  "legible, con un <ID>.md por disputa abierta)"), lineas
+
+
 def test_salida_solo_avisos_exit_0_con_additional_context():
     with Mundo() as w:
         escribir(w.web, "Core/Base.cs", "x\n")
@@ -1816,14 +1845,18 @@ def test_main_elige_el_host_con_el_argumento():
 
 
 HUELLA_CUALQUIERA = "sha256:" + "0" * 64
-PAQUETE_MALO = '''def verificar(ctx):
-    return [{"id": "%(prefijo)s-01", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None,
+PAQUETE_MALO = '''import types
+REGLA = types.SimpleNamespace(id="%(prefijo)s-01", sembrado="x = MALO;")
+REGLAS = (REGLA,)
+def verificar(ctx):
+    return [{"id": REGLA.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None,
              "mensaje": "regla del paquete %(nombre)s en " + __name__}
             for n, t in ctx["agregadas"] if "MALO" in t]
 '''
 
 
-def poner_paquete(w, nombre, prefijo, fuente=None, capa="web", no_negociables="", api=1, manifiesto=None):
+def poner_paquete(w, nombre, prefijo, fuente=None, capa="web", no_negociables="", api=1, manifiesto=None, huella=None):
+    from odd_ws import paquetes
     carpeta = ".claude/reglas/paquetes/%s/" % nombre
     escribir(w.raiz, carpeta + "verificar.py", PAQUETE_MALO % {"prefijo": prefijo, "nombre": nombre} if fuente is None else fuente)
     escribir(w.raiz, carpeta + "no-negociables.md", no_negociables)
@@ -1832,7 +1865,7 @@ def poner_paquete(w, nombre, prefijo, fuente=None, capa="web", no_negociables=""
     lock = w.raiz / ".claude" / "reglas" / "paquetes.json"
     contenido = json.loads(lock.read_text(encoding="utf-8")) if lock.is_file() else {"version": 1, "paquetes": {}}
     contenido["paquetes"][nombre] = {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
-                                     "etiqueta": "v1.0.0", "commit": "a" * 40, "huella": HUELLA_CUALQUIERA}
+                                     "etiqueta": "v1.0.0", "commit": "a" * 40, "huella": huella or paquetes.huella(w.raiz / carpeta)}
     escribir(w.raiz, ".claude/reglas/paquetes.json", json.dumps(contenido))
 
 
@@ -1846,13 +1879,46 @@ def archivo_con_malo(w, texto="a // MALO BLOQ\n"):
     return escribir(w.web, "Core/N.cs", texto)
 
 
+def test_paquetes_una_regla_sin_calibrar_solo_avisa_y_calibrada_bloquea():
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "alfa", "ALF")
+        ruta = archivo_con_malo(w)
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa" + SIN_CALIBRAR], lineas
+        salida = w.calibrar("web")
+        assert "ALF-01 puede bloquear" in salida.splitlines(), salida
+        codigo, _, err = w.correr(evento(ruta))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa"], err
+
+
+def test_paquetes_un_lock_con_otra_huella_deja_vieja_su_calibracion():
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "alfa", "ALF")
+        w.calibrar("web")
+        ruta = archivo_con_malo(w)
+        assert w.correr(evento(ruta))[0] == 2, "control: calibrado, bloquea"
+        poner_paquete(w, "alfa", "ALF", no_negociables="- **ALF-01** de la etiqueta nueva.\n")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1].endswith(" (aviso: calibración vieja; para que bloquee, correr "
+                                  "`reglas.py --calibrar web <carpeta> --guardar`)"), lineas
+
+
+def test_paquetes_una_disputa_vale_tambien_para_una_regla_de_paquete():
+    with git_aislado(), Mundo() as w:
+        poner_paquete(w, "alfa", "ALF")
+        w.calibrar("web")
+        escribir(w.raiz, ".claude/registro/disputas/ALF-01.md", DISPUTA % "ALF-01")
+        lineas = contexto_de(w.correr(evento(archivo_con_malo(w))))
+        assert lineas[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa" + DISPUTADA % "ALF-01"], lineas
+
+
 def test_paquetes_sus_hallazgos_se_suman_a_los_de_la_capa_en_orden_de_nombre():
     with git_aislado(), Mundo() as w:
         w.modulo("web", STUB_MALO)
-        w.calibrar("web")
         poner_paquete(w, "zeta", "ZET")
         poner_paquete(w, "alfa-uno", "ALF")
         poner_paquete(w, "de-sql", "DSQ", capa="sql")
+        w.calibrar("web")
         codigo, out, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and out == "", (codigo, out, err)
         assert problemas_de(err) == ["verificar-capa: Core/N.cs tiene 3 problema(s): corregir y reintentar.",
@@ -1864,6 +1930,7 @@ def test_paquetes_sus_hallazgos_se_suman_a_los_de_la_capa_en_orden_de_nombre():
 def test_paquetes_corren_aunque_la_capa_no_tenga_modulo_propio():
     with git_aislado(), Mundo() as w:
         poner_paquete(w, "alfa", "ALF")
+        w.calibrar("web")
         codigo, _, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and problemas_de(err)[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa"], err
 
@@ -1881,13 +1948,13 @@ def test_paquetes_uno_roto_no_calla_la_capa_ni_a_los_otros():
     }
     with git_aislado(), Mundo() as w:
         w.modulo("web", STUB_MALO)
+        poner_paquete(w, "sano", "ZZZ")
         w.calibrar("web")
         prefijos = {"excepcion": "EXC", "invalido": "INV", "mezcla": "MEZ", "fuera-de-prefijo": "FUE", "salida": "SAL",
                     "sintaxis": "SIN", "tipo": "TIP", "muta-el-ctx": "MUT"}
         for nombre, fuente in rotos.items():
             poner_paquete(w, nombre, prefijos[nombre], fuente)
         poner_paquete(w, "pide-mas-api", "API", api=2)
-        poner_paquete(w, "sano", "ZZZ")
         codigo, out, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
                                                          "[ZZZ-01] linea 1: regla del paquete sano en verificar_capa_paquete_sano"], err
@@ -1897,8 +1964,9 @@ def test_paquetes_un_modulo_de_la_capa_roto_no_calla_a_los_paquetes():
     for fuente in ("def verificar(ctx):\n    raise RuntimeError('boom')\n", "def verificar(ctx):\n    return [{'id': 'X'}]\n",
                    "import sys\ndef verificar(ctx):\n    sys.exit(3)\n"):
         with git_aislado(), Mundo() as w:
-            w.modulo("web", fuente)
             poner_paquete(w, "alfa", "ALF")
+            w.calibrar("web")
+            w.modulo("web", fuente)
             codigo, _, err = w.correr(evento(archivo_con_malo(w)))
             assert codigo == 2 and problemas_de(err)[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa"], (fuente, err)
 
@@ -1908,8 +1976,9 @@ def test_paquetes_la_compuerta_del_writer_sigue_viendo_el_error_del_modulo_de_la
     writer_stop = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(writer_stop)
     with git_aislado(), Mundo() as w:
-        w.modulo("web", "def verificar(ctx):\n    raise RuntimeError('boom')\n")
         poner_paquete(w, "alfa", "ALF")
+        w.calibrar("web")
+        w.modulo("web", "def verificar(ctx):\n    raise RuntimeError('boom')\n")
         ruta = archivo_con_malo(w)
         try:
             M.verificar_archivo(ruta, w.config())
@@ -1936,9 +2005,10 @@ def test_paquetes_con_el_lock_roto_se_ignoran_y_la_capa_sigue_verificando():
 
 def test_paquetes_el_hook_no_mira_la_huella():
     with git_aislado(), Mundo() as w:
-        poner_paquete(w, "alfa", "ALF")
-        codigo, _, err = w.correr(evento(archivo_con_malo(w)))
-        assert codigo == 2 and "ALF-01" in err.decode("utf-8"), "el lock tiene una huella cualquiera y el paquete corre igual"
+        poner_paquete(w, "alfa", "ALF", huella=HUELLA_CUALQUIERA)
+        lineas = contexto_de(w.correr(evento(archivo_con_malo(w))))
+        assert lineas[1:] == ["[ALF-01] linea 1: regla del paquete alfa en verificar_capa_paquete_alfa" + SIN_CALIBRAR], \
+            "el lock tiene una huella cualquiera y el paquete corre igual, sin calibrar: %r" % lineas
 
 
 def test_paquetes_con_el_prefijo_de_una_capa_no_corren():
@@ -1946,8 +2016,9 @@ def test_paquetes_con_el_prefijo_de_una_capa_no_corren():
         config = json.loads((w.raiz / "workspace.config.json").read_text(encoding="utf-8"))
         config["layers"]["sql"]["rule_prefix"] = "ALF"
         escribir(w.raiz, "workspace.config.json", json.dumps(config))
-        poner_paquete(w, "alfa", "ALF")
         poner_paquete(w, "beta", "BET")
+        w.calibrar("web")
+        poner_paquete(w, "alfa", "ALF")
         codigo, _, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and problemas_de(err)[1:] == ["[BET-01] linea 1: regla del paquete beta en verificar_capa_paquete_beta"], err
 

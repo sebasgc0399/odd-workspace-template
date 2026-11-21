@@ -24,7 +24,8 @@ TODAS = object()
 TOPE_DE_UNA_SUITE_DE_PAQUETE = 300
 TOPE_DE_GIT = 10
 SEMBRADO = "sembrado"
-Guardado = namedtuple("Guardado", ("raiz", "extension", "previas"))
+FALLAS_DE_UN_PAQUETE = (Exception, SystemExit)
+Guardado = namedtuple("Guardado", ("raiz", "extension", "previas", "paquetes"))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ARRANQUE_DE_UNA_SUITE = ("import runpy, sys\n"
                          "sys.dont_write_bytecode = True\n"
@@ -136,12 +137,12 @@ def _corpus(raiz, carpeta):
     return {"repo": clave, "commit": _commit(real), "ruta": Path(os.path.relpath(real, os.path.realpath(arbol))).as_posix()}
 
 
-def _atrapa(modulo, id_, sembrado, capa, carpeta, extension, errores):
+def _atrapa(modulo, id_, sembrado, capa, carpeta, extension, errores, fallas=Exception):
     relativa = SEMBRADO + extension
     ctx = _ctx(os.path.join(os.path.abspath(carpeta), relativa), relativa, sembrado.encode("utf-8"), capa)
     try:
         hallazgos = list(modulo.verificar(ctx))
-    except Exception as exc:
+    except fallas as exc:
         errores.append("sembrado de %s: %s: %s" % (id_, type(exc).__name__, exc))
         return False
     invalidos = [h for h in hallazgos if not es_hallazgo(h)]
@@ -150,13 +151,24 @@ def _atrapa(modulo, id_, sembrado, capa, carpeta, extension, errores):
     return not invalidos and any(h["id"] == id_ for h in hallazgos)
 
 
-def _veredicto(calibrada, sembrado):
+def _disputas(raiz):
+    try:
+        return calibracion.disputas(raiz)
+    except OSError:
+        return None
+
+
+def _veredicto(id_, calibrada, sembrado, abiertas):
     if sembrado is None:
         return "solo avisa: sin sembrado"
     if not calibrada["atrapa_su_sembrado"]:
         return "solo avisa: no atrapa su sembrado"
     if calibrada["aciertos_en_bloqueo"]:
         return "solo avisa: %d aciertos en bloqueo en el corpus" % calibrada["aciertos_en_bloqueo"]
+    if abiertas is None:
+        return "solo avisa: %s no se puede leer" % calibracion.DISPUTAS
+    if str(id_).upper() in abiertas:
+        return "solo avisa: disputada (%s/%s.md)" % (calibracion.DISPUTAS, id_)
     return "puede bloquear"
 
 
@@ -167,42 +179,118 @@ def _no_se_guarda(errores):
     return 1
 
 
-def guardar(ruta_modulo, capa, carpeta, ids, por_regla, archivos, errores, guardado):
+def _mostrar(por_regla, detalle):
+    for id_, aciertos in por_regla.items():
+        print("%s archivos=%d aciertos=%d" % (id_, len({a[0] for a in aciertos}), len(aciertos)))
+        if detalle:
+            for relativa, linea, fragmento, _ in aciertos[:TOPE_DETALLE]:
+                print("  %s:%d%s" % (relativa, linea or 0, " " + fragmento if fragmento else ""))
+
+
+def _calibrar_paquete(raiz, paquete, capa, carpeta, archivos, detalle, extension):
+    relativa = "%s/%s" % (paquetes.carpeta(paquete.nombre), paquetes.MODULO)
+    print("== %s/%s: %s" % (capa, paquete.nombre, relativa))
+    if paquetes.huella(os.path.join(raiz, paquetes.carpeta(paquete.nombre))) != paquete.huella:
+        return None, ["no coincide con la huella de su lock: lo copiado cambio desde que se importo (reimportalo antes de calibrar)"]
+    sufijo = paquete.nombre.replace("-", "_")
+    try:
+        modulo = cargar_por_ruta(os.path.join(raiz, relativa), "reglas_paquete_%s" % sufijo)
+    except FALLAS_DE_UN_PAQUETE as exc:
+        return None, ["no se pudo cargar %s: %s: %s" % (relativa, type(exc).__name__, exc)]
+    errores = []
+    ctxs = [ctx_de(carpeta, ruta, capa) for ruta in archivos]
+    precalcular = getattr(modulo, "precalcular", None)
+    if callable(precalcular):
+        try:
+            precalcular(ctxs)
+        except FALLAS_DE_UN_PAQUETE as exc:
+            errores.append("precalcular: %s: %s" % (type(exc).__name__, exc))
+    ids = _ids(modulo, errores)
+    por_regla = {id_: [] for id_ in ids or []}
+    for ctx in ctxs:
+        try:
+            hallazgos = list(modulo.verificar(ctx))
+        except FALLAS_DE_UN_PAQUETE as exc:
+            errores.append("%s: %s: %s" % (ctx["relativa"], type(exc).__name__, exc))
+            continue
+        for h in hallazgos:
+            if not (es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"])):
+                errores.append("%s: hallazgo invalido %r" % (ctx["relativa"], h))
+                continue
+            por_regla.setdefault(h["id"], []).append((ctx["relativa"], h.get("linea"), h.get("fragmento"), h.get("modo")))
+    _mostrar(por_regla, detalle)
+    if errores:
+        return None, errores
+    if ids is None:
+        print("reglas: el paquete %s no declara REGLAS: no se calibra, y sus reglas solo avisan" % paquete.nombre, file=sys.stderr)
+        return None, []
+    try:
+        fresco = cargar_por_ruta(os.path.join(raiz, relativa), "reglas_sembrado_paquete_%s" % sufijo)
+    except FALLAS_DE_UN_PAQUETE as exc:
+        return None, ["no se pudo cargar %s: %s: %s" % (relativa, type(exc).__name__, exc)]
+    sembrados = calibracion.sembrados(fresco)
+    atrapa = {id_: sembrados.get(id_) is not None
+              and _atrapa(fresco, id_, sembrados[id_], capa, carpeta, extension, errores, FALLAS_DE_UN_PAQUETE) for id_ in ids}
+    return (paquete.nombre, paquete.huella, ids, sembrados, atrapa, por_regla), errores
+
+
+def guardar(ruta_modulo, capa, carpeta, ids, por_regla, archivos, errores, guardado, detalle):
     if errores:
         return _no_se_guarda([])
-    if ids is None:
-        print("reglas: el modulo de la capa %s no declara REGLAS: no se guarda la calibracion" % capa, file=sys.stderr)
-        return 2
-    try:
-        modulo = cargar_por_ruta(ruta_modulo, "reglas_sembrado_%s" % capa)
-    except Exception as exc:
-        return _no_se_guarda(["no se pudo cargar %s: %s: %s" % (ruta_modulo, type(exc).__name__, exc)])
-    sembrados = calibracion.sembrados(modulo)
-    atrapa = {id_: sembrados.get(id_) is not None
-              and _atrapa(modulo, id_, sembrados[id_], capa, carpeta, guardado.extension, errores) for id_ in ids}
+    calibradas = []
+    if ruta_modulo is not None:
+        if ids is None:
+            print("reglas: el modulo de la capa %s no declara REGLAS: no se guarda la calibracion" % capa, file=sys.stderr)
+            return 2
+        try:
+            modulo = cargar_por_ruta(ruta_modulo, "reglas_sembrado_%s" % capa)
+        except Exception as exc:
+            return _no_se_guarda(["no se pudo cargar %s: %s: %s" % (ruta_modulo, type(exc).__name__, exc)])
+        sembrados = calibracion.sembrados(modulo)
+        atrapa = {id_: sembrados.get(id_) is not None
+                  and _atrapa(modulo, id_, sembrados[id_], capa, carpeta, guardado.extension, errores) for id_ in ids}
+        if errores:
+            return _no_se_guarda(errores)
+        calibradas.append((None, calibracion.huella_del_archivo(ruta_modulo), ids, sembrados, atrapa, por_regla))
+    for paquete in guardado.paquetes:
+        calibrada, propios = _calibrar_paquete(guardado.raiz, paquete, capa, carpeta, archivos, detalle, guardado.extension)
+        errores += ["paquete %s: %s" % (paquete.nombre, error) for error in propios]
+        if calibrada is not None:
+            calibradas.append(calibrada)
     if errores:
         return _no_se_guarda(errores)
-    comun = {"huella": calibracion.huella_del_archivo(ruta_modulo), "archivos_del_corpus": archivos,
-             "corpus": _corpus(guardado.raiz, carpeta), "fecha": datetime.date.today().isoformat()}
-    de_la_capa = {id_: dict(comun, atrapa_su_sembrado=atrapa[id_], aciertos=len(por_regla[id_]),
-                            aciertos_en_bloqueo=sum(1 for acierto in por_regla[id_] if acierto[3] == "bloqueo")) for id_ in ids}
-    capas = dict(guardado.previas)
-    capas[capa] = de_la_capa
-    calibracion.escribir(guardado.raiz, capas)
+    comun = {"archivos_del_corpus": len(archivos), "corpus": _corpus(guardado.raiz, carpeta), "fecha": datetime.date.today().isoformat()}
+    capas, de_paquetes = dict(guardado.previas.capas), dict(guardado.previas.paquetes)
+    capas.pop(capa, None)
+    de_paquetes[capa] = {}
+    veredictos = []
+    for nombre, huella, ids_, sembrados, atrapa, por_regla_ in calibradas:
+        reglas = {id_: dict(comun, huella=huella, atrapa_su_sembrado=atrapa[id_], aciertos=len(por_regla_[id_]),
+                            aciertos_en_bloqueo=sum(1 for acierto in por_regla_[id_] if acierto[3] == "bloqueo")) for id_ in ids_}
+        if nombre is None:
+            capas[capa] = reglas
+        else:
+            de_paquetes[capa][nombre] = reglas
+        veredictos += [(id_, reglas[id_], sembrados.get(id_)) for id_ in ids_]
+    calibracion.escribir(guardado.raiz, capas, de_paquetes)
     print("calibracion guardada en %s" % calibracion.RUTA)
-    for id_ in ids:
-        print("%s %s" % (id_, _veredicto(de_la_capa[id_], sembrados.get(id_))))
+    abiertas = _disputas(guardado.raiz)
+    for id_, calibrada, sembrado in veredictos:
+        print("%s %s" % (id_, _veredicto(id_, calibrada, sembrado, abiertas)))
     return 0
 
 
 def calibrar(ruta_modulo, capa, carpeta, extensiones, detalle, guardado=None):
+    if ruta_modulo is None:
+        return guardar(None, capa, carpeta, None, {}, archivos_de(carpeta, extensiones), [], guardado, detalle)
     try:
         modulo = cargar_por_ruta(ruta_modulo, "reglas_modulo_%s" % capa)
     except Exception as exc:
         print("reglas: no se pudo cargar %s: %s: %s" % (ruta_modulo, type(exc).__name__, exc), file=sys.stderr)
         return 1
     errores = []
-    ctxs = [ctx_de(carpeta, ruta, capa) for ruta in archivos_de(carpeta, extensiones)]
+    archivos = archivos_de(carpeta, extensiones)
+    ctxs = [ctx_de(carpeta, ruta, capa) for ruta in archivos]
     precalcular = getattr(modulo, "precalcular", None)
     if callable(precalcular):
         try:
@@ -222,11 +310,7 @@ def calibrar(ruta_modulo, capa, carpeta, extensiones, detalle, guardado=None):
                 errores.append("%s: hallazgo invalido %r" % (ctx["relativa"], h))
                 continue
             por_regla.setdefault(h["id"], []).append((ctx["relativa"], h.get("linea"), h.get("fragmento"), h.get("modo")))
-    for id_, aciertos in por_regla.items():
-        print("%s archivos=%d aciertos=%d" % (id_, len({a[0] for a in aciertos}), len(aciertos)))
-        if detalle:
-            for relativa, linea, fragmento, _ in aciertos[:TOPE_DETALLE]:
-                print("  %s:%d%s" % (relativa, linea or 0, " " + fragmento if fragmento else ""))
+    _mostrar(por_regla, detalle)
     if ids is None:
         print("reglas: el modulo de la capa %s no declara REGLAS: las reglas con 0 aciertos no aparecen" % capa,
               file=sys.stderr)
@@ -234,7 +318,7 @@ def calibrar(ruta_modulo, capa, carpeta, extensiones, detalle, guardado=None):
         print("reglas: %s" % error, file=sys.stderr)
     if guardado is None:
         return 1 if errores else 0
-    return guardar(ruta_modulo, capa, carpeta, ids, por_regla, len(ctxs), errores, guardado)
+    return guardar(ruta_modulo, capa, carpeta, ids, por_regla, archivos, errores, guardado, detalle)
 
 
 def correr_suite(suite):
@@ -327,8 +411,10 @@ def construir_parser():
                    help="con --calibrar: <relativa>:<linea> <fragmento> por acierto (hasta %d por regla)" % TOPE_DETALLE)
     p.add_argument("--guardar", action="store_true",
                    help="con --calibrar: guarda en %s, por cada regla de REGLAS, la huella del modulo, si atrapa su sembrado, "
-                   "los aciertos y el corpus. Una regla bloquea solo con esa calibracion al dia. No guarda si hubo errores "
-                   "(sale con 1) ni si el modulo no declara REGLAS (sale con 2)" % calibracion.RUTA)
+                   "los aciertos y el corpus. Calibra tambien cada paquete de la capa en %s, aparte y con la huella de su lock; "
+                   "una capa sin modulo propio calibra solo sus paquetes. Una regla bloquea solo con esa calibracion al dia y sin "
+                   "disputa abierta en %s. No guarda si hubo errores (sale con 1) ni si el modulo no declara REGLAS (sale con 2)"
+                   % (calibracion.RUTA, paquetes.LOCK, calibracion.DISPUTAS))
     p.add_argument("--raiz", help="raiz de la instancia (por defecto, la de la sesion)")
     return p
 
@@ -338,6 +424,12 @@ def _previas(raiz):
         return calibracion.cargar(raiz)
     except calibracion.RegistroRoto as exc:
         raise ErrorEntorno("%s roto: %s (arreglalo o borralo y volve a calibrar)" % (calibracion.RUTA, exc))
+
+
+def _activos(raiz, capa):
+    declaradas = _declaradas(raiz)
+    _lock(raiz, declaradas)
+    return paquetes.activos(raiz, capa, declaradas)
 
 
 def main(argv=None):
@@ -369,8 +461,10 @@ def main(argv=None):
                 carpeta = args.calibrar[1]
                 if not os.path.isdir(carpeta):
                     raise ErrorEntorno("%s no es una carpeta" % carpeta)
-                modulo = _existente(raiz, convencion.chequeo(capa), "modulo", capa)
-                guardado = Guardado(raiz, datos["extensions"][0].lower(), _previas(raiz)) if args.guardar else None
+                activos = _activos(raiz, capa) if args.guardar else []
+                sin_modulo = bool(activos) and not (Path(raiz) / convencion.chequeo(capa)).is_file()
+                modulo = None if sin_modulo else _existente(raiz, convencion.chequeo(capa), "modulo", capa)
+                guardado = Guardado(raiz, datos["extensions"][0].lower(), _previas(raiz), activos) if args.guardar else None
     except ErrorEntorno as exc:
         print("reglas: %s" % exc, file=sys.stderr)
         return 2

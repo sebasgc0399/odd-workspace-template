@@ -52,16 +52,16 @@ Mientras un writer siga en la plantilla vieja, la compuerta de cierre le pide lo
 
 ## Después de actualizar: calibrar las reglas que bloquean
 
-Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo dice), una regla de capa bloquea solo si está calibrada: ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla). Es un corte duro: al actualizar, todo `bloqueo` de los módulos de tu instancia llega como aviso, con el motivo `sin calibrar` y el comando a correr, hasta que lo calibres. Para que una regla vuelva a bloquear:
+Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo dice), una regla bloquea solo si está calibrada: ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla). Es un corte duro, para los módulos de tus capas y para los paquetes de reglas: al actualizar, todo `bloqueo` llega como aviso, con el motivo `sin calibrar` y el comando a correr, hasta que lo calibres. Para que una regla vuelva a bloquear:
 
-1. **Suma su `sembrado`.** En `.claude/reglas/verificar_<capa>.py`, el objeto de la regla en `REGLAS` lleva un atributo `sembrado`: un texto con el defecto que la regla tiene que atrapar. Si el módulo no declara `REGLAS`, declárala; sin ella no se puede calibrar.
+1. **Suma su `sembrado`.** En `.claude/reglas/verificar_<capa>.py`, el objeto de la regla en `REGLAS` lleva un atributo `sembrado`: un texto con el defecto que la regla tiene que atrapar. Si el módulo no declara `REGLAS`, declárala; sin ella no se puede calibrar. Una regla de un paquete no se edita en la instancia: su `sembrado` lo declara el autor del paquete, en su repo, con una etiqueta nueva que traes con `/odd-ws:paquetes` (`actualizar`).
 2. **Calibra la capa.** Corre, con una carpeta de código real de la capa (o una vacía, si todavía no hay código):
 
    ```text
    python3 "<plugin_root>/scripts/reglas.py" --calibrar <capa> <carpeta> --guardar
    ```
 
-   La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado o tiene aciertos en bloqueo en el corpus.
+   Calibra también los paquetes de la capa, cada uno con la huella de su lock; una capa que solo tiene paquetes también se calibra así. La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado, tiene aciertos en bloqueo en el corpus o está disputada.
 3. **Commitea `.claude/registro/`**, junto con el módulo si le sumaste `sembrado`.
 
-Cada cambio posterior del módulo deja vieja la calibración de su capa, así que se repiten los pasos 2 y 3. Los paquetes de reglas siguen bloqueando como antes, sin calibrar. La prueba de la suite que comprueba los `sembrado` llega solo a las instancias nuevas: en una que ya existe, cópiala de `plugin/plantillas/reglas/verificar.tests.py`.
+Cada cambio posterior del módulo deja vieja la calibración de su capa, y `actualizar` un paquete a otra etiqueta deja vieja la del paquete, así que se repiten los pasos 2 y 3. Si una regla calibrada bloquea algo que está bien, ábrele una disputa (`.claude/registro/disputas/<ID>.md`, ver [Las disputas](capas-y-reglas.md#las-disputas)): vuelve a avisar hasta que se arregle su chequeo. La prueba de la suite que comprueba los `sembrado` llega solo a las instancias nuevas: en una que ya existe, cópiala de `plugin/plantillas/reglas/verificar.tests.py`.

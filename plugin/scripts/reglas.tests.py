@@ -809,6 +809,167 @@ def test_la_ayuda_documenta_guardar():
     assert codigo == 0 and "--guardar" in out and "calibracion.json" in out, (codigo, out)
 
 
+MODULO_DE_PAQUETE = ('import types\n'
+                     '\n'
+                     'REGLA = types.SimpleNamespace(id="%(id)s", sembrado=%(sembrado)r)\n'
+                     'REGLAS = (REGLA,)\n'
+                     '\n'
+                     '\n'
+                     'def verificar(ctx):\n'
+                     '    return [{"id": REGLA.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": "MALO", "mensaje": "m"}\n'
+                     '            for n, t in ctx["agregadas"] if "MALO" in t]\n')
+
+
+def paquete_con_reglas(raiz, nombre, capa, prefijo, modulo=None, sembrado="SELECT MALO;"):
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    escribir(raiz, {carpeta + "verificar.py": modulo or MODULO_DE_PAQUETE % {"id": prefijo + "-01", "sembrado": sembrado},
+                    carpeta + "odd-ws-paquete.json": json.dumps({"formato": 1, "nombre": nombre, "prefijo": prefijo, "odd_ws_api": 1,
+                                                                 "descripcion": ""})})
+    lock = Path(raiz) / ".claude" / "reglas" / "paquetes.json"
+    datos = json.loads(lock.read_text(encoding="utf-8")) if lock.is_file() else {"version": 1, "paquetes": {}}
+    huella = M.paquetes.huella(str(Path(raiz) / carpeta))
+    datos["paquetes"][nombre] = {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
+                                 "etiqueta": "v1.0.0", "commit": "b" * 40, "huella": huella}
+    escribir(raiz, {".claude/reglas/paquetes.json": json.dumps(datos)})
+    return huella
+
+
+def test_guardar_calibra_tambien_los_paquetes_de_la_capa_aparte_de_la_capa():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT 1\n", "db/b.sql": "SELECT MAL\nSELECT MALO\n"})
+        huella = paquete_con_reglas(raiz, "zeta", "sql", "ZET", sembrado="SELECT NADA;")
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF")
+        paquete_con_reglas(raiz, "de-docs", "docs", "DOC")
+        codigo, out, err = calibrar(raiz, "--guardar", "--detalle")
+        assert codigo == 0, (codigo, out, err)
+        assert out.splitlines() == ["SQL-01 archivos=1 aciertos=2", "  b.sql:1 MAL", "  b.sql:2 MAL", "SQL-02 archivos=0 aciertos=0",
+                                    "SQL-03 archivos=0 aciertos=0",
+                                    "== sql/alfa: .claude/reglas/paquetes/alfa/verificar.py", "ALF-01 archivos=1 aciertos=1", "  b.sql:2 MALO",
+                                    "== sql/zeta: .claude/reglas/paquetes/zeta/verificar.py", "ZET-01 archivos=1 aciertos=1", "  b.sql:2 MALO",
+                                    "calibracion guardada en %s" % REGISTRO,
+                                    "SQL-01 solo avisa: 2 aciertos en bloqueo en el corpus",
+                                    "SQL-02 solo avisa: no atrapa su sembrado",
+                                    "SQL-03 solo avisa: sin sembrado",
+                                    "ALF-01 solo avisa: 1 aciertos en bloqueo en el corpus",
+                                    "ZET-01 solo avisa: no atrapa su sembrado"], out
+        datos = registro(raiz)
+        assert list(datos) == ["version", "capas", "paquetes"] and list(datos["capas"]) == ["sql"], datos
+        assert list(datos["paquetes"]) == ["sql"] and list(datos["paquetes"]["sql"]) == ["alfa", "zeta"], "solo los de la capa"
+        zeta = datos["paquetes"]["sql"]["zeta"]["ZET-01"]
+        capa = datos["capas"]["sql"]["SQL-01"]
+        assert zeta["huella"] == huella != capa["huella"], "la huella de un paquete es la de su lock"
+        assert (zeta["corpus"], zeta["archivos_del_corpus"], zeta["fecha"]) == (capa["corpus"], 2, capa["fecha"]), zeta
+        assert (zeta["atrapa_su_sembrado"], zeta["aciertos"], zeta["aciertos_en_bloqueo"]) == (False, 1, 1), zeta
+        assert datos["paquetes"]["sql"]["alfa"]["ALF-01"]["atrapa_su_sembrado"] is True
+
+
+def test_guardar_con_un_corpus_limpio_deja_bloquear_al_paquete_que_atrapa_su_sembrado():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF")
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and out.splitlines()[-1] == "ALF-01 puede bloquear", (codigo, out, err)
+
+
+def test_guardar_de_una_capa_sin_modulo_propio_calibra_solo_sus_paquetes():
+    with temporal() as raiz:
+        instancia(raiz, modulo=None)
+        (Path(raiz) / "db").mkdir()
+        vieja = {"huella": "sha256:" + "c" * 64, "atrapa_su_sembrado": True, "aciertos": 0, "aciertos_en_bloqueo": 0,
+                 "archivos_del_corpus": 9, "corpus": {"repo": None, "commit": None, "ruta": "db"}, "fecha": "2026-01-02"}
+        escribir(raiz, {REGISTRO: json.dumps({"version": 1, "capas": {"sql": {"SQL-01": vieja}, "docs": {"DOC-01": vieja}}})})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert (codigo, out) == (2, ""), "sin módulo ni paquetes sigue siendo un error de entorno: %r" % ((codigo, out, err),)
+        assert err == "reglas: la capa sql no tiene modulo: no existe .claude/reglas/verificar_sql.py\n", err
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF")
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0, (codigo, out, err)
+        assert out.splitlines() == ["== sql/alfa: .claude/reglas/paquetes/alfa/verificar.py", "ALF-01 archivos=0 aciertos=0",
+                                    "calibracion guardada en %s" % REGISTRO, "ALF-01 puede bloquear"], out
+        datos = registro(raiz)
+        assert datos["capas"] == {"docs": {"DOC-01": vieja}}, "la capa sin módulo no deja reglas propias calibradas"
+        assert list(datos["paquetes"]["sql"]) == ["alfa"], datos
+        codigo, out, err = calibrar(raiz)
+        assert (codigo, out) == (2, "") and "no tiene modulo" in err, "sin --guardar, --calibrar no cambia"
+
+
+def test_guardar_no_escribe_si_un_paquete_no_coincide_con_su_lock_o_revienta():
+    rotos = {
+        "editado": None,
+        "revienta": "REGLAS = ()\ndef verificar(ctx):\n    raise ValueError('explota el paquete')\n",
+        "sale": "import sys\nREGLAS = ()\ndef verificar(ctx):\n    sys.exit(3)\n",
+        "no-carga": "def verificar(ctx) roto\n",
+        "ajeno": "REGLAS = ()\ndef verificar(ctx):\n    return [{'id': 'SQL-01', 'modo': 'bloqueo', 'mensaje': 'm'}]\n",
+    }
+    for nombre, modulo in rotos.items():
+        with temporal() as raiz:
+            instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+            escribir(raiz, {"db/a.sql": "SELECT 1\n"})
+            paquete_con_reglas(raiz, nombre, "sql", "ROT", modulo=modulo)
+            if modulo is None:
+                escribir(raiz, {".claude/reglas/paquetes/editado/verificar.py": MODULO_DE_PAQUETE % {"id": "ROT-01", "sembrado": "x"}})
+            codigo, out, err = calibrar(raiz, "--guardar")
+            assert codigo == 1 and not (Path(raiz) / ".claude" / "registro").exists(), (nombre, codigo, out, err)
+            assert "paquete %s" % nombre in err and "no se guarda la calibracion" in err, (nombre, err)
+            assert modulo is not None or "reglas: paquete editado: no coincide con la huella de su lock" in err, err
+
+
+def test_guardar_con_el_lock_roto_es_error_de_entorno_y_sin_guardar_lo_ignora():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        escribir(raiz, {".claude/reglas/paquetes.json": "{roto"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 2 and out == "" and err.startswith("reglas: .claude/reglas/paquetes.json roto: "), (codigo, out, err)
+        assert not (Path(raiz) / ".claude" / "registro").exists()
+        assert calibrar(raiz)[0] == 0
+
+
+def test_calibrar_sin_guardar_no_corre_los_paquetes():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT MALO\n"})
+        sin_paquetes = calibrar(raiz, "--detalle")
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF", modulo="raise SystemExit(9)\n")
+        assert calibrar(raiz, "--detalle") == sin_paquetes == (0, "SQL-01 archivos=1 aciertos=1\n  a.sql:1 MAL\nSQL-02 archivos=0 aciertos=0\n"
+                                                               "SQL-03 archivos=0 aciertos=0\n", ""), sin_paquetes
+        assert not (Path(raiz) / ".claude" / "registro").exists()
+
+
+def test_guardar_un_paquete_sin_REGLAS_no_se_calibra_y_lo_dice():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        escribir(raiz, {"db/a.sql": "SELECT MALO\n"})
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF", modulo=(MODULO_DE_PAQUETE % {"id": "ALF-01", "sembrado": "x"}).replace("REGLAS = (REGLA,)", "_TODAS = (REGLA,)"))
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0, (codigo, out, err)
+        assert "ALF-01 archivos=1 aciertos=1" in out.splitlines() and not any(l.startswith("ALF-01 ") and "avisa" in l for l in out.splitlines()), out
+        assert "reglas: el paquete alfa no declara REGLAS: no se calibra, y sus reglas solo avisan" in err.splitlines(), err
+        assert "paquetes" not in registro(raiz), registro(raiz)
+
+
+def test_guardar_dice_que_una_regla_disputada_solo_avisa_y_no_toca_la_disputa():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF")
+        disputa = "Abre: Ana\nBloqueo: ALF-01 en a.sql\nPor qué: falso positivo\n"
+        escribir(raiz, {".claude/registro/disputas/ALF-01.md": disputa, ".claude/registro/disputas/SQL-01.md": disputa})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0, (codigo, out, err)
+        ls = out.splitlines()
+        assert "SQL-01 solo avisa: disputada (.claude/registro/disputas/SQL-01.md)" in ls, ls
+        assert ls[-1] == "ALF-01 solo avisa: disputada (.claude/registro/disputas/ALF-01.md)", ls
+        assert sorted(os.listdir(Path(raiz) / ".claude" / "registro" / "disputas")) == ["ALF-01.md", "SQL-01.md"]
+        assert registro(raiz)["paquetes"]["sql"]["alfa"]["ALF-01"]["atrapa_su_sembrado"] is True, "la calibración se guarda igual"
+        shutil.rmtree(Path(raiz) / ".claude" / "registro" / "disputas")
+        escribir(raiz, {".claude/registro/disputas": "no soy una carpeta"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and out.splitlines()[-1] == "ALF-01 solo avisa: .claude/registro/disputas no se puede leer", (codigo, out, err)
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

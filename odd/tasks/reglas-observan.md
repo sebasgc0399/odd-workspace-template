@@ -28,9 +28,9 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T1 | S1, S2, S3, S4, S7, S8 | El modo efectivo y la calibración de la capa: `odd_ws/calibracion.py`, `reglas.py --guardar`, `verificar_capa`, `writer_stop`, la plantilla de la suite de reglas y los docs | delegada a un writer, en paralelo con la I62 en otro worktree. Risk: item 2 (los guards dejan de bloquear hasta calibrar) y item 6 (si la huella falla en silencio, ningún test lo vería en una instancia real); lleva verificador, al final de la feature (L3) | escrita y en verde (L3) | |
-| T2 | S5 | Las disputas en `.claude/registro/disputas/` | delegada, después de T1, porque toca el mismo punto | pendiente | |
-| T3 | S6 | Los paquetes con la huella de su lock | delegada, después de T2 | pendiente | |
+| T1 | S1, S2, S3, S4, S7, S8 | El modo efectivo y la calibración de la capa: `odd_ws/calibracion.py`, `reglas.py --guardar`, `verificar_capa`, `writer_stop`, la plantilla de la suite de reglas y los docs | delegada a un writer, en paralelo con la I62 en otro worktree. Risk: item 2 (los guards dejan de bloquear hasta calibrar) y item 6 (si la huella falla en silencio, ningún test lo vería en una instancia real); lleva verificador, al final de la feature (L3) | hecha (L3, L4) | `bf6cc5b` |
+| T2 | S5 | Las disputas en `.claude/registro/disputas/` | delegada junto con T3, en un writer y un commit (L5) | hecha (L5) | |
+| T3 | S6 | Los paquetes con la huella de su lock | delegada junto con T2 (L5) | hecha (L5) | |
 | T4 | todas | El verificador independiente de la feature y el cierre | inline | pendiente | |
 
 ## Log
@@ -69,3 +69,21 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
   - **El arreglo:** `git_de_prueba` pasa `env=M.entorno_git()`, como el código de producción (`reglas.py:110`). Un test de regresión pone `GIT_DIR`, `GIT_INDEX_FILE` y `GIT_WORK_TREE` apuntando a un repo de afuera y comprueba que el commit de la fixture no cae ahí. Rojo antes del arreglo, verde después.
   - **La comprobación:** `reglas` dio 41/41 con el entorno del hook. Las demás suites de T1 (`verificar_capa`, `writer_stop`, `revisar_turno`, `calibracion`, `capas` y `pi.tests`) dieron verde con `GIT_DIR` apuntando a un repo señuelo, que quedó intacto.
   - **La lección:** todo helper de test que corre git usa `entorno_git()`, porque las suites corren dentro del pre-commit. Se le avisó al writer de T2 de la I62.
+- **L5** (2026-11-20) T2 y T3 juntas, porque son chicas y tocan los mismos archivos: un writer y un solo commit. Son unas +700/−117, con unas 215/−63 de código.
+  - **Las disputas (S5):** `Registro` suma `disputas` y `disputas_ilegibles`. `disputas(raiz)` lista los `.md` de `.claude/registro/disputas/` sin leerlos ni escribir nada, y compara los ID sin distinguir mayúsculas. `_motivo` chequea primero si la carpeta se puede leer y después si la regla está disputada.
+  - **Los paquetes (S6):** `Fuente` suma `paquete`, y `fuente_del_paquete` usa la huella del lock de `odd_ws.paquetes`. `calibracion.json` suma un `paquetes` opcional, que se escribe solo si no está vacío, así que un registro solo de capas queda igual que en T1. `--guardar` calibra también los paquetes activos de la capa, y sin `--guardar` la salida no cambia.
+  - **Decisiones del writer, que el padre acepta:**
+    - Un hallazgo sin fuente cae en aviso `sin calibrar`, en lugar de conservar su modo. Cierra un bypass, y el test de T1 que decía lo contrario se reescribió.
+    - Una capa con paquetes y sin módulo propio se puede calibrar.
+    - `--guardar` sale con 2 si el lock está roto o hay prefijos que chocan.
+    - Un paquete cuya carpeta no coincide con su lock es error.
+    - Un paquete sin `REGLAS` se saltea con aviso.
+    - Un `sys.exit` dentro de un paquete se informa como error.
+    - Los avisos de un paquete dicen que se arregla en su repo, con una etiqueta nueva.
+    - La línea del veredicto dice si la regla quedó disputada.
+  - **Las suites:** `calibracion` 29/29, `reglas` 49/49, `verificar_capa` 119/119, `odd_ws/paquetes` 23/23, `paquetes` 17/17, `writer_stop` 58/58, `revisar_turno` 31/31, `pi.tests` 68/68 y el shim 68/68. Rojo observado en cada regla.
+  - **El señuelo:** las nueve suites dieron verde con `GIT_DIR`, `GIT_INDEX_FILE` y `GIT_WORK_TREE` apuntando a un repo de prueba, que quedó intacto. La rama siguió en `bf6cc5b`.
+  - **El diferencial contra `bf6cc5b`:** distinto solo en lo pedido. Un paquete en bloqueo sin calibrar ahora avisa, y una disputa abierta avisa.
+  - **Un defecto de T1 que reportó el writer, y que el padre arregló:** un hallazgo en bloqueo con un `id` que no es texto (una lista) tiraba `TypeError` en `_motivo`. `verificar_capa.correr` se tragaba la excepción y el archivo entero quedaba en silencio, cuando en la `0.11.0` ese hallazgo bloqueaba. Ahora cae en aviso con el motivo `id inválido`, como un `modo` inválido. Rojo observado con la misma `TypeError`; después, `calibracion` 30/30 y `verificar_capa` 119/119.
+  - **Pendiente para la entrega:** el CHANGELOG, con el corte duro que ahora cubre también los paquetes, las disputas y las capas que solo tienen paquetes.
+  - **Scratch del writer, a borrar a mano:** `%TEMP%	mp.lgf63efl8F`.

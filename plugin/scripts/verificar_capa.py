@@ -243,11 +243,13 @@ def _hallazgos_de_la_capa(archivo_modulo, capa, ctx):
 
 def _hallazgos_del_paquete(paquete, ctx, raiz):
     archivo_modulo = os.path.join(raiz, paquetes.carpeta(paquete.nombre), paquetes.MODULO)
+    modulo = None
     try:
         modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_paquete_%s" % paquete.nombre.replace("-", "_"))
-        return _validos(modulo.verificar(ctx), lambda h: es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"])) or []
+        hallazgos = _validos(modulo.verificar(ctx), lambda h: es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"])) or []
     except (Exception, SystemExit):
-        return []
+        hallazgos = []
+    return calibracion.fuente_del_paquete(paquete, modulo), hallazgos
 
 
 def _verificar_archivo(ruta, config, aislar_la_capa, contra):
@@ -281,7 +283,7 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra):
         for paquete in de_paquetes:
             if _sin_tiempo():
                 break
-            grupos.append((None, _hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"])))
+            grupos.append(_hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"]))
     hallazgos = calibracion.aplicar(grupos, config["raiz"], config["repos"])
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 
