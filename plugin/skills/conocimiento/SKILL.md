@@ -1,6 +1,6 @@
 ---
 name: conocimiento
-description: Diagnostica la salud del conocimiento de la instancia (su índice, sus docs de dominio y las afirmaciones verificables) y enruta los hallazgos. Usar cuando el usuario pide revisar si los docs están sanos, buscar links o anclas rotos, docs vencidos o cifras que se contradicen entre docs.
+description: Diagnostica la salud de los docs de la instancia, con los links rotos, los docs vencidos y las cifras que se contradicen.
 disable-model-invocation: true
 ---
 

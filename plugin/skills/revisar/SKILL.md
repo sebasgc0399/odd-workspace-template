@@ -1,6 +1,6 @@
 ---
 name: revisar
-description: Revisar un cambio de un ticket con los revisores de la instancia (el de diseño y el de cada capa tocada). Usar antes del commit de un cambio, o antes de mostrárselo a un líder. Hace el triaje, anuncia el modo y su costo, espera el sí, lanza las corridas, consolida los reportes y deja un recibo atado al diff.
+description: Revisar un cambio de un ticket con los revisores de la instancia, antes del commit o antes de mostrárselo a un líder. Hace el triaje y deja un recibo atado al diff.
 ---
 
 # /odd-ws:revisar

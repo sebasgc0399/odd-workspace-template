@@ -1,6 +1,6 @@
 ---
 name: enlaces
-description: Lista los enlaces de un ticket de la instancia o de cualquier documento .md, con su ruta absoluta y con los rotos y las rutas de la máquina aparte, y abre o copia el que elige el usuario. Usar cuando el usuario pide abrir, revisar, copiar o depurar los enlaces de un ticket o de un .md.
+description: Lista, abre o copia los enlaces de un ticket o de cualquier .md, con los rotos aparte. Usar cuando el usuario pide abrir, revisar o depurar esos enlaces.
 ---
 
 # /odd-ws:enlaces

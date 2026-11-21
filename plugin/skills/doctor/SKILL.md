@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Chequeo de la máquina (Capa 0) para trabajar con la plantilla ODD. Usar al estrenar portátil, después de clonar el repo de la plantilla, cuando un hook no corre o cuando el usuario pide revisar el entorno. Muestra una tabla OK / FALTA / AVISO y arregla de a un ítem, solo con autorización.
+description: Chequeo de la máquina y de la instancia para la plantilla ODD. Usar cuando un hook no corre, al estrenar equipo o cuando el usuario pide revisar el entorno.
 ---
 
 # /odd-ws:doctor
