@@ -650,6 +650,15 @@ def test_p7_dice_el_mecanismo_de_los_agentes_de_pi_y_su_fallback_y_p8_las_skills
     assert "el modelo saca la carpeta" not in p8, p8
 
 
+def test_p1_y_p8_dicen_que_el_hijo_y_el_padre_fuera_de_una_instancia_no_suman_odd_ws_al_prompt():
+    p1, p8 = m().MANIFIESTO["P1"][1], m().MANIFIESTO["P8"][1]
+    for frase in ("solo en el agente principal", "GENTLE_PI_AGENTS_CHILD", "no lanza Python", "no suma nada al prompt"):
+        assert frase in p1, (frase, p1)
+    for frase in ("systemPromptOptions.skills", "before_agent_start", "filePath", "fuera de una instancia", "en un hijo de gentle-shell",
+                  "no las publica", "/skill:<nombre> sigue andando", "otros paquetes"):
+        assert frase in p8, (frase, p8)
+
+
 def test_p7_dice_que_el_doctor_no_ve_los_overlays_de_herramientas():
     p7 = m().MANIFIESTO["P7"][1]
     for frase in ("overlays de herramientas", "#3223", "al cargarlo", "sin tocar su .md"):

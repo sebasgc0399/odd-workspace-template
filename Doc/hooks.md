@@ -54,4 +54,9 @@ Un plugin no puede quitar un hook en un solo proyecto, así que se apaga desde l
 - **Cada hook necesita tu confianza** en `/hooks`. Sin ella, Codex no lo corre.
 - **En la prueba de humo,** el bloqueo del force push llegó así: «Command blocked by PreToolUse hook: guard-comandos bloqueó el comando…».
 
+## En Pi
+
+- **Lo que suma el inicio llega solo al agente principal.** En un subagente de gentle-shell, el hook de inicio no corre: ni el aviso de config rota ni el resumen del ticket activo llegan a su prompt, como en Claude Code, donde ese hook no llega a los subagentes. Los demás hooks corren igual en el subagente: los bloqueos antes de una herramienta, el primer toque, las reglas después de editar y la compuerta del writer.
+- **Las skills de odd-ws se listan en el prompt solo dentro de una instancia.** Fuera de una instancia, el agente principal no ve las del plugin, y un subagente de gentle-shell no ve ni las del plugin ni las de la instancia. Siguen cargadas: `/skill:<nombre>` las abre desde cualquier carpeta, así que `/skill:bootstrap` crea una instancia y `/skill:doctor` revisa la máquina.
+
 El porqué de cada hook, con su especificación, está en [`Doc/diseno.md`](diseno.md).

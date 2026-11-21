@@ -27,7 +27,9 @@ MANIFIESTO = {
                       "de verificar_capa (new es clear; reload es resume, porque recarga las extensiones sin perder la "
                       "conversación; y session_compact es compact) y responde la acción contexto por JSON con exit 0, que el shim "
                       "de F2b suma una vez a systemPromptOptions.appendSystemPrompt en before_agent_start, donde lo ven Pi y los "
-                      "puentes de proveedor, y al systemPrompt solo si otra extensión ya lo forzó"),
+                      "puentes de proveedor, y al systemPrompt solo si otra extensión ya lo forzó; corre solo en el agente "
+                      "principal: en un hijo de gentle-shell (GENTLE_PI_AGENTS_CHILD=1) el shim no lanza Python al iniciar ni al "
+                      "compactar y no suma nada al prompt, como el SessionStart de Claude Code, que no llega a los subagentes"),
     "P2": (SOPORTADO, "tool_call de edit y write: la acción bloquear por JSON con exit 0, que el shim de F2b devuelve como block "
                       "(un error del shim también bloquea); una ruta por llamada, resuelta como Pi: sin la @ inicial, con ~ "
                       "expandido, en Windows las rutas de Git Bash pasan a su unidad, y las relativas van contra el cwd"),
@@ -79,7 +81,12 @@ MANIFIESTO = {
                       ".claude/skills, así que la extensión las publica por resources_discover con la carpeta .claude/skills de "
                       "la raíz de la instancia (la más cercana que tiene workspace.config.json, subiendo desde el cwd), y Pi "
                       "carga las que traen description en su frontmatter, como las que genera el bootstrap; solo con el "
-                      "proyecto en confianza, que revisa el ítem pi-confianza del doctor"),
+                      "proyecto en confianza, que revisa el ítem pi-confianza del doctor; el catálogo del prompt solo las "
+                      "lleva dentro de una instancia: en before_agent_start, el shim saca de systemPromptOptions.skills, por su "
+                      "filePath, las del plugin fuera de una instancia, y en un hijo de gentle-shell las del plugin y las de la "
+                      "instancia, y no toca las de otros paquetes; Pi le pasa a ese evento una copia, "
+                      "así que /skill:<nombre> sigue andando: pi.skills se queda y /skill:bootstrap crea una instancia; en el "
+                      "hijo, no las publica ni las lista, porque el writer y los revisores abren sus SKILL.md con read"),
     "P9": (SOPORTADO, "el paquete de Pi es la raíz del repositorio: su package.json (privado, sin dependencias ni scripts) "
                       "declara pi.extensions = ./plugin/shim/pi.ts y pi.skills = ./plugin/skills, y se instala con "
                       "gentle-shell install (o pi install) desde git, con la etiqueta de la versión, o desde la ruta de un clon; "
