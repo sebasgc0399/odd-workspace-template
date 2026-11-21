@@ -112,7 +112,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 | [costo-de-revisar](tasks/costo-de-revisar.md) | F3 (F2, F5 y F6 se cerraron con R8, en la `0.11.0`) |
 | [integridad-del-recibo](tasks/integridad-del-recibo.md) | F1, F2, F5, F6 y F7 |
 | [solo-controles](tasks/solo-controles.md) | La plantilla `capa.md` nombra writers y `criterios` también en `controles` (L5) |
-| [reglas-observan](tasks/reglas-observan.md) | Los de L6: el motivo de un sembrado inválido, la extensión de su `ruta`, un objeto hostil en un hallazgo, los hooks de cierre y el comando sugerido en un worktree |
+| [reglas-observan](tasks/reglas-observan.md) | Los de L6: el motivo de un sembrado inválido, la extensión de su `ruta`, un objeto hostil en un hallazgo, los hooks de cierre y el comando sugerido en un worktree; y, de una corrida real de la `0.12.1` (2026-11-21), el aviso de una regla sin calibrar imprime `<carpeta>` literal en vez de la ruta real, y `matriz.py` no valida que el commit que cita una fila exista |
 | [instalacion-limpia](tasks/instalacion-limpia.md) | F1 a F4, los avisos del verificador de T1 y T2 y de su rechequeo |
 | [graduar-memorias](tasks/graduar-memorias.md) | X1, X2, X6 y X7 |
 | [multi-host](tasks/multi-host.md) | X1, X4 a X7, X12, X13 y X19 |
