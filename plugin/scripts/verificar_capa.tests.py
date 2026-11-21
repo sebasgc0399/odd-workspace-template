@@ -2238,6 +2238,7 @@ def apagar(raiz, valor):
 def test_apagado_en_disabled_hooks_deja_pasar_todo_sin_marcas_ni_avisos():
     with git_aislado(), Toque() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         malo = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
         assert w.correr(evento(malo))[0] == 2, "control: la regla de la capa bloquea"
         assert w.correr(a_escribir(w.sql, sesion="c1"))[0] == 2, "control: el primer toque bloquea"
@@ -2262,6 +2263,7 @@ def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_verificar_capa():
     otros = ["guard_comandos", "revisar_turno", "writer_guard", "writer_stop"]
     with git_aislado(), Toque() as w:
         w.modulo("web", STUB_MALO)
+        w.calibrar("web")
         malo = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
         for i, valor in enumerate((otros, "verificar_capa", ["verificar_capa", "verificar_capa"], ["verificar-capa"], [None],
                                    {"verificar_capa": True})):
