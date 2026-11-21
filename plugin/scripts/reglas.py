@@ -138,8 +138,8 @@ def _corpus(raiz, carpeta):
 
 
 def _atrapa(modulo, id_, sembrado, capa, carpeta, extension, errores, fallas=Exception):
-    relativa = SEMBRADO + extension
-    ctx = _ctx(os.path.join(os.path.abspath(carpeta), relativa), relativa, sembrado.encode("utf-8"), capa)
+    relativa, texto = (SEMBRADO + extension, sembrado) if isinstance(sembrado, str) else (sembrado["ruta"], sembrado["texto"])
+    ctx = _ctx(os.path.join(os.path.abspath(carpeta), *relativa.split("/")), relativa, texto.encode("utf-8"), capa)
     try:
         hallazgos = list(modulo.verificar(ctx))
     except fallas as exc:
@@ -205,7 +205,11 @@ def _calibrar_paquete(raiz, paquete, capa, carpeta, archivos, detalle, extension
             precalcular(ctxs)
         except FALLAS_DE_UN_PAQUETE as exc:
             errores.append("precalcular: %s: %s" % (type(exc).__name__, exc))
-    ids = _ids(modulo, errores)
+    try:
+        ids = _ids(modulo, errores)
+    except FALLAS_DE_UN_PAQUETE as exc:
+        ids = []
+        errores.append("REGLAS: %s: %s" % (type(exc).__name__, exc))
     por_regla = {id_: [] for id_ in ids or []}
     for ctx in ctxs:
         try:

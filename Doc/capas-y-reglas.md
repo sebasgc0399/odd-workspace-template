@@ -22,7 +22,7 @@ Cuándo corren estas reglas durante una sesión está en [Hooks](hooks.md#cuánd
 Una regla empieza observando: el `modo` que pide el módulo es un techo, no una orden. Vale igual para el módulo de la capa y para el de un [paquete](#paquetes-de-reglas). Un hallazgo bloquea solo si se cumple todo esto:
 
 1. el módulo pide `bloqueo` (una regla de estilo puede avisar para siempre);
-2. la regla declara su defecto sembrado: un atributo `sembrado` en su objeto de `REGLAS`, con un texto que la regla tiene que atrapar;
+2. la regla declara su defecto sembrado: un atributo `sembrado` en su objeto de `REGLAS`, con el defecto que la regla tiene que atrapar (un texto, o una ruta con su texto);
 3. la calibración guardada atrapó ese sembrado y dio 0 aciertos en bloqueo en el corpus;
 4. el módulo no cambió desde la calibración (para un paquete, la huella de su lock no cambió);
 5. no hay una [disputa](#las-disputas) abierta para su ID.
@@ -30,10 +30,15 @@ Una regla empieza observando: el `modo` que pide el módulo es un techo, no una 
 ```python
 import types
 
-REGLAS = (types.SimpleNamespace(id="EJ-01", sembrado="SELECT * FROM t"),)
+REGLAS = (
+    types.SimpleNamespace(id="EJ-01", sembrado="SELECT * FROM t"),
+    types.SimpleNamespace(id="EJ-02", sembrado={"ruta": "Migrations/0001_alta.sql", "texto": "DROP TABLE t;"}),
+)
 ```
 
-Una regla sin `sembrado`, o un módulo sin `REGLAS`, no puede bloquear. La suite que genera el bootstrap comprueba que cada `sembrado` sea un texto que su regla atrapa. El bootstrap no pisa la suite de una instancia que ya existe, así que ahí esa prueba se copia a mano desde [`plugin/plantillas/reglas/verificar.tests.py`](../plugin/plantillas/reglas/verificar.tests.py).
+**Las dos formas del `sembrado`.** Un texto le llega a la calibración como un archivo nuevo `sembrado<extensión>`, con la primera extensión de la capa, en la raíz del corpus. Una regla que mira la ruta (por ejemplo, solo los archivos bajo `Migrations/`, o el nombre del archivo) o una extensión que no es la primera de la capa nunca atraparía ese archivo. Para ella, el `sembrado` es un objeto `{"ruta": ..., "texto": ...}`: el texto le llega como un archivo nuevo del repo con esa ruta y su extensión, como `EJ-02` arriba. La ruta es relativa al repo, con `/`, y nombra un archivo: sin `/` al principio, sin unidad, sin `\`, sin `.` ni `..` y sin barras de más. Un `sembrado` con otra forma es lo mismo que no tenerlo: un texto vacío, o un objeto sin `ruta` o sin `texto`, con un texto vacío, con una clave de más o con una ruta que no cumple.
+
+Una regla sin `sembrado`, o un módulo sin `REGLAS`, no puede bloquear. La suite que genera el bootstrap comprueba que cada `sembrado` tenga una de las dos formas y que su regla lo atrape. El bootstrap no pisa la suite de una instancia que ya existe, así que ahí esa prueba se copia a mano desde [`plugin/plantillas/reglas/verificar.tests.py`](../plugin/plantillas/reglas/verificar.tests.py).
 
 **La calibración.** `reglas.py --calibrar <capa> <carpeta> --guardar` escribe `.claude/registro/calibracion.json`, que se commitea con la instancia. Por cada regla de `REGLAS` guarda la huella del módulo, si atrapó su sembrado, los aciertos (todos y los que piden bloqueo), los archivos del corpus, el corpus (`repo`, `commit` y `ruta` relativa al repo, nunca una ruta absoluta) y la fecha. Al final dice qué regla puede bloquear y por qué no las demás.
 
@@ -49,7 +54,7 @@ Una regla sin `sembrado`, o un módulo sin `REGLAS`, no puede bloquear. La suite
 
 **La huella.** Es el sha256 del módulo con CRLF pasado a LF, como la de los paquetes. Cualquier otro cambio en el archivo del módulo, aunque sea en otra regla, deja vieja la calibración de toda la capa. La huella no ve los archivos que el módulo importa: si una regla vive en un helper, recalibra cuando cambie. Para un paquete cuenta la huella de su lock: `actualizar` a otra etiqueta la cambia y deja vieja su calibración. El hook no relee la carpeta del paquete: una edición a mano de lo copiado la ve el doctor, no la calibración.
 
-**Cuando no bloquea.** El hallazgo llega como aviso, con el motivo y lo que hay que correr: `disputada`, `disputas ilegibles`, `sin calibrar`, `calibración vieja`, `no pasó la calibración` o `registro de calibración roto` (un `calibracion.json` ilegible o con otra forma: ninguna regla bloquea hasta arreglarlo o borrarlo). Un hallazgo sin `modo` válido también llega como aviso, con el motivo `modo inválido`. Si la regla es de un paquete y le falta el `sembrado` o no pasa la calibración, el aviso dice que se arregla en el repo del paquete, con una etiqueta nueva.
+**Cuando no bloquea.** El hallazgo llega como aviso, con el motivo y lo que hay que correr: `disputada`, `disputas ilegibles`, `sin calibrar`, `calibración vieja`, `no pasó la calibración` o `registro de calibración roto` (un `calibracion.json` ilegible o con otra forma: ninguna regla bloquea hasta arreglarlo o borrarlo). Un hallazgo sin `modo` válido también llega como aviso, con el motivo `modo inválido`, y uno que pide bloqueo sin un `id` de texto, con el motivo `id inválido`. Si la regla es de un paquete y le falta el `sembrado` o no pasa la calibración, el aviso dice que se arregla en el repo del paquete, con una etiqueta nueva.
 
 ### Las disputas
 

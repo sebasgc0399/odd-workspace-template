@@ -52,9 +52,15 @@ Mientras un writer siga en la plantilla vieja, la compuerta de cierre le pide lo
 
 ## Después de actualizar: calibrar las reglas que bloquean
 
-Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo dice), una regla bloquea solo si está calibrada: ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla). Es un corte duro, para los módulos de tus capas y para los paquetes de reglas: al actualizar, todo `bloqueo` llega como aviso, con el motivo `sin calibrar` y el comando a correr, hasta que lo calibres. Para que una regla vuelva a bloquear:
+Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo dice), una regla bloquea solo si está calibrada: ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla). Es un corte duro, para los módulos de tus capas y para los paquetes de reglas: al actualizar, todo `bloqueo` llega como aviso, con el motivo `sin calibrar` y el comando a correr, hasta que lo calibres. Ese aviso lo muestra el hook de después de editar. Los hooks de cierre (`writer_stop` y `revisar_turno`) solo muestran los hallazgos junto con un bloqueo, así que un bloqueo que pasó a aviso no les da ninguna señal hasta que la regla se calibre (ver [Hooks](hooks.md#cuándo-corre-cada-uno)). Para que una regla vuelva a bloquear:
 
-1. **Suma su `sembrado`.** En `.claude/reglas/verificar_<capa>.py`, el objeto de la regla en `REGLAS` lleva un atributo `sembrado`: un texto con el defecto que la regla tiene que atrapar. Si el módulo no declara `REGLAS`, declárala; sin ella no se puede calibrar. Una regla de un paquete no se edita en la instancia: su `sembrado` lo declara el autor del paquete, en su repo, con una etiqueta nueva que traes con `/odd-ws:paquetes` (`actualizar`).
+1. **Suma su `sembrado`.** En `.claude/reglas/verificar_<capa>.py`, el objeto de la regla en `REGLAS` lleva un atributo `sembrado`: un texto con el defecto que la regla tiene que atrapar. Si la regla mira la ruta del archivo o una extensión que no es la primera de la capa, el `sembrado` lleva también la ruta, relativa al repo y con `/`, porque un texto solo le llega como `sembrado<primera extensión>` en la raíz:
+
+   ```python
+   types.SimpleNamespace(id="EJ-02", sembrado={"ruta": "Migrations/0001_alta.sql", "texto": "DROP TABLE t;"})
+   ```
+
+   Un `sembrado` con otra forma es lo mismo que no tenerlo (ver [Las dos formas del `sembrado`](capas-y-reglas.md#cuándo-bloquea-una-regla)). Si el módulo no declara `REGLAS`, declárala; sin ella no se puede calibrar. Una regla de un paquete no se edita en la instancia: su `sembrado` lo declara el autor del paquete, en su repo, con una etiqueta nueva que traes con `/odd-ws:paquetes` (`actualizar`).
 2. **Calibra la capa.** Corre, con una carpeta de código real de la capa (o una vacía, si todavía no hay código):
 
    ```text

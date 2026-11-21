@@ -16,6 +16,8 @@ CLAVES_DEL_REGISTRO = ("version", "capas")
 OPCIONALES_DEL_REGISTRO = ("paquetes",)
 CLAVES_DE_UNA_REGLA = ("huella", "atrapa_su_sembrado", "aciertos", "aciertos_en_bloqueo", "archivos_del_corpus", "corpus", "fecha")
 CLAVES_DEL_CORPUS = ("repo", "commit", "ruta")
+CLAVES_DEL_SEMBRADO = ("ruta", "texto")
+FALLAS_DEL_MODULO = (Exception, SystemExit)
 CONTADORES = ("aciertos", "aciertos_en_bloqueo", "archivos_del_corpus")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -48,6 +50,23 @@ def huella_del_archivo(ruta):
         return huella(f.read())
 
 
+def _texto(valor):
+    return isinstance(valor, str) and bool(valor.strip())
+
+
+def _ruta_del_sembrado(valor):
+    return _ruta_relativa(valor) and all(parte.strip() not in ("", ".", "..") for parte in valor.split("/"))
+
+
+def _sembrado(sembrado):
+    if _texto(sembrado):
+        return sembrado
+    if (isinstance(sembrado, dict) and set(sembrado) == set(CLAVES_DEL_SEMBRADO) and _ruta_del_sembrado(sembrado["ruta"])
+            and _texto(sembrado["texto"])):
+        return {"ruta": sembrado["ruta"], "texto": sembrado["texto"]}
+    return None
+
+
 def sembrados(modulo):
     try:
         reglas = getattr(modulo, "REGLAS", None)
@@ -55,10 +74,9 @@ def sembrados(modulo):
         for regla in () if reglas is None else reglas:
             id_ = getattr(regla, "id", None)
             if isinstance(id_, str) and id_:
-                sembrado = getattr(regla, "sembrado", None)
-                encontrados[id_] = sembrado if isinstance(sembrado, str) and sembrado.strip() else None
+                encontrados[id_] = _sembrado(getattr(regla, "sembrado", None))
         return encontrados
-    except Exception:
+    except FALLAS_DEL_MODULO:
         return {}
 
 
@@ -157,7 +175,7 @@ def cargar(raiz):
     try:
         with open(ruta, encoding="utf-8-sig") as f:
             datos = json.loads(f.read())
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, RecursionError) as error:
         raise RegistroRoto(f"no se puede leer como JSON: {error}")
     return validar(datos)
 

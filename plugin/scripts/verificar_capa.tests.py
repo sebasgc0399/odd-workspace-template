@@ -525,6 +525,89 @@ def test_el_registro_roto_no_deja_bloquear_y_el_aviso_lo_dice():
                                   ".claude/registro/calibracion.json y correr `reglas.py --calibrar web <carpeta> --guardar`)"), lineas
 
 
+def test_un_registro_anidado_sin_fondo_no_calla_el_hook_y_avisa_que_esta_roto():
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        assert w.correr(evento(ruta))[0] == 2, "control: calibrada, bloquea"
+        escribir(w.raiz, ".claude/registro/calibracion.json", '{"version": 1, "capas": %s}' % ("[" * 100000 + "]" * 100000))
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1].endswith(" (aviso: registro de calibración roto; para que bloquee, arreglar o borrar "
+                                  ".claude/registro/calibracion.json y correr `reglas.py --calibrar web <carpeta> --guardar`)"), lineas
+
+
+STUB_CON_RUTAS = '''import types
+MIGRACION = types.SimpleNamespace(id="T-10", sembrado=%(migracion)r)
+VISTA = types.SimpleNamespace(id="T-11", sembrado=%(vista)r)
+REGLAS = (MIGRACION, VISTA)
+def verificar(ctx):
+    out = []
+    for n, t in ctx["agregadas"]:
+        if "MALO" in t and ctx["relativa"].startswith("Migrations/") and ctx["relativa"].endswith(".cs"):
+            out.append({"id": MIGRACION.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "migracion"})
+        if "MALO" in t and ctx["relativa"].endswith(".cshtml"):
+            out.append({"id": VISTA.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "vista"})
+    return out
+'''
+
+
+def test_una_regla_con_alcance_por_ruta_o_por_extension_calibrada_con_un_sembrado_con_ruta_bloquea():
+    with Mundo() as w:
+        config = json.loads((w.raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        config["layers"]["web"]["extensions"] = [".cs", ".cshtml"]
+        escribir(w.raiz, "workspace.config.json", json.dumps(config))
+        migracion = escribir(w.web, "Migrations/0002_baja.cs", "x = MALO;\n")
+        vista = escribir(w.web, "Views/lista.cshtml", "<p>MALO</p>\n")
+        fuera = escribir(w.web, "Core/N.cs", "x = MALO;\n")
+        w.modulo("web", STUB_CON_RUTAS % {"migracion": "x = MALO;", "vista": "<p>MALO</p>"})
+        salida = w.calibrar("web")
+        assert {"T-10 solo avisa: no atrapa su sembrado", "T-11 solo avisa: no atrapa su sembrado"} <= set(salida.splitlines()), salida
+        assert "no pasó la calibración; no atrapa su sembrado" in contexto_de(w.correr(evento(migracion)))[1]
+        w.modulo("web", STUB_CON_RUTAS % {"migracion": {"ruta": "Migrations/0001_alta.cs", "texto": "x = MALO;"},
+                                          "vista": {"ruta": "Views/alta.cshtml", "texto": "<p>MALO</p>"}})
+        salida = w.calibrar("web")
+        assert {"T-10 puede bloquear", "T-11 puede bloquear"} <= set(salida.splitlines()), salida
+        codigo, _, err = w.correr(evento(migracion))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[T-10] linea 1: migracion"], (codigo, err)
+        codigo, _, err = w.correr(evento(vista))
+        assert codigo == 2 and problemas_de(err)[1:] == ["[T-11] linea 1: vista"], (codigo, err)
+        assert w.correr(evento(fuera)) == (0, "", b""), "fuera de su alcance, la regla no ve nada"
+
+
+REGLAS_QUE_SALEN = '''import sys
+class _Reglas:
+    def __iter__(self):
+        sys.exit(3)
+REGLAS = _Reglas()
+def verificar(ctx):
+    return [{"id": "%(id)s", "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "sale"}
+            for n, t in ctx["agregadas"] if "MALO" in t]
+'''
+
+
+def test_un_REGLAS_que_sale_con_SystemExit_al_leerse_avisa_en_vez_de_callar_el_hook():
+    with Mundo() as w:
+        w.modulo("web", REGLAS_QUE_SALEN % {"id": "T-08"})
+        ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
+        lineas = contexto_de(w.correr(evento(ruta)))
+        assert lineas[1:] == ["[T-08] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS y correr "
+                              "`reglas.py --calibrar web <carpeta> --guardar`)"], lineas
+
+
+def test_un_paquete_cuyo_REGLAS_sale_con_SystemExit_avisa_y_no_calla_a_la_capa():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        poner_paquete(w, "sale", "SAL", REGLAS_QUE_SALEN % {"id": "SAL-01"})
+        codigo, out, err = w.correr(evento(archivo_con_malo(w)))
+        assert codigo == 2 and out == "", (codigo, out, err)
+        assert problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+                                         "[SAL-01] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en "
+                                         "REGLAS (en el repo del paquete sale, con una etiqueta nueva) y correr "
+                                         "`reglas.py --calibrar web <carpeta> --guardar`)"], problemas_de(err)
+
+
 def test_un_hallazgo_sin_modo_no_calla_el_hook_y_llega_como_aviso_con_el_motivo():
     with Mundo() as w:
         w.modulo("web", 'def verificar(ctx):\n    return [{"id": "T-09", "linea": 1, "mensaje": "sin modo"}]\n')

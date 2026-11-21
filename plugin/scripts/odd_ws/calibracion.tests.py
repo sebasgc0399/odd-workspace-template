@@ -140,6 +140,73 @@ def test_los_sembrados_salen_de_REGLAS_y_sin_REGLAS_no_hay_ninguno():
     assert m().sembrados(types.SimpleNamespace(REGLAS=None)) == {}
 
 
+def test_un_sembrado_puede_ser_una_ruta_relativa_con_su_texto():
+    Regla = lambda **kw: types.SimpleNamespace(**kw)
+    declarado = {"ruta": "Migrations/0001_alta.sql", "texto": "DROP TABLE t;"}
+    modulo = types.SimpleNamespace(REGLAS=(Regla(id="A-01", sembrado="x"), Regla(id="A-02", sembrado=declarado),
+                                           Regla(id="A-03", sembrado={"ruta": "vista.cshtml", "texto": "MALO"})))
+    encontrados = m().sembrados(modulo)
+    assert encontrados == {"A-01": "x", "A-02": declarado, "A-03": {"ruta": "vista.cshtml", "texto": "MALO"}}, encontrados
+    assert encontrados["A-02"] is not declarado, "una copia: el módulo no la cambia después"
+    registro = registro_con({"sql": {"SQL-01": entrada()}})
+    resultado = efectivo(hallazgo(), registro, fuente(sembrados={"SQL-01": declarado}))
+    assert resultado["modo"] == "bloqueo" and m().sufijo(resultado) == "", resultado
+
+
+SEMBRADOS_INVALIDOS = {
+    "sin ruta": {"texto": "x"},
+    "sin texto": {"ruta": "a.sql"},
+    "vacío": {},
+    "ruta vacía": {"ruta": "", "texto": "x"},
+    "ruta en blanco": {"ruta": "  ", "texto": "x"},
+    "texto vacío": {"ruta": "a.sql", "texto": ""},
+    "texto en blanco": {"ruta": "a.sql", "texto": " \n"},
+    "ruta absoluta": {"ruta": "/Migrations/a.sql", "texto": "x"},
+    "ruta con unidad": {"ruta": "C:/Migrations/a.sql", "texto": "x"},
+    "ruta con barra invertida": {"ruta": "Migrations\\a.sql", "texto": "x"},
+    "ruta que sube": {"ruta": "../a.sql", "texto": "x"},
+    "ruta que sube adentro": {"ruta": "Migrations/../a.sql", "texto": "x"},
+    "ruta con punto": {"ruta": "./a.sql", "texto": "x"},
+    "ruta que termina en barra": {"ruta": "Migrations/", "texto": "x"},
+    "ruta con barras dobles": {"ruta": "Migrations//a.sql", "texto": "x"},
+    "ruta que no es texto": {"ruta": ["Migrations", "a.sql"], "texto": "x"},
+    "texto que no es texto": {"ruta": "a.sql", "texto": b"x"},
+    "clave de más": {"ruta": "a.sql", "texto": "x", "extension": ".sql"},
+}
+
+
+def test_un_sembrado_con_ruta_invalido_es_lo_mismo_que_no_tenerlo():
+    Regla = lambda **kw: types.SimpleNamespace(**kw)
+    registro = registro_con({"sql": {"SQL-01": entrada()}})
+    sin_sembrado = efectivo(hallazgo(), registro, fuente(sembrados={"SQL-01": None}))
+    for que, sembrado in SEMBRADOS_INVALIDOS.items():
+        modulo = types.SimpleNamespace(REGLAS=(Regla(id="SQL-01", sembrado=sembrado), Regla(id="SQL-02", sembrado="y")))
+        encontrados = m().sembrados(modulo)
+        assert encontrados == {"SQL-01": None, "SQL-02": "y"}, (que, encontrados)
+        resultado = efectivo(hallazgo(), registro, m().Fuente("sql", HUELLA, encontrados))
+        assert resultado == sin_sembrado and resultado["modo"] == "aviso", (que, resultado)
+
+
+def test_un_REGLAS_que_sale_con_SystemExit_al_leerse_deja_sin_sembrados_y_no_corta_al_que_llama():
+    class SaleAlRecorrer:
+        def __iter__(self):
+            raise SystemExit(3)
+
+    class SaleAlLeerElSembrado:
+        id = "A-01"
+
+        @property
+        def sembrado(self):
+            raise SystemExit("chau")
+
+    for reglas in (SaleAlRecorrer(), (SaleAlLeerElSembrado(),)):
+        assert m().sembrados(types.SimpleNamespace(REGLAS=reglas)) == {}, reglas
+    f = m().fuente_del_paquete(Paquete(), types.SimpleNamespace(REGLAS=SaleAlRecorrer()))
+    assert f == m().Fuente("sql", HUELLA, {}, "alfa"), f
+    resultado = m().modo_efectivo(hallazgo(id_="ALF-01"), f, m().Registro({}, None, {"sql": {"alfa": {"ALF-01": entrada()}}}), {})
+    assert resultado["modo"] == "aviso" and "sin calibrar" in m().sufijo(resultado), resultado
+
+
 def test_una_calibracion_que_no_atrapa_su_sembrado_o_con_aciertos_en_bloqueo_no_bloquea():
     for datos, detalle in ((entrada(atrapa=False), "no atrapa su sembrado"),
                            (entrada(aciertos=4, en_bloqueo=2), "2 aciertos en bloqueo en el corpus")):
@@ -372,6 +439,7 @@ def test_el_registro_roto_o_con_otra_forma_no_deja_bloquear_y_lo_dice():
         "nombre de paquete invalido": json.dumps({"version": 1, "capas": {}, "paquetes": {"sql": {"Alfa": {}}}}),
         "paquete no es objeto": json.dumps({"version": 1, "capas": {}, "paquetes": {"sql": {"alfa": 3}}}),
         "regla de paquete mal formada": json.dumps({"version": 1, "capas": {}, "paquetes": {"sql": {"alfa": {"ALF-01": dict(buena, huella="x")}}}}),
+        "anidado sin fondo": '{"version": 1, "capas": %s}' % ("[" * 100000 + "]" * 100000),
     }
     for que, texto in rotos.items():
         with temporal() as raiz:

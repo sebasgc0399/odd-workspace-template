@@ -29,9 +29,9 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T1 | S1, S2, S3, S4, S7, S8 | El modo efectivo y la calibración de la capa: `odd_ws/calibracion.py`, `reglas.py --guardar`, `verificar_capa`, `writer_stop`, la plantilla de la suite de reglas y los docs | delegada a un writer, en paralelo con la I62 en otro worktree. Risk: item 2 (los guards dejan de bloquear hasta calibrar) y item 6 (si la huella falla en silencio, ningún test lo vería en una instancia real); lleva verificador, al final de la feature (L3) | hecha (L3, L4) | `bf6cc5b` |
-| T2 | S5 | Las disputas en `.claude/registro/disputas/` | delegada junto con T3, en un writer y un commit (L5) | hecha (L5) | |
-| T3 | S6 | Los paquetes con la huella de su lock | delegada junto con T2 (L5) | hecha (L5) | |
-| T4 | todas | El verificador independiente de la feature y el cierre | inline | pendiente | |
+| T2 | S5 | Las disputas en `.claude/registro/disputas/` | delegada junto con T3, en un writer y un commit (L5) | hecha (L5) | `ebe8bf6` |
+| T3 | S6 | Los paquetes con la huella de su lock | delegada junto con T2 (L5) | hecha (L5) | `ebe8bf6` |
+| T4 | todas | El verificador independiente de la feature y el cierre | inline | verificador: un bloqueante y cuatro avisos, corregidos en un lote (L6); falta el rechequeo | |
 
 ## Log
 
@@ -87,3 +87,20 @@ Origen: la I64 del roadmap, tal cual: «Las reglas por capa empiezan observando:
   - **Un defecto de T1 que reportó el writer, y que el padre arregló:** un hallazgo en bloqueo con un `id` que no es texto (una lista) tiraba `TypeError` en `_motivo`. `verificar_capa.correr` se tragaba la excepción y el archivo entero quedaba en silencio, cuando en la `0.11.0` ese hallazgo bloqueaba. Ahora cae en aviso con el motivo `id inválido`, como un `modo` inválido. Rojo observado con la misma `TypeError`; después, `calibracion` 30/30 y `verificar_capa` 119/119.
   - **Pendiente para la entrega:** el CHANGELOG, con el corte duro que ahora cubre también los paquetes, las disputas y las capas que solo tienen paquetes.
   - **Scratch del writer, a borrar a mano:** `%TEMP%	mp.lgf63efl8F`.
+- **L6** (2026-11-21) El verificador independiente de la feature (`2ef0c3b..ebe8bf6`) y su lote de corrección.
+  - **El veredicto:** PASS de S1 a S7; S8 parcial porque falta el CHANGELOG, que va con la entrega.
+  - **El bloqueante:** una regla filtrada por ruta (por ejemplo, solo `Migrations/`) o por una extensión que no es la primera de la capa nunca podía atrapar su sembrado, porque `reglas._atrapa` lo pasaba como un archivo `sembrado<primera extensión>` en la raíz. Quedaba para siempre en «no pasó la calibración», con un mensaje que engaña. En la `0.11.0` esas reglas bloqueaban. Lo vio en una instancia de prueba real.
+  - **La decisión del padre:** el `sembrado` puede ser un texto, como antes, o un dict `{"ruta", "texto"}`, que se pasa como un archivo en esa ruta relativa. Cubre los filtros por carpeta, por extensión y por nombre de archivo. Probar cada extensión no resolvía las rutas.
+  - **Los avisos que callaban el hook donde antes bloqueaba,** corregidos en el mismo lote:
+    - un `calibracion.json` muy anidado tiraba `RecursionError` en `cargar`;
+    - un `REGLAS` que tira `SystemExit` caía en `sembrados`, y en un paquete también callaba a la capa. El writer encontró y cerró el mismo hueco en `reglas._calibrar_paquete`.
+  - **Los docs:** el motivo `id inválido` en las listas, la salvedad de los hooks de cierre en `Doc/actualizar.md`, y la forma con dict en `Doc/capas-y-reglas.md`, `Doc/actualizar.md`, `Doc/diseno.md` y la skill `cerrar`.
+  - **Las suites del lote:** `calibracion` 33/33, `reglas` 55/55, `verificar_capa` 123/123, `odd_ws/paquetes` 23/23, `paquetes` 17/17, `writer_stop` 58/58, `revisar_turno` 31/31, `bootstrap_reglas` 22/22 y el shim 68/68. Rojo observado en cada punto. El padre repitió `calibracion`.
+  - **El señuelo y el diferencial:** el señuelo quedó intacto, y el diferencial contra `ebe8bf6`, en 34 casos, solo cambia en lo pedido.
+  - **Seguimientos, sin cambio en esta versión:**
+    - un dict de sembrado inválido da el mismo motivo que no declararlo;
+    - no se valida que la extensión de `ruta` sea de la capa;
+    - un objeto hostil dentro de un hallazgo todavía puede callar el hook. Ya pasaba en la `0.11.0`;
+    - los hooks de cierre no muestran un hallazgo bajado a aviso: está documentado;
+    - el comando sugerido puede apuntar al checkout principal cuando el corpus está en un worktree.
+  - **Scratch, a borrar a mano:** del verificador, `%TEMP%	mp.rVy72n5d6i` (con un worktree enlazado de prueba adentro); del writer del lote, `%TEMP%	mp.WJLEKeuCgL`.

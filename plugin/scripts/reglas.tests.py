@@ -970,6 +970,135 @@ def test_guardar_dice_que_una_regla_disputada_solo_avisa_y_no_toca_la_disputa():
         assert codigo == 0 and out.splitlines()[-1] == "ALF-01 solo avisa: .claude/registro/disputas no se puede leer", (codigo, out, err)
 
 
+MODULO_CON_RUTAS = ('import types\n'
+                    '\n'
+                    'MIGRACION = types.SimpleNamespace(id="SQL-01", sembrado=%(migracion)r)\n'
+                    'VISTA = types.SimpleNamespace(id="SQL-02", sembrado=%(vista)r)\n'
+                    'REGLAS = (MIGRACION, VISTA)\n'
+                    '\n'
+                    '\n'
+                    'def verificar(ctx):\n'
+                    '    res = []\n'
+                    '    for n, t in ctx["agregadas"]:\n'
+                    '        if "DROP" in t and ctx["relativa"].startswith("Migrations/") and ctx["relativa"].endswith(".sql"):\n'
+                    '            res.append({"id": MIGRACION.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "m"})\n'
+                    '        if "MALO" in t and ctx["relativa"].endswith(".vista"):\n'
+                    '            res.append({"id": VISTA.id, "modo": "bloqueo", "severidad": "", "linea": n, "fragmento": None, "mensaje": "m"})\n'
+                    '    return res\n')
+CAPAS_CON_DOS_EXTENSIONES = {"sql": {"extensions": [".sql", ".vista"]}}
+SEMBRADOS_CON_RUTA = {"migracion": {"ruta": "Migrations/0001_alta.sql", "texto": "DROP TABLE t;\n"},
+                      "vista": {"ruta": "Views/lista.vista", "texto": "<p>MALO</p>\n"}}
+
+
+def test_guardar_una_regla_con_alcance_por_ruta_o_por_extension_atrapa_su_sembrado_con_ruta():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_RUTAS % {"migracion": "DROP TABLE t;", "vista": "<p>MALO</p>"}, capas=CAPAS_CON_DOS_EXTENSIONES)
+        (Path(raiz) / "db").mkdir()
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and out.splitlines()[-2:] == ["SQL-01 solo avisa: no atrapa su sembrado",
+                                                         "SQL-02 solo avisa: no atrapa su sembrado"], (codigo, out, err)
+        instancia(raiz, modulo=MODULO_CON_RUTAS % SEMBRADOS_CON_RUTA, capas=CAPAS_CON_DOS_EXTENSIONES)
+        escribir(raiz, {"db/Migrations/0002.sql": "SELECT 1;\n", "db/Views/b.vista": "<p>bien</p>\n", "db/a.sql": "DROP TABLE x;\n"})
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and out.splitlines() == ["SQL-01 archivos=0 aciertos=0", "SQL-02 archivos=0 aciertos=0",
+                                                    "calibracion guardada en %s" % REGISTRO,
+                                                    "SQL-01 puede bloquear", "SQL-02 puede bloquear"], (codigo, out, err)
+        reglas = registro(raiz)["capas"]["sql"]
+        assert reglas["SQL-01"]["atrapa_su_sembrado"] is True and reglas["SQL-02"]["atrapa_su_sembrado"] is True, reglas
+        assert reglas["SQL-01"]["archivos_del_corpus"] == 3, reglas
+
+
+def test_guardar_el_sembrado_con_ruta_le_llega_al_modulo_como_un_archivo_nuevo_del_repo_con_esa_ruta():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO.replace('REGLAS = [Regla("SQL-01", _mal)',
+                                              'REGLAS = [Regla("SQL-01", _mal, {"ruta": "Migrations/0001.sql", "texto": "SELECT MAL\\n"})'
+                                              ).replace('"id funcion"', '"id funcion sembrado", defaults=(None,)'))
+        (Path(raiz) / "db").mkdir()
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and "SQL-01 puede bloquear" in out.splitlines(), (codigo, out, err)
+        ctx = [e["ctx"] for e in traza(raiz) if e["evento"] == "verificar"][-1]
+        assert ctx["ruta"] == os.path.join(os.path.abspath(Path(raiz) / "db"), "Migrations", "0001.sql"), ctx["ruta"]
+        assert {k: ctx[k] for k in ("relativa", "relativa_repo", "origen", "capa", "texto", "es_nuevo", "agregadas", "limite")} == {
+            "relativa": "Migrations/0001.sql", "relativa_repo": "Migrations/0001.sql", "origen": "repo", "capa": "sql",
+            "texto": "SELECT MAL\n", "es_nuevo": True, "agregadas": [[1, "SELECT MAL"]], "limite": None}, ctx
+
+
+def test_guardar_un_sembrado_de_texto_llega_igual_que_antes():
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO.replace('REGLAS = [Regla("SQL-01", _mal)', 'REGLAS = [Regla("SQL-01", _mal, "SELECT MAL")'
+                                              ).replace('"id funcion"', '"id funcion sembrado", defaults=(None,)'))
+        (Path(raiz) / "db").mkdir()
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 0 and "SQL-01 puede bloquear" in out.splitlines(), (codigo, out, err)
+        ctx = [e["ctx"] for e in traza(raiz) if e["evento"] == "verificar"][-1]
+        assert ctx["ruta"] == os.path.join(os.path.abspath(Path(raiz) / "db"), "sembrado.sql"), ctx["ruta"]
+        assert (ctx["relativa"], ctx["relativa_repo"], ctx["origen"], ctx["bytes"]) == ("sembrado.sql", "sembrado.sql", "repo",
+                                                                                         b"SELECT MAL".hex()), ctx
+
+
+def test_guardar_un_sembrado_con_ruta_invalido_es_lo_mismo_que_no_tenerlo():
+    invalidos = ({"ruta": "/Migrations/a.sql", "texto": "DROP TABLE t;"}, {"ruta": "../a.sql", "texto": "DROP TABLE t;"},
+                 {"ruta": "Migrations/a.sql", "texto": ""}, {"ruta": "", "texto": "DROP TABLE t;"}, {"texto": "DROP TABLE t;"},
+                 {"ruta": "Migrations/a.sql", "texto": 3})
+    for sembrado in invalidos:
+        with temporal() as raiz:
+            instancia(raiz, modulo=MODULO_CON_RUTAS % dict(SEMBRADOS_CON_RUTA, migracion=sembrado), capas=CAPAS_CON_DOS_EXTENSIONES)
+            (Path(raiz) / "db").mkdir()
+            codigo, out, err = calibrar(raiz, "--guardar")
+            assert codigo == 0 and out.splitlines()[-2:] == ["SQL-01 solo avisa: sin sembrado", "SQL-02 puede bloquear"], (sembrado, codigo, out, err)
+            assert registro(raiz)["capas"]["sql"]["SQL-01"]["atrapa_su_sembrado"] is False, sembrado
+
+
+PLANTILLA_DE_LA_SUITE = AQUI.parent / "plantillas" / "reglas" / "verificar.tests.py"
+
+
+def test_la_suite_de_la_plantilla_acepta_los_dos_sembrados_y_comprueba_que_la_regla_los_atrapa():
+    casos = {
+        "los dos atrapan": ({"migracion": "DROP en Migrations", "vista": SEMBRADOS_CON_RUTA["vista"]}, 0, None),
+        "solo rutas": (SEMBRADOS_CON_RUTA, 0, None),
+        "texto que no atrapa": ({"migracion": "DROP TABLE t;", "vista": SEMBRADOS_CON_RUTA["vista"]}, 1, "SQL-01 no atrapa su sembrado"),
+        "ruta que no atrapa": ({"migracion": {"ruta": "Otros/0001.sql", "texto": "DROP TABLE t;"}, "vista": SEMBRADOS_CON_RUTA["vista"]}, 1,
+                               "SQL-01 no atrapa su sembrado"),
+        "ruta absoluta": ({"migracion": {"ruta": "/Migrations/0001.sql", "texto": "DROP TABLE t;"}, "vista": SEMBRADOS_CON_RUTA["vista"]}, 1,
+                          "la ruta del sembrado de SQL-01"),
+        "texto vacio": ({"migracion": {"ruta": "Migrations/0001.sql", "texto": " "}, "vista": SEMBRADOS_CON_RUTA["vista"]}, 1,
+                        "el texto del sembrado de SQL-01"),
+        "clave de mas": ({"migracion": dict(SEMBRADOS_CON_RUTA["migracion"], otra=1), "vista": SEMBRADOS_CON_RUTA["vista"]}, 1,
+                         "el sembrado de SQL-01 lleva solo ruta y texto"),
+    }
+    suite = PLANTILLA_DE_LA_SUITE.read_text(encoding="utf-8")
+    for que, (sembrados, esperado, motivo) in casos.items():
+        with temporal() as raiz:
+            alcance = 'ctx["relativa"].startswith("Migrations/") and ctx["relativa"].endswith(".sql")'
+            modulo = MODULO_CON_RUTAS.replace(alcance, '(%s or "Migrations" in t)' % alcance) % sembrados
+            instancia(raiz, modulo=modulo, suite=suite, capas=CAPAS_CON_DOS_EXTENSIONES)
+            prueba = subprocess.run([sys.executable, str(_RUTA), "--test", "sql", "--raiz", str(raiz)], capture_output=True, cwd=str(raiz))
+            codigo, out, err = prueba.returncode, prueba.stdout.decode("utf-8"), prueba.stderr.decode("utf-8")
+            assert codigo == esperado and "Traceback" not in err, (que, codigo, out, err)
+            fallas = [l for l in out.splitlines() if l.startswith(("FALLA", "ERROR"))]
+            if motivo is None:
+                assert not fallas and out.splitlines()[-1].endswith("pruebas en verde"), (que, out)
+            else:
+                assert len(fallas) == 1 and fallas[0].startswith("FALLA test_cada_sembrado_") and motivo in fallas[0], (que, out)
+
+
+def test_guardar_un_paquete_cuyo_REGLAS_sale_con_SystemExit_es_un_error_y_no_corta_el_script():
+    modulo = ('import sys\n'
+              'class _Reglas:\n'
+              '    def __iter__(self):\n'
+              '        sys.exit(3)\n'
+              'REGLAS = _Reglas()\n'
+              'def verificar(ctx):\n'
+              '    return []\n')
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_SEMBRADO)
+        (Path(raiz) / "db").mkdir()
+        paquete_con_reglas(raiz, "alfa", "sql", "ALF", modulo=modulo)
+        codigo, out, err = calibrar(raiz, "--guardar")
+        assert codigo == 1 and not (Path(raiz) / ".claude" / "registro").exists(), (codigo, out, err)
+        assert "reglas: paquete alfa: REGLAS: SystemExit: 3" in err.splitlines() and "no se guarda la calibracion" in err, err
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")
