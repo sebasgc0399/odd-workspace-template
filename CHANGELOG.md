@@ -2,6 +2,24 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.12.1
+
+**odd-ws le suma menos al prompt: nada en los subagentes de gentle-shell ni fuera de una instancia, y `revisar` y `cerrar` con un núcleo corto que sobrevive a la compactación.**
+
+### Lo que cambia para ti
+
+- **En gentle-shell, los subagentes no reciben nada de odd-ws:** ni el resumen del ticket activo, ni el aviso de config rota, ni las skills de odd-ws en su catálogo. Los guards siguen funcionando igual en ellos. Es lo mismo que ya pasaba en Claude Code, donde el inicio de la sesión no llega a los subagentes.
+- **Fuera de una instancia, en Pi, las skills de odd-ws no se listan.** Igual las puedes correr con `/skill:<nombre>`, por ejemplo `/skill:bootstrap` para crear una instancia.
+- **`revisar` y `cerrar` tienen un núcleo corto,** de unos 4.700 y 3.500 tokens, y el detalle en archivos que se leen solo en el paso que los necesita. En Claude Code, después de una compactación solo vuelven los primeros 5.000 tokens de cada skill: con la skill entera, `revisar` perdía el recibo y el rechequeo. Ninguna regla cambió; solo dónde está.
+- **Las descripciones de las skills tienen la mitad de largo,** con el caso de uso primero. Ninguna cambia quién la puede invocar.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **El shim de Pi** filtra `event.systemPromptOptions.skills` en `before_agent_start`: en un hijo (`GENTLE_PI_AGENTS_CHILD=1`) saca las skills del plugin y las de la instancia, y en el agente principal fuera de una instancia saca las del plugin. Compara la ruta escrita y la real, así que sobrevive a junctions, mayúsculas y barras. `pi.skills` se queda en el `package.json`, así que `/skill:<nombre>` sigue resolviendo. En el hijo, `session_start` y `session_compact` no lanzan Python, y `resources_discover` no publica nada.
+- **Las references** viven en `skills/revisar/references/` y `skills/cerrar/references/`, se abren con compuertas explícitas en el núcleo y usan el marcador `<S>`, porque `${CLAUDE_PLUGIN_ROOT}` solo se reemplaza dentro del `SKILL.md`. Un chequeo mecánico comparó cada oración del archivo viejo con el núcleo y sus references. Los tests leen las dos partes y fijan el tamaño de cada núcleo.
+- Las decisiones están en `odd/tasks/carga-en-el-prompt.md`.
+
 ## 0.12.0
 
 **Puedes instalar solo los controles de odd-ws junto a otra orquestación, apagar un hook puntual, y las reglas por capa bloquean solo después de calibrarse.**

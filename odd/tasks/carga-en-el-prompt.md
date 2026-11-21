@@ -33,7 +33,7 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
 | T2 | S3 | `revisar` con un núcleo corto y sus references | delegada a un writer, en paralelo con T1 | hecha (L4) | `f93167a` |
 | T3 | S4 | `cerrar` con un núcleo corto y sus references | delegada, después de T2, con el mismo patrón | hecha (L6) | `26624db` |
 | T4 | S5 | Las descripciones de las 9 skills | inline, al final, porque toca los frontmatter de T2 y T3 | hecha (L7, L8) | `95d361e` |
-| T5 | todas | El verificador independiente de la feature, los docs y el cierre | inline | verificador: un bloqueante, corregido en un lote (L8); falta el rechequeo | |
+| T5 | todas | El verificador independiente de la feature, los docs y el cierre | inline | hecha: verificador PASS después de un lote de corrección (L8, L9) | `f3abf6f` |
 
 ## Log
 
@@ -109,3 +109,10 @@ El origen es la promesa del autor a ese usuario, tal cual (L1): «Para la 0.12.1
   - **Los núcleos:** `revisar` 17.331 bytes (tope 17.408) y `cerrar` 12.970 (tope 13.312).
   - **Los docs:** `Doc/diseno.md` describe las references de `revisar` y `cerrar`.
   - **Scratch del verificador, a borrar a mano:** `%TEMP%	mp.ZFERijv3X2`.
+- **L9** (2026-11-21) El rechequeo y la entrega.
+  - **El rechequeo** del verificador, limitado al bloqueante y a los avisos sobre `f3abf6f`, dio PASS en todo:
+    - leyendo solo el núcleo, una medición lleva a una fila con `destino` `evidencia` y abre `references/matriz.md`;
+    - los tres matices de `revisar` volvieron con su significado de base;
+    - las descripciones parsean y recuperaron sus disparadores.
+  - **Las suites del rechequeo:** `memorias` 43/43, `recibo` 115/115 y `pi.tests` 70/70.
+  - **La entrega:** el autor dio el ok para publicar la `0.12.1`.
