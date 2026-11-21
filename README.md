@@ -3,7 +3,9 @@
 [![Pruebas](https://github.com/sebasgc0399/odd-workspace-template/actions/workflows/pruebas.yml/badge.svg?branch=main)](https://github.com/sebasgc0399/odd-workspace-template/actions/workflows/pruebas.yml)
 [![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
 
-![odd-ws. En el chat es un consejo; en tu repo, es un chequeo. El agente escribe una vista sin el filtro WHERE activo = 1, el chequeo de la capa la marca como SQL-01 CRITICAL y el agente la corrige.](Doc/img/odd-ws-portada.gif)
+![Ejemplo del ciclo de odd-ws. El agente escribe una vista sin el filtro WHERE activo = 1, el usuario lo corrige en el ticket, /odd-ws:cerrar lo vuelve la regla SQL-01 y en el próximo ticket el chequeo la marca solo como SQL-01 CRITICAL. En el chat es un consejo; en tu repo, es un chequeo.](Doc/img/odd-ws-portada.gif)
+
+*Un ejemplo del ciclo, armado con un ticket de prueba: no es una grabación.*
 
 **Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code, Codex CLI y gentle-shell (Pi) que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
 
@@ -26,10 +28,36 @@ flowchart LR
 El plugin monta una **instancia**, un espacio de trabajo con agentes, en una carpeta aparte, al lado de tus repos de código. La instancia tiene su propio git y apunta a tus repos por su ruta, sin tocarlos:
 
 - **Cada ticket tiene su carpeta,** con su objetivo, sus criterios de aceptación y su alcance.
-- **Los hooks chequean cada edición** contra las reglas de su capa, y frenan los comandos peligrosos.
-- **Los cambios grandes los escriben agentes con compuerta,** y los revisores dejan un recibo atado al diff.
+- **Los hooks chequean cada edición** contra las reglas de su capa, y frenan los comandos peligrosos, también cuando el agente escribe por la shell.
+- **Las reglas empiezan observando.** Una regla bloquea solo después de calibrarse contra tu código, y una disputada vuelve a avisar. Si actualizas desde una versión anterior a la `0.12.0`, calibra tus reglas: hasta entonces solo avisan ([cómo](Doc/actualizar.md#después-de-actualizar-calibrar-las-reglas-que-bloquean)).
+- **Los cambios grandes los escriben agentes con compuerta,** y los revisores dejan un recibo atado al diff. La revisión mide cuánto cuesta y explica por qué eligió su modo.
 - **Lo aprendido en un ticket sube** a reglas y docs verificables.
 - **Las reglas de un stack se pueden traer de otro repo git,** fijadas a una etiqueta, con `/odd-ws:paquetes`.
+- **Puedes apagar un hook puntual** con `disabled_hooks` en la config, sin desinstalar el plugin ([Hooks](Doc/hooks.md)).
+
+## Por dónde empezar
+
+| Si ya usas… | Haz esto |
+|---|---|
+| Solo Claude Code | Instala el plugin completo y corre `/odd-ws:bootstrap` ([Instalación](#instalación)) |
+| gentle-ai | En el bootstrap elige el perfil `controles`: solo guards, reglas por capa y doctor ([más abajo](#junto-a-gentle-ai-y-engram)) |
+| Codex o gentle-shell (Pi) | Declara el host en la config y sigue su guía ([Instalación](#instalación)) |
+
+## Las skills
+
+| Comando | Para qué |
+|---|---|
+| `/odd-ws:bootstrap` | Crear la instancia, o completar una que ya existe |
+| `/odd-ws:doctor` | Revisar que los hooks y la config estén bien |
+| `/odd-ws:abrir` | Empezar un ticket |
+| `/odd-ws:revisar` | Revisar un cambio antes del commit |
+| `/odd-ws:cerrar` | Cerrar un ticket y graduar lo aprendido; con `memorias`, las del proyecto |
+| `/odd-ws:paquetes` | Traer, cambiar de etiqueta o sacar las reglas de otro repo |
+| `/odd-ws:enlaces` | Revisar, abrir y copiar los enlaces de un ticket |
+| `/odd-ws:conocimiento` | Revisar la salud de los docs del proyecto |
+| `/odd-ws:eval-reviewers` | Medir un revisor contra la revisión real de un líder |
+
+Cuándo usar cada una y quién la dispara está en la [guía de uso](Doc/uso.md#skills).
 
 ## Así se ve un bloqueo
 
