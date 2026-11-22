@@ -67,7 +67,7 @@ Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo
    python3 "<plugin_root>/scripts/reglas.py" --calibrar <capa> <carpeta> --guardar
    ```
 
-   Calibra también los paquetes de la capa, cada uno con la huella de su lock; una capa que solo tiene paquetes también se calibra así. La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado, tiene aciertos en bloqueo en el corpus o está disputada.
+   El aviso de la regla trae este mismo comando, con la ruta del plugin y la carpeta ya puestas (la de una regla de la capa que ya se calibró o, si no hay ninguna, la del primer repo de la capa): cópialo y córrelo tal cual desde la raíz de la instancia. Calibra también los paquetes de la capa, cada uno con la huella de su lock; una capa que solo tiene paquetes también se calibra así. La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado, tiene aciertos en bloqueo en el corpus o está disputada.
 3. **Commitea `.claude/registro/`**, junto con el módulo si le sumaste `sembrado`.
 
 Cada cambio posterior del módulo deja vieja la calibración de su capa, y `actualizar` un paquete a otra etiqueta deja vieja la del paquete, así que se repiten los pasos 2 y 3. Si una regla calibrada bloquea algo que está bien, ábrele una disputa (`.claude/registro/disputas/<ID>.md`, ver [Las disputas](capas-y-reglas.md#las-disputas)): vuelve a avisar hasta que se arregle su chequeo. La prueba de la suite que comprueba los `sembrado` llega solo a las instancias nuevas: en una que ya existe, cópiala de `plugin/plantillas/reglas/verificar.tests.py`.
