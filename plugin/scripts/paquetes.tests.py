@@ -256,7 +256,8 @@ def test_importado_el_doctor_da_ok_y_el_hook_aplica_su_regla():
         hook = subprocess.run([sys.executable, str(AQUI / "verificar_capa.py"), "--plazo", "20"], input=json.dumps(evento).encode("utf-8"),
                               capture_output=True, env=env, timeout=120)
         contexto = json.loads(hook.stdout)["hookSpecificOutput"]["additionalContext"] if hook.returncode == 0 else hook
-        assert "[ALF-01] linea 1: regla v2 (aviso: calibración vieja; para que bloquee, correr `reglas.py --calibrar sql " in contexto, \
+        assert ('[ALF-01] linea 1: regla v2 (aviso: calibración vieja; para que bloquee, correr `python3 "%s" --calibrar sql '
+                % (AQUI / "reglas.py")) in contexto, \
             "otra etiqueta es otra huella en el lock: hay que recalibrar (%r)" % (contexto,)
 
 

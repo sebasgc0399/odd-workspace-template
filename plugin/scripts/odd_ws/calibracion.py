@@ -22,6 +22,7 @@ CONTADORES = ("aciertos", "aciertos_en_bloqueo", "archivos_del_corpus")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 SIN_CARPETA = "<carpeta>"
+REGLAS_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reglas.py")
 
 SIN_CALIBRAR = "sin calibrar"
 VIEJA = "calibración vieja"
@@ -229,27 +230,39 @@ def escribir(raiz, capas, de_paquetes=None):
             os.remove(temporal)
 
 
-def _carpeta(id_, reglas, repos, otras=()):
+def _entre_comillas(ruta):
+    return '"%s"' % (ruta + "\\" if ruta.endswith("\\") else ruta)
+
+
+def _carpeta(id_, reglas, repos, otras=(), repos_de_la_capa=()):
     for calibrada in ([reglas[id_]] if id_ in reglas else []) + list(reglas.values()) + list(otras):
         repo = repos.get(calibrada["corpus"]["repo"]) if calibrada["corpus"]["repo"] else None
         if isinstance(repo, dict) and repo.get("path"):
-            carpeta = os.path.normpath(os.path.join(repo["path"], *calibrada["corpus"]["ruta"].split("/")))
-            return '"%s"' % carpeta if any(c.isspace() for c in carpeta) else carpeta
+            return _entre_comillas(os.path.normpath(os.path.join(repo["path"], *calibrada["corpus"]["ruta"].split("/"))))
+    primero = repos.get(repos_de_la_capa[0]) if repos_de_la_capa else None
+    if isinstance(primero, dict) and primero.get("path"):
+        return _entre_comillas(os.path.normpath(primero["path"]))
     return SIN_CARPETA
+
+
+def _repos_de_la_capa(capas, capa):
+    declarada = (capas or {}).get(capa)
+    return list(declarada.get("repos") or []) if isinstance(declarada, dict) else []
 
 
 def _aviso(motivo, accion):
     return {"motivo": motivo, "accion": accion}
 
 
-def _motivo(id_, fuente, actual, repos):
+def _motivo(id_, fuente, actual, repos, capas):
     de_la_capa = actual.capas.get(fuente.capa) or {}
     if fuente.paquete is None:
         reglas, otras, donde = de_la_capa, (), ""
     else:
         reglas = (actual.paquetes.get(fuente.capa) or {}).get(fuente.paquete) or {}
         otras, donde = de_la_capa.values(), " (en el repo del paquete %s, con una etiqueta nueva)" % fuente.paquete
-    comando = "`reglas.py --calibrar %s %s --guardar`" % (fuente.capa, _carpeta(id_, reglas, repos, otras))
+    carpeta = _carpeta(id_, reglas, repos, otras, _repos_de_la_capa(capas, fuente.capa))
+    comando = "`python3 %s --calibrar %s %s --guardar`" % (_entre_comillas(REGLAS_PY), fuente.capa, carpeta)
     if actual.disputas_ilegibles:
         return _aviso(DISPUTAS_ILEGIBLES, "para que bloquee, %s tiene que ser una carpeta legible, con un <ID>.md por disputa abierta"
                       % DISPUTAS)
@@ -273,7 +286,7 @@ def _motivo(id_, fuente, actual, repos):
     return None
 
 
-def modo_efectivo(hallazgo, fuente, actual, repos):
+def modo_efectivo(hallazgo, fuente, actual, repos, capas=None):
     propio = {k: v for k, v in hallazgo.items() if k != CLAVE} if CLAVE in hallazgo else hallazgo
     modo = propio.get("modo")
     if not (isinstance(modo, str) and modo in MODOS):
@@ -285,14 +298,14 @@ def modo_efectivo(hallazgo, fuente, actual, repos):
     id_ = propio.get("id")
     if not (isinstance(id_, str) and id_):
         return dict(propio, modo="aviso", **{CLAVE: _aviso(ID_INVALIDO, "el hallazgo tiene que traer el id de su regla, como texto")})
-    motivo = _motivo(id_, fuente, actual, repos)
+    motivo = _motivo(id_, fuente, actual, repos, capas)
     return propio if motivo is None else dict(propio, modo="aviso", **{CLAVE: motivo})
 
 
-def aplicar(grupos, raiz, repos):
+def aplicar(grupos, raiz, repos, capas=None):
     pide_bloqueo = any(fuente is not None and h.get("modo") == "bloqueo" for fuente, hallazgos in grupos for h in hallazgos)
     actual = registro(raiz) if pide_bloqueo else Registro({}, None)
-    return [modo_efectivo(h, fuente, actual, repos) for fuente, hallazgos in grupos for h in hallazgos]
+    return [modo_efectivo(h, fuente, actual, repos, capas) for fuente, hallazgos in grupos for h in hallazgos]
 
 
 def sufijo(hallazgo):
