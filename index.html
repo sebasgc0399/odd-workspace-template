@@ -104,7 +104,7 @@
   <h1>Que tu agente no vuelva a cometer el mismo error</h1>
   <p class="lema">Un plugin que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.</p>
   <p class="clis">Para Claude Code, Codex CLI y gentle-shell (Pi). Código abierto, licencia MIT.</p>
-  <p class="version">Versión actual: <b>0.13.1</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
+  <p class="version">Versión actual: <b>0.13.2</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
   <div class="botones">
     <a class="boton principal" href="https://github.com/sebasgc0399/odd-workspace-template">Ver el repo en GitHub</a>
     <a class="boton" href="#instalar">Instalar</a>
@@ -187,6 +187,7 @@
   <p>Si la creas dentro de un repo de código, la instancia no tiene git propio. En una subcarpeta, el bootstrap no le hace <code>git init</code>, ni configura el hook, ni hace el primer commit. En la raíz del repo, el bootstrap te pregunta antes y te recomienda una carpeta aparte: solo con tu sí la instancia queda en el git de ese repo.</p>
 
   <h2 id="instalar">Instalar</h2>
+  <p>En video: <a href="https://youtu.be/-92eWjnwjtw">la instalación con Claude Code, paso a paso</a>, en 5 minutos y en español.</p>
   <p>Necesitas Python y Git, y la versión mínima de tu CLI:</p>
   <table>
     <thead><tr><th>Herramienta</th><th>Versión</th></tr></thead>
@@ -253,6 +254,7 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
   </ul>
 
   <h2>Novedades</h2>
+  <p class="novedad"><b>0.13.2.</b> Después de actualizar el plugin, la primera sesión pone al día la ruta del plugin en cada instancia y el doctor ya no queda en FALTA. El bootstrap llena siempre la fila de tu repo y describe sus comandos en español.</p>
   <p class="novedad"><b>0.13.1.</b> El bootstrap muestra lo mismo en cada corrida, con la pregunta de la raíz de un repo siempre igual, y vuelve a proponer tus repos como del equipo.</p>
   <p class="novedad"><b>0.13.0.</b> La propuesta del bootstrap deja a la vista lo que decides, el doctor se lee de un vistazo, una instancia nueva sale sin avisos y el aviso de calibrar trae un comando que se corre tal cual. Todo el texto de odd-ws pasa a tuteo neutro.</p>
   <p class="novedad"><b>0.12.1.</b> odd-ws le suma menos al prompt: nada en los subagentes de gentle-shell ni fuera de una instancia, y <code>revisar</code> y <code>cerrar</code> con un núcleo corto.</p>
@@ -281,7 +283,7 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
 </main>
 
 <footer>
-  <p>odd-ws 0.13.1 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
+  <p>odd-ws 0.13.2 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
 </footer>
 </body>
 </html>
