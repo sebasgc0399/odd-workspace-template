@@ -135,7 +135,7 @@ CASOS = [
     ('git clean -fd real', 'git clean -fd', None, 'block'),
     ('rm -rf real fuera del scratch', 'rm -rf c:/proyecto/tickets', None, 'block'),
     ('Remove-Item -Recurse -Force real', 'Remove-Item -Recurse -Force c:/proyecto/tickets', None, 'block'),
-    ('git push --force-with-lease', 'git push --force-with-lease origin master', None, 'allow'),
+    ('git push --force-with-lease', 'git push --force-with-lease origin master', None, 'block'),
     ('git commit simple', 'git commit -m "fix: something"', None, 'allow'),
     ('git push simple', 'git push origin master', None, 'allow'),
     ('rm -rf dentro del scratch', 'rm -rf «AREA»/x', None, 'allow'),
@@ -217,7 +217,7 @@ CASOS = [
     ('Git Push a secas con el cwd en mayúsculas', 'Git Push', '«EQ^»\\DB', 'ask'),
     ('Git Checkout en un repo protegido', 'Git Checkout F_x', '«EQ»\\db', 'ask'),
     ('GIT SWITCH con la ruta de -C en minúsculas', 'GIT -C «EQ_»\\web\\movil SWITCH MASTER', None, 'ask'),
-    ('GIT PUSH --FORCE-WITH-LEASE', 'GIT PUSH --FORCE-WITH-LEASE ORIGIN X', None, 'allow'),
+    ('GIT PUSH --FORCE-WITH-LEASE', 'GIT PUSH --FORCE-WITH-LEASE ORIGIN X', None, 'block'),
     ('Git Push -U origin <rama> pregunta', 'Git Push -U origin F_beto_x', '«EQ»\\db', 'ask'),
     ('Git Checkout -- X.SQL pregunta', 'Git -C «EQ»\\db Checkout -- X.SQL', None, 'ask'),
     ('checkout con el cwd de un worktree en mayúsculas pregunta', 'git checkout otra', '«EQ^»\\WORKTREES\\DB--x', 'ask'),
@@ -229,8 +229,8 @@ CASOS = [
     ('push -u origin +<rama> en un repo protegido', 'git push -u origin +F_rama', '«EQ»\\db', 'block'),
     ('el bloque -uf es un push forzado', 'git push -uf origin F_rama', None, 'block'),
     ('el lease de OTRO push no cubre el +', 'git push --force-with-lease origin F_a && git push origin +F_b', None, 'block'),
-    ('--force-with-lease con refspec + (el lease sigue mirándose)', 'git push --force-with-lease origin +F_rama', None, 'allow'),
-    ('lease y +master en un repo protegido igual pregunta (master)', 'git push --force-with-lease origin +master', '«EQ»\\db', 'ask'),
+    ('--force-with-lease con refspec + también bloquea', 'git push --force-with-lease origin +F_rama', None, 'block'),
+    ('lease y +master en un repo protegido bloquea', 'git push --force-with-lease origin +master', '«EQ»\\db', 'block'),
     ('push refs/heads/master pregunta', 'git push origin refs/heads/master', '«EQ»\\db', 'ask'),
     ('push HEAD:refs/heads/master pregunta', 'git push origin HEAD:refs/heads/master', '«EQ»\\db', 'ask'),
     ('push master:refs/heads/master pregunta', 'git push origin master:refs/heads/master', '«EQ»\\db', 'ask'),
@@ -242,7 +242,7 @@ CASOS = [
     ('HEAD solo es la rama actual, puede ser master', 'git push -u origin HEAD', '«EQ»\\db', 'ask'),
     ('un refspec con comodín puede llegar a master', 'git push origin refs/heads/*:refs/heads/*', '«EQ»\\db', 'ask'),
     ('master después de una continuación de línea', 'git push -u origin \\\nmaster', '«EQ»\\db', 'ask'),
-    ('push --mirror pregunta (control)', 'git push --mirror origin', '«EQ»\\db', 'ask'),
+    ('push --mirror fuerza las refs y bloquea', 'git push --mirror origin', '«EQ»\\db', 'block'),
     ('-o con valor y después master pregunta', 'git push -o ci.skip origin master', '«EQ»\\db', 'ask'),
     ('-o con valor y solo el remoto pregunta', 'git push -o ci.skip origin', '«EQ»\\db', 'ask'),
     ('--push-option con valor y rama explícita pregunta', 'git push --push-option ci.skip -u origin F_rama', '«EQ»\\db', 'ask'),
@@ -324,8 +324,8 @@ CASOS = [
     ('--force-with-lease -f', 'git push --force-with-lease -f origin F_b', None, 'block'),
     ('--no-force-with-lease cancela el lease', 'git push --force-with-lease --no-force-with-lease origin +F_b', None, 'block'),
     ('el lease sobre F_a no cubre +F_b', 'git push --force-with-lease=F_a origin +F_b', 'C:\\otro\\repo', 'block'),
-    ('lease sobre la misma ref pasa', 'git push --force-with-lease=F_rama origin +F_rama', None, 'allow'),
-    ('lease refs/heads/<ref>:<esperado> sobre la misma ref pasa', 'git push --force-with-lease=refs/heads/F_rama:abc123 origin +F_rama', None, 'allow'),
+    ('lease sobre la misma ref también bloquea', 'git push --force-with-lease=F_rama origin +F_rama', None, 'block'),
+    ('lease refs/heads/<ref>:<esperado> sobre la misma ref también bloquea', 'git push --force-with-lease=refs/heads/F_rama:abc123 origin +F_rama', None, 'block'),
     ('git reset --ha', 'git reset --ha HEAD~1', None, 'block'),
     ('git reset --h', 'git reset --h', None, 'block'),
     ('git clean -d --fo', 'git clean -d --fo', None, 'block'),
@@ -594,7 +594,7 @@ def test_casos_del_origen_con_la_decision_exacta():
             if resultado != ESPERADO[esperado]:
                 fallos.append("  %s: esperado %s, salio %s (%s)" % (nombre, esperado, resultado, motivo))
     conteo = {d: sum(1 for c in CASOS if c[3] == d) for d in ESPERADO}
-    assert len(CASOS) == 370 and conteo == {"allow": 92, "ask": 190, "block": 88}, conteo
+    assert len(CASOS) == 370 and conteo == {"allow": 87, "ask": 188, "block": 95}, conteo
     assert set(SIN_PLEGAR) <= {c[0] for c in CASOS}, set(SIN_PLEGAR) - {c[0] for c in CASOS}
     assert not fallos, "%d fallos\n" % len(fallos) + "\n".join(fallos)
 
@@ -638,18 +638,18 @@ def test_sin_la_bandera_lo_que_preguntaba_pasa_y_la_capa_1_sigue():
 
 BORDES_CAPA_1 = [
     ("GIT PUSH --FORCE-WITH-LEASE --FORCE ORIGIN X", "block"),
-    ("git push --FORCE-WITH-LEASE origin +x", None),
+    ("git push --FORCE-WITH-LEASE origin +x", "block"),
     ("git push origin \\\n+main", "block"),
     ('git push "origin" +main', "block"),
     ("git push +origin main", None),
     ("git push -oci.flag origin main", None),
     ("git push origin -o +ci main", None),
     ("git push origin --push-option +ci main", None),
-    ("git push --force-with-lease=x origin +y:x", None),
+    ("git push --force-with-lease=x origin +y:x", "block"),
     ("git push --force-with-lease=x origin +x:y", "block"),
-    ("git push --force-with-lease=main origin +main>log", None),
+    ("git push --force-with-lease=main origin +main>log", "block"),
     ("echo 'git push --force origin main'", None),
-    ("git push --force-with-lease origin x; echo --force", None),
+    ("git push --force-with-lease origin x; echo --force", "block"),
     ("git log --h", None),
     ("git commit -F - <<'EOF'\npush --force\neof", None),
     ("python <<'EOF'\ngit push --force origin main\nEOF", "block"),
@@ -686,9 +686,9 @@ def test_bordes_de_la_capa_1():
 
 
 def test_cada_regla_da_su_propio_motivo():
-    casos = [("git push -f origin main", "git push --force (si de verdad"),
-             ("git push -uf origin main", "git push --force/-f (anula"),
-             ("git push origin +main", 'git push con un refspec "+"'),
+    casos = [("git push -f origin main", "git push forzado (no lo corras"),
+             ("git push -uf origin main", "git push forzado (no lo corras"),
+             ("git push origin +main", "git push forzado (no lo corras"),
              ("git reset --hard", "git reset --hard descarta"),
              ("git clean -fd", "git clean -f borra"),
              ("rm -rf C:/fuera/x", "rm -rf fuera del scratch"),
@@ -697,6 +697,42 @@ def test_cada_regla_da_su_propio_motivo():
     for comando, inicio in casos:
         resultado, motivo = G.analizar(_r(comando), None, ENTORNO)
         assert resultado == "block" and motivo.startswith(inicio), (comando, motivo)
+
+
+PUSH_FORZADO = ("git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con "
+                "seguridad, el usuario mira `git log <remoto>/<rama>` y corre "
+                "`git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`)")
+PUSHES_FORZADOS = (
+    "git push --force origin main", "git push -f origin main", "git push -uf origin F_rama", "git push origin main --force",
+    "git push --force-with-lease origin main", "git push --force-with-lease=main origin main",
+    "git push --force-with-lease=main:abc123 origin main", "git push --force-with-lease=refs/heads/main:abc123 origin +main",
+    "git push --force-if-includes origin main", "git push --force-with-lease --force-if-includes origin main",
+    "git push origin +main", "git push origin +F_a:F_b", "git push --mirror origin", "GIT PUSH --FORCE-WITH-LEASE ORIGIN X",
+    "git push --force-with origin main", "git push --mirr origin", "git push --force-with-lease --no-force-with-lease origin main",
+    "git $(true) push --force-with-lease origin main", "bash -c 'git push --force-with-lease origin main'",
+    '& "C:\\Program Files\\Git\\cmd\\git.exe" push --force-with-lease origin main',
+)
+
+
+def test_todo_push_forzado_bloquea_siempre_con_la_forma_segura_para_el_usuario():
+    for comando in PUSHES_FORZADOS:
+        for herramienta in (None, "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta) == ("block", PUSH_FORZADO), (comando, herramienta)
+    for herramienta in (None, "PowerShell"):
+        assert G.analizar("git push --no-force-with-lease origin main", None, ENTORNO, None, herramienta) == (None, None), herramienta
+    with carpeta() as base:
+        inst = instancia(base)
+        codigo, salida, error = G.correr(evento("git push --force-with-lease=main:abc123 origin main"), entorno=entorno_de(inst))
+        assert (codigo, salida) == (2, ""), (codigo, salida)
+        assert error.decode("utf-8").startswith("guard-comandos bloqueó el comando: %s. Si la operación es deliberada, que la corra "
+                                                "el usuario a mano." % PUSH_FORZADO), error
+
+
+def test_lo_que_no_es_un_push_forzado_sigue_igual():
+    for comando in ("git push origin main", "git push -u origin F_rama", 'git commit -m "no uses git push --force-with-lease"',
+                    "git push --follow-tags origin main", "git push origin -o +ci main"):
+        for herramienta in (None, "PowerShell"):
+            assert G.analizar(comando, None, ENTORNO, None, herramienta) == (None, None), (comando, herramienta)
 
 
 def capa_2(m, comando, cwd=None, entorno=ENTORNO):
@@ -1116,7 +1152,7 @@ def test_bloquea_con_exit_2_y_el_mensaje_en_bytes_utf8():
             codigo, salida, error = G.correr(evento("git push --force origin main", herramienta=herramienta), entorno=entorno_de(inst))
             assert (codigo, salida) == (2, ""), (herramienta, codigo, salida)
             texto = error.decode("utf-8")
-            assert texto.startswith("guard-comandos bloqueó el comando: git push --force"), texto
+            assert texto.startswith("guard-comandos bloqueó el comando: git push forzado"), texto
             assert "a mano" in texto and texto.endswith("\n"), texto
 
 
@@ -1327,7 +1363,7 @@ def posix_emulado(enlaces, carpetas, plataforma="linux"):
 
 
 SONDAS_CD_LOGICO = [
-    ("cd /home/u/ws/mi_repo/out/.. && git push --force-with-lease", "ask"),
+    ("cd /home/u/ws/mi_repo/out/.. && git push --force-with-lease", "block"),
     ("cd /home/u/ws/mi_repo/out/.. && git reset HEAD~1", "ask"),
     ("cd /home/u/ws/lnk/.. && git -C mi_repo push", "ask"),
     ("pushd /home/u/ws/lnk/.. && git -C mi_repo commit -m x", "ask"),
@@ -1608,12 +1644,15 @@ def test_el_backtick_de_powershell_bloquea_igual_en_claude_code_y_en_codex():
     with carpeta() as base:
         e = entorno_de(instancia(base))
         claude = G.correr(evento(plano, herramienta="PowerShell"), entorno=e)
-        assert claude[0] == 2 and claude[2].decode("utf-8").startswith("guard-comandos bloqueó el comando: git push --force"), claude
-        assert G.correr(evento(escapado, herramienta="PowerShell"), entorno=e) == claude
+        texto = claude[2].decode("utf-8")
+        assert claude[0] == 2 and texto.startswith("guard-comandos bloqueó el comando: git push forzado") and cita(plano) in texto, claude
+        citado = texto.replace(cita(plano), cita(escapado)).encode("utf-8")
+        assert G.correr(evento(escapado, herramienta="PowerShell"), entorno=e) == (2, "", citado), "el mismo bloqueo, con su comando"
         with plataforma("nt"):
-            codex = G.correr(evento(plano), entorno=e, host="codex")
-            assert (negado_en_codex(codex) or "").startswith("guard-comandos bloqueó el comando: git push --force"), codex
-            assert G.correr(evento(escapado), entorno=e, host="codex") == codex
+            codex = negado_en_codex(G.correr(evento(plano), entorno=e, host="codex")) or ""
+            assert codex.startswith("guard-comandos bloqueó el comando: git push forzado") and cita(plano) in codex, codex
+            escapado_en_codex = negado_en_codex(G.correr(evento(escapado), entorno=e, host="codex"))
+            assert escapado_en_codex == codex.replace(cita(plano), cita(escapado)), escapado_en_codex
         assert G.correr(evento(escapado, herramienta="Bash"), entorno=e) == (0, "", b""), "en Bash el backtick no es un escape"
         with plataforma("posix"):
             assert G.correr(evento(escapado), entorno=e, host="codex") == (0, "", b""), "Codex en POSIX habla Bash"
@@ -1657,7 +1696,7 @@ def test_la_capa_1_lee_el_comando_que_recibe_un_shell():
                "bash -c 'cd x && git reset --hard'", 'bash -c "git clean -fd"', "wsl bash -c 'git push -f'",
                "cd x && bash -c 'git push --force'", "bash -c \"bash -c 'git push --force'\"", "bash -c 'git push origin +main'",
                "bash -c 'rm -rf %s'" % FUERA, "bash -lc 'git push --force'", "bash -o pipefail -c 'git push --force'",
-               "docker run img sh -c 'git push --force'", "wsl 'git push --force'")
+               "docker run img sh -c 'git push --force'", "wsl 'git push --force'", "bash -c 'git push --force-with-lease origin main'")
     en_ps = ('powershell -Command "git push --force"', "pwsh -c 'git push --force'", "iex 'git push --force'",
              'powershell -NoProfile -ExecutionPolicy Bypass -Command "git push --force"', 'powershell "git push --force"',
              'Invoke-Expression "git push --force"', 'cmd /c "git push --force"', "iex @'\ngit push --force\n'@",
@@ -1673,7 +1712,7 @@ def test_la_capa_1_lee_el_comando_que_recibe_un_shell():
 
 
 def test_un_shell_con_un_comando_inocuo_o_un_borrado_en_el_scratch_sigue_pasando():
-    for comando in ("bash -c 'rm -rf %s/tmp'" % SCR, "sh -c 'npm test'", "bash -c 'git push --force-with-lease origin main'",
+    for comando in ("bash -c 'rm -rf %s/tmp'" % SCR, "sh -c 'npm test'", "bash -c 'git push -u origin main'",
                     "bash -c 'git status && git log -1'", "eval 'echo hola'"):
         for herramienta in (None, "Bash", "PowerShell"):
             assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] is None, (comando, herramienta)
@@ -1696,7 +1735,7 @@ def test_el_texto_entre_comillas_que_no_recibe_un_shell_sigue_siendo_dato():
 def test_git_llamado_por_una_ruta_entre_comillas_bloquea_como_git():
     en_ps = ('& "C:\\Program Files\\Git\\cmd\\git.exe" push --force', "& 'git' push --force",
              '& "C:\\Program Files\\Git\\cmd\\git.exe" reset --hard', "& 'C:\\Program Files\\Git\\cmd\\git.exe' clean -fd",
-             '& "C:\\Program Files\\Git\\cmd\\git.exe" push origin +main')
+             '& "C:\\Program Files\\Git\\cmd\\git.exe" push origin +main', '& "C:\\Program Files\\Git\\cmd\\git.exe" push --force-with-lease')
     en_bash = ('"/c/Program Files/Git/cmd/git.exe" push --force', "'/usr/bin/git' push origin +main",
                '"/c/Program Files/Git/cmd/git.exe" reset --hard')
     for comando in en_ps:
@@ -1704,7 +1743,7 @@ def test_git_llamado_por_una_ruta_entre_comillas_bloquea_como_git():
     for comando in en_bash:
         for herramienta in (None, "Bash"):
             assert G.analizar(comando, None, ENTORNO, None, herramienta)[0] == "block", (comando, herramienta)
-    for comando in ('& "C:\\Program Files\\Git\\cmd\\git.exe" push --force-with-lease', '& "C:\\Program Files\\Git\\cmd\\git.exe" status',
+    for comando in ('& "C:\\Program Files\\Git\\cmd\\git.exe" push -u origin main', '& "C:\\Program Files\\Git\\cmd\\git.exe" status',
                     '& "C:\\Program Files\\GitHub CLI\\gh.exe" pr create --force', "& 'git' log --oneline -3"):
         assert G.analizar(comando, None, ENTORNO, None, "PowerShell")[0] is None, comando
 
@@ -1958,6 +1997,41 @@ def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_guard_comandos():
             for e, esperado in frenados:
                 codigo, texto, _ = G.correr(e, entorno=entorno_de(inst))
                 assert (codigo == 2) if esperado == "block" else (codigo == 0 and "pregunta" in texto), (valor, e["tool_input"], texto)
+
+
+def cita(comando):
+    return "\nComando: «%s»" % comando
+
+
+def test_cada_bloqueo_y_cada_pregunta_cita_el_comando_literal():
+    with carpeta() as base:
+        inst, app, db = instancia_con_todo(base)
+        entorno = entorno_de(inst)
+        for comando in ("git push --force origin main", "bash <<'EOF'\ngit reset --hard HEAD~1\nEOF"):
+            codigo, salida, error = G.correr(evento(comando, cwd=str(inst)), entorno=entorno)
+            texto = error.decode("utf-8")
+            assert (codigo, salida) == (2, "") and texto.startswith("guard-comandos bloqueó el comando: "), (comando, texto)
+            assert texto.endswith("que la corra el usuario a mano." + cita(comando) + "\n"), texto
+        capa = bloqueo_de_capa(por_la_shell("echo x > db/a.sql", inst, app))
+        assert capa and capa.startswith("guard-comandos bloqueó el comando: escribe por la shell en "), capa
+        assert capa.endswith("usa `git mv`." + cita("echo x > db/a.sql") + "\n"), capa
+        commit = "git -C %s commit -m x" % fw(db)
+        razon = _razon(G.correr(evento(commit, cwd=str(inst)), entorno=entorno))
+        assert razon.startswith("guard-comandos pregunta antes de correr el comando: git commit en el repo «db»"), razon
+        assert razon.endswith("Confirmar solo si es deliberado y autorizado." + cita(commit)), razon
+        razon = _razon(G.correr(evento("git status", cwd=str(inst)), entorno=entorno, plazo=-1))
+        assert "no terminó dentro del plazo" in razon and razon.endswith(cita("git status")), razon
+        negado = negado_en_codex(G.correr(evento(commit, cwd=str(inst)), entorno=entorno, host="codex")) or ""
+        assert negado.startswith("guard-comandos pregunta antes de correr el comando: "), negado
+        assert cita(commit) + "\nCodex no puede pedir confirmación" in negado, negado
+        codigo, texto, _ = G.correr(evento_pi(commit, inst), entorno=entorno, host="pi")
+        datos = json.loads(texto) if codigo == 0 and texto else {}
+        assert datos.get("accion") == "bloquear" and cita(commit) + "\n" in datos.get("texto", ""), (codigo, texto)
+        largo = "git push --force origin main #" + "x" * 400
+        for comando, citado in ((largo, largo[:300] + "…"), (largo[:300], largo[:300])):
+            codigo, _, error = G.correr(evento(comando, cwd=str(inst)), entorno=entorno)
+            assert codigo == 2 and error.decode("utf-8").endswith(cita(citado) + "\n"), (len(comando), error)
+        assert G.correr(evento("git push --force origin main #\ud800", cwd=str(inst)), entorno=entorno)[0] == 2
 
 
 def main():

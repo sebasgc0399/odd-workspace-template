@@ -1,9 +1,10 @@
 # Hooks
 
-Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por qué. Por ejemplo, si el agente intenta `git push --force origin main`, recibe esto:
+Corren solos, sin que los invoques. Cuando uno frena algo, el mensaje dice por qué, y el de un comando cita el comando tal cual lo mandó el agente (uno de más de 300 caracteres se corta con «…»). Por ejemplo, si el agente intenta `git push --force origin main`, recibe esto:
 
 ```text
-guard-comandos bloqueó el comando: git push --force (si de verdad hace falta forzar, usa --force-with-lease). Si la operación es deliberada, que la corra el usuario a mano.
+guard-comandos bloqueó el comando: git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con seguridad, el usuario mira `git log <remoto>/<rama>` y corre `git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`). Si la operación es deliberada, que la corra el usuario a mano.
+Comando: «git push --force origin main»
 ```
 
 ## Cuándo corre cada uno
@@ -15,7 +16,7 @@ guard-comandos bloqueó el comando: git push --force (si de verdad hace falta fo
 | Al leer por primera vez un archivo de una capa | Inyecta sus no-negociables como contexto. |
 | Antes de editar un archivo de una capa | Si los no-negociables no se cargaron, bloquea la primera edición y los inyecta. El reintento pasa. |
 | Después de editar | Corre las reglas de la capa (`.claude/reglas/verificar_<capa>.py`) y las de sus paquetes: un `bloqueo` de una regla calibrada frena, y lo demás llega como contexto. Un `bloqueo` de una regla sin calibrar, con la calibración vieja o con una disputa abierta, llega como aviso, con el motivo y lo que hay que hacer (ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla)). |
-| Antes de un comando de shell | `guard_comandos.py` bloquea force push, `reset --hard`, `clean -f`, borrados recursivos fuera del scratch y el parche de Codex aplicado por la shell (`--codex-run-as-apply-patch`), que escribe archivos sin pasar por los chequeos de capa. Fuera de un writer, bloquea también una escritura por shell que deja contenido nuevo en un archivo de capa, y manda a la herramienta de edición para que corran el primer toque y las reglas. En un repo con `agent_readonly: true`, pregunta antes de cualquier git que no sea de lectura. |
+| Antes de un comando de shell | `guard_comandos.py` bloquea todo push forzado (también con `--force-with-lease`, `--force-if-includes`, `--mirror` o un refspec `+`), `reset --hard`, `clean -f`, borrados recursivos fuera del scratch y el parche de Codex aplicado por la shell (`--codex-run-as-apply-patch`), que escribe archivos sin pasar por los chequeos de capa. Fuera de un writer, bloquea también una escritura por shell que deja contenido nuevo en un archivo de capa, y manda a la herramienta de edición para que corran el primer toque y las reglas. En un repo con `agent_readonly: true`, pregunta antes de cualquier git que no sea de lectura. |
 | Dentro de un `writer-<capa>` | `writer_guard.py` bloquea el git de escritura y las escrituras por shell sobre los repos y el taller de la capa, y guarda una foto de cada archivo en su primer toque. |
 | Al terminar un `writer-<capa>` | `writer_stop.py` compara las líneas reales contra la foto, corre los chequeos de la capa y exige el bloque `## Resultado`. Bloquea una sola vez; un chequeo de capa frena solo si su regla está calibrada. |
 | Al terminar el turno | `revisar_turno.py` corre las reglas de la capa sobre los archivos de capa que cambiaron durante el turno, sin importar cómo se escribieron: con la herramienta de edición, por la shell, con un script o con git. Mira solo las líneas nuevas del turno. Si hay un `bloqueo` de una regla calibrada, el agente sigue una vez más para corregirlo, y los avisos llegan en el mismo mensaje. No distingue quién escribió el cambio: si el usuario editó un archivo de capa durante el turno, el agente igual recibe esa vuelta, con el pedido de avisarle al usuario y no tocarlo. Si el hook falla, el turno cierra igual, sin revisión. |
