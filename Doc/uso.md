@@ -117,13 +117,13 @@ En Codex, cada skill se invoca con `$` (por ejemplo `$doctor`) o desde `/skills`
 ### `/odd-ws:bootstrap`
 
 - **Una sola parada.** Detecta los repos del `.code-workspace` de la carpeta y las extensiones de sus archivos (`bootstrap.py --proponer`), y te muestra la propuesta completa en una sola respuesta, en este orden:
-  1. lo detectado, con cada término explicado en una línea: el nombre del proyecto, los repos con su ruta, las capas (una por tecnología, con lo que cuesta cada una), el molde y quién commitea;
-  2. el ensayo;
-  3. el bloque «Lo que decides», con una fila corta por decisión: el perfil, los tickets y tus repos (`own`);
+  1. una línea fija de apertura y «Lo detectado», una tabla con cada término explicado en una línea y siempre las mismas filas, en el mismo orden: el proyecto, cada repo con su ruta, cada capa (una por tecnología, con lo que cuesta), las extensiones sin capa, el molde y quién commitea;
+  2. el ensayo y, si hay, «Lo que pide atención», con esas líneas tal cual;
+  3. el bloque «Lo que decides», con una fila corta por decisión: el perfil, los tickets y tus repos (`own`). Cada repo se propone del equipo: `own` solo va si dices que un repo es tuyo;
   4. justo debajo, una sola pregunta: si se aplica así o qué cambia.
 
-  Así, en una terminal de unas 24 filas, lo que decides queda a la vista junto a la pregunta, sin subir. `diseno` es un nombre reservado. A una capa solo te ofrece sumarle extensiones de su mismo lenguaje: en un repo TypeScript, `.js` o `.mjs` a la capa `ts`, pero no un `.json`.
-- **En la raíz de un repo de código pregunta antes.** Si la carpeta es la raíz de un repo con archivos versionados y sin `workspace.config.json`, la instancia quedaría en el git de ese repo, con el hook y el primer commit en su rama. Por eso te lo pregunta aparte y te recomienda una carpeta al lado del repo. Solo con tu sí sigue ahí (`--confirmar-repo`); sin él, el script sale con 2 sin escribir nada.
+  Así, en una terminal de unas 24 filas, lo que decides queda a la vista junto a la pregunta, sin subir, y la respuesta tiene la misma forma en cada corrida. `diseno` es un nombre reservado. A una capa solo te ofrece sumarle extensiones de su mismo lenguaje: en un repo TypeScript, `.js` o `.mjs` a la capa `ts`, pero no un `.json`.
+- **En la raíz de un repo de código pregunta antes.** Si la carpeta es la raíz de un repo con archivos versionados y sin `workspace.config.json`, la instancia quedaría en el git de ese repo, con el hook y el primer commit en su rama. Por eso te lo pregunta aparte, siempre con el mismo texto («Ubicación», «¿Dónde la creo?»), y te recomienda una carpeta al lado del repo, `<raíz>-ws`. Solo con tu sí sigue ahí (`--confirmar-repo`); sin él, el script sale con 2 sin escribir nada.
 - **Ensayo primero.** Arma una spec JSON (ejemplo: `plugin/plantillas/bootstrap.ejemplo.json`), corre `bootstrap.py --ensayo` y te muestra el plan agrupado por capa, con aparte las líneas que piden atención. Solo con tu sí escribe.
 - **Nunca pisa un archivo.** En una instancia que ya existe, completa lo que falta a partir de su `workspace.config.json`, que no cambia.
 - **Los CLI de la instancia.** La clave `hosts` de `workspace.config.json` dice en qué CLI se trabaja: `"hosts": ["claude-code", "codex"]`. Es opcional, y sin ella la instancia es solo de Claude Code. Con `codex`, el bootstrap también genera `.codex/`. El bootstrap la pregunta solo si mencionas otro CLI.

@@ -2,6 +2,24 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.13.1
+
+**El bootstrap muestra lo mismo en cada corrida y vuelve a proponer tus repos como del equipo.**
+
+### Lo que cambia para ti
+
+- **La pregunta en la raíz de un repo de código sale siempre igual, y en español.** El encabezado es «Ubicación», la pregunta termina en «¿Dónde la creo?» y las opciones son «Carpeta aparte (recomendado)» y «Dentro del repo». La carpeta aparte que propone es `<raíz>-ws`, al lado del repo.
+- **La parte de arriba de la propuesta también es fija:** la misma línea de apertura, la tabla «Lo detectado» con sus filas en el mismo orden, el ensayo y, si hay, «Lo que pide atención» justo antes de «Lo que decides». Después del sí, la respuesta empieza directo con «La aplicación». En la `0.13.0` esa parte la redactaba el modelo y cambiaba de una corrida a otra.
+- **Corrige una regresión de la `0.13.0`: el bootstrap proponía tu repo como propio (`own`).** Ahora, como antes, cada repo se propone del equipo, y la fila «Repos tuyos» lo dice: si uno es tuyo, lo dices en tu respuesta. Si creaste una instancia con la `0.13.0`, mira `workspace.config.json`: si un repo tiene `"own": true` y no es tuyo, quítalo y commitea el cambio.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **El skill del bootstrap** escribe literales, en bloques `text` que el modelo pega como texto normal, la pregunta de la raíz (paso 2), la apertura, «Lo detectado», el ensayo y «Lo que pide atención» (paso 3), con `<…>` solo donde va lo variable. La fila de `own` dice «ninguno, todos del equipo» y la regla prohíbe inferirlo de que el repo sea local, no tenga remoto o lo haya creado el usuario. Los tests de `bootstrap.tests.py` fijan las tres cosas.
+- **Por qué pasó:** en la `0.13.0` la fila decía `<ninguno, o cuáles>`, un hueco con el beneficio a la vista, lejos de la regla; el modelo lo llenó con el único repo en tres corridas de tres. Un `<…>` con una alternativa invita a llenarlo: un valor por defecto va literal.
+- **Cómo se validó:** antes de publicar, tres corridas reales del bootstrap con el plugin de la rama salieron con la misma estructura y `"mi-proyecto": {}` en el commit, y la pregunta de la raíz salió literal.
+- Las decisiones están en `odd/tasks/primera-impresion.md`.
+
 ## 0.13.0
 
 **La propuesta del bootstrap deja a la vista lo que decides, el doctor se lee de un vistazo y una instancia nueva sale sin avisos por sus archivos de datos y configuración, el aviso de calibrar trae un comando que se corre tal cual, y todo el texto de odd-ws pasa a tuteo neutro.**

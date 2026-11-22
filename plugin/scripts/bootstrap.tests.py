@@ -3565,5 +3565,16 @@ def main():
     return 1 if fallas else 0
 
 
+def test_despues_del_si_la_respuesta_empieza_directo_con_la_aplicacion_sin_frases_antes():
+    paso4 = seccion(SKILL_BOOTSTRAP, "## 4. La aplicación", "## 5. El doctor")
+    assert "empieza directamente con el título `**La aplicación**`, sin ninguna frase antes" in paso4, paso4[:400]
+
+
+def test_las_extensiones_sin_capa_se_escriben_como_las_da_proponer_con_los_parentesis():
+    paso3 = seccion(SKILL_BOOTSTRAP, "## 3. La propuesta y el ensayo", "## 4. La aplicación")
+    assert "escritas como las da `--proponer`" in paso3 and "`(sin extensión)`, con los paréntesis" in paso3, paso3[:400]
+
+
 if __name__ == "__main__":
     sys.exit(main())
+

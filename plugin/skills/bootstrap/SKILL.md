@@ -106,7 +106,7 @@ Esto es lo que encontré y lo que voy a crear:
 ````
 
 - **La tabla** lleva esos encabezados y esas filas, en ese orden: una fila «Repo» por repo y una «Capa» por capa. La columna «Qué significa» va tal cual. No sumes filas (la raíz, el stack) ni cambies las etiquetas o los encabezados.
-- **Extensiones sin capa:** las de `--proponer` que ninguna capa cubre, sin las de docs (`.md`, `.txt` y `.rst`). `<por qué>` es «Son datos o configuración: es lo esperado.», tal cual, si todas son de las esperadas: `.json`, `.jsonc`, `.yml`, `.yaml`, `.toml`, `.lock`, `.ini` y los archivos sin extensión. Si alguna no lo es, es una frase corta con el motivo de cada una de esas (por ejemplo, que la genera una herramienta). Sin ninguna, la propuesta dice «ninguna» y `<por qué>` no va.
+- **Extensiones sin capa:** las de `--proponer` que ninguna capa cubre, sin las de docs (`.md`, `.txt` y `.rst`), escritas como las da `--proponer`, separadas por coma: los archivos sin extensión van como `(sin extensión)`, con los paréntesis. `<por qué>` es «Son datos o configuración: es lo esperado.», tal cual, si todas son de las esperadas: `.json`, `.jsonc`, `.yml`, `.yaml`, `.toml`, `.lock`, `.ini` y los archivos sin extensión. Si alguna no lo es, es una frase corta con el motivo de cada una de esas (por ejemplo, que la genera una herramienta). Sin ninguna, la propuesta dice «ninguna» y `<por qué>` no va.
 - **El ensayo:** un grupo «Capa» por capa, y los grupos van tal cual aunque algo ya exista o no haga falta: eso lo dicen las líneas que piden atención. Con Codex o Pi en `hosts`, el grupo de cada capa y «Lo común» suman al final, en pocas palabras, lo que el ensayo crea para ese CLI.
 - **En `controles`,** cambian tres textos: el «Qué significa» de cada capa es «Una por tecnología. Cuesta mantener su skill y su regla.»; su grupo del ensayo, «su skill, su regla y la prueba de la regla.»; y «Lo común», «la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md` reducido, la matriz, la evidencia, el `settings.json` y el `pre-commit`.»
 - **Lo que pide atención** va justo antes de «Lo que decides», con los `avisos` de `--proponer` y después las líneas del ensayo que lo piden (ver «El ensayo»), tal cual y sin comentarios: el paso 4 comenta las que lo necesitan después de aplicar. Si no hay ninguna, el título y su bloque no van, y «Lo que decides» sigue al ensayo.
@@ -178,7 +178,7 @@ Si el usuario corrige algo, ajusta la spec, vuelve a correr el ensayo y muestra 
 
 Con el sí, corre lo mismo sin `--ensayo` (con `--commitear`).
 
-Si sale con 0, muestra la salida siempre igual, bajo el título `**La aplicación**`, sin parafrasearla y sin agregar un resumen propio:
+Si sale con 0, la respuesta empieza directamente con el título `**La aplicación**`, sin ninguna frase antes (ni «Listo», ni un resumen de lo que se hizo), y muestra la salida siempre igual, sin parafrasearla y sin agregar un resumen propio:
 
 1. un bloque de código `text` con sus líneas tal cual y en su orden, menos las de cada archivo (`creado …` y `ya existía …`): quedan las de git (`git init`, `core.hooksPath`, `commit:` y `no entró al commit …`), las que piden atención (como `falta en .gitignore: …`, `no se pudo borrar …` o `no se creó …`) y la última, `resumen:`;
 2. debajo, un comentario de una línea solo para las que lo piden abajo, en el orden del bloque. Las demás no se comentan.
