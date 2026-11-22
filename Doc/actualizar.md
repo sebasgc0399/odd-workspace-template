@@ -32,7 +32,7 @@ Usa `gentle-shell --link install …` si trabajas con el home de `~/.pi/agent`. 
 
 ## Después de actualizar: el doctor
 
-Corre `/odd-ws:doctor` (en Codex, `$doctor`). La ruta del plugin lleva la versión, y la primera sesión que abres en la instancia la pone al día sola: si `plugin_root` en `workspace.local.json` apunta a otra versión del mismo plugin (una carpeta con nombre de versión junto a la de esa sesión, como las del caché, que guarda una carpeta por versión), el hook de inicio de sesión anota la de esa sesión y lo dice. Así el pre-commit de la instancia corre las reglas de la versión vigente, y `plugin-root` sale OK. Si sale en FALTA igual (por ejemplo, con el hook `verificar_capa` apagado en `disabled_hooks`, o con una ruta anotada a mano fuera del caché), aplica su arreglo, `--arreglar plugin-root`, que anota la nueva.
+Corre `/odd-ws:doctor` (en Codex, `$doctor`). La ruta del plugin lleva la versión, y la primera sesión que abres en la instancia la pone al día sola: si `plugin_root` en `workspace.local.json` apunta a otra versión del mismo plugin (una carpeta con nombre de versión junto a la de esa sesión, como las del caché, que guarda una carpeta por versión), el hook de inicio de sesión anota la de esa sesión y se lo dice al agente en el contexto de la sesión. Así el pre-commit de la instancia corre las reglas de la versión vigente, y `plugin-root` sale OK. Si sale en FALTA igual (por ejemplo, con el hook `verificar_capa` apagado en `disabled_hooks`, o con una ruta anotada a mano fuera del caché), aplica su arreglo, `--arreglar plugin-root`, que anota la nueva.
 
 ## Después de actualizar: las plantillas de la instancia
 

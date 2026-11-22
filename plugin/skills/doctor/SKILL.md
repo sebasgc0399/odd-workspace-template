@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Chequeo de la máquina y de la instancia para la plantilla ODD (Capa 0). Usar cuando un hook no corre, al estrenar portátil, después de clonar la plantilla o cuando el usuario pide revisar el entorno.
+description: Revisa tu máquina y esta instancia, dice qué falta y cómo arreglarlo. Usar cuando un hook no corre, al estrenar portátil, después de actualizar el plugin, después de clonar la plantilla o cuando el usuario pide revisar el entorno.
 ---
 
 # /odd-ws:doctor
@@ -12,6 +12,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
 En Windows con Codex, los comandos van con `python` en lugar de `python3`. Sale con 0 si no hay ninguna FALTA y con 1 si hay alguna. Los AVISO no hacen fallar. gentle-ai, engram, `jq` y el `credential.helper` de git son opcionales: si faltan o están atrasados, salen como AVISO con «opcional» en el detalle.
+
+**En español.** Todo lo que ve el usuario va en español, también la descripción de cada comando que corres, que el CLI muestra como título de la llamada (por ejemplo, «Correr el doctor de odd-ws»).
 
 ## Cómo presentarlo
 

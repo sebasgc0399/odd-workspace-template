@@ -10,6 +10,8 @@ Arma una spec en JSON y se la pasa a un script determinista, `bootstrap.py`, que
 
 **Una sola parada.** Detecta todo lo que se puede detectar, arma la propuesta completa, corre el ensayo y muestra las dos cosas juntas, con **una sola pregunta**: si se aplica así o qué cambia. Pregunta aparte solo lo que no se puede inferir, como la ruta de un repo que no aparece por ningún lado, y si la instancia va en la raíz de un repo de código (paso 2).
 
+**En español.** Todo lo que ve el usuario va en español, también la descripción de cada comando que corres, que el CLI muestra como título de la llamada (por ejemplo, «Ver archivos versionados y el manifiesto del repo»).
+
 ## 1. La raíz
 
 - La raíz es la carpeta de la sesión, salvo que esa carpeta esté dentro de una instancia: entonces es la raíz de esa instancia (el script hace lo mismo cuando no recibe `--raiz`). No la preguntes aparte: va en la propuesta. La excepción es la raíz de un repo de código, que se pregunta siempre (paso 2).
@@ -105,7 +107,7 @@ Esto es lo que encontré y lo que voy a crear:
 ```
 ````
 
-- **La tabla** lleva esos encabezados y esas filas, en ese orden: una fila «Repo» por repo y una «Capa» por capa. La columna «Qué significa» va tal cual. No sumes filas (la raíz, el stack) ni cambies las etiquetas o los encabezados.
+- **La tabla** lleva esos encabezados y esas filas, en ese orden: una fila «Repo» por repo y una «Capa» por capa. La columna «Qué significa» va tal cual, salvo el `<repo>` de la fila «Repo», que lleva el nombre corto de ese repo, como en «Propuesta» (`local.repos.mi-proyecto.path`), y el `<por qué>` de la fila «Extensiones sin capa» (abajo). No sumes filas (la raíz, el stack) ni cambies las etiquetas o los encabezados.
 - **Extensiones sin capa:** las de `--proponer` que ninguna capa cubre, sin las de docs (`.md`, `.txt` y `.rst`), escritas como las da `--proponer`, separadas por coma: los archivos sin extensión van como `(sin extensión)`, con los paréntesis. `<por qué>` es «Son datos o configuración: es lo esperado.», tal cual, si todas son de las esperadas: `.json`, `.jsonc`, `.yml`, `.yaml`, `.toml`, `.lock`, `.ini` y los archivos sin extensión. Si alguna no lo es, es una frase corta con el motivo de cada una de esas (por ejemplo, que la genera una herramienta). Sin ninguna, la propuesta dice «ninguna» y `<por qué>` no va.
 - **El ensayo:** un grupo «Capa» por capa, y los grupos van tal cual aunque algo ya exista o no haga falta: eso lo dicen las líneas que piden atención. Con Codex o Pi en `hosts`, el grupo de cada capa y «Lo común» suman al final, en pocas palabras, lo que el ensayo crea para ese CLI.
 - **En `controles`,** cambian tres textos: el «Qué significa» de cada capa es «Una por tecnología. Cuesta mantener su skill y su regla.»; su grupo del ensayo, «su skill, su regla y la prueba de la regla.»; y «Lo común», «la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md` reducido, la matriz, la evidencia, el `settings.json` y el `pre-commit`.»
@@ -115,7 +117,7 @@ Con la propuesta, escribe la spec y corre el ensayo **en el mismo turno**, antes
 
 ### La spec
 
-Escríbela con la herramienta Write, en UTF-8 y **fuera de la instancia**, para que no termine en un commit: en el scratch de la sesión o en una carpeta bajo `%TEMP%\claude` (en macOS, `/tmp/claude-<uid>`; en Linux, `claude-<uid>` dentro del temp del sistema). No en la raíz del temp del sistema: ahí el guard de comandos no deja borrar con `rm -rf`, y la limpieza le queda al usuario.
+Escríbela con la herramienta Write, nunca con un heredoc ni con `echo` desde la terminal: ahí las barras invertidas de las rutas de Windows rompen el JSON (`Invalid \escape`) y el ensayo falla. Va en UTF-8 y **fuera de la instancia**, para que no termine en un commit: en el scratch de la sesión o en una carpeta bajo `%TEMP%\claude` (en macOS, `/tmp/claude-<uid>`; en Linux, `claude-<uid>` dentro del temp del sistema). No en la raíz del temp del sistema: ahí el guard de comandos no deja borrar con `rm -rf`, y la limpieza le queda al usuario.
 
 ```json
 {
