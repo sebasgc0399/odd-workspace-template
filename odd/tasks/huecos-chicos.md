@@ -46,7 +46,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T3 | S4, S5 | La leyenda de `tipo` y las plantillas por versión | inline (docs) | hecha (L7) | |
 | T4 | S6 | La instalación a la vista y con la versión puesta; la página, en la rama local `gh-pages` | inline (docs) | hecha (L7) | página: `83b55b8` (local) |
 | T5 | S7 | El chequeo de la página y el README en el pre-push | delegada: writer B en `D:/Project/odd-ws-wt/huecos-pagina`, en paralelo con T1 | hecha (L6) | `6a40970` |
-| T6 | S8, S9 | El CHANGELOG, el verificador independiente y la versión | docs inline; verificador delegado; publicar, con el ok del autor | pendiente | |
+| T6 | S8, S9 | El CHANGELOG, el verificador independiente y la versión | docs inline; verificador delegado; publicar, con el ok del autor (L8) | verificador sin bloqueantes (L8); la versión, en curso | |
 
 ## Log
 
@@ -104,7 +104,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **Verification del writer:** `guard_comandos` 82/82, `writer_guard` 124/124 en una corrida, `codex` 46/46, `pi` 70/70 y `pi.test.ts` 74/74.
   - **Diferencial** sobre 137 filas en tres hosts: 44 iguales (todas permitidas), 27 que solo suman la cita, 24 con el motivo nuevo y la cita, 36 de permitir a bloquear, 6 de preguntar a bloquear y 0 otras diferencias.
   - **Chequeo del orquestador:** `guard_comandos.tests.py` 82/82. Pasan `--follow-tags`, `--message x && git push`, `-u origin feat/x` y `--no-force-with-lease`. Bloquean `--forc`, `+main` y `--force-with-lease=main:abc123`.
-  - **Decisión de diseño ratificada:** las abreviaturas cuentan como forzadas porque git las acepta. El costo son unos pocos falsos positivos en la pasada gruesa, como un `--mirror` de otro programa en un comando que también nombra git y push. Esa pasada ya bloqueaba un `--force` en cualquier lugar.
+  - **Decisión de diseño ratificada:** cuenta como forzado todo prefijo de una opción forzada. Git acepta los prefijos únicos (`--force-w`, `--force-i`, `--mi`, `--mirr`). Los ambiguos (`--forc`, `--for`, `--fo`, `--f`) git los rechaza: bloquearlos no hace daño (corregido en L8). El costo son unos pocos falsos positivos en la pasada gruesa, como un `--mirror` de otro programa en un comando que también nombra git y push. Esa pasada ya bloqueaba un `--force` en cualquier lugar.
   - **Seguimientos** (estaban en la base, no los amplía esta feature): una opción o un refspec forzado entre comillas (`git push "--force" origin main`) pasa la capa 1, porque el texto entre comillas se lee como dato.
   - **El mensaje literal, para la página:** «guard-comandos bloqueó el comando: git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con seguridad, el usuario mira `git log <remoto>/<rama>` y corre `git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`). Si la operación es deliberada, que la corra el usuario a mano.», más la línea `Comando: «git push --force origin main»`.
   - **Docs:** `README.md`, `Doc/hooks.md`, `Doc/diseno.md` y `Doc/equipo.md`. No cambia ninguna plantilla.
@@ -158,3 +158,26 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - el mensaje nuevo del guard (S1 y S2).
   - **Doc/diseno.md:** «La entrega en el pre-push» describe el chequeo de S7.
   - **Los números:** quedan en `0.13.2`, la versión del `plugin.json` de hoy, para que cada commit sea coherente. La entrega de T6 los sube a `0.13.3` junto con la página.
+- **L8** (2026-11-22) La integración y el verificador independiente:
+  - **La integración:** las ramas de los writers entraron con `--no-ff` (`7f0fea7` y `86404e4`), sin conflictos. Sobre `86404e4` con la página local `83b55b8`, `desfases_de_la_entrega` da `None`.
+  - **El autor:** «ok autorizo publicacion» (2026-11-22), mientras corría el verificador. Un «ok» suelto anterior no se tomó como autorización.
+  - **El veredicto, sin bloqueantes:**
+    - S1 a S7 dan PASS. S8 queda PARCIAL solo por el CHANGELOG de la `0.13.3`, que es de T6.
+    - El diferencial del guard, sobre 402 filas (67 comandos, tres hosts, con y sin repo protegido): 92 iguales, 70 que solo suman la cita, 143 con el motivo nuevo, 75 de permitir a bloquear y 22 de preguntar a bloquear, todas de un push forzado. Ninguna otra diferencia.
+    - S7: todos los escenarios. Los chequeos de antes dan la misma salida, byte a byte, que la base.
+    - S8, las suites sobre el árbol integrado: las 52 de Python con exit 0 (2679 pruebas) y node 97/97.
+  - **Avisos atendidos:**
+    - L5 decía que git acepta `--forc`: git 2.51 lo rechaza por ambiguo. L5 está corregido, y el bloqueo se mantiene.
+    - `Doc/diseno.md` decía que la cita es siempre la última línea. En Codex y Pi la sigue la nota del host.
+  - **Las sondas, como tests de regresión:**
+    - `PUSHES_FORZADOS` suma `--force-w`, un `+main` después de `--recurse-submodules check`, `cmd /c … --mirror` y `(git push --mirror)`.
+    - Sus tests suman el `Invoke-Expression` de PowerShell, y fijan que un `wget --mirror` en un comando con push bloquea, que es la decisión de L5.
+    - Pasan `git push origin HEAD:+main` y `git push -of origin main`.
+    - En la capa, un `fragmento` que es una lista no se cita.
+    - La página local que manda sobre un `origin/gh-pages` viejo ya la cubría `test_sin_rama_local_la_pagina_se_lee_de_origin_y_la_local_manda_si_existe`.
+    - Resultado: `guard_comandos` 82/82 y `verificar_capa` 131/131.
+  - **Seguimientos** (ya estaban en la base o son de diseño, no bloquean):
+    - el forzado por config (`git -c remote.origin.mirror=true push`, `-c remote.origin.push=+…`, `-c alias.p='push --force'`) y el forzado entre comillas;
+    - S7 revisa toda aparición de `odd-ws--v…`, no solo las de un comando, así que un enlace a una etiqueta vieja frenaría la entrega;
+    - re-empujar una etiqueta vieja se compara con la página de hoy;
+    - la página no tiene un acceso por CLI cerca del principio, solo el botón «Instalar».

@@ -711,6 +711,8 @@ PUSHES_FORZADOS = (
     "git push --force-with origin main", "git push --mirr origin", "git push --force-with-lease --no-force-with-lease origin main",
     "git $(true) push --force-with-lease origin main", "bash -c 'git push --force-with-lease origin main'",
     '& "C:\\Program Files\\Git\\cmd\\git.exe" push --force-with-lease origin main',
+    "git push --force-w origin main", "git push --recurse-submodules check origin +main", "cmd /c git push --mirror origin",
+    "(git push --mirror)",
 )
 
 
@@ -720,6 +722,9 @@ def test_todo_push_forzado_bloquea_siempre_con_la_forma_segura_para_el_usuario()
             assert G.analizar(comando, None, ENTORNO, None, herramienta) == ("block", PUSH_FORZADO), (comando, herramienta)
     for herramienta in (None, "PowerShell"):
         assert G.analizar("git push --no-force-with-lease origin main", None, ENTORNO, None, herramienta) == (None, None), herramienta
+    assert G.analizar("Invoke-Expression 'git push --force-with-lease origin main'", None, ENTORNO, None, "PowerShell") == \
+        ("block", PUSH_FORZADO)
+    assert G.analizar("git push origin main && wget --mirror http://x", None, ENTORNO, None, None) == ("block", PUSH_FORZADO)
     with carpeta() as base:
         inst = instancia(base)
         codigo, salida, error = G.correr(evento("git push --force-with-lease=main:abc123 origin main"), entorno=entorno_de(inst))
@@ -730,7 +735,8 @@ def test_todo_push_forzado_bloquea_siempre_con_la_forma_segura_para_el_usuario()
 
 def test_lo_que_no_es_un_push_forzado_sigue_igual():
     for comando in ("git push origin main", "git push -u origin F_rama", 'git commit -m "no uses git push --force-with-lease"',
-                    "git push --follow-tags origin main", "git push origin -o +ci main"):
+                    "git push --follow-tags origin main", "git push origin -o +ci main", "git push origin HEAD:+main",
+                    "git push -of origin main"):
         for herramienta in (None, "PowerShell"):
             assert G.analizar(comando, None, ENTORNO, None, herramienta) == (None, None), (comando, herramienta)
 

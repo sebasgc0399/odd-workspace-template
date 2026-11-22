@@ -468,6 +468,7 @@ def test_la_cita_del_fragmento_va_en_una_linea_y_corta_lo_largo():
     assert M.cita_del_fragmento({}) == ""
     assert M.cita_del_fragmento({"fragmento": "  \n "}) == ""
     assert M.cita_del_fragmento({"fragmento": 7}) == ""
+    assert M.cita_del_fragmento({"fragmento": ["a"]}) == ""
     assert M.cita_del_fragmento({"fragmento": "a\n   b"}) == " en «a b»"
     largo = "x" * (M.LARGO_DE_LA_CITA + 5)
     assert M.cita_del_fragmento({"fragmento": largo}) == " en «%s…»" % ("x" * (M.LARGO_DE_LA_CITA - 1))
