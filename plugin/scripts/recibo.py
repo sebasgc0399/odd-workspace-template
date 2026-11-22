@@ -347,7 +347,7 @@ def armar_rechequeo(args, carpeta):
         partes.append((raiz, base, [a for a in nombres if a not in retirados], heredados, retirados))
     if cambiados:
         return None, _informar_sin_escribir(archivo, "cambiaron archivos del recibo previo que esta ronda no rechequeo", cambiados,
-                                            "rechequealos (van con --archivo) o revisa por que cambiaron"), None
+                                            "rechequea esos archivos (van con --archivo) o revisa por que cambiaron"), None
     entradas = []
     for raiz, base, rechequeados, heredados, retirados in partes:
         entrada = _entrada(raiz, calcular(raiz, base, rechequeados + heredados), args)
@@ -396,7 +396,7 @@ def leer_triaje(carpeta):
     ruta = os.path.join(carpeta, *TRIAJE)
     nombre = ruta.replace("\\", "/")
     if not os.path.isfile(ruta):
-        raise ErrorUso("la bajada se valida contra el triaje de la revision, y no esta: %s (guardalo con triaje.py --json)" % nombre)
+        raise ErrorUso("la bajada se valida contra el triaje de la revision, y no esta: %s (guarda el triaje con triaje.py --json)" % nombre)
     try:
         with open(ruta, "rb") as f:
             crudo = f.read()
@@ -464,7 +464,7 @@ def leer_triaje_del_diff(carpeta, repos):
     no_cubiertos += ["%s (todo el repo): %s" % (r["ruta"], ", ".join(sorted(a["ruta"] for a in r["archivos"])))
                      for r in del_triaje.values() if r.get("archivos")]
     if distintos:
-        raise ErrorUso("el triaje de %s no es de este diff: %s; corre el triaje de nuevo y guardalo con triaje.py --json, con un --repo "
+        raise ErrorUso("el triaje de %s no es de este diff: %s; corre el triaje de nuevo con triaje.py --json y guarda su salida, con un --repo "
                        "por cada repo del recibo: %s" % (_ruta_del_triaje(carpeta), "; ".join(distintos),
                                                          " ".join("--repo %s#%s" % (e["ruta"], e["base"]) for e in repos)))
     _validar_modo(carpeta, triaje)
@@ -868,7 +868,7 @@ def sellar_recibo(ruta):
               for f in [fuera_de_lo_revisado(e["ruta"], e["base"], head, e["archivos"])] if f]
     if ajenos:
         return _informar_sin_sello(archivo, "HEAD trae cambios fuera de lo revisado", ajenos,
-                                   "rechequealos con --write --previo %s, cada uno en --archivo, y sella el recibo del rechequeo"
+                                   "rechequea esos archivos con --write --previo %s, cada uno en --archivo, y sella el recibo del rechequeo"
                                    % os.path.dirname(os.path.abspath(archivo)).replace("\\", "/"))
     pendientes = [(e["ruta"], ["estado pendiente"]) for e in datos["repos"] if e.get("estado") == "pendiente"]
     if pendientes:
@@ -978,7 +978,7 @@ def main(argv=None):
         if args.bajada is not None and args.va_a_lider is None:
             raise ErrorUso("--bajada necesita --va-a-lider no: solo se baja un cambio que no va a un lider, y el recibo guarda la respuesta")
         if args.va_a_lider == "si":
-            raise ErrorUso("nunca se baja un cambio que va a un lider: revisalo en completo")
+            raise ErrorUso("nunca se baja un cambio que va a un lider: revisa el cambio en completo")
         args.fecha = args.fecha or datetime.date.today().isoformat()
         args.estado = args.estado or "pendiente"
         return escribir_recibo(args)

@@ -133,9 +133,9 @@ def test_en_windows_el_informe_dice_como_marcarlo_ejecutable():
             b().EN_WINDOWS = anterior
         assert codigo == 0
         lineas = salida.splitlines()
-        aviso = "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
+        aviso = "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
         assert lineas[lineas.index("creado .githooks/pre-commit") + 1] == aviso
-        assert aviso in lineas and sum("marcalo ejecutable" in l for l in lineas) == 1
+        assert aviso in lineas and sum("márcalo ejecutable" in l for l in lineas) == 1
 
 
 def test_un_pre_commit_y_un_settings_existentes_no_se_tocan():
@@ -155,7 +155,7 @@ def test_un_pre_commit_y_un_settings_existentes_no_se_tocan():
             assert (raiz / nombre).read_bytes() == datos
             assert (raiz / nombre).stat().st_mtime_ns == antes[nombre]
             assert f"ya existía {nombre}" in salida.splitlines()
-        assert "marcalo ejecutable" not in salida
+        assert "márcalo ejecutable" not in salida
 
 
 def test_completar_una_instancia_anterior_agrega_solo_el_settings_de_la_plantilla_del_ticket():

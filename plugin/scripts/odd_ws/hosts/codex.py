@@ -108,24 +108,24 @@ CONFIANZA = "trusted"
 FALLBACK = "CLAUDE.md"
 FRESCURA = "la frescura del hash no se verifica: si el plugin cambió, Codex pide confiar de nuevo"
 NO_CARGA = "Codex no carga .codex/ (ni los agentes ni el fallback a CLAUDE.md)"
-AYUDA_CODEX = "Instalá o actualizá Codex a 0.144 o superior (npm i -g @openai/codex)."
-AYUDA_TOML = "Arreglalo a mano: tiene que ser TOML en UTF-8, y así tampoco lo lee Codex. Después, otra vez el doctor."
+AYUDA_CODEX = "Instala o actualiza Codex a 0.144 o superior (npm i -g @openai/codex)."
+AYUDA_TOML = "Arréglalo a mano: tiene que ser TOML en UTF-8, y así tampoco lo lee Codex. Después, otra vez el doctor."
 SIN_TOMLLIB = "requiere Python 3.11 o más para leer la config de Codex"
-AYUDA_SIN_TOMLLIB = "Corré el doctor con Python 3.11 o más: lo necesita para leer la config de Codex (tomllib)."
-AYUDA_PLUGIN = ("En Codex, agregá el marketplace %s, instalá odd-ws y dejalo habilitado. El doctor no escribe en la carpeta de "
+AYUDA_SIN_TOMLLIB = "Corre el doctor con Python 3.11 o más: lo necesita para leer la config de Codex (tomllib)."
+AYUDA_PLUGIN = ("En Codex, agrega el marketplace %s, instala odd-ws y déjalo habilitado. El doctor no escribe en la carpeta de "
                 "Codex.")
-AYUDA_HOOKS = ("Abrí Codex, entrá a /hooks y confiá los hooks de odd-ws (y activá los apagados): Codex no corre un hook sin "
+AYUDA_HOOKS = ("Abre Codex, entra a /hooks y confía los hooks de odd-ws (y activa los apagados): Codex no corre un hook sin "
                "confianza, y en 0.167 la pide de nuevo con cada actualización del plugin. El doctor no escribe en la carpeta de Codex.")
-AYUDA_PROYECTO = ("Abrí Codex en la raíz de la instancia y aceptá confiar en la carpeta, o agregá a %s la tabla %s, con la ruta tal "
+AYUDA_PROYECTO = ("Abre Codex en la raíz de la instancia y acepta confiar en la carpeta, o agrega a %s la tabla %s, con la ruta tal "
                   "cual: entre comillas simples, con sus barras y sin barra al final, porque Codex compara el texto (en Windows, sin "
                   "distinguir mayúsculas). El doctor no escribe en la carpeta de Codex.")
 ASCII_MINUSCULAS = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 HOOKS_DEL_PROYECTO = capas.CODEX + "/hooks.json"
-AYUDA_CONFIG = ("Agregá a .codex/config.toml la línea %s, o sumá \"CLAUDE.md\" a esa lista si ya la tiene. El doctor no pisa un "
+AYUDA_CONFIG = ("Agrega a .codex/config.toml la línea %s, o suma \"CLAUDE.md\" a esa lista si ya la tiene. El doctor no pisa un "
                 "archivo que ya existe.")
-AYUDA_AGENTES = ("El .md de .claude/agents es la fuente de su TOML: pasá tu cambio al .md (a la description o a un bloque "
-                 "<!-- instancia:... -->), sacá el TOML y corré --arreglar codex-agentes. Si el .md se editó fuera de sus bloques, "
-                 "arreglalo primero; el TOML de un agente que ya no existe lo borrás vos.")
+AYUDA_AGENTES = ("El .md de .claude/agents es la fuente de su TOML: pasa tu cambio al .md (a la description o a un bloque "
+                 "<!-- instancia:... -->), saca el TOML y corre --arreglar codex-agentes. Si el .md se editó fuera de sus bloques, "
+                 "arréglalo primero; el TOML de un agente que ya no existe lo borras tú.")
 EVENTO_RE = re.compile(r"(?<!^)(?=[A-Z])")
 
 

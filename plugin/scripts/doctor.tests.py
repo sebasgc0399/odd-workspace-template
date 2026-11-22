@@ -1356,7 +1356,7 @@ def test_instancia_hooks_con_hooks_propios_es_falta_sin_arreglo_y_no_toca_nada()
             carpeta = os.path.normpath(str(raiz / ".git" / "hooks"))
             assert r.estado == "FALTA" and r.comando is None and r.arreglo is None, r
             assert f"hay hooks propios en {carpeta} (commit-msg, pre-commit), que dejarían de correr" in r.detalle, r.detalle
-            assert "sin configurar" in r.detalle and r.ayuda and "integrá" in r.ayuda.lower(), r
+            assert "sin configurar" in r.detalle and r.ayuda and "integra .githooks/pre-commit" in r.ayuda.lower(), r
             assert ("falta .githooks/pre-commit" in r.detalle) == (not precommit), r.detalle
             codigo, salida = correr(["--arreglar", "instancia-hooks"], ctx)
             assert codigo == 2 and "no tiene arreglo automático" in salida, salida
@@ -1490,8 +1490,8 @@ def test_capas_cobertura_sale_igual_que_antes_con_la_ayuda_compartida():
         linea = next(i for i, l in enumerate(salida) if l.startswith("capas-cobertura "))
         assert salida[linea].split()[:2] == ["capas-cobertura", "AVISO"] and salida[linea].endswith(r.detalle), salida[linea]
         assert salida[linea + 1] == sangria + "cómo: Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no " \
-            "puede clasificarlos. Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus " \
-            "extensions en workspace.config.json; si no, es esperado y el aviso queda.", salida[linea + 1]
+            "puede clasificarlos. Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus " \
+            "extensions en workspace.config.json; si no, el aviso queda.", salida[linea + 1]
 
 
 def test_las_extensiones_de_docs_del_doctor_son_las_del_triaje():

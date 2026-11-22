@@ -428,8 +428,8 @@ def test_el_triaje_sigue_contando_los_esperados_y_con_la_misma_ayuda():
     assert m().ID_COBERTURA == "capas-cobertura"
     assert m().AYUDA_COBERTURA == (
         "Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. Si son del "
-        "mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en workspace.config.json; "
-        "si no, es esperado y el aviso queda.")
+        "mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus extensions en workspace.config.json; "
+        "si no, el aviso queda.")
 
 
 def test_la_ayuda_de_la_cobertura_dice_que_sube_a_completo_y_como_se_arregla():
@@ -1186,8 +1186,9 @@ def test_las_skills_que_no_aplican_en_controles_lo_dicen_antes_de_su_primer_paso
         guarda = lineas[guardas[0]]
         primera_seccion = next(n for n, linea in enumerate(lineas) if linea.startswith("## "))
         assert guardas[0] < primera_seccion, (nombre, guardas[0], primera_seccion)
-        for pedazo in (clave, m().NOMBRE, "no aplica", "pará"):
+        for pedazo in (clave, m().NOMBRE, "no aplica"):
             assert pedazo in guarda, (nombre, pedazo, guarda)
+        assert "y para," in guarda or "y para." in guarda, (nombre, guarda)
     cerrar = next(linea for linea in (SKILLS / "cerrar" / "SKILL.md").read_text(encoding="utf-8").split("\n")
                   if linea.startswith(GUARDA_DE_CONTROLES))
     assert "memorias" in cerrar and "/odd-ws:cerrar memorias" in cerrar, cerrar

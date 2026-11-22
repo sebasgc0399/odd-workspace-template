@@ -32,8 +32,8 @@ ESPERADOS_SIN_CAPA = (".json", ".jsonc", ".yml", ".yaml", ".toml", ".lock", ".in
 NOTA_ESPERADOS = "un cambio en ellos lleva /odd-ws:revisar a modo completo"
 NOTA_ESPERADOS_CONTROLES = "ninguna regla de capa los chequea"
 ID_COBERTURA = "capas-cobertura"
-SUMAR_A_UNA_CAPA = ("Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
-                    f"{NOMBRE}; si no, es esperado y el aviso queda.")
+SUMAR_A_UNA_CAPA = ("Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus extensions en "
+                    f"{NOMBRE}; si no, el aviso queda.")
 AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. "
                    + SUMAR_A_UNA_CAPA)
 AYUDA_COBERTURA_CONTROLES = "Ninguna capa cubre esos archivos, así que ninguna regla de capa los chequea. " + SUMAR_A_UNA_CAPA

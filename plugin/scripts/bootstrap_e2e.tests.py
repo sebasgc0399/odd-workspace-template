@@ -381,7 +381,7 @@ def test_sumar_pi_a_una_instancia_que_ya_existe_deja_sus_agentes_al_doctor_y_lo_
 SETTINGS_DEL_PLUGIN = {"enabledPlugins": {"odd-ws@odd-workspace-template": True}}
 COMMIT_HECHO = r"commit: [0-9a-f]{7,} con %d archivos \(el hook, ejecutable\)"
 AVISO_SETTINGS = ("no entró al commit .claude/settings.json: ya existía con otro contenido que el que escribe el bootstrap; "
-                  "si es tuyo, commitealo vos")
+                  "si es tuyo, commitéalo tú")
 AVISO_RUTA_ABSOLUTA = "no entró al commit %s: lista carpetas con ruta absoluta, que solo valen en esta máquina; queda sin trackear"
 
 
@@ -530,13 +530,13 @@ def test_el_ensayo_dice_que_entraria_lo_que_ya_existia_igual_y_relativo_y_que_no
     assert f"no entraría al commit b.code-workspace: {absoluta}" in lineas, lineas
     assert f"no entraría al commit d.code-workspace: {absoluta}" in lineas, lineas
     ilegible = [l for l in lineas if l.startswith("no entraría al commit c.code-workspace: no se pudo leer sus carpetas (")]
-    assert len(ilegible) == 1 and ilegible[0].endswith("así que no se sabe si usan rutas relativas; si las usa, commitealo vos"), lineas
+    assert len(ilegible) == 1 and ilegible[0].endswith("así que no se sabe si usan rutas relativas; si las usa, commitéalo tú"), lineas
     assert caja.arbol() == antes and not (caja.raiz / ".git").exists()
 
 
 REPO_DE_CODIGO = ("error: la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
                   "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
-                  "si igual la querés acá, confirmalo con --confirmar-repo\n")
+                  "si igual la quieres acá, confírmalo con --confirmar-repo\n")
 
 
 def repo_de_codigo(caja, carpeta):

@@ -191,7 +191,7 @@ def _calibrar_paquete(raiz, paquete, capa, carpeta, archivos, detalle, extension
     relativa = "%s/%s" % (paquetes.carpeta(paquete.nombre), paquetes.MODULO)
     print("== %s/%s: %s" % (capa, paquete.nombre, relativa))
     if paquetes.huella(os.path.join(raiz, paquetes.carpeta(paquete.nombre))) != paquete.huella:
-        return None, ["no coincide con la huella de su lock: lo copiado cambio desde que se importo (reimportalo antes de calibrar)"]
+        return None, ["no coincide con la huella de su lock: lo copiado cambio desde que se importo (reimporta el paquete antes de calibrar)"]
     sufijo = paquete.nombre.replace("-", "_")
     try:
         modulo = cargar_por_ruta(os.path.join(raiz, relativa), "reglas_paquete_%s" % sufijo)
@@ -427,7 +427,7 @@ def _previas(raiz):
     try:
         return calibracion.cargar(raiz)
     except calibracion.RegistroRoto as exc:
-        raise ErrorEntorno("%s roto: %s (arreglalo o borralo y volve a calibrar)" % (calibracion.RUTA, exc))
+        raise ErrorEntorno("%s roto: %s (arregla o borra el archivo y calibra de nuevo)" % (calibracion.RUTA, exc))
 
 
 def _activos(raiz, capa):

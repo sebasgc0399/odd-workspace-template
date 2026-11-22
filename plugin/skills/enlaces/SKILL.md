@@ -9,9 +9,9 @@ Muestra los enlaces de un ticket, o de cualquier `.md`, para revisarlos o depura
 
 ## Reglas duras
 
-1. **Nunca abrís un enlace por tu cuenta**, ni siquiera cuando la lista tiene uno solo: abrir lanza un programa del sistema, y lo decide el usuario cada vez.
+1. **Nunca abres un enlace por tu cuenta**, ni siquiera cuando la lista tiene uno solo: abrir lanza un programa del sistema, y lo decide el usuario cada vez.
 2. **Solo se abre un número de la lista**, con `--abrir <n>`. Los rotos y los que llevan esquema no tienen número y no se abren, y ninguna ruta se abre por otro camino.
-3. **Esta skill no edita el documento.** Arreglar un roto o una ruta de la máquina es editarlo: proponé el cambio y hacelo solo con el sí del usuario.
+3. **Esta skill no edita el documento.** Arreglar un roto o una ruta de la máquina es editarlo: propón el cambio y hazlo solo con el sí del usuario.
 
 ## Pasos
 
@@ -21,27 +21,27 @@ Muestra los enlaces de un ticket, o de cualquier `.md`, para revisarlos o depura
    python3 "<S>/ticket.py" --enlaces <id | ruta>
    ```
 
-   Si el id tiene varias carpetas, el mensaje las nombra: preguntale al usuario cuál es y pasale la ruta de su `CLAUDE.md`.
-2. **Mostrala tal cual**, con dos grupos aparte:
+   Si el id tiene varias carpetas, el mensaje las nombra: pregúntale al usuario cuál es y pásale la ruta de su `CLAUDE.md`.
+2. **Muéstrala tal cual**, con dos grupos aparte:
    - **los rotos**, bajo `rotos: <n>`, cada uno con `no existe`: su destino no está;
    - **las rutas de la máquina**, las líneas que terminan en `(ruta de la máquina)`, numeradas o rotas: un destino absoluto (`C:\…`, `/home/…`, `~/…`) funciona en esta máquina, pero se rompe en el clon de otra persona.
 
-   Si no hay ninguno de los dos, decilo en una línea.
-3. **Preguntale cuál quiere abrir**, por su número. Si no quiere abrir ninguno, terminá ahí.
+   Si no hay ninguno de los dos, dilo en una línea.
+3. **Pregúntale cuál quiere abrir**, por su número. Si no quiere abrir ninguno, termina ahí.
 4. **Con su elección, y solo con ella:**
 
    ```bash
    python3 "<S>/ticket.py" --enlaces <id | ruta> --abrir <n>
    ```
 
-   Una carpeta se abre en el gestor de archivos, y un documento, un dato o una imagen, con su programa. Cualquier otro archivo (un script, un ejecutable) se muestra en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo. La última línea dice qué se abrió y cómo. Si sale con 1 y dice `no se abrió <ruta>: <motivo>`, pasale esa línea al usuario tal cual: la ruta está ahí para que la abra a mano o la copie. No lo reintentes de otra forma.
+   Una carpeta se abre en el gestor de archivos, y un documento, un dato o una imagen, con su programa. Cualquier otro archivo (un script, un ejecutable) se muestra en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo. La última línea dice qué se abrió y cómo. Si sale con 1 y dice `no se abrió <ruta>: <motivo>`, pásale esa línea al usuario tal cual: la ruta está ahí para que la abra a mano o la copie. No lo reintentes de otra forma.
 5. **Si quiere las rutas**, en vez de abrir:
 
    ```bash
    python3 "<S>/ticket.py" --enlaces <id | ruta> --copiar
    ```
 
-   Manda las rutas absolutas, sanas y rotas, al portapapeles, una por línea. Si no hay con qué copiar, avisa por stderr y la lista sale igual: decíselo al usuario, que la copia de la pantalla.
+   Manda las rutas absolutas, sanas y rotas, al portapapeles, una por línea. Si no hay con qué copiar, avisa por stderr y la lista sale igual: díselo al usuario, que la copia de la pantalla.
 
 ## Cuándo no abre
 

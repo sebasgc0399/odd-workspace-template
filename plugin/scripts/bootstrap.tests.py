@@ -1551,7 +1551,7 @@ def test_gitignore_que_es_una_carpeta_se_dice_en_el_informe():
         codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         assert codigo == 0 and "ya existía .gitignore" in salida
         assert "no se pudo leer .gitignore: es una carpeta" in salida, salida
-        assert "workspace.local.json" in salida.split("revisá a mano que ignore:")[1], salida
+        assert "workspace.local.json" in salida.split("revisa a mano que ignore:")[1], salida
         assert (raiz / ".gitignore").is_dir()
 
 
@@ -1678,7 +1678,7 @@ def correr_con_unlink_bloqueado(e, raiz, extra=()):
 
 
 def lineas_de_sobrante(lineas, nombre):
-    patron = re.compile(r"no se pudo borrar \." + re.escape(nombre) + r"\.[0-9a-f]{32}\.tmp: borralo a mano \(es una copia de " + re.escape(nombre) + r"\)")
+    patron = re.compile(r"no se pudo borrar \." + re.escape(nombre) + r"\.[0-9a-f]{32}\.tmp: bórralo a mano \(es una copia de " + re.escape(nombre) + r"\)")
     return [l for l in lineas if patron.fullmatch(l)]
 
 
@@ -2008,9 +2008,9 @@ def test_en_windows_el_informe_dice_como_marcar_ejecutable():
         assert codigo == 0
         lineas = salida.splitlines()
         indice = lineas.index("creado .githooks/pre-commit")
-        assert lineas[indice + 1] == "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit", lineas
-        assert sum("marcalo ejecutable" in l for l in lineas) == 1
-        assert "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit" in ensayo.splitlines()
+        assert lineas[indice + 1] == "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit", lineas
+        assert sum("márcalo ejecutable" in l for l in lineas) == 1
+        assert "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit" in ensayo.splitlines()
 
 
 def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
@@ -2022,7 +2022,7 @@ def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
                 _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         finally:
             b().EN_WINDOWS = anterior
-        assert "marcalo ejecutable" not in salida
+        assert "márcalo ejecutable" not in salida
     with Escenario() as e:
         raiz = e.crear_raiz()
         (raiz / ".githooks").mkdir()
@@ -2033,7 +2033,7 @@ def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
                 _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         finally:
             b().EN_WINDOWS = anterior
-        assert "ya existía .githooks/pre-commit" in salida and "marcalo ejecutable" not in salida
+        assert "ya existía .githooks/pre-commit" in salida and "márcalo ejecutable" not in salida
         assert (raiz / ".githooks" / "pre-commit").read_bytes() == b"mio"
 
 
@@ -2122,10 +2122,10 @@ def test_commitear_marca_el_hook_como_ejecutable():
         commit = lineas_de_commit(salida)
         assert len(commit) == 1 and commit[0].endswith("con 3 archivos (el hook, ejecutable)"), commit
         assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
-        assert "marcalo ejecutable" not in salida, salida
+        assert "márcalo ejecutable" not in salida, salida
         ensayo = correr_con_git(e, e.base / "otra", "--ensayo", "--commitear", generadores=hook)[1]
         assert lineas_de_commit(ensayo) == ["commit: se haría con los archivos nuevos (el hook, ejecutable)"], ensayo
-        assert "marcalo ejecutable" not in ensayo, ensayo
+        assert "márcalo ejecutable" not in ensayo, ensayo
 
 
 def test_commitear_en_el_ensayo_dice_que_lo_haria_y_no_escribe_nada():
@@ -2202,7 +2202,7 @@ def test_commitear_sin_identidad_de_git_falla_sin_perder_los_archivos():
             codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
         assert codigo == 0 and errores == "", (codigo, errores)
         commit = lineas_de_commit(salida)
-        assert len(commit) == 1 and commit[0].startswith("commit: falló") and "commitealos vos" in commit[0], commit
+        assert len(commit) == 1 and commit[0].startswith("commit: falló") and "commitéalos tú" in commit[0], commit
         assert (e.raiz / "workspace.config.json").is_file() and sin_head(e.raiz)
 
 
@@ -2220,7 +2220,7 @@ def como_en_windows():
         b().EN_WINDOWS = anterior
 
 
-AVISO_DEL_CHMOD = "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
+AVISO_DEL_CHMOD = "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
 
 
 def test_commitear_que_no_commitea_conserva_el_aviso_del_chmod_en_windows():
@@ -2246,7 +2246,7 @@ def test_commitear_que_commitea_no_repite_el_aviso_del_chmod_en_windows():
             for raiz, extra in ((e.base / "ensayada", ["--ensayo"]), (e.raiz, [])):
                 codigo, salida, errores = correr_con_git(e, raiz, "--commitear", *extra, generadores=generador_con_hook)
                 assert codigo == 0 and errores == "", (extra, codigo, errores)
-                assert "marcalo ejecutable" not in salida, (extra, salida)
+                assert "márcalo ejecutable" not in salida, (extra, salida)
         assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
 
 
@@ -2576,7 +2576,7 @@ def test_un_archivo_con_permisos_sin_bit_de_ejecucion_no_lleva_aviso():
         finally:
             b().EN_WINDOWS = anterior
         assert "git add --chmod=+x script.sh" in salida
-        assert "datos.txt" not in "".join(l for l in salida.splitlines() if "marcalo" in l)
+        assert "datos.txt" not in "".join(l for l in salida.splitlines() if "márcalo" in l)
 
 
 def test_una_raiz_que_ya_es_un_repo_no_se_reinicia_y_conserva_su_hookspath_vacio():
@@ -3031,7 +3031,7 @@ def test_una_raiz_que_es_un_enlace_a_un_repo_se_configura_en_el_repo_real():
 
 MENSAJE_CONFIG_DISTINTA = (
     "la config de la spec no es la de {}/workspace.config.json, que ya existe: el bootstrap no la reescribe, "
-    "así que la spec tiene que traerla tal cual (o cambiala a mano antes)"
+    "así que la spec tiene que traerla tal cual (o cámbiala a mano antes)"
 )
 MENSAJE_LOCAL_DISTINTO = (
     "el local de la spec no es el de {}/workspace.local.json (sin plugin_root), que ya existe: el bootstrap no lo reescribe, "

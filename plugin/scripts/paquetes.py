@@ -22,11 +22,11 @@ MODOS_QUE_NO_SON_ARCHIVOS = ("120000", "160000")
 PROTOCOLOS = ("file", "https", "ssh", "git")
 CONFIG_DE_GIT = ("-c", "protocol.allow=never", *[pieza for protocolo in PROTOCOLOS for pieza in ("-c", "protocol.%s.allow=always" % protocolo)],
                  "-c", "protocol.ext.allow=never", "-c", "advice.detachedHead=false")
-REVISAR = ("Antes de commitear, revisá en el diff lo copiado, sobre todo %s y %s: es código que corre en los hooks de esta "
+REVISAR = ("Antes de commitear, revisa en el diff lo copiado, sobre todo %s y %s: es código que corre en los hooks de esta "
            "instancia y en reglas.py --test." % (paquetes.MODULO, paquetes.SUITE))
-CON_CREDENCIALES = ("la fuente trae usuario o contraseña en la URL y quedaría en el lock, que se commitea: configurá las credenciales "
-                    "en git (un credential helper o ssh) y pasá la URL sin ellas")
-AVISO_LOCAL = "aviso: la fuente es una ruta local (%s): el lock solo sirve en esta máquina; para un equipo, importá desde una URL"
+CON_CREDENCIALES = ("la fuente trae usuario o contraseña en la URL y quedaría en el lock, que se commitea: configura las credenciales "
+                    "en git (un credential helper o ssh) y pasa la URL sin ellas")
+AVISO_LOCAL = "aviso: la fuente es una ruta local (%s): el lock solo sirve en esta máquina; para un equipo, importa desde una URL"
 
 
 class Rechazo(Exception):
@@ -123,7 +123,7 @@ def clon(fuente, etiqueta, raiz):
     temporal = tempfile.mkdtemp(prefix="odd-ws-paquete-")
     try:
         if _dentro(temporal, raiz):
-            raise ErrorEntorno("la carpeta temporal %s queda dentro de la instancia: apuntá TEMP o TMPDIR a otro lado" % temporal)
+            raise ErrorEntorno("la carpeta temporal %s queda dentro de la instancia: apunta TEMP o TMPDIR a otro lado" % temporal)
         destino = os.path.join(temporal, "clon")
         codigo, _, error = _git("clone", "-q", "--depth", "1", "--branch=%s" % etiqueta, "--no-recurse-submodules", "--", fuente, destino)
         if codigo != 0:
@@ -158,7 +158,7 @@ def validar_clon(carpeta):
     except paquetes.ManifiestoInvalido as exc:
         raise Rechazo(str(exc))
     if not paquetes.api_soportada(manifiesto):
-        raise Rechazo("%s pide odd_ws_api %d y este plugin da %d: actualizá el plugin antes de importarlo"
+        raise Rechazo("%s pide odd_ws_api %d y este plugin da %d: actualiza el plugin antes de importarlo"
                       % (manifiesto["nombre"], manifiesto["odd_ws_api"], paquetes.odd_ws.API))
     return manifiesto
 
@@ -259,7 +259,7 @@ def importar(raiz, args):
             raise Rechazo("%s ya está en %s: para cambiar su etiqueta, actualizar" % (nombre, paquetes.LOCK))
         _sin_enlaces_en_el_destino(raiz, nombre)
         if os.path.lexists(os.path.join(raiz, paquetes.carpeta(nombre))):
-            raise Rechazo("ya existe %s y no está en el lock: sacala o elegí otro paquete" % paquetes.carpeta(nombre))
+            raise Rechazo("ya existe %s y no está en el lock: sácala o elige otro paquete" % paquetes.carpeta(nombre))
         nuevo = paquetes.Paquete(nombre, args.capa, manifiesto["prefijo"], fuente, args.etiqueta, commit,
                                  paquetes.huella(carpeta_del_clon))
         _validar_entrada(lock, nuevo, capas)
@@ -388,7 +388,7 @@ def main(argv=None):
     try:
         raiz = args.raiz or raiz_de_instancia(os.environ, os.getcwd())
         if raiz is None:
-            raise ErrorEntorno("no hay %s en la carpeta de la sesión ni en sus padres (pasá --raiz)" % CONFIG)
+            raise ErrorEntorno("no hay %s en la carpeta de la sesión ni en sus padres (pasa --raiz)" % CONFIG)
         raiz = str(raiz)
         if not os.path.isfile(os.path.join(raiz, CONFIG)):
             raise ErrorEntorno("no hay %s en %s" % (CONFIG, raiz))

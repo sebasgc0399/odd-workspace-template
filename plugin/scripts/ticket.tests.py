@@ -270,7 +270,7 @@ def test_sin_plantilla_se_rechaza_y_manda_a_correr_el_bootstrap():
 
 
 def test_una_plantilla_sin_settings_avisa_por_stderr_y_no_cambia_ni_la_salida_ni_el_codigo():
-    aviso = "ticket: aviso: la plantilla no tiene tickets/_plantilla/.claude/settings.json, así que una sesión abierta dentro del ticket no carga el plugin: completá la instancia con /odd-ws:bootstrap y volvé a correr ticket.py"
+    aviso = "ticket: aviso: la plantilla no tiene tickets/_plantilla/.claude/settings.json, así que una sesión abierta dentro del ticket no carga el plugin: completa la instancia con /odd-ws:bootstrap y vuelve a correr ticket.py"
     with Escenario() as e:
         (e.raiz / "tickets" / "_plantilla" / ".claude" / "settings.json").unlink()
         completos = {r: d for r, d in CREADOS.items() if r != ".claude/settings.json"}
@@ -927,7 +927,7 @@ def test_abrir_una_ruta_con_coma_en_windows_no_la_abre_y_sale_con_uno_y_en_los_d
         resultado = e.correr("--enlaces", "docs/comas.md", "--abrir", "1", cwd=e.base, entorno=entorno)
         if sys.platform == "win32":
             assert resultado == (1, listado, f"ticket: no se abrió {absoluta(coma)}: explorer separa las rutas en las comas y podría "
-                                             "abrir otra cosa: abrila a mano\n"), resultado
+                                             "abrir otra cosa: ábrela a mano\n"), resultado
             assert llamadas(registro) == [], llamadas(registro)
         else:
             assert resultado == (0, listado + f"abierto con su programa: {real(coma)} ({ABRIDOR_DEL_SISTEMA})\n", ""), resultado

@@ -39,7 +39,7 @@ REVELAR = {"windows": "explorer /select", "macos": "open -R", "linux": "xdg-open
 ABRE_UNA_CARPETA = "abierto en el gestor de archivos"
 ABRE_UN_ARCHIVO = "abierto con su programa"
 MUESTRA = "mostrado en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo"
-SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: abrila a mano"
+SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: ábrela a mano"
 EJECUTABLES = (".py", ".js", ".ps1", ".bat", ".cmd", ".exe", ".sh", ".command", ".lnk", ".url", ".desktop", ".app", ".html", "")
 DOCUMENTOS = (".md", ".markdown", ".txt", ".rst", ".log", ".csv", ".tsv", ".json", ".jsonc", ".yml", ".yaml", ".toml", ".ini",
               ".cfg", ".xml", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")

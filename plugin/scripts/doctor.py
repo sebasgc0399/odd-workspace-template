@@ -28,56 +28,56 @@ APAGAR_RDD = ["gentle-ai", "review", "mode", "disable"]
 OPCIONAL = "opcional: ningún script del plugin lo invoca"
 OPCIONAL_CREDENCIALES = "opcional: solo hace falta para empujar a GitHub"
 
-AYUDA_LISTA = "Creá ~/.odd-ws/denylist.txt en UTF-8, un término por línea (o apuntá ODD_WS_DENYLIST a otra ruta). Sin ella, el barrido bloquea todos los commits."
-AYUDA_PYTHON = ("Desactivá el alias de ejecución de {}.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
-                "Alias de ejecución de aplicaciones) o poné %LOCALAPPDATA%\\Python\\bin antes de WindowsApps en el PATH de usuario.")
-AYUDA_PYTHON3_WINDOWS = ("Instalá Python con el Python install manager de python.org o desde la Microsoft Store: los dos crean python3. "
+AYUDA_LISTA = "Crea ~/.odd-ws/denylist.txt en UTF-8, un término por línea (o apunta ODD_WS_DENYLIST a otra ruta). Sin ella, el barrido bloquea todos los commits."
+AYUDA_PYTHON = ("Desactiva el alias de ejecución de {}.exe (Configuración > Aplicaciones > Configuración avanzada de aplicaciones > "
+                "Alias de ejecución de aplicaciones) o pon %LOCALAPPDATA%\\Python\\bin antes de WindowsApps en el PATH de usuario.")
+AYUDA_PYTHON3_WINDOWS = ("Instala Python con el Python install manager de python.org o desde la Microsoft Store: los dos crean python3. "
                          "El instalador clásico, winget y choco no lo crean, y entonces python3 cae en el alias de la Store, que no corre.")
-AYUDA_PYTHON_WINDOWS = ("Instalá Python con el Python install manager de python.org, desde la Microsoft Store o con el instalador clásico "
+AYUDA_PYTHON_WINDOWS = ("Instala Python con el Python install manager de python.org, desde la Microsoft Store o con el instalador clásico "
                         "marcando «Add python.exe to PATH»: en Windows, los hooks de Codex lanzan python.")
 SUFIJO_WINDOWS = " (commandWindows)"
-AYUDA_PYTHON3 = "Instalá Python 3 (3.7 o más) y dejá python3 en el PATH."
+AYUDA_PYTHON3 = "Instala Python 3 (3.7 o más) y deja python3 en el PATH."
 SONDA_PYTHON = "import sys; print('Python %d.%d.%d' % sys.version_info[:3])"
 PYTHON_MINIMO = (3, 7, 0)
-AYUDA_CREDENCIALES = "Instalá Git for Windows con Git Credential Manager, o corré git config --global credential.helper manager."
-AYUDA_GENTLE = "Instalá o actualizá gentle-ai (en Windows: go install github.com/gentleman-programming/gentle-ai/v4/cmd/gentle-ai@latest) y corré sync con Claude Code cerrado."
+AYUDA_CREDENCIALES = "Instala Git for Windows con Git Credential Manager, o corre git config --global credential.helper manager."
+AYUDA_GENTLE = "Instala o actualiza gentle-ai (en Windows: go install github.com/gentleman-programming/gentle-ai/v4/cmd/gentle-ai@latest) y corre sync con Claude Code cerrado."
 AYUDA_RDD = ("D3: el RDD nativo no ve el dominio (su reviewer corre sin herramientas); la plantilla trae el propio. Se apaga solo en el clon "
-             "de esta instancia, y solo si lo pedís con --arreglar rdd: tus otros proyectos siguen con el RDD como estaba.")
+             "de esta instancia, y solo si lo pides con --arreglar rdd: tus otros proyectos siguen con el RDD como estaba.")
 AYUDA_RDD_SIN_REPO = ("D3: gentle-ai apaga el RDD por clon, y esta instancia no está en un repo git, así que no hay arreglo automático. "
-                      "Para apagarlo en toda la máquina, corré a mano gentle-ai review mode disable: afecta también a tus otros proyectos.")
-AYUDA_RDD_CONTROLES = ("En el perfil controles, odd-ws no trae revisores: la revisión es la de tu herramienta. Prendé el RDD de gentle-ai "
-                       "(gentle-ai review mode enable, con el mismo --scope con que se apagó) o revisá con otra herramienta. El doctor no "
-                       "lo prende por vos.")
+                      "Para apagarlo en toda la máquina, corre a mano gentle-ai review mode disable: afecta también a tus otros proyectos.")
+AYUDA_RDD_CONTROLES = ("En el perfil controles, odd-ws no trae revisores: la revisión es la de tu herramienta. Prende el RDD de gentle-ai "
+                       "(gentle-ai review mode enable, con el mismo --scope con que se apagó) o revisa con otra herramienta. El doctor no "
+                       "lo prende por ti.")
 MARCA_CONTROLES = "<!-- odd-ws:perfil controles -->"
 SIN_WRITERS = (f'la instancia tiene el perfil controles ("profile": "controles" en {config_loader.NOMBRE}): no lleva writers ni '
                "revisores de odd-ws")
-AYUDA_PERFIL = ("Para pasar a completo, borrá ese CLAUDE.md y corré /odd-ws:bootstrap, que genera el completo y lo que falta sin pisar "
-                "nada; si lo habías editado, pasá tus cambios al nuevo. Si la instancia es de controles, volvé a poner "
+AYUDA_PERFIL = ("Para pasar a completo, borra ese CLAUDE.md y corre /odd-ws:bootstrap, que genera el completo y lo que falta sin pisar "
+                "nada; si lo habías editado, pasa tus cambios al nuevo. Si la instancia es de controles, vuelve a poner "
                 f'"profile": "controles" en {config_loader.NOMBRE} (es tu archivo: el doctor no lo toca).')
-AYUDA_TELEMETRIA = "Apagala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
-AYUDA_ENGRAM = "Actualizá engram a 3.5 o superior desde su release oficial (en Windows, renombrá el .exe en uso antes de reemplazarlo)."
+AYUDA_TELEMETRIA = "Apágala en sus dos capas: enabled: false en ~/.gentle-ai/telemetry.json y la variable de usuario GENTLE_AI_TELEMETRY=0 (la variable gana aunque el json se regenere)."
+AYUDA_ENGRAM = "Actualiza engram a 3.5 o superior desde su release oficial (en Windows, renombra el .exe en uso antes de reemplazarlo)."
 AYUDA_JQ = "scoop install jq (lo exige engram setup)."
 AYUDA_LOCAL = "Se arregla a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
-AYUDA_CONFIG = f"Arreglá {config_loader.NOMBRE} (el detalle dice qué está roto) y volvé a correr el doctor."
-AYUDA_WRITER_EDITADO = ("Pasá tu cambio a la description (en una sola línea) o a un bloque <!-- instancia:... -->. Para volver a la plantilla, "
-                        "sacá el archivo de .claude/agents, corré --arreglar con su id y copiá tu texto a los bloques del nuevo.")
-AYUDA_WRITER_AJENO = ("Sacalo de .claude/agents, corré --arreglar con su id y pasá tu texto a la description y a los bloques "
+AYUDA_CONFIG = f"Arregla {config_loader.NOMBRE} (el detalle dice qué está roto) y vuelve a correr el doctor."
+AYUDA_WRITER_EDITADO = ("Pasa tu cambio a la description (en una sola línea) o a un bloque <!-- instancia:... -->. Para volver a la plantilla, "
+                        "saca el archivo de .claude/agents, corre --arreglar con su id y copia tu texto a los bloques del nuevo.")
+AYUDA_WRITER_AJENO = ("Sácalo de .claude/agents, corre --arreglar con su id y pasa tu texto a la description y a los bloques "
                       "<!-- instancia:... --> del nuevo: así la plantilla lo mantiene.")
-AYUDA_WRITER_NOMBRE = f"Renombrá la capa en {config_loader.NOMBRE} con minúsculas, dígitos y guiones, empezando por letra o dígito."
-AYUDA_WRITER_ILEGIBLE = "Guardalo en UTF-8 y volvé a correr el doctor."
-AYUDA_AGENTES_SKILLS = ("Creá la skill en .claude/skills/<skill>/SKILL.md o sacala del skills: del agente. Una skill precargada no puede llevar "
+AYUDA_WRITER_NOMBRE = f"Renombra la capa en {config_loader.NOMBRE} con minúsculas, dígitos y guiones, empezando por letra o dígito."
+AYUDA_WRITER_ILEGIBLE = "Guárdalo en UTF-8 y vuelve a correr el doctor."
+AYUDA_AGENTES_SKILLS = ("Crea la skill en .claude/skills/<skill>/SKILL.md o sácala del skills: del agente. Una skill precargada no puede llevar "
                         "paths: ni disable-model-invocation: true (Claude Code la saltea en silencio), y criterios y capa-<capa> llevan una "
                         "línea suelta CENTINELA <skill> <fecha>: sin ella, el writer cree que no vino y la vuelve a leer del disco.")
-AYUDA_AGENTES_HOOKS = ("Pasá esos hooks al .claude/settings.json de la instancia y filtrá por agent_type en el script: los del frontmatter de "
+AYUDA_AGENTES_HOOKS = ("Pasa esos hooks al .claude/settings.json de la instancia y filtra por agent_type en el script: los del frontmatter de "
                        "un agente del proyecto solo corren si la carpeta aceptó el diálogo de confianza, y nunca en una sesión -p.")
-AYUDA_RUTAS = (f"Poné en {config_loader.NOMBRE_LOCAL} la ruta de cada repo de {config_loader.NOMBRE} (repos.<repo>.path, una carpeta que "
-               "exista en esta máquina) o corregí lo que diga el detalle. Después, otra vez el doctor.")
-AYUDA_HOOKS_AJENO = ("core.hooksPath apunta a otro lado y el doctor no lo pisa: cambialo a mano a .githooks o integrá .githooks/pre-commit "
+AYUDA_RUTAS = (f"Pon en {config_loader.NOMBRE_LOCAL} la ruta de cada repo de {config_loader.NOMBRE} (repos.<repo>.path, una carpeta que "
+               "exista en esta máquina) o corrige lo que diga el detalle. Después, otra vez el doctor.")
+AYUDA_HOOKS_AJENO = ("core.hooksPath apunta a otro lado y el doctor no lo pisa: cámbialo a mano a .githooks o integra .githooks/pre-commit "
                      "a esos hooks.")
-AYUDA_HOOKS_NO_TOCAR = ("Integrá .githooks/pre-commit a esos hooks (llamalo desde ellos) o configurá core.hooksPath = .githooks a mano, sabiendo que lo que "
-                        "corre hoy dejaría de correr o que el cambio alcanza a todos los checkouts del repo. El doctor no lo hace por vos.")
-AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: generalo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
-AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
+AYUDA_HOOKS_NO_TOCAR = ("Integra .githooks/pre-commit a esos hooks (llámalo desde ellos) o configura core.hooksPath = .githooks a mano, sabiendo que lo que "
+                        "corre hoy dejaría de correr o que el cambio alcanza a todos los checkouts del repo. El doctor no lo hace por ti.")
+AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: genéralo con /odd-ws:bootstrap, que completa la instancia sin pisar lo que ya existe."
+AYUDA_SETTINGS = "Arréglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
 AYUDA_PAQUETES = ("Lo copiado de un paquete no se edita a mano: el cambio va en el repo del paquete y se reimporta con /odd-ws:paquetes, "
                   "que reescribe su carpeta y el lock (o lo quita). El doctor no toca ninguno de los dos.")
 COPIA_DE_EMERGENCIA = ".claude/plugin"
@@ -86,17 +86,17 @@ PLUGIN = "odd-ws"
 CLAVE_PLUGIN = f"{PLUGIN}@{MARKETPLACE}"
 HOOKS_PATH = ".githooks"
 PRE_COMMIT = f"{HOOKS_PATH}/pre-commit"
-AYUDA_TICKETS = ('Corregí "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
+AYUDA_TICKETS = ('Corrige "tickets" en workspace.config.json: un objeto como {"prefix": "T"}, con un prefijo que empiece por letra '
                  "y siga con letras, números o guion bajo (es tu archivo: el doctor no lo toca).")
-AYUDA_CLAVE = "Corregí esa clave en workspace.config.json (es tu archivo: el doctor no lo toca)."
-AYUDA_HOOKS_APAGADOS = (f"Si no fue a propósito, sacalo de {config_loader.CLAVE_DE_HOOKS_APAGADOS} en {config_loader.NOMBRE} (es tu archivo: "
+AYUDA_CLAVE = "Corrige esa clave en workspace.config.json (es tu archivo: el doctor no lo toca)."
+AYUDA_HOOKS_APAGADOS = (f"Si no fue a propósito, sácalo de {config_loader.CLAVE_DE_HOOKS_APAGADOS} en {config_loader.NOMBRE} (es tu archivo: "
                         "el doctor no lo toca). Un hook apagado deja pasar todo en Claude Code, Codex y Pi.")
 AYUDA_GUARD_APAGADO = " Con guard_comandos apagado, nada frena un force push, un reset --hard ni un borrado recursivo del agente."
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
-AYUDA_PLUGIN = (f'Agregá "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
-                "y reiniciá Claude Code.")
-AYUDA_HOOKS_HOST = ("Cada hook lleva el --host de su archivo (los de hooks.json pueden no llevarlo: es claude-code). Corregí el "
+AYUDA_PLUGIN = (f'Agrega "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
+                "y reinicia Claude Code.")
+AYUDA_HOOKS_HOST = ("Cada hook lleva el --host de su archivo (los de hooks.json pueden no llevarlo: es claude-code). Corrige el "
                     "comando: con un --host desconocido o vacío el hook calla o bloquea todo, y en Codex uno sin --host codex falla abierto.")
 CLAUDE_CODE = registro_de_hosts.FUENTE
 CLI_INSTALADO, CLI_AUSENTE, CLI_DE_OTRO_HOST = "instalado", "ausente", "ausente con otro host declarado instalado"
@@ -631,7 +631,7 @@ def chequear_python(ctx):
 def chequear_credenciales(ctx):
     codigo, salida = ctx.ejecutar(["git", "config", "--get", "credential.helper"])
     if codigo is None:
-        return resultado("git-credenciales", FALTA, "git no está instalado", None, "Instalá Git for Windows.")
+        return resultado("git-credenciales", FALTA, "git no está instalado", None, "Instala Git for Windows.")
     if codigo == 0 and primera_linea(salida):
         return resultado("git-credenciales", OK, f"credential.helper = {primera_linea(salida)}")
     return resultado("git-credenciales", AVISO, f"sin credential.helper: git no puede guardar la credencial de GitHub ({OPCIONAL_CREDENCIALES})",
