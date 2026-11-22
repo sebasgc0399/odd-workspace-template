@@ -29,6 +29,7 @@ DIAS_PODA = 7
 REMOTO_HEAD = "refs/remotes/origin/HEAD"
 ORIGENES_DEL_AVISO = ("startup", "resume", "fork")
 TOPE_DEL_MOTIVO = 200
+LARGO_DE_LA_CITA = 120
 TOPE_DEL_TICKET = 12000
 SECCIONES_DEL_RESUMEN = ("Objetivo", "Specs", "Tareas", "Seguimientos")
 BITACORA = "Bitácora"
@@ -187,12 +188,22 @@ def filtrar_preexistentes(hallazgos, hunks):
     return [h for i, h in enumerate(hallazgos) if i not in descartados]
 
 
+def cita_del_fragmento(h):
+    fragmento = h.get("fragmento")
+    texto = " ".join(fragmento.split()) if isinstance(fragmento, str) else ""
+    if not texto:
+        return ""
+    if len(texto) > LARGO_DE_LA_CITA:
+        texto = texto[:LARGO_DE_LA_CITA - 1] + "…"
+    return " en «%s»" % texto
+
+
 def _formatear(h):
     severidad = h.get("severidad") or ""
     etiqueta = "[%s %s]" % (h["id"], severidad) if severidad else "[%s]" % h["id"]
     linea = h.get("linea")
     donde = "linea %d" % linea if linea is not None else "archivo"
-    return "%s %s: %s%s" % (etiqueta, donde, h["mensaje"], calibracion.sufijo(h))
+    return "%s %s%s: %s%s" % (etiqueta, donde, cita_del_fragmento(h), h["mensaje"], calibracion.sufijo(h))
 
 
 def _salida(relativa, hallazgos):
