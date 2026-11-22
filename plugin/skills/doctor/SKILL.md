@@ -25,9 +25,11 @@ La respuesta tiene siempre la misma forma, para que no cambie de una corrida a o
 - `<id>` (<FALTA o AVISO>): <qué rompe si no se arregla>; <qué hacer>.
 ````
 
+El bloque de fuera solo delimita la forma: la salida va en su propio bloque de código `text`, y cada comentario, debajo, como texto normal.
+
 1. **La salida, entera y tal cual,** en un bloque de código `text`: los encabezados de cada grupo, cada fila con sus líneas `arreglo:` y `cómo:`, y la línea de resumen del final (`0 FALTA, 1 AVISO`). Van también las filas `OK` y `NO APLICA`.
 2. **Debajo, un comentario por cada FALTA y cada AVISO,** en el orden de la tabla y en una línea cada uno: qué rompe si no se arregla y qué hacer. Un AVISO opcional no rompe el plugin: dilo así y no lo presentes como pendiente. Las filas `OK` y `NO APLICA` no se comentan. Lo que dice «Reglas» de un ítem (por ejemplo, qué explicar de `capas-cobertura`) va en la línea de ese ítem, y solo si salió en FALTA o AVISO.
-3. **Si no hay ninguna FALTA ni ningún AVISO,** en lugar de los comentarios va esta línea, tal cual:
+3. **Si no hay ninguna FALTA ni ningún AVISO,** en lugar de los comentarios va esta línea, tal cual y como texto normal (el bloque solo la delimita):
 
    ```text
    Todo en orden: nada falta y no hay avisos.

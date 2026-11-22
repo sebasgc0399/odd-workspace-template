@@ -2506,6 +2506,19 @@ def test_el_cierre_del_bootstrap_es_un_texto_fijo_por_perfil_y_lo_variable_va_an
         assert pedazo in antes, (pedazo, antes)
 
 
+def test_los_textos_fijos_se_escriben_como_texto_normal_y_su_bloque_solo_los_delimita():
+    antes, _ = cierres_del_bootstrap()
+    presentar = presentar_del_doctor()
+    sin_problemas = presentar[presentar.index("3. **Si no hay ninguna FALTA"):presentar.index(linea_fija_sin_problemas())]
+    for donde, texto in (("Lo que decides", lo_que_decides(paso_3_del_bootstrap())), ("Lo que sigue", antes),
+                         ("el doctor", presentar[:presentar.index("1. **La salida")]), ("Todo en orden", sin_problemas)):
+        assert "solo" in texto and "delimita" in texto and "como texto normal" in texto, (donde, texto)
+    for donde, texto in (("Lo que decides", lo_que_decides(paso_3_del_bootstrap())), ("Lo que sigue", antes)):
+        assert "con sus negritas, sin el bloque de código" in texto, (donde, texto)
+    paso_5 = seccion(SKILL_BOOTSTRAP, "## 5. El doctor", "## 6. El siguiente paso")
+    assert f"`{linea_fija_sin_problemas()}`, tal cual y como texto normal" in paso_5, paso_5
+
+
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
     with Escenario() as e:
         if hay_repo_arriba(e.base):

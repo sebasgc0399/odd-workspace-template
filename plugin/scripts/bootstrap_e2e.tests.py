@@ -536,7 +536,7 @@ def test_el_ensayo_dice_que_entraria_lo_que_ya_existia_igual_y_relativo_y_que_no
 
 REPO_DE_CODIGO = ("error: la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
                   "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
-                  "si igual la quieres acá, confírmalo con --confirmar-repo\n")
+                  "si igual la quieres aquí, confírmalo con --confirmar-repo\n")
 
 
 def repo_de_codigo(caja, carpeta):

@@ -9,7 +9,7 @@ Orquesta la revisión de un cambio con los agentes de `.claude/agents/`: `reviso
 
 En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`. El detalle está en `references/`, junto a este archivo: se lee solo cuando un paso lo pide, y ahí `<S>` quiere decir lo mismo.
 
-**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores ni recibos y la revisión es la de la herramienta del usuario (por ejemplo, el RDD de gentle-ai). Dilo en una línea y para, sin correr nada.
+**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores ni recibos y la revisión es la de la herramienta del usuario (por ejemplo, el RDD de gentle-ai). Dilo en una línea y detente, sin correr nada.
 
 ## Reglas duras
 
@@ -55,7 +55,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 
 ## 3. La entrada de los revisores
 
-**La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. Si ya existe (otra ronda del mismo día y modo), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, que de acá en adelante es `<fecha>-<modo>`, y su recibo lleva `--ronda <n>`. Con el sí, guarda en su `entrada/` un diff por repo, `<repo>.diff`, solo con los archivos del ticket, y el triaje:
+**La carpeta de la revisión** es `<ticket>/revision/<fecha>-<modo>/`, con la fecha de hoy (`AAAA-MM-DD`) fijada para toda la revisión. Si ya existe (otra ronda del mismo día y modo), no la pises ni la muevas: esta ronda va en `<fecha>-<modo>-2`, o en el siguiente número libre, que de aquí en adelante es `<fecha>-<modo>`, y su recibo lleva `--ronda <n>`. Con el sí, guarda en su `entrada/` un diff por repo, `<repo>.diff`, solo con los archivos del ticket, y el triaje:
 
 ```bash
 git -C <repo> diff --no-color <base> -- <archivo> [<archivo>…] > "<entrada>/<repo>.diff"
@@ -63,7 +63,7 @@ git -C <repo> diff --no-color --no-index -- /dev/null <archivo nuevo sin trackea
 python3 "<S>/triaje.py" <los argumentos del paso 2> --json > "<entrada>/triaje.json"
 ```
 
-La primera línea cubre los archivos trackeados (commiteados o no); la segunda va por cada archivo nuevo sin trackear y sale con 1, que es lo normal. `<base>` es la base completa del triaje. Si el diff sale vacío, para: algo de la lista no cuadra. `triaje.json` y `recibo.json` no se editan a mano: si algo no cuadra, se vuelve a correr el script.
+La primera línea cubre los archivos trackeados (commiteados o no); la segunda va por cada archivo nuevo sin trackear y sale con 1, que es lo normal. `<base>` es la base completa del triaje. Si el diff sale vacío, detente: algo de la lista no cuadra. `triaje.json` y `recibo.json` no se editan a mano: si algo no cuadra, se vuelve a correr el script.
 
 ## 4. Las corridas
 

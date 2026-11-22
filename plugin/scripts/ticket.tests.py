@@ -593,6 +593,30 @@ def test_cobertura_da_el_mismo_texto_que_la_fila_del_doctor():
             assert primera == prefijo + fila.detalle, (primera, fila)
 
 
+def test_cobertura_en_controles_da_el_mismo_detalle_y_la_misma_ayuda_que_el_doctor():
+    import config_loader
+    import doctor
+
+    class Contexto:
+        def ejecutar(self, args, cwd=None):
+            r = subprocess.run(args, cwd=cwd, capture_output=True, env=e.entorno, timeout=60)
+            return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
+
+    for archivos, prefijo in (({"a.ext": b"x", "package.json": b"{}", "Dockerfile": b"x"}, "capas-cobertura: "),
+                              ({"x.mjs": b"x", "ci.yml": b"x"}, "aviso capas-cobertura: ")):
+        with Escenario() as e:
+            ruta = e.raiz / "workspace.config.json"
+            config = json.loads(ruta.read_text(encoding="utf-8"))
+            config[config_loader.CLAVE_DE_PERFIL] = config_loader.CONTROLES
+            ruta.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+            versionar(e, archivos)
+            fila = doctor.chequear_cobertura(Contexto(), e.raiz)
+            codigo, salida, errores = e.correr("--cobertura", "--raiz", str(e.raiz))
+            esperada = [prefijo + fila.detalle] + (["  cómo: " + fila.ayuda] if fila.estado == doctor.AVISO else [])
+            assert (codigo, salida.splitlines(), errores) == (0, esperada, ""), (salida, fila)
+            assert config_loader.NOTA_ESPERADOS_CONTROLES in fila.detalle or fila.ayuda == config_loader.AYUDA_COBERTURA_CONTROLES, fila
+
+
 def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
     with Escenario() as e:
         rechazado(e, 2, "no hay workspace.config.json", "--cobertura", "--raiz", str(e.base))

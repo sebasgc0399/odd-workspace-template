@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Ritual de apertura de un ticket: que el trabajo arranque con el alcance entendido y no con el código. Corre desde la raíz de la instancia (o desde dentro de la carpeta de un ticket). En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`, `<id>` es el id del pedido en el tracker, o el consecutivo de la instancia si no hay tracker, y `<ticket>` es la carpeta del ticket. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
-**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene tickets: el método y la orquestación son los de la herramienta del usuario. Dilo en una línea y para, sin escribir nada.
+**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene tickets: el método y la orquestación son los de la herramienta del usuario. Dilo en una línea y detente, sin escribir nada.
 
 ## Reglas duras
 
@@ -85,7 +85,7 @@ Los candidatos a graduar de otros tickets pueden aplicar a este antes de que alg
 
 2. Ignora el `_plantilla`, este ticket y la línea de ejemplo (`- <hallazgo general> → <doc destino o la raíz>`). Si la sección de un ticket sigue después de las 12 líneas, lee ese `CLAUDE.md`.
 3. De los candidatos que quedan, elige los que tocan este ticket (el mismo tema, los mismos docs, la misma capa) y muéstralos con su ticket de origen.
-4. Van a «Contexto técnico»: `Candidatos de tickets hermanos: <hallazgo> (<id del ticket>) — <por qué aplica>`. **No** van a la sección «Candidatos a graduar» de este ticket: siguen siendo del ticket que los anotó, y copiarlos acá rompería la regla de que `graduado` exige esa sección vacía.
+4. Van a «Contexto técnico»: `Candidatos de tickets hermanos: <hallazgo> (<id del ticket>) — <por qué aplica>`. **No** van a la sección «Candidatos a graduar» de este ticket: siguen siendo del ticket que los anotó, y copiarlos aquí rompería la regla de que `graduado` exige esa sección vacía.
 
 ## 6. El worktree
 

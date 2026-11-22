@@ -7,7 +7,7 @@ description: Mide los revisores de la instancia contra la revisión real de un l
 
 Mide a los revisores LLM de la instancia contra la revisión real de un líder, sin que vean la respuesta y de forma repetible. Los scripts los corre el orquestador, nunca el revisor. En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
-**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores que medir: la revisión es la de la herramienta del usuario. Dilo en una línea y para, sin correr nada.
+**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores que medir: la revisión es la de la herramienta del usuario. Dilo en una línea y detente, sin correr nada.
 
 ## Reglas duras
 

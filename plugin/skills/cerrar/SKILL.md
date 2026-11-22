@@ -10,7 +10,7 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 
 **Con el argumento `memorias`** (`/odd-ws:cerrar memorias`; en Codex, `$cerrar memorias`) no se cierra ningún ticket: lee `references/memorias.md` y sigue su «Modo memorias», no los pasos 1 a 10.
 
-**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"` y no vino el argumento `memorias`, el cierre de un ticket no aplica, porque esa instancia no tiene tickets. Dilo en una línea, recuerda que `/odd-ws:cerrar memorias` sí corre ahí, porque es por donde nacen sus reglas, y para. Con `memorias`, sigue el «Modo memorias» como en cualquier instancia.
+**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"` y no vino el argumento `memorias`, el cierre de un ticket no aplica, porque esa instancia no tiene tickets. Dilo en una línea, recuerda que `/odd-ws:cerrar memorias` sí corre ahí, porque es por donde nacen sus reglas, y detente. Con `memorias`, sigue el «Modo memorias» como en cualquier instancia.
 
 ## Reglas duras
 
@@ -46,7 +46,7 @@ Los ítems de la **sección «Candidatos a graduar»** ya vienen marcados como g
 
 ## 3. El modo sombra va primero
 
-Si el ticket tiene un caso congelado del modo sombra (`<ticket>/revision/<fecha>-sombra/`) sin puntuar ni ratificar, frena acá, antes de proponer nada, y manda al usuario a puntuarlo con `/odd-ws:eval-reviewers`: **primero se puntúa y después se gradúa**, porque graduar antes la regla que ese caso mide vuelve inútil la medición. Los criterios de ese ticket se gradúan cuando termine.
+Si el ticket tiene un caso congelado del modo sombra (`<ticket>/revision/<fecha>-sombra/`) sin puntuar ni ratificar, frena aquí, antes de proponer nada, y manda al usuario a puntuarlo con `/odd-ws:eval-reviewers`: **primero se puntúa y después se gradúa**, porque graduar antes la regla que ese caso mide vuelve inútil la medición. Los criterios de ese ticket se gradúan cuando termine.
 
 ## 4. La propuesta y el sí
 
@@ -90,7 +90,7 @@ Si el ticket usó un worktree («Worktree y rama»), lee «El worktree» en `ref
 
 ## 8. El conocimiento
 
-Después de editar los docs, corre `python3 "<S>/conocimiento.py"`, el nivel 1 de `/odd-ws:conocimiento` (el índice, los links, las anclas y el tope de líneas). Sale con 0 si está sano, con 1 si hay algún `FAIL` (corrígelo antes del commit), con 3 si solo hay deuda y con 2 por un error de entorno. El aviso «todo commiteado» es esperado acá: el commit de cierre lo resuelve.
+Después de editar los docs, corre `python3 "<S>/conocimiento.py"`, el nivel 1 de `/odd-ws:conocimiento` (el índice, los links, las anclas y el tope de líneas). Sale con 0 si está sano, con 1 si hay algún `FAIL` (corrígelo antes del commit), con 3 si solo hay deuda y con 2 por un error de entorno. El aviso «todo commiteado» es esperado aquí: el commit de cierre lo resuelve.
 
 ## 9. El commit de cierre
 
@@ -98,7 +98,7 @@ Un solo commit, **en la raíz de la instancia y nunca en los repos del equipo**,
 
 1. **Muestra el estado antes de commitear:** `git -c status.relativePaths=false status --short`.
 2. **`git add` explícito, nunca `-A`**, que barre la instancia entera con los tickets de otros y los cambios ajenos: solo lo que **este cierre** tocó, anclado a la raíz con `:/`, que vale desde cualquier profundidad: `git add -- ':/<ruta>' ':/<ruta>' …`.
-3. **Lo ajeno se saca del índice** con `git reset -q -- ':/<ruta>'`, y se avisa: lo stageado que el cierre no tocó (un ticket de otro, un archivo del ambiente local). Un archivo que ya venía modificado entra entero solo si estuvo en la propuesta, para que el sí lo cubra; si aparece recién acá, sácalo y avísalo.
+3. **Lo ajeno se saca del índice** con `git reset -q -- ':/<ruta>'`, y se avisa: lo stageado que el cierre no tocó (un ticket de otro, un archivo del ambiente local). Un archivo que ya venía modificado entra entero solo si estuvo en la propuesta, para que el sí lo cubra; si aparece recién aquí, sácalo y avísalo.
 4. Muestra el `status` otra vez, con lo stageado a la izquierda, y **commitea sin volver a preguntar**: el sí del paso 4 ya cubrió el commit, y en la raíz de la instancia el agente commitea sin pedir aprobación; solo con `"ask_before_commit": true` en `workspace.config.json`, pide el sí antes. Nunca hagas push. Un mensaje convencional: `git commit -m "chore(<id>): cierre e hidratación"`. Si el pre-commit de la instancia falla, muestra su salida y no lo saltees con `--no-verify`.
 5. **Si la entrega ya está** (`Estado` en `listo`), sácale la marca de ticket activo, que solo se quita si es la suya: `python3 "<S>/ticket.py" --desactivar <id>`. Si no, la marca se queda hasta «La entrega después del cierre».
 

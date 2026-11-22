@@ -1188,7 +1188,7 @@ def test_las_skills_que_no_aplican_en_controles_lo_dicen_antes_de_su_primer_paso
         assert guardas[0] < primera_seccion, (nombre, guardas[0], primera_seccion)
         for pedazo in (clave, m().NOMBRE, "no aplica"):
             assert pedazo in guarda, (nombre, pedazo, guarda)
-        assert "y para," in guarda or "y para." in guarda, (nombre, guarda)
+        assert "y detente," in guarda or "y detente." in guarda, (nombre, guarda)
     cerrar = next(linea for linea in (SKILLS / "cerrar" / "SKILL.md").read_text(encoding="utf-8").split("\n")
                   if linea.startswith(GUARDA_DE_CONTROLES))
     assert "memorias" in cerrar and "/odd-ws:cerrar memorias" in cerrar, cerrar

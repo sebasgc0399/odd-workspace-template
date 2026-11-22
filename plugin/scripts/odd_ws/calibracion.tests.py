@@ -18,6 +18,7 @@ HUELLA = "sha256:" + "a" * 64
 OTRA_HUELLA = "sha256:" + "b" * 64
 CORPUS = {"repo": "db", "commit": "0" * 40, "ruta": "src/sp"}
 REGLAS_PY = str(AQUI.parent / "reglas.py")
+CORREGIR = "corregir los hallazgos y después correr %s"
 
 
 def m():
@@ -25,7 +26,7 @@ def m():
 
 
 def comando(carpeta="<carpeta>", capa="sql"):
-    return '`python3 "%s" --calibrar %s %s --guardar`' % (REGLAS_PY, capa, carpeta)
+    return '`%s "%s" --calibrar %s %s --guardar`' % (m().interprete(), REGLAS_PY, capa, carpeta)
 
 
 def entre_comillas(*partes):
@@ -108,22 +109,85 @@ def test_sin_registro_un_bloqueo_llega_como_aviso_sin_calibrar_con_el_comando():
     for registro in (registro_con({}), registro_con({"sql": {}}), registro_con({"web": {"SQL-01": entrada()}})):
         resultado = efectivo(hallazgo(), registro)
         assert resultado["modo"] == "aviso", resultado
-        assert m().sufijo(resultado) == " (aviso: sin calibrar; para que bloquee, correr %s)" % comando(), m().sufijo(resultado)
+        assert m().sufijo(resultado) == " (aviso: sin calibrar; para que bloquee, %s)" % CORREGIR % comando(), m().sufijo(resultado)
 
 
 def test_el_comando_corre_el_reglas_py_del_plugin_con_su_ruta_absoluta_entre_comillas():
     assert m().REGLAS_PY == REGLAS_PY, (m().REGLAS_PY, REGLAS_PY)
     assert os.path.isabs(REGLAS_PY) and os.path.isfile(REGLAS_PY), REGLAS_PY
     resultado = efectivo(hallazgo(), registro_con({}))
-    assert m().sufijo(resultado).endswith('correr `python3 "%s" --calibrar sql <carpeta> --guardar`)' % REGLAS_PY), m().sufijo(resultado)
+    assert m().sufijo(resultado).endswith('correr `%s "%s" --calibrar sql <carpeta> --guardar`)' % (m().interprete(), REGLAS_PY)),         m().sufijo(resultado)
+
+
+@contextlib.contextmanager
+def solo_en_el_path(*nombres, ejecutable=None):
+    with temporal() as carpeta:
+        for nombre in nombres:
+            ruta = carpeta / (nombre + (".exe" if os.name == "nt" else ""))
+            ruta.write_bytes(b"")
+            os.chmod(ruta, 0o755)
+        path, actual = os.environ.get("PATH"), sys.executable
+        os.environ["PATH"] = str(carpeta)
+        if ejecutable is not None:
+            sys.executable = ejecutable
+        try:
+            yield
+        finally:
+            sys.executable = actual
+            if path is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = path
+
+
+def interprete_del_aviso():
+    sufijo = m().sufijo(efectivo(hallazgo(), registro_con({})))
+    fin = ' "%s" --calibrar sql <carpeta> --guardar`)' % REGLAS_PY
+    assert sufijo.endswith(fin), sufijo
+    return sufijo[sufijo.rindex("`", 0, len(sufijo) - len(fin)) + 1:len(sufijo) - len(fin)]
+
+
+def test_el_comando_llama_por_su_nombre_al_python_del_path_para_correr_en_cualquier_terminal():
+    if os.name == "nt":
+        casos = ((("python",), "python"), (("python", "python3"), "python"), (("python3",), "python3"))
+    else:
+        casos = ((("python3",), "python3"), (("python", "python3"), "python3"))
+    for nombres, esperado in casos:
+        with solo_en_el_path(*nombres):
+            assert interprete_del_aviso() == esperado, (nombres, interprete_del_aviso())
+
+
+def test_sin_python_en_el_path_el_comando_usa_el_interprete_actual_entre_comillas_o_python3():
+    con_espacios = os.path.join(os.sep, "mis pythons", "python.exe")
+    for ejecutable, esperado in ((con_espacios, '"%s"' % con_espacios), ("", "python3")):
+        with solo_en_el_path(ejecutable=ejecutable):
+            assert interprete_del_aviso() == esperado, (ejecutable, interprete_del_aviso())
+    if os.name != "nt":
+        with solo_en_el_path("python"):
+            assert interprete_del_aviso() == '"%s"' % sys.executable, "en Linux y macOS, python puede ser Python 2"
+
+
+def test_el_aviso_pide_corregir_los_hallazgos_antes_de_calibrar():
+    antes = "corregir los hallazgos y después correr `"
+    casos = {
+        "sin calibrar": efectivo(hallazgo(), registro_con({})),
+        "calibración vieja": efectivo(hallazgo(), registro_con({"sql": {"SQL-01": entrada()}}), fuente(huella=OTRA_HUELLA)),
+        "sin sembrado": efectivo(hallazgo(), registro_con({"sql": {"SQL-01": entrada()}}), fuente(sembrados={})),
+        "registro roto": efectivo(hallazgo(), m().Registro({}, "roto")),
+    }
+    for que, resultado in casos.items():
+        assert antes in m().sufijo(resultado), (que, m().sufijo(resultado))
+    con_aciertos = m().sufijo(efectivo(hallazgo(), registro_con({"sql": {"SQL-01": entrada(aciertos=1, en_bloqueo=1)}})))
+    assert ("1 aciertos en bloqueo en el corpus: para que bloquee, corregir esos hallazgos, o arreglar la regla si son falsos "
+            "positivos, y después correr `") in con_aciertos, con_aciertos
 
 
 def test_un_modulo_que_cambio_da_calibracion_vieja_con_la_carpeta_del_corpus():
     repos = {"db": {"path": os.path.join(os.sep, "equipo", "db")}}
     resultado = efectivo(hallazgo(), registro_con({"sql": {"SQL-01": entrada()}}), fuente(huella=OTRA_HUELLA), repos)
     assert resultado["modo"] == "aviso"
-    assert m().sufijo(resultado) == (" (aviso: calibración vieja; para que bloquee, correr %s)"
-                                     % comando(entre_comillas(repos["db"]["path"], "src", "sp"))), m().sufijo(resultado)
+    assert m().sufijo(resultado) == (" (aviso: calibración vieja; para que bloquee, %s)"
+                                     % CORREGIR % comando(entre_comillas(repos["db"]["path"], "src", "sp"))), m().sufijo(resultado)
 
 
 def test_las_rutas_del_comando_van_entre_comillas_aunque_tengan_espacios():
@@ -144,8 +208,8 @@ def test_sin_regla_calibrada_la_carpeta_sale_del_primer_repo_de_la_capa():
     repos = {"db": {"path": os.path.join(os.sep, "equipo", "db")}, "app": {"path": os.path.join(os.sep, "equipo", "app")}}
     capas = {"sql": {"extensions": [".sql"], "repos": ["app", "db"]}, "web": {"extensions": [".cs"], "repos": ["db"]}}
     sin_registro = efectivo(hallazgo(), registro_con({}), repos=repos, capas=capas)
-    assert m().sufijo(sin_registro) == (" (aviso: sin calibrar; para que bloquee, correr %s)"
-                                        % comando(entre_comillas(repos["app"]["path"]))), m().sufijo(sin_registro)
+    assert m().sufijo(sin_registro) == (" (aviso: sin calibrar; para que bloquee, %s)"
+                                        % CORREGIR % comando(entre_comillas(repos["app"]["path"]))), m().sufijo(sin_registro)
     suelta = entrada(corpus={"repo": None, "commit": None, "ruta": "corpus"})
     sin_repo = efectivo(hallazgo(), registro_con({"sql": {"SQL-01": suelta}}), fuente(huella=OTRA_HUELLA), repos, capas)
     assert m().sufijo(sin_repo).endswith(comando(entre_comillas(repos["app"]["path"])) + ")"), m().sufijo(sin_repo)
@@ -169,8 +233,8 @@ def test_una_regla_sin_sembrado_o_un_modulo_sin_reglas_no_bloquea():
     for sembrados in ({}, {"SQL-01": None}, {"SQL-02": "SELECT MAL"}):
         resultado = efectivo(hallazgo(), registro, fuente(sembrados=sembrados))
         assert resultado["modo"] == "aviso", (sembrados, resultado)
-        assert m().sufijo(resultado) == (" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS y correr %s)"
-                                         % comando()), m().sufijo(resultado)
+        assert m().sufijo(resultado) == (" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS, %s)"
+                                         % CORREGIR % comando()), m().sufijo(resultado)
 
 
 def test_los_sembrados_salen_de_REGLAS_y_sin_REGLAS_no_hay_ninguno():
@@ -251,12 +315,12 @@ def test_un_REGLAS_que_sale_con_SystemExit_al_leerse_deja_sin_sembrados_y_no_cor
 
 
 def test_una_calibracion_que_no_atrapa_su_sembrado_o_con_aciertos_en_bloqueo_no_bloquea():
-    for datos, detalle in ((entrada(atrapa=False), "no atrapa su sembrado"),
-                           (entrada(aciertos=4, en_bloqueo=2), "2 aciertos en bloqueo en el corpus")):
+    for datos, detalle in ((entrada(atrapa=False), "no atrapa su sembrado: para que bloquee, arreglar la regla y correr"),
+                           (entrada(aciertos=4, en_bloqueo=2), "2 aciertos en bloqueo en el corpus: para que bloquee, corregir esos "
+                            "hallazgos, o arreglar la regla si son falsos positivos, y después correr")):
         resultado = efectivo(hallazgo(), registro_con({"sql": {"SQL-01": datos}}))
         assert resultado["modo"] == "aviso", resultado
-        assert m().sufijo(resultado) == (" (aviso: no pasó la calibración; %s: para que bloquee, arreglar la regla y correr %s)"
-                                         % (detalle, comando())), m().sufijo(resultado)
+        assert m().sufijo(resultado) == " (aviso: no pasó la calibración; %s %s)" % (detalle, comando()), m().sufijo(resultado)
     con_avisos = efectivo(hallazgo(), registro_con({"sql": {"SQL-01": entrada(aciertos=5, en_bloqueo=0)}}))
     assert con_avisos["modo"] == "bloqueo", "los aciertos en aviso no le quitan el bloqueo"
 
@@ -367,7 +431,7 @@ def test_una_regla_de_paquete_sin_calibrar_solo_avisa_y_calibrada_bloquea():
     capa_calibrada = m().Registro({"sql": {"ALF-01": entrada()}}, None)
     resultado = m().modo_efectivo(del_paquete, fuente_de_paquete(), capa_calibrada, {})
     assert resultado["modo"] == "aviso", "la entrada de una capa no vale para un paquete: %r" % resultado
-    assert m().sufijo(resultado) == " (aviso: sin calibrar; para que bloquee, correr %s)" % comando(), resultado
+    assert m().sufijo(resultado) == " (aviso: sin calibrar; para que bloquee, %s)" % CORREGIR % comando(), resultado
     calibrado = m().Registro({}, None, {"sql": {"alfa": {"ALF-01": entrada()}}})
     resultado = m().modo_efectivo(del_paquete, fuente_de_paquete(), calibrado, {})
     assert resultado is del_paquete and resultado["modo"] == "bloqueo", resultado
@@ -381,14 +445,14 @@ def test_un_lock_con_otra_huella_deja_vieja_la_calibracion_del_paquete():
     calibrado = m().Registro({}, None, {"sql": {"alfa": {"ALF-01": entrada()}}})
     resultado = m().modo_efectivo(hallazgo(id_="ALF-01"), fuente_de_paquete(huella=OTRA_HUELLA), calibrado, {})
     assert resultado["modo"] == "aviso", resultado
-    assert m().sufijo(resultado) == " (aviso: calibración vieja; para que bloquee, correr %s)" % comando(), m().sufijo(resultado)
+    assert m().sufijo(resultado) == " (aviso: calibración vieja; para que bloquee, %s)" % CORREGIR % comando(), m().sufijo(resultado)
 
 
 def test_un_paquete_sin_sembrado_o_que_no_pasa_lo_arregla_su_repo():
     calibrado = m().Registro({}, None, {"sql": {"alfa": {"ALF-01": entrada()}}})
     resultado = m().modo_efectivo(hallazgo(id_="ALF-01"), fuente_de_paquete(sembrados={"ALF-01": None}), calibrado, {})
     assert m().sufijo(resultado) == (" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS (en el repo del "
-                                     "paquete alfa, con una etiqueta nueva) y correr %s)" % comando()), resultado
+                                     "paquete alfa, con una etiqueta nueva), %s)" % CORREGIR % comando()), resultado
     no_paso = m().Registro({}, None, {"sql": {"alfa": {"ALF-01": entrada(atrapa=False)}}})
     resultado = m().modo_efectivo(hallazgo(id_="ALF-01"), fuente_de_paquete(), no_paso, {})
     assert m().sufijo(resultado) == (" (aviso: no pasó la calibración; no atrapa su sembrado: para que bloquee, arreglar la regla (en el "
@@ -507,7 +571,7 @@ def test_el_registro_roto_o_con_otra_forma_no_deja_bloquear_y_lo_dice():
             resultado = efectivo(hallazgo(), registro)
             assert resultado["modo"] == "aviso", (que, resultado)
             assert m().sufijo(resultado) == (" (aviso: registro de calibración roto; para que bloquee, arreglar o borrar "
-                                             ".claude/registro/calibracion.json y correr %s)" % comando()), (que, m().sufijo(resultado))
+                                             ".claude/registro/calibracion.json, %s)" % CORREGIR % comando()), (que, m().sufijo(resultado))
 
 
 def test_un_registro_con_bom_se_lee():

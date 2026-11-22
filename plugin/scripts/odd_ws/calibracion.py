@@ -1,7 +1,10 @@
+import functools
 import hashlib
 import json
 import os
 import re
+import shutil
+import sys
 from collections import namedtuple
 
 from odd_ws import capas as convencion
@@ -23,6 +26,8 @@ COMMIT_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FECHA_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 SIN_CARPETA = "<carpeta>"
 REGLAS_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reglas.py")
+PYTHONS_DEL_PATH = ("python", "python3") if os.name == "nt" else ("python3",)
+PYTHON_DE_RESPALDO = "python3"
 
 SIN_CALIBRAR = "sin calibrar"
 VIEJA = "calibración vieja"
@@ -234,6 +239,18 @@ def _entre_comillas(ruta):
     return '"%s"' % (ruta + "\\" if ruta.endswith("\\") else ruta)
 
 
+@functools.lru_cache(maxsize=8)
+def _interprete(path, ejecutable):
+    for nombre in PYTHONS_DEL_PATH:
+        if shutil.which(nombre, path=path):
+            return nombre
+    return _entre_comillas(ejecutable) if ejecutable else PYTHON_DE_RESPALDO
+
+
+def interprete():
+    return _interprete(os.environ.get("PATH"), sys.executable or "")
+
+
 def _carpeta(id_, reglas, repos, otras=(), repos_de_la_capa=()):
     for calibrada in ([reglas[id_]] if id_ in reglas else []) + list(reglas.values()) + list(otras):
         repo = repos.get(calibrada["corpus"]["repo"]) if calibrada["corpus"]["repo"] else None
@@ -262,7 +279,8 @@ def _motivo(id_, fuente, actual, repos, capas):
         reglas = (actual.paquetes.get(fuente.capa) or {}).get(fuente.paquete) or {}
         otras, donde = de_la_capa.values(), " (en el repo del paquete %s, con una etiqueta nueva)" % fuente.paquete
     carpeta = _carpeta(id_, reglas, repos, otras, _repos_de_la_capa(capas, fuente.capa))
-    comando = "`python3 %s --calibrar %s %s --guardar`" % (_entre_comillas(REGLAS_PY), fuente.capa, carpeta)
+    comando = "`%s %s --calibrar %s %s --guardar`" % (interprete(), _entre_comillas(REGLAS_PY), fuente.capa, carpeta)
+    corregir = "corregir los hallazgos y después correr %s" % comando
     if actual.disputas_ilegibles:
         return _aviso(DISPUTAS_ILEGIBLES, "para que bloquee, %s tiene que ser una carpeta legible, con un <ID>.md por disputa abierta"
                       % DISPUTAS)
@@ -270,19 +288,19 @@ def _motivo(id_, fuente, actual, repos, capas):
         return _aviso(DISPUTADA, "se cierra borrando %s/%s.md en el commit que arregla el chequeo, y después correr %s"
                       % (DISPUTAS, id_, comando))
     if actual.roto is not None:
-        return _aviso(ROTO, "para que bloquee, arreglar o borrar %s y correr %s" % (RUTA, comando))
+        return _aviso(ROTO, "para que bloquee, arreglar o borrar %s, %s" % (RUTA, corregir))
     if not fuente.sembrados.get(id_):
-        return _aviso(SIN_CALIBRAR, "para que bloquee, declarar su `sembrado` en REGLAS%s y correr %s" % (donde, comando))
+        return _aviso(SIN_CALIBRAR, "para que bloquee, declarar su `sembrado` en REGLAS%s, %s" % (donde, corregir))
     calibrada = reglas.get(id_)
     if calibrada is None:
-        return _aviso(SIN_CALIBRAR, "para que bloquee, correr %s" % comando)
+        return _aviso(SIN_CALIBRAR, "para que bloquee, %s" % corregir)
     if calibrada["huella"] != fuente.huella:
-        return _aviso(VIEJA, "para que bloquee, correr %s" % comando)
+        return _aviso(VIEJA, "para que bloquee, %s" % corregir)
     if not calibrada["atrapa_su_sembrado"]:
         return _aviso(NO_PASO, "no atrapa su sembrado: para que bloquee, arreglar la regla%s y correr %s" % (donde, comando))
     if calibrada["aciertos_en_bloqueo"]:
-        return _aviso(NO_PASO, "%d aciertos en bloqueo en el corpus: para que bloquee, arreglar la regla%s y correr %s"
-                      % (calibrada["aciertos_en_bloqueo"], donde, comando))
+        return _aviso(NO_PASO, "%d aciertos en bloqueo en el corpus: para que bloquee, corregir esos hallazgos, o arreglar la regla%s si "
+                      "son falsos positivos, y después correr %s" % (calibrada["aciertos_en_bloqueo"], donde, comando))
     return None
 
 

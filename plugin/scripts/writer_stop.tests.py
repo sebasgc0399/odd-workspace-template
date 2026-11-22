@@ -481,8 +481,10 @@ def test_un_bloqueo_sin_calibrar_no_frena_y_queda_en_los_avisos_con_el_motivo():
         config = W._verificar_capa().config_loader.cargar(inst)
         bloqueos, avisos, internos = W._chequear([str(archivo)], config, None)
         assert bloqueos == [] and internos == [] and len(avisos) == 1, (bloqueos, avisos, internos)
+        from odd_ws import calibracion
         assert avisos[0]["texto"] == ("[T-02 CRITICAL] Core/A/B.cs línea 4: está mal → así (aviso: sin calibrar; para que bloquee, "
-                                      'correr `python3 "%s" --calibrar web "%s" --guardar`)' % (AQUI / "reglas.py", repo)), avisos[0]["texto"]
+                                      'corregir los hallazgos y después correr `%s "%s" --calibrar web "%s" --guardar`)'
+                                      % (calibracion.interprete(), AQUI / "reglas.py", repo)), avisos[0]["texto"]
 
 
 def test_con_stop_hook_active_deja_pasar_y_escribe_la_verdad():

@@ -472,12 +472,20 @@ def contexto_de(salida):
 REGLAS_PY = str(AQUI / "reglas.py")
 
 
+CORREGIR = "corregir los hallazgos y después correr %s"
+
+
+def interprete():
+    from odd_ws import calibracion
+    return calibracion.interprete()
+
+
 def comando(carpeta, capa="web"):
-    return '`python3 "%s" --calibrar %s "%s" --guardar`' % (REGLAS_PY, capa, carpeta)
+    return '`%s "%s" --calibrar %s "%s" --guardar`' % (interprete(), REGLAS_PY, capa, carpeta)
 
 
 def sin_calibrar(w):
-    return " (aviso: sin calibrar; para que bloquee, correr %s)" % comando(w.web)
+    return " (aviso: sin calibrar; para que bloquee, %s)" % CORREGIR % comando(w.web)
 
 
 def test_un_bloqueo_sin_calibrar_llega_como_aviso_con_el_motivo_y_el_comando():
@@ -506,13 +514,12 @@ def test_el_comando_del_aviso_se_corre_tal_cual_desde_la_raiz_con_espacios_en_la
         assert aviso.returncode == 0 and aviso.stderr == b"", aviso
         texto = json.loads(aviso.stdout)["hookSpecificOutput"]["additionalContext"]
         copiado = re.search(r"correr `([^`]+)`", texto).group(1)
-        assert copiado == 'python3 "%s" --calibrar web "%s" --guardar' % (plugin / "scripts" / "reglas.py", w.web), copiado
+        assert copiado == '%s "%s" --calibrar web "%s" --guardar' % (interprete(), plugin / "scripts" / "reglas.py", w.web), copiado
         escribir(w.web, "Core/N.cs", "b\n")
         en_la_terminal = {k: v for k, v in env.items() if k != "CLAUDE_PROJECT_DIR"}
-        linea = '"%s"%s' % (sys.executable, copiado[len("python3"):])
-        corrido = subprocess.run(linea, shell=True, cwd=str(w.raiz), capture_output=True, env=en_la_terminal, timeout=120)
+        corrido = subprocess.run(copiado, shell=True, cwd=str(w.raiz), capture_output=True, env=en_la_terminal, timeout=120)
         salida = corrido.stdout.decode("utf-8")
-        assert corrido.returncode == 0 and salida.splitlines()[-1] == "T-02 puede bloquear", (linea, corrido)
+        assert corrido.returncode == 0 and salida.splitlines()[-1] == "T-02 puede bloquear", (copiado, corrido)
         assert json.loads((w.raiz / ".claude/registro/calibracion.json").read_text(encoding="utf-8"))["capas"]["web"]["T-02"]["corpus"]["repo"] == "web"
         escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
         bloqueo = subprocess.run(hook, input=e, capture_output=True, env=env, timeout=120)
@@ -532,7 +539,7 @@ def test_calibrado_con_reglas_py_bloquea_y_si_el_modulo_cambia_avisa_que_la_cali
         w.modulo("web", STUB_MALO + "\n")
         lineas = contexto_de(w.correr(evento(ruta)))
         assert lineas[1] == ("[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs (aviso: calibración vieja; para que bloquee, "
-                             "correr %s)" % comando(corpus)), lineas
+                             "%s)" % CORREGIR % comando(corpus)), lineas
 
 
 def test_una_regla_sin_sembrado_o_un_modulo_sin_REGLAS_no_bloquea_aunque_el_registro_diga_que_si():
@@ -547,8 +554,8 @@ def test_una_regla_sin_sembrado_o_un_modulo_sin_REGLAS_no_bloquea_aunque_el_regi
             escribir(w.raiz, ".claude/registro/calibracion.json", json.dumps({"version": 1, "capas": {"web": {"T-02": regla}}}))
             ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
             lineas = contexto_de(w.correr(evento(ruta)))
-            assert lineas[1].endswith(" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS y correr %s)"
-                                      % comando(w.web)), lineas
+            assert lineas[1].endswith(" (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS, %s)"
+                                      % CORREGIR % comando(w.web)), lineas
 
 
 def test_el_registro_roto_no_deja_bloquear_y_el_aviso_lo_dice():
@@ -560,7 +567,7 @@ def test_el_registro_roto_no_deja_bloquear_y_el_aviso_lo_dice():
         escribir(w.raiz, ".claude/registro/calibracion.json", "{roto")
         lineas = contexto_de(w.correr(evento(ruta)))
         assert lineas[1].endswith(" (aviso: registro de calibración roto; para que bloquee, arreglar o borrar "
-                                  ".claude/registro/calibracion.json y correr %s)" % comando(w.web)), lineas
+                                  ".claude/registro/calibracion.json, %s)" % CORREGIR % comando(w.web)), lineas
 
 
 def test_un_registro_anidado_sin_fondo_no_calla_el_hook_y_avisa_que_esta_roto():
@@ -572,7 +579,7 @@ def test_un_registro_anidado_sin_fondo_no_calla_el_hook_y_avisa_que_esta_roto():
         escribir(w.raiz, ".claude/registro/calibracion.json", '{"version": 1, "capas": %s}' % ("[" * 100000 + "]" * 100000))
         lineas = contexto_de(w.correr(evento(ruta)))
         assert lineas[1].endswith(" (aviso: registro de calibración roto; para que bloquee, arreglar o borrar "
-                                  ".claude/registro/calibracion.json y correr %s)" % comando(w.web)), lineas
+                                  ".claude/registro/calibracion.json, %s)" % CORREGIR % comando(w.web)), lineas
 
 
 STUB_CON_RUTAS = '''import types
@@ -629,8 +636,8 @@ def test_un_REGLAS_que_sale_con_SystemExit_al_leerse_avisa_en_vez_de_callar_el_h
         w.modulo("web", REGLAS_QUE_SALEN % {"id": "T-08"})
         ruta = escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
         lineas = contexto_de(w.correr(evento(ruta)))
-        assert lineas[1:] == ["[T-08] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS y correr "
-                              "%s)" % comando(w.web)], lineas
+        assert lineas[1:] == ["[T-08] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en REGLAS, "
+                              "%s)" % CORREGIR % comando(w.web)], lineas
 
 
 def test_un_paquete_cuyo_REGLAS_sale_con_SystemExit_avisa_y_no_calla_a_la_capa():
@@ -642,8 +649,8 @@ def test_un_paquete_cuyo_REGLAS_sale_con_SystemExit_avisa_y_no_calla_a_la_capa()
         assert codigo == 2 and out == "", (codigo, out, err)
         assert problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
                                          "[SAL-01] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en "
-                                         "REGLAS (en el repo del paquete sale, con una etiqueta nueva) y correr "
-                                         "%s)" % comando(w.web)], problemas_de(err)
+                                         "REGLAS (en el repo del paquete sale, con una etiqueta nueva), "
+                                         "%s)" % CORREGIR % comando(w.web)], problemas_de(err)
 
 
 def test_un_hallazgo_sin_modo_no_calla_el_hook_y_llega_como_aviso_con_el_motivo():
@@ -2023,7 +2030,7 @@ def test_paquetes_un_lock_con_otra_huella_deja_vieja_su_calibracion():
         assert w.correr(evento(ruta))[0] == 2, "control: calibrado, bloquea"
         poner_paquete(w, "alfa", "ALF", no_negociables="- **ALF-01** de la etiqueta nueva.\n")
         lineas = contexto_de(w.correr(evento(ruta)))
-        assert lineas[1].endswith(" (aviso: calibración vieja; para que bloquee, correr %s)" % comando(w.web)), lineas
+        assert lineas[1].endswith(" (aviso: calibración vieja; para que bloquee, %s)" % CORREGIR % comando(w.web)), lineas
 
 
 def test_paquetes_una_disputa_vale_tambien_para_una_regla_de_paquete():

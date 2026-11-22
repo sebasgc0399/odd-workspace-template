@@ -109,7 +109,7 @@ Va al final de la respuesta, después del ensayo: un bloque corto con lo que el 
 - **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), propón un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo. Si usa un tracker, la spec no lleva `tickets`: el id de cada ticket es el de su tracker.
 - **Los repos propios** (`own`): propón cada repo como del equipo. Un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`.
 
-Muéstralo así, con los valores de tu propuesta en lugar de los `<…>`:
+Muéstralo así, con los valores de tu propuesta en lugar de los `<…>`. El bloque de código solo delimita el texto: en la respuesta va como texto normal, con sus negritas, sin el bloque de código.
 
 ```text
 **Lo que decides**
@@ -154,7 +154,7 @@ Corre el doctor:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
-Preséntalo bajo el título `**El doctor**`, como dice `/odd-ws:doctor` en «Cómo presentarlo»: su salida entera y tal cual en un bloque de código `text`, con los encabezados de grupo y la línea de resumen; debajo, un comentario de una línea por cada FALTA y cada AVISO (qué rompe y qué hacer) o, si no hay ninguno, la línea `Todo en orden: nada falta y no hay avisos.`, tal cual. Las filas `OK` y `NO APLICA` no se comentan, y no agregues un resumen propio.
+Preséntalo bajo el título `**El doctor**`, como dice `/odd-ws:doctor` en «Cómo presentarlo»: su salida entera y tal cual en un bloque de código `text`, con los encabezados de grupo y la línea de resumen; debajo, un comentario de una línea por cada FALTA y cada AVISO (qué rompe y qué hacer) o, si no hay ninguno, la línea `Todo en orden: nada falta y no hay avisos.`, tal cual y como texto normal. Las filas `OK` y `NO APLICA` no se comentan, y no agregues un resumen propio.
 
 Los arreglos se ofrecen de a uno, como dice el doctor, y se corren solo con un sí para ese ítem. Si hay alguno que ofrecer, la respuesta termina con la pregunta del primero, y el cierre del paso 6 va cuando ya no quede ninguno por responder.
 
@@ -162,7 +162,7 @@ En la línea de `capas-cobertura`, si sale en AVISO, vale la regla del paso 3: s
 
 ## 6. El siguiente paso
 
-El cierre va al final de la respuesta, después del doctor, y es un texto fijo según el perfil: pégalo tal cual, sin cambiar ni agregar nada. Lo que depende de esta corrida va antes del texto fijo, en una línea aparte, y solo cuando ocurre: si la raíz es la carpeta aparte del paso 2 y no la de la sesión, la línea es «Abre `claude` en `<raíz>`: la instancia se trabaja desde ahí».
+El cierre va al final de la respuesta, después del doctor, y es un texto fijo según el perfil: pégalo tal cual, sin cambiar ni agregar nada. Su bloque de código solo lo delimita: en la respuesta va como texto normal, con sus negritas, sin el bloque de código. Lo que depende de esta corrida va antes del texto fijo, en una línea aparte, y solo cuando ocurre: si la raíz es la carpeta aparte del paso 2 y no la de la sesión, la línea es «Abre `claude` en `<raíz>`: la instancia se trabaja desde ahí».
 
 ### Con `completo`
 
@@ -190,7 +190,7 @@ No hay `/odd-ws:abrir` ni cierre de tickets: no los propongas.
 
 ## Reglas
 
-- No edites a mano lo que generó el script ni un archivo que ya existía. Si algo no te cierra, díselo al usuario.
+- No edites a mano lo que generó el script ni un archivo que ya existía. Si algo no te convence, díselo al usuario.
 - El primer commit lo hace el script con `--commitear`, no tú: no corras `git add` ni `git commit` por tu cuenta. Con `"ask_before_commit": true` en la config, el script no commitea y el commit es del usuario.
 - `git init` y `core.hooksPath` los decide el script. No los corras por tu cuenta.
 - `--confirmar-repo` va solo con el sí del usuario a usar la raíz de su repo de código como instancia (paso 2), nunca para que el script deje de salir con 2.

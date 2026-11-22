@@ -17,7 +17,7 @@ USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--co
        "     bootstrap.py --proponer [--raiz <carpeta>]")
 REPO_DE_CODIGO = ("la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
                   "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
-                  "si igual la quieres acá, confírmalo con --confirmar-repo")
+                  "si igual la quieres aquí, confírmalo con --confirmar-repo")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 20
 MISMO_LENGUAJE = (frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),)

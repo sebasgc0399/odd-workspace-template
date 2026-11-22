@@ -40,10 +40,28 @@ sali segui subi sugeri tene veni volve decis podes queres tenes
 
 EXCEPCIONES = frozenset("""
 esté estés caché cachés arnés revés así sé busqué encontré cambié aísla leí conté porqué
+está estás será acá allá aquí ahí allí más demás además qué también después detrás atrás través inglés país sí café
 """.split())
 
 PALABRA = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+")
 ESCAPE = re.compile(r"\\[nrt]")
+AGUDA_CON_TILDE = re.compile(r"[áéí]s?$")
+CON_TILDE = re.compile(r"[áéíóú]")
+CLITICOS = ("los", "las", "lo", "la", "le", "me", "nos")
+IMPERATIVOS = frozenset(forma for forma in VOSEO if forma[-1] in "áéí")
+TILDE = str.maketrans("aei", "áéí")
+
+
+def _por_su_terminacion(forma):
+    if len(forma) > 2 and AGUDA_CON_TILDE.search(forma):
+        return True
+    if CON_TILDE.search(forma):
+        return False
+    for clitico in CLITICOS:
+        base = forma[:-len(clitico)]
+        if forma.endswith(clitico) and base and base[-1] in "aei":
+            return base[:-1] + base[-1].translate(TILDE) in IMPERATIVOS
+    return False
 
 
 def formas_de_voseo(texto):
@@ -51,7 +69,7 @@ def formas_de_voseo(texto):
     for numero, linea in enumerate(unicodedata.normalize("NFC", texto).splitlines(), 1):
         for palabra in PALABRA.findall(ESCAPE.sub(" ", linea)):
             forma = palabra.lower()
-            if forma in VOSEO and forma not in EXCEPCIONES:
+            if forma not in EXCEPCIONES and (forma in VOSEO or _por_su_terminacion(forma)):
                 hallados.append((numero, palabra))
     return hallados
 
@@ -94,6 +112,24 @@ def test_no_da_falsos_positivos_con_las_excepciones_ni_con_el_tuteo():
              "Déjalo, Avísalo y Pídele el sí. Corre el doctor, muestra lo que dice, si quieres dile que lo revise.\n"
              "Si no sabes cuál es, pregunta; si tienes dudas, sigue y vuelve después.\n"
              "Más allá del tomate, la escala y el intervalo.\n")
+    assert formas_de_voseo(texto) == [], formas_de_voseo(texto)
+
+
+def test_detecta_por_su_terminacion_el_voseo_que_no_esta_en_la_lista():
+    texto = ("Si agregás una capa, llevá el cambio y tomalo de ahí.\n"
+             "Copialo cuando terminés, elegilo y llamame.\n"
+             "Ejecutá el doctor y cargá la config.\n")
+    assert formas_de_voseo(texto) == [(1, "agregás"), (1, "llevá"), (1, "tomalo"), (2, "Copialo"), (2, "terminés"), (2, "elegilo"),
+                                      (2, "llamame"), (3, "Ejecutá"), (3, "cargá")], formas_de_voseo(texto)
+
+
+def test_la_terminacion_respeta_las_excepciones_y_no_confunde_sustantivos_ni_el_tuteo():
+    texto = ("Ya está: será así, acá y allá, aquí, ahí y allí; más, qué, también, después, además, a través y en inglés.\n"
+             "El país, el sí, que esté, el caché, el arnés, al revés, lo sé: busqué, encontré y cambié la escala.\n"
+             "Los demás, detrás y atrás; si estás, el café, la leí y la conté. ¿Por qué? Sin porqué.\n"
+             "El modelo, el intervalo, el estilo, la centinela; instala, imprime, compila y revela. Tómalo, cópialo, elígelo, "
+             "llámame y dale.\n"
+             "l[ií]mites, el tomate y los criterios generales.\n")
     assert formas_de_voseo(texto) == [], formas_de_voseo(texto)
 
 
