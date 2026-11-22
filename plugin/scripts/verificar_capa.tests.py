@@ -1320,6 +1320,53 @@ def test_inicio_fuera_de_la_raiz_sin_cwd_o_sin_ticket_activo_valido_calla():
         assert "hacer algo concreto" in aviso_de(w.correr(inicio_en("startup", w.raiz))[1]), "control positivo"
 
 
+@contextlib.contextmanager
+def plugin_actualizado(raiz):
+    base = Path(tempfile.mkdtemp(prefix="odd-plugin-actualizado-"))
+    vieja, vigente = (base / "odd-ws" / "0.13.1", base / "odd-ws" / "0.13.2")
+    for carpeta in (vieja, vigente):
+        (carpeta / "scripts").mkdir(parents=True)
+        (carpeta / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+    local = Path(raiz) / "workspace.local.json"
+    datos = json.loads(local.read_text(encoding="utf-8"))
+    local.write_text(json.dumps({**datos, "plugin_root": str(vieja)}), encoding="utf-8")
+    original = M.raiz_del_plugin.vigente
+    M.raiz_del_plugin.vigente = lambda: vigente
+    try:
+        yield local, datos, vieja, vigente
+    finally:
+        M.raiz_del_plugin.vigente = original
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def test_al_iniciar_la_sesion_plugin_root_sigue_a_la_version_vigente_y_lo_dice():
+    with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        codigo, out, err = w.correr(inicio_en("startup", w.raiz))
+        assert codigo == 0 and err == b"", (codigo, err)
+        texto = aviso_de(out)
+        assert "0.13.1" in texto and "0.13.2" in texto and "pre-commit" in texto, texto
+        assert json.loads(local.read_text(encoding="utf-8")) == {**datos, "plugin_root": str(vigente)}
+        assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b""), "la segunda sesión ya no cambia nada"
+
+
+def test_al_iniciar_la_sesion_el_aviso_de_plugin_root_va_junto_al_ticket_activo():
+    with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", TICKET_ACTIVO)
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        texto = aviso_de(w.correr(inicio_en("resume", w.raiz))[1])
+        assert "0.13.2" in texto and "hacer algo concreto" in texto, texto
+        assert texto.index("0.13.2") < texto.index("hacer algo concreto"), texto
+
+
+def test_con_verificar_capa_apagado_plugin_root_no_cambia():
+    with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        config = json.loads((w.raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        escribir(w.raiz, "workspace.config.json", json.dumps({**config, "disabled_hooks": ["verificar_capa"]}))
+        antes = local.read_bytes()
+        assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b"")
+        assert local.read_bytes() == antes
+
+
 def test_el_ticket_activo_largo_se_recorta_y_dice_donde_sigue():
     with Toque() as w:
         escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", "# T-7\n" + "linea larga del ticket\n" * 2000)

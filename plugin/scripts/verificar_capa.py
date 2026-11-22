@@ -16,6 +16,7 @@ from odd_ws import capas as convencion
 from odd_ws import enlaces
 from odd_ws import hosts
 from odd_ws import paquetes
+from odd_ws import raiz_del_plugin
 from odd_ws.capacidades import INICIO, POST, PRE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git,
                           host_de, id_valido, lineas, plazo_de, por_ruta, raiz_de_instancia)
@@ -623,7 +624,11 @@ def _session_start(evento, config):
                         os.remove(os.path.join(carpeta, nombre))
                     except OSError:
                         pass
-    return _ticket_activo(evento, config) or Permitir()
+    aviso = raiz_del_plugin.seguir_al_vigente(config["raiz"])
+    ticket = _ticket_activo(evento, config)
+    if aviso:
+        return Contexto(aviso + "\n\n" + ticket.texto if ticket else aviso)
+    return ticket or Permitir()
 
 
 def _post_tool_use_o_read(evento, config):

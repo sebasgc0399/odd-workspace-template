@@ -16,6 +16,7 @@ import verificar_capa
 from odd_ws import capas as convencion
 from odd_ws import hosts as registro_de_hosts
 from odd_ws import paquetes
+from odd_ws import raiz_del_plugin
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, host_de
 
 MARKETPLACE = "odd-workspace-template"
@@ -80,7 +81,7 @@ AYUDA_PRE_COMMIT = "Falta .githooks/pre-commit: genéralo con /odd-ws:bootstrap,
 AYUDA_SETTINGS = "Arréglalo a mano: tiene que ser un objeto JSON en UTF-8. Después, otra vez el doctor."
 AYUDA_PAQUETES = ("Lo copiado de un paquete no se edita a mano: el cambio va en el repo del paquete y se reimporta con /odd-ws:paquetes, "
                   "que reescribe su carpeta y el lock (o lo quita). El doctor no toca ninguno de los dos.")
-COPIA_DE_EMERGENCIA = ".claude/plugin"
+COPIA_DE_EMERGENCIA = raiz_del_plugin.COPIA_DE_EMERGENCIA
 SETTINGS = ".claude/settings.json"
 PLUGIN = "odd-ws"
 CLAVE_PLUGIN = f"{PLUGIN}@{MARKETPLACE}"
@@ -197,9 +198,8 @@ def chequear_lista_negra(ctx, raiz):
     return resultado("lista-negra", FALTA, lineas[-1] if lineas else "la autoprueba del barrido falló", None, AYUDA_LISTA)
 
 
-def anotar_plugin_root(local, datos, plugin):
-    local.write_bytes((json.dumps({**datos, "plugin_root": str(plugin)}, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-    return f"plugin_root = {plugin} en {local}"
+anotar_plugin_root = raiz_del_plugin.anotar
+misma_carpeta = raiz_del_plugin.misma_carpeta
 
 
 def raiz_de_instancia(ctx):
@@ -212,15 +212,6 @@ def desde_el_home(ruta, home):
     except ValueError:
         return ruta
     return os.path.join("~", relativa) if relativa.parts else "~"
-
-
-def misma_carpeta(a, b):
-    if config_loader.canonica(a) == config_loader.canonica(b):
-        return True
-    try:
-        return os.path.samefile(a, b)
-    except OSError:
-        return False
 
 
 def chequear_plugin_root(ctx):
