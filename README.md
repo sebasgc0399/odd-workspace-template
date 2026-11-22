@@ -87,6 +87,8 @@ Lo mismo vale para tu stack: si el agente no cargó los no-negociables de una ca
 
 Este repo es un marketplace con un solo plugin, `odd-ws`. Revisa los requisitos y abre la guía de tu CLI.
 
+En video: [la instalación con Claude Code, paso a paso](https://youtu.be/-92eWjnwjtw), en 5 minutos y en español.
+
 | Herramienta | Versión |
 |---|---|
 | Python, invocable como `python3` | 3.7 o más. El doctor pide 3.11 o más para leer la config de Codex |
