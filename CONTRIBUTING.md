@@ -15,7 +15,7 @@ Esta guía es para quien modifica la plantilla misma. Si quieres usar el plugin 
 |---|---|
 | `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado, el chequeo de marcadores de conflicto y todas las suites `*.tests.py` (unos 4 minutos) |
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
-| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión y sus notas en `CHANGELOG.md` |
+| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión, sus notas en `CHANGELOG.md` y que el README y la página digan esa versión y los mismos requisitos |
 
 Los tres corren Python con el primero que arranca de `python3`, `python` y `py` (`.githooks/python.sh`); si no arranca ninguno, frenan con el motivo.
 
@@ -33,15 +33,24 @@ for suite in $(git ls-files -- '*.tests.py'); do python3 "$suite"; done
 ## Una entrega
 
 1. Sube `version` en `plugin/.claude-plugin/plugin.json`, en `plugin/.codex-plugin/plugin.json` y en el `package.json` de la raíz (las tres tienen que coincidir: lo exige un test), escribe sus notas en una sección `## <versión>` de `CHANGELOG.md` y commitea las dos cosas juntas.
-2. Etiqueta con `claude plugin tag ./plugin --dry-run` y después sin `--dry-run`. Crea `odd-ws--v<versión>` y exige el árbol limpio.
-3. Empuja `main` y la etiqueta juntas:
+2. En el mismo commit, sube la «Versión actual» del README y la versión de los comandos de instalación: cada `odd-ws--v` del README, de `Doc/uso.md` y de `Doc/actualizar.md` lleva el número de la versión nueva.
+3. Commitea la página de la versión en la rama `gh-pages` **antes de empujar `main`**: su «Versión actual», el pie, el comando de instalación y la tabla de requisitos, que tiene que ser igual a la de «Instalación» en el README.
+4. Etiqueta con `claude plugin tag ./plugin --dry-run` y después sin `--dry-run`. Crea `odd-ws--v<versión>` y exige el árbol limpio.
+5. Empuja `main` y la etiqueta juntas:
 
    ```text
    git push origin <sha>:refs/heads/main refs/tags/odd-ws--v<versión>
    ```
 
-   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`. También frena cualquier etiqueta `odd-ws--v*` empujada cuyo commit no tenga sus notas en `CHANGELOG.md`.
-4. **El release se publica solo.** Al llegar la etiqueta, `.github/workflows/release.yml` comprueba que coincida con `plugin.json` y publica el release en GitHub con la sección del CHANGELOG como cuerpo. Si el release ya existe, no lo toca.
+   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`. También frena cualquier etiqueta `odd-ws--v*` empujada cuyo commit no tenga sus notas en `CHANGELOG.md`, y cualquier push a `main` o a una etiqueta cuyo README o página no cumplan los pasos 2 y 3 con la versión de su `plugin.json`. La página la lee de tu rama local `gh-pages` o, si no la tienes, de `origin/gh-pages`; sin ninguna de las dos, avisa y deja pasar.
+6. Empuja la página después:
+
+   ```text
+   git push origin gh-pages
+   ```
+
+   El chequeo de la entrega no revisa el push de `gh-pages`: por eso la página se revisa en el push de `main`, antes de que salga.
+7. **El release se publica solo.** Al llegar la etiqueta, `.github/workflows/release.yml` comprueba que coincida con `plugin.json` y publica el release en GitHub con la sección del CHANGELOG como cuerpo. Si el release ya existe, no lo toca.
 
 ### Cómo se escriben las notas
 
