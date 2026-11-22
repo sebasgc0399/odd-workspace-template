@@ -24,10 +24,10 @@ El origen es el sí del autor a la pregunta del orquestador (L1). Lo marcado com
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T0 | todas | Este documento, su espejo en engram y R13 en el roadmap | inline | hecha | |
+| T0 | todas | Este documento, su espejo en engram y R13 en el roadmap | inline | hecha | `91d1a3f` |
 | T1 | S1 | `plugin-root` sigue al plugin vigente después de actualizar | inline (una unidad, sin razón de writer) | hecha (L4, L5): verificador PASS | `2077e1a` |
-| T2 | S2, S3, S4 | La celda Repo, las llamadas en español y la descripción del doctor | inline (cambios chicos de dos skills) | hecha (L4, L5): prueba real en cuatro corridas | ver `git log` |
-| T3 | S5, S6 | Los docs, el CHANGELOG, el verificador independiente y la prueba real | docs inline; verificador delegado; prueba real en la sesión del video | hecha (L5) | ver `git log` |
+| T2 | S2, S3, S4 | La celda Repo, las llamadas en español y la descripción del doctor | inline (cambios chicos de dos skills) | hecha (L4, L5): prueba real en cuatro corridas | `91d1a3f` |
+| T3 | S5, S6 | Los docs, el CHANGELOG, el verificador independiente y la prueba real | docs inline; verificador delegado; prueba real en la sesión del video | hecha (L5) | `91d1a3f` |
 
 ## Log
 
@@ -53,3 +53,4 @@ El origen es el sí del autor a la pregunta del orquestador (L1). Lo marcado com
   - **Decisión: queda como está el aviso 1 del verificador**, que la escritura no es atómica. Es la misma escritura que `--arreglar` usó siempre y nadie la reprodujo. Un temporal más `os.replace` suma sus propias fallas: un `.tmp` sin ignorar si algo se corta a mitad, y en Windows `os.replace` falla si otro proceso tiene abierto el destino.
   - No se repite la prueba real: el lote solo aclara redacción y suma una prohibición.
 - **L6** (2026-11-22) Los commits. T1 va sola por el Risk item 1: `2077e1a`, con el pre-commit en verde (todas las suites). Un explorador del plan de la serie de videos notó que el repo no dice si el usuario ve la línea de contexto del `SessionStart`: la lee el agente. Por eso el CHANGELOG y `Doc/actualizar.md` dicen ahora «se lo dice al agente» y no «lo dice». De esas mismas preguntas salieron I76 (los códigos `tipo` de la matriz, sin definir) e I77 (`Doc/actualizar.md` no lista la línea de `/odd-ws:enlaces` de la `0.10.0`), que van al roadmap. T2, T3 y T0 van juntas en el segundo commit.
+- **L7** (2026-11-22) La entrega de la `0.13.2`: la rama `release/0.13.2`, desde `origin/main` (`2c8ef74`), con el merge `--no-ff` de la feature (`7b1f409`) y el commit de la versión. El push, el CI en los tres sistemas, la etiqueta `odd-ws--v0.13.2` y la publicación, con el ok del autor (L1).
