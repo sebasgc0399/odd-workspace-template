@@ -60,7 +60,7 @@ Gradúa quien cierra el ticket, con `/odd-ws:cerrar`, o quien corre `/odd-ws:cer
 1. Trae `main` (`git fetch origin`).
 2. Deja tu rama sin el commit de la graduación. Si la rama solo tenía ese commit: `git reset --hard origin/main`.
 3. Vuelve a correr `/odd-ws:cerrar`. Calcula el siguiente ID libre con la matriz de `main`.
-4. Empuja la rama otra vez (`git push --force-with-lease origin <tu rama>`).
+4. Empuja tú la rama otra vez, porque el guard no deja que el agente fuerce un push: mira dónde quedó la remota (`git log origin/<tu rama>`) y corre `git push --force-with-lease=<tu rama>:<sha que esperas> origin <tu rama>`, con el sha que viste.
 
 ## Revisar la matriz en un pull request
 

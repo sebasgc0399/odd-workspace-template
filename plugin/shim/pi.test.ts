@@ -282,7 +282,8 @@ test("de punta a punta: bash_background y monitor de gentle-shell pasan por guar
   for (const [herramienta, extra] of extras) {
     const bloqueo = await pi.emitir(llamada(herramienta, { ...extra, command: "git push origin +main" }), ctxFalso(inst));
     assert.equal(bloqueo?.block, true, herramienta);
-    assert.match(bloqueo.reason, /^guard-comandos bloqueó el comando: git push con un refspec "\+"/, herramienta);
+    assert.match(bloqueo.reason, /^guard-comandos bloqueó el comando: git push forzado \(no lo corras tú/, herramienta);
+    assert.ok(bloqueo.reason.endsWith("\nComando: «git push origin +main»"), bloqueo.reason);
     assert.equal(await pi.emitir(llamada(herramienta, { ...extra, command: "git status" }), ctxFalso(inst)), undefined, herramienta);
   }
 });

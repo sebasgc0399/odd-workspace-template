@@ -305,6 +305,20 @@ def test_bloqueo_exit_2_stderr_en_bytes_utf8_y_stdout_vacio():
     comprobar(fallos)
 
 
+def test_el_bloqueo_de_un_comando_cita_el_comando_literal():
+    fallos = []
+    largo = "git commit -m " + "x" * 400
+    casos = [("cd X && git commit -m y", "cd X && git commit -m y"), ("echo x > " + CS, "echo x > " + CS),
+             ("git commit -F - <<'EOF'\nfix: x\nEOF", "git commit -F - <<'EOF'\nfix: x\nEOF"), (largo, largo[:300] + "…"),
+             (largo[:300], largo[:300])]
+    for comando, citado in casos:
+        c, o, e = correr(evento_bash(comando))
+        texto = e.decode("utf-8") if isinstance(e, bytes) else ""
+        esperar(fallos, c == 2 and o == "" and texto.startswith("writer-guard bloqueó el comando. "), "bloquea: %r" % texto)
+        esperar(fallos, texto.endswith("Para cambiar código usa Edit o Write.\nComando: «%s»\n" % citado), "cita el comando: %r" % texto)
+    comprobar(fallos)
+
+
 def test_lo_que_pasa_sale_en_silencio():
     fallos = []
     for comando in ("git status", 'grep -r "push" .', "dotnet test X.csproj"):
