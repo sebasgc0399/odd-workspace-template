@@ -306,6 +306,77 @@ def test_la_instancia_sale_de_la_carpeta_de_la_sesion():
         assert por_id(ctx)["plugin-root"].estado == "FALTA"
 
 
+DEL_CACHE = (".claude", "plugins", "cache", "odd-workspace-template", "odd-ws", "0.13.0")
+
+
+def plugin_bajo_el_home(ctx):
+    plugin = ctx.home.joinpath(*DEL_CACHE)
+    (plugin / "scripts").mkdir(parents=True, exist_ok=True)
+    (plugin / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+    ctx.plugin = plugin
+    return plugin
+
+
+def test_plugin_root_bajo_el_home_se_muestra_desde_la_virgulilla_y_el_archivo_no_cambia():
+    with Escenario() as e:
+        ctx = Falso(e.base)
+        plugin = plugin_bajo_el_home(ctx)
+        esperado = "plugin_root = " + os.path.join("~", *DEL_CACHE)
+        for anotado in (str(plugin), plugin.as_posix()):
+            local = json.dumps({"plugin_root": anotado})
+            raiz = e.instancia(local)
+            ctx.cwd = raiz
+            r = por_id(ctx)["plugin-root"]
+            assert r.estado == "OK" and r.detalle == esperado and str(ctx.home) not in r.detalle, (anotado, r)
+            assert linea_del_doctor(ctx, "plugin-root").split(None, 2)[1:] == ["OK", esperado]
+            assert leer_local(raiz) == local.encode("utf-8")
+            shutil.rmtree(raiz, onexc=_forzar_borrado)
+
+
+def test_plugin_root_fuera_del_home_se_muestra_absoluta_como_antes():
+    with Escenario() as e:
+        ctx = Falso(e.base)
+        vecino = e.base / (ctx.home.name + "-vecino") / "plugin"
+        (vecino / "scripts").mkdir(parents=True)
+        (vecino / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+        for plugin in (ctx.plugin, vecino):
+            ctx.plugin = plugin
+            raiz = e.instancia(json.dumps({"plugin_root": str(plugin)}))
+            ctx.cwd = raiz
+            r = por_id(ctx)["plugin-root"]
+            assert r.estado == "OK" and r.detalle == f"plugin_root = {plugin}", r
+            assert linea_del_doctor(ctx, "plugin-root").split(None, 2)[1:] == ["OK", f"plugin_root = {plugin}"]
+            shutil.rmtree(raiz, onexc=_forzar_borrado)
+
+
+def test_bajo_el_home_los_falta_de_plugin_root_y_su_arreglo_siguen_con_la_ruta_absoluta():
+    with Escenario() as e:
+        ctx = Falso(e.base)
+        plugin = plugin_bajo_el_home(ctx)
+        otra = ctx.home / ".claude" / "plugins" / "cache" / "odd-workspace-template" / "odd-ws" / "0.12.1"
+        (otra / "scripts").mkdir(parents=True)
+        (otra / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+        borrada = ctx.home / ".claude" / "plugins" / "cache" / "odd-workspace-template" / "odd-ws" / "0.11.0"
+        for anotado, detalle in ((str(borrada), f"plugin_root = {borrada} no existe (una versión desinstalada o movida)"),
+                                 (str(otra), f"plugin_root = {otra} es otra copia del plugin; el doctor corre desde {plugin}")):
+            raiz = e.instancia(json.dumps({"plugin_root": anotado}))
+            ctx.cwd = raiz
+            r = por_id(ctx)["plugin-root"]
+            assert r.estado == "FALTA" and r.detalle == detalle, (anotado, r)
+            codigo, salida = correr(["--arreglar", "plugin-root"], ctx)
+            local = raiz / "workspace.local.json"
+            assert codigo == 0 and salida.splitlines() == [
+                f"escribiendo: plugin_root = {plugin} en {local}",
+                "plugin-root: OK — plugin_root = " + os.path.join("~", *DEL_CACHE)], salida
+            assert json.loads(leer_local(raiz).decode("utf-8")) == {"plugin_root": str(plugin)}
+            shutil.rmtree(raiz, onexc=_forzar_borrado)
+        raiz = e.instancia()
+        ctx.cwd = raiz
+        r = por_id(ctx)["plugin-root"]
+        assert r.estado == "FALTA" and r.detalle == f"plugin_root sin anotar en {raiz / 'workspace.local.json'}: el pre-commit de la " \
+            "instancia no encuentra el plugin", r
+
+
 def pw():
     return importlib.import_module("plantilla_writer")
 
@@ -955,6 +1026,148 @@ def test_los_items_de_antes_conservan_su_orden_y_los_nuevos_van_tras_plugin_root
         ids = [r.id for r in d().diagnosticar(Falso(e.base, cwd=raiz))]
         assert [i for i in ids if i not in NUEVOS] == ANTES_EN_INSTANCIA, ids
         assert ids[ids.index("plugin-root") + 1:ids.index("plugin-root") + 1 + len(NUEVOS)] == list(NUEVOS), ids
+
+
+PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de odd-workspace-template):", "Tu máquina:", "Esta instancia:")
+RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
+DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
+DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "writer-sql",
+                   "paquetes", "agentes-skills", "agentes-hooks"]
+
+
+def grupos_del_doctor(salida):
+    grupos, actual = {}, None
+    for linea in salida.splitlines():
+        if linea in ENCABEZADOS:
+            assert linea not in grupos, salida
+            actual = grupos[linea] = []
+        elif linea and not linea.startswith(" ") and not RESUMEN.fullmatch(linea):
+            assert actual is not None, salida
+            actual.append(linea.split(" ", 1)[0])
+    return grupos
+
+
+def imprimir_en_texto(resultados):
+    salida = io.StringIO()
+    with contextlib.redirect_stdout(salida):
+        d().imprimir(resultados)
+    return salida.getvalue()
+
+
+def test_la_salida_va_en_grupos_plantilla_maquina_e_instancia_y_el_resumen_queda_al_final():
+    with Escenario() as e:
+        ctx = Falso(e.base, cwd=instancia_sana(e))
+        resultados = d().diagnosticar(ctx)
+        lineas = correr([], ctx)[1].splitlines()
+        grupos = grupos_del_doctor("\n".join(lineas))
+        assert list(grupos.items()) == [(PLANTILLA, ["repo-hooks", "lista-negra"]), (MAQUINA, DE_LA_MAQUINA),
+                                        (INSTANCIA, DE_LA_INSTANCIA)], lineas
+        assert sorted(sum(grupos.values(), [])) == sorted(r.id for r in resultados), lineas
+        assert lineas[0] == PLANTILLA and all(lineas[lineas.index(encabezado) - 1] == "" for encabezado in (MAQUINA, INSTANCIA)), lineas
+        faltas, avisos = (sum(r.estado == estado for r in resultados) for estado in ("FALTA", "AVISO"))
+        assert lineas[-2:] == ["", f"{faltas} FALTA, {avisos} AVISO"], lineas
+
+
+def test_las_filas_de_los_hosts_van_a_la_maquina_y_lo_que_derivan_en_la_instancia_queda_en_la_instancia():
+    with Escenario() as e:
+        raiz = con_hosts(instancia_sana(e), ["claude-code", "codex", "pi"])
+        grupos = grupos_del_doctor(correr([], con_hooks_del_plugin(Falso(e.base, cwd=raiz)))[1])
+        assert grupos[MAQUINA] == ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "codex", "codex-plugin", "codex-hooks",
+                                   "codex-proyecto", "pi", "gentle-shell", "pi-plugin", "pi-confianza", "hooks-host", "gentle-ai", "rdd",
+                                   "telemetria", "engram", "jq"], grupos
+        assert grupos[INSTANCIA] == DE_LA_INSTANCIA + ["codex-config", "codex-agentes", "pi-agentes"], grupos
+
+
+def filas_de_maquina_fuera_del_grupo(ctx, raiz, adaptadores):
+    nucleo, encontradas = d().NUCLEO, []
+    for adaptador in adaptadores:
+        version, _ = adaptador.version(ctx, nucleo)
+        sin_cli = [r for r in adaptador.chequeos(ctx, raiz, nucleo, nucleo.CLI_DE_OTRO_HOST)
+                   if r.estado == nucleo.NO_APLICA and r.detalle.endswith("no está instalado")]
+        encontradas += [r.id for r in (version, *sin_cli)]
+    fuera = [id for id in encontradas if id not in d().DE_LA_MAQUINA]
+    return encontradas, fuera
+
+
+def test_cada_fila_que_un_host_hace_depender_de_su_cli_esta_en_el_grupo_de_la_maquina():
+    hosts = importlib.import_module("odd_ws.hosts")
+    adaptadores = [hosts.adaptador(nombre) for nombre in hosts.NOMBRES]
+    codex = hosts.adaptador("codex")
+    con_ficticia = type("ConFicticia", (), {
+        "version": staticmethod(codex.version),
+        "chequeos": staticmethod(lambda *args: [*codex.chequeos(*args), d().resultado("codex-ficticio", "NO APLICA", "codex no está instalado")]),
+    })
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        encontradas, fuera = filas_de_maquina_fuera_del_grupo(ctx, raiz, adaptadores)
+        assert fuera == [], fuera
+        assert {"claude", "marketplace", "codex", "codex-proyecto", "pi", "pi-confianza"} <= set(encontradas), encontradas
+        assert filas_de_maquina_fuera_del_grupo(ctx, raiz, [con_ficticia])[1] == ["codex-ficticio"]
+
+
+def test_un_grupo_sin_filas_no_imprime_su_encabezado():
+    with Escenario() as e:
+        salida = correr([], Falso(e.base))[1]
+        assert list(grupos_del_doctor(salida)) == [PLANTILLA, MAQUINA] and INSTANCIA not in salida, salida
+    salida = imprimir_en_texto([d().resultado("python", "OK", "Python 3.14.3")])
+    assert salida == "Tu máquina:\npython  OK         Python 3.14.3\n\n0 FALTA, 0 AVISO\n", salida
+
+
+def test_un_id_que_no_es_de_la_plantilla_ni_de_la_maquina_cae_en_la_instancia():
+    resultados = [d().resultado("item-nuevo", "AVISO", "algo nuevo", None, "Revisa esto."), d().resultado("jq", "OK", "1.8.2"),
+                  d().resultado("repo-hooks", "OK", "core.hooksPath = .githooks")]
+    salida = imprimir_en_texto(resultados)
+    assert list(grupos_del_doctor(salida).items()) == [(PLANTILLA, ["repo-hooks"]), (MAQUINA, ["jq"]), (INSTANCIA, ["item-nuevo"])], salida
+    assert salida.splitlines()[-4:] == ["item-nuevo  AVISO      algo nuevo", " " * 23 + "cómo: Revisa esto.", "", "0 FALTA, 1 AVISO"], salida
+
+
+def test_las_columnas_se_alinean_con_el_id_mas_largo_de_toda_la_salida():
+    largo = "un-item-de-instancia-largo"
+    resultados = [d().resultado("repo-hooks", "FALTA", "core.hooksPath = (sin configurar)", ["git", "config", "core.hooksPath", ".githooks"]),
+                  d().resultado("jq", "AVISO", "jq no está instalado", None, "scoop install jq."),
+                  d().resultado(largo, "AVISO", "falta algo", arreglo=lambda: "escrito")]
+    sangria = " " * (len(largo) + 13)
+    assert imprimir_en_texto(resultados).splitlines() == [
+        PLANTILLA,
+        "repo-hooks".ljust(len(largo) + 2) + "FALTA".ljust(11) + "core.hooksPath = (sin configurar)",
+        sangria + "arreglo: --arreglar repo-hooks  (git config core.hooksPath .githooks)",
+        "",
+        MAQUINA,
+        "jq".ljust(len(largo) + 2) + "AVISO".ljust(11) + "jq no está instalado",
+        sangria + "cómo: scoop install jq.",
+        "",
+        INSTANCIA,
+        largo + "  " + "AVISO".ljust(11) + "falta algo",
+        sangria + "arreglo: --arreglar " + largo,
+        "",
+        "1 FALTA, 2 AVISO",
+    ]
+
+
+def test_cada_fila_sale_con_el_formato_de_antes_y_el_resumen_cuenta_lo_mismo():
+    with Escenario() as e:
+        ctx = Falso(e.base, cwd=e.instancia(), marketplace=False, respuestas={("jq", "--version"): None})
+        resultados = d().diagnosticar(ctx)
+        assert {"FALTA", "AVISO"} <= {r.estado for r in resultados} and any(r.comando for r in resultados), resultados
+        assert any(r.arreglo for r in resultados) and any(r.ayuda and r.estado == "AVISO" for r in resultados), resultados
+        ancho = max(len(r.id) for r in resultados)
+        sangria = " " * (ancho + 13)
+        codigo, salida = correr([], ctx)
+        lineas = salida.splitlines()
+        for r in resultados:
+            i = lineas.index(f"{r.id:<{ancho}}  {r.estado:<9}  {r.detalle}")
+            debajo = []
+            if r.estado in ("FALTA", "AVISO"):
+                if r.comando:
+                    debajo.append(f"{sangria}arreglo: --arreglar {r.id}  ({' '.join(r.comando)})")
+                elif r.arreglo:
+                    debajo.append(f"{sangria}arreglo: --arreglar {r.id}")
+                if r.ayuda:
+                    debajo.append(f"{sangria}cómo: {r.ayuda}")
+            assert lineas[i + 1:i + 1 + len(debajo)] == debajo and not lineas[i + 1 + len(debajo)].startswith(" "), (r, lineas[i:i + 4])
+        faltas, avisos = (sum(r.estado == estado for r in resultados) for estado in ("FALTA", "AVISO"))
+        assert codigo == 1 and lineas[-2:] == ["", f"{faltas} FALTA, {avisos} AVISO"], salida
 
 
 def test_config_con_la_ruta_del_repo_que_existe_es_ok():
