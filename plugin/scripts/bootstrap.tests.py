@@ -2326,10 +2326,26 @@ def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_ta
 SKILL_BOOTSTRAP = AQUI.parent / "skills" / "bootstrap" / "SKILL.md"
 
 
+def paso_3_del_bootstrap():
+    texto = SKILL_BOOTSTRAP.read_text(encoding="utf-8")
+    return texto[texto.index("## 3. La propuesta y el ensayo"):texto.index("## 4. La aplicación")]
+
+
+def lo_que_decides(paso):
+    return paso[paso.index("### Lo que decides"):]
+
+
+def esqueleto_de_lo_que_decides(paso):
+    bloque = lo_que_decides(paso)
+    inicio = bloque.index("```text\n") + len("```text\n")
+    return [linea for linea in bloque[inicio:bloque.index("```", inicio)].split("\n") if linea.strip()]
+
+
 def test_la_skill_del_bootstrap_propone_el_perfil_y_dice_como_pasar_a_completo():
     texto = SKILL_BOOTSTRAP.read_text(encoding="utf-8")
-    propuesta = texto[texto.index("## 3. La propuesta y el ensayo"):texto.index("### La spec")]
-    linea = next(l for l in propuesta.split("\n") if l.startswith("- **El perfil**"))
+    vinetas = [l for l in lo_que_decides(paso_3_del_bootstrap()).split("\n") if l.startswith("- **")]
+    linea = vinetas[0]
+    assert linea.startswith("- **El perfil**"), vinetas
     for pedazo in ('"profile": "controles"', "`completo`", "`controles`", "orquestación", "revisión"):
         assert pedazo in linea, (pedazo, linea)
     raiz = texto[texto.index("## 1. La raíz"):texto.index("## 2. Detectar")]
@@ -2337,6 +2353,52 @@ def test_la_skill_del_bootstrap_propone_el_perfil_y_dice_como_pasar_a_completo()
         assert pedazo in raiz, (pedazo, raiz)
     siguiente = texto[texto.index("## 6. El siguiente paso"):texto.index("## Reglas")]
     assert "`controles`" in siguiente and "/odd-ws:cerrar memorias" in siguiente, siguiente
+
+
+def test_la_propuesta_del_bootstrap_muestra_lo_detectado_y_el_ensayo_y_cierra_con_lo_que_decides_y_la_pregunta():
+    paso = paso_3_del_bootstrap()
+    subsecciones = [l for l in paso.split("\n") if l.startswith("### ")]
+    assert subsecciones == ["### La spec", "### El ensayo", "### Lo que decides"], subsecciones
+    detectado = paso[:paso.index("### La spec")]
+    orden = [l for l in detectado.split("\n") if re.match(r"\d\. ", l)]
+    assert len(orden) == 4, orden
+    for linea, pedazo in zip(orden, ("detectado", "ensayo", "«Lo que decides»", "pregunta")):
+        assert pedazo in linea, (pedazo, linea)
+    assert "24 filas" in detectado and "Cada término que aparezca lleva su explicación en una línea" in detectado, detectado
+    vinetas = [l for l in detectado.split("\n") if l.startswith("- **")]
+    for vineta in ("- **El nombre del proyecto**", "- **Los repos:**", "- **Las capas.**", "- **El molde**", "- **Los commits.**"):
+        assert any(l.startswith(vineta) for l in vinetas), (vineta, vinetas)
+    for vineta in vinetas:
+        assert not vineta.startswith(("- **El perfil**", "- **Los tickets")) and "`own`" not in vineta, vineta
+    ensayo = paso[paso.index("### El ensayo"):paso.index("### Lo que decides")]
+    assert "las líneas que piden atención" in ensayo and "pregunta" not in ensayo, ensayo
+    esqueleto = esqueleto_de_lo_que_decides(paso)
+    assert esqueleto[0] == "**Lo que decides**", esqueleto
+    assert all(l.startswith("- **") for l in esqueleto[1:-1]), esqueleto
+    assert esqueleto[-1].startswith("¿Lo aplico así, o quieres cambiar algo?") and "primer commit" in esqueleto[-1], esqueleto
+    assert [l for l in esqueleto if "?" in l or "¿" in l] == [esqueleto[-1]], esqueleto
+
+
+def test_lo_que_decides_lleva_el_perfil_primero_despues_los_tickets_y_own_en_filas_cortas():
+    paso = paso_3_del_bootstrap()
+    vinetas = [l for l in lo_que_decides(paso).split("\n") if l.startswith("- **")]
+    assert len(vinetas) >= 3 and vinetas[0].startswith("- **El perfil**") and vinetas[1].startswith("- **Los tickets"), vinetas
+    assert "`own`" in vinetas[2] and '"own": true' in vinetas[2] and "agent_readonly" in vinetas[2], vinetas[2]
+    filas = esqueleto_de_lo_que_decides(paso)[1:-1]
+    assert len(filas) == 3, filas
+    perfil, tickets, propio = filas
+    assert perfil.startswith("- **Perfil"), perfil
+    assert tickets.startswith("- **Tickets"), tickets
+    for pedazo in ("prefijo", "tracker", "(Jira, Azure Boards, GitHub Issues, Linear)"):
+        assert pedazo in tickets, (pedazo, tickets)
+    assert "tuyo" in propio and "`own`" in propio, propio
+    assert all(len(fila) <= 150 for fila in filas), [len(fila) for fila in filas]
+
+
+def test_la_fila_del_perfil_lo_explica_en_una_linea_llana():
+    perfil = esqueleto_de_lo_que_decides(paso_3_del_bootstrap())[1]
+    llana = "Si ya usas tu propia orquestación o revisión (por ejemplo, gentle-ai), `controles`; si no, `completo`."
+    assert llana in perfil, perfil
 
 
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
