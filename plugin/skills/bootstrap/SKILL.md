@@ -29,13 +29,27 @@ Corre la detección, que no escribe nada y sale en JSON:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --proponer --raiz "<raíz>"
 ```
 
-- **`repo_de_codigo`:** `true` si la raíz es la raíz de un repo git con archivos versionados y sin `workspace.config.json`. Ahí la instancia quedaría en el git de ese repo: el primer commit iría a su rama y el hook a su config. **Pregunta siempre, aparte y antes de la propuesta**, y recomienda una carpeta aparte, al lado del repo (por ejemplo `../<repo>-odd`), con el repo como repo de la instancia.
+- **`repo_de_codigo`:** `true` si la raíz es la raíz de un repo git con archivos versionados y sin `workspace.config.json`. Ahí la instancia quedaría en el git de ese repo: el primer commit iría a su rama y el hook a su config. **Pregunta siempre, aparte y antes de la propuesta**, con la pregunta de abajo, que recomienda una carpeta aparte, al lado del repo, con el repo como repo de la instancia.
+
+  Hazla con la herramienta de preguntas del CLI si la tiene (en Claude Code, `AskUserQuestion`); si no, escríbela como texto normal. Va tal cual y en español: el encabezado (la primera línea), la pregunta y las dos opciones en ese orden, cada una con su descripción debajo. No le agregues «(Recommended)» ni nada en inglés, aunque la guía de la herramienta lo sugiera: la opción recomendada ya lo dice, «(recomendado)». `<raíz>` y `<repo>` salen de `--proponer` (`raiz` y `proyecto`); `<lenguaje>`, de los manifiestos de la raíz (ver abajo) o, si no tiene, de las extensiones de sus archivos versionados; y `<carpeta aparte>` es `<raíz>-ws`, al lado del repo.
+
+  ```text
+  Ubicación
+
+  La carpeta de la sesión (<raíz>) es la raíz de un repo de código (<lenguaje>, con commits). Si creo la instancia ahí, queda en el git de ese repo: el primer commit iría a su rama actual y el hook pre-commit, a su config de git. ¿Dónde la creo?
+
+  1. Carpeta aparte (recomendado)
+     Crear la instancia en <carpeta aparte>, con <repo> como repo de la instancia. El repo no se toca.
+  2. Dentro del repo
+     Crear la instancia en la raíz de <repo>: sus archivos, su primer commit y el hook quedan en el git de ese repo.
+  ```
+
   - Si elige la carpeta aparte, esa es la raíz: vuelve a correr la detección con `--raiz` en esa carpeta, y al terminar dile que abra `claude` ahí.
   - Solo si te dice que la quiere en el repo, pasa `--confirmar-repo` al ensayo y a la aplicación. Sin la bandera, el script sale con 2 sin escribir nada: nunca la pases sin ese sí.
 - **`proyecto`:** el nombre de la carpeta raíz, que es tu propuesta para `proyecto.nombre`.
 - **`repos`:** los repos git que lista algún `.code-workspace` de la raíz, con un nombre corto, su ruta y las extensiones de sus archivos versionados, de la más usada a la menos.
 - **`mismo_lenguaje`:** los grupos de extensiones de esos repos que son de un mismo lenguaje, como `[".ts", ".mjs"]`. Son lo único que se ofrece sumar a una capa (paso 3).
-- **`avisos`:** una carpeta del workspace que no es repo, un workspace que no se pudo leer. Pásaselos al usuario.
+- **`avisos`:** una carpeta del workspace que no es repo, un workspace que no se pudo leer. Pásaselos al usuario: van en «Lo que pide atención» (paso 3).
 - **Sin `repos`** (no hay `.code-workspace`, o no lista repos), pregunta aparte qué repos de código trabaja y en qué ruta. Comprueba que cada ruta exista: si no, el script rechaza la spec.
 
 Para entender el stack, mira solo los manifiestos de la raíz de cada repo (por ejemplo `package.json`, `Cargo.toml`, `pyproject.toml` o un `.csproj`), sin recorrer el repo entero.
@@ -44,8 +58,8 @@ Para entender el stack, mira solo los manifiestos de la raíz de cada repo (por 
 
 La respuesta va en este orden, para que en una terminal de unas 24 filas lo que el usuario decide quede a la vista junto a la pregunta, sin subir:
 
-1. lo detectado, en una tabla, con la explicación de cada término;
-2. el ensayo, agrupado, con aparte las líneas que piden atención (ver «El ensayo»);
+1. una línea de apertura fija y lo detectado, en una tabla fija, con la explicación de cada término;
+2. el ensayo, agrupado, y después, con su título, las líneas que piden atención (ver «El ensayo»);
 3. el bloque «Lo que decides», con el perfil, los tickets y `own` (ver «Lo que decides»);
 4. la única pregunta, justo debajo, y nada más después.
 
@@ -61,6 +75,41 @@ Lo detectado va en una tabla. Cada término que aparezca lleva su explicación e
 - **Los commits.** En la instancia, el agente commitea sin pedir aprobación: el primer commit lo hace este script, y los siguientes, las skills. Con `"ask_before_commit": true`, pide el sí antes de cada uno. Propón dejarlo sin la clave.
 
 `knowledge` y `hosts` son opcionales: súmalas solo si el usuario las menciona. `hosts` dice en qué CLI se trabaja la instancia (sin ella, solo Claude Code); el plugin conoce `claude-code`, `codex` y `pi`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`.
+
+La parte de arriba de la respuesta, hasta «Lo que decides», va siempre así, con los valores de tu propuesta en lugar de los `<…>` y sin frases propias antes, entre sus partes ni después. El bloque de fuera solo delimita el texto: en la respuesta va como texto normal, con sus negritas y su tabla, sin ese bloque; las líneas que piden atención sí van en su propio bloque de código `text`.
+
+````text
+Esto es lo que encontré y lo que voy a crear:
+
+**Lo detectado**
+
+| Qué | Propuesta | Qué significa |
+|---|---|---|
+| Proyecto | `<nombre>` | El nombre de la instancia (`proyecto.nombre`), tomado de su carpeta raíz. |
+| Repo | `<repo>` → `<ruta>` | El nombre corto es la clave en `config.repos`; la ruta va a `local.repos.<repo>.path`. |
+| Capa | `<capa>`: `<extensiones>` en `<repos>`, reglas `<PREFIJO>-01`… | Una por tecnología. Cuesta mantener su writer, su revisor, su skill y su regla, y una corrida de revisor más solo si un cambio la toca. |
+| Extensiones sin capa | `<extensiones>` | Ninguna capa las cubre: un cambio en ellas lleva `/odd-ws:revisar` a modo `completo`. <por qué> |
+| Molde | `repo` | Los revisores comparan cada cambio con el código que ya está en el repo; con `propio`, con los moldes de la instancia. |
+| Commits | sin `ask_before_commit` | El agente commitea sin pedirte el sí: el primer commit, el script; los siguientes, las skills. Con `true`, lo pide antes de cada uno. |
+
+**El ensayo** (no escribió nada)
+
+- **Capa `<capa>`:** su writer, su revisor, su skill, su regla y la prueba de la regla.
+- **Lo común:** la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md`, la plantilla del ticket, el revisor de diseño, los criterios, la matriz, la evidencia, los `settings.json` y el `pre-commit`.
+- **Git:** `git init` si hace falta, `core.hooksPath` y el primer commit.
+
+**Lo que pide atención**
+
+```text
+<las líneas que piden atención, tal cual y en su orden>
+```
+````
+
+- **La tabla** lleva esos encabezados y esas filas, en ese orden: una fila «Repo» por repo y una «Capa» por capa. La columna «Qué significa» va tal cual. No sumes filas (la raíz, el stack) ni cambies las etiquetas o los encabezados.
+- **Extensiones sin capa:** las de `--proponer` que ninguna capa cubre, sin las de docs (`.md`, `.txt` y `.rst`), escritas como las da `--proponer`, separadas por coma: los archivos sin extensión van como `(sin extensión)`, con los paréntesis. `<por qué>` es «Son datos o configuración: es lo esperado.», tal cual, si todas son de las esperadas: `.json`, `.jsonc`, `.yml`, `.yaml`, `.toml`, `.lock`, `.ini` y los archivos sin extensión. Si alguna no lo es, es una frase corta con el motivo de cada una de esas (por ejemplo, que la genera una herramienta). Sin ninguna, la propuesta dice «ninguna» y `<por qué>` no va.
+- **El ensayo:** un grupo «Capa» por capa, y los grupos van tal cual aunque algo ya exista o no haga falta: eso lo dicen las líneas que piden atención. Con Codex o Pi en `hosts`, el grupo de cada capa y «Lo común» suman al final, en pocas palabras, lo que el ensayo crea para ese CLI.
+- **En `controles`,** cambian tres textos: el «Qué significa» de cada capa es «Una por tecnología. Cuesta mantener su skill y su regla.»; su grupo del ensayo, «su skill, su regla y la prueba de la regla.»; y «Lo común», «la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md` reducido, la matriz, la evidencia, el `settings.json` y el `pre-commit`.»
+- **Lo que pide atención** va justo antes de «Lo que decides», con los `avisos` de `--proponer` y después las líneas del ensayo que lo piden (ver «El ensayo»), tal cual y sin comentarios: el paso 4 comenta las que lo necesitan después de aplicar. Si no hay ninguna, el título y su bloque no van, y «Lo que decides» sigue al ensayo.
 
 Con la propuesta, escribe la spec y corre el ensayo **en el mismo turno**, antes de preguntar nada.
 
@@ -94,12 +143,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.py" --spec "<ruta de la spec>" 
 
 En la raíz de un repo de código, y solo si el usuario la eligió (paso 2), el ensayo y la aplicación llevan además `--confirmar-repo`.
 
-Muéstralo **agrupado**, no línea por línea:
+Muéstralo **agrupado**, no línea por línea, con los grupos fijos de la parte de arriba:
 
 - por capa: su writer, su revisor, su skill, su regla y la prueba de la regla;
 - lo común: la config, `.gitignore`, `.gitattributes`, el `CLAUDE.md`, la plantilla del ticket, el revisor de diseño, los criterios, la matriz, la evidencia, los `settings.json` y el `pre-commit`. En `controles` no salen los writers, los revisores, el revisor de diseño, los criterios ni la plantilla del ticket, ni sus derivados de Codex y Pi, y el `CLAUDE.md` es el reducido;
-- git: `git init`, `core.hooksPath` y el primer commit;
-- **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …`, `no entraría al commit …` y `no se crearía …`.
+- git: `git init` si hace falta, `core.hooksPath` y el primer commit;
+- **aparte y tal cual**, bajo «Lo que pide atención», las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `git init: no se hizo; …`, `commit: no se hizo; …`, la de `commit:` que suma lo que ya existía (`…; entrarían también los que ya existían: …`), `no entraría al commit …` y `no se crearía …`.
 
 ### Lo que decides
 
@@ -107,7 +156,7 @@ Va al final de la respuesta, después del ensayo: un bloque corto con lo que el 
 
 - **El perfil** (`profile`): `completo` es la plantilla entera, con tickets, writers, revisores y recibos; `controles` trae solo los guards, las reglas por capa y el doctor, para quien ya tiene su propia orquestación o revisión (por ejemplo, gentle-ai con su RDD). Propón `completo`, y pasa a `controles` si el usuario dice que ya tiene su propia orquestación o revisión. En `completo` la spec no lleva la clave; en `controles` va dentro de `config` como `"profile": "controles"`, una capa cuesta solo su skill y su regla, y la fila de los tickets no va.
 - **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), propón un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo. Si usa un tracker, la spec no lleva `tickets`: el id de cada ticket es el de su tracker.
-- **Los repos propios** (`own`): propón cada repo como del equipo. Un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`.
+- **Los repos propios** (`own`): propón cada repo como del equipo: la spec no lleva `own` salvo que el usuario diga que un repo es suyo. No lo infieras de que el repo sea local, no tenga remoto o lo haya creado él, ni de su nombre. Un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`. La fila va tal cual, con «ninguno»; solo si el usuario ya dijo que alguno es suyo, esos repos van en lugar de «ninguno, todos del equipo.».
 
 Muéstralo así, con los valores de tu propuesta en lugar de los `<…>`. El bloque de código solo delimita el texto: en la respuesta va como texto normal, con sus negritas, sin el bloque de código.
 
@@ -116,7 +165,7 @@ Muéstralo así, con los valores de tu propuesta en lugar de los `<…>`. El blo
 
 - **Perfil:** `<perfil>`. Si ya usas tu propia orquestación o revisión (por ejemplo, gentle-ai), `controles`; si no, `completo`.
 - **Tickets:** prefijo `<P>` (`<P>-1`, `<P>-2`…), o el id de tu tracker si usas uno (Jira, Azure Boards, GitHub Issues, Linear).
-- **Repos tuyos** (`own`): <ninguno, o cuáles>. En uno tuyo, `/odd-ws:abrir` hace el `fetch` y crea el worktree del ticket por ti.
+- **Repos tuyos** (`own`): ninguno, todos del equipo. Si uno es tuyo, dímelo: en él, `/odd-ws:abrir` hace el `fetch` y crea el worktree por ti.
 
 ¿Lo aplico así, o quieres cambiar algo? Si dices que sí, también hago el primer commit.
 ```
@@ -129,7 +178,7 @@ Si el usuario corrige algo, ajusta la spec, vuelve a correr el ensayo y muestra 
 
 Con el sí, corre lo mismo sin `--ensayo` (con `--commitear`).
 
-Si sale con 0, muestra la salida siempre igual, bajo el título `**La aplicación**`, sin parafrasearla y sin agregar un resumen propio:
+Si sale con 0, la respuesta empieza directamente con el título `**La aplicación**`, sin ninguna frase antes (ni «Listo», ni un resumen de lo que se hizo), y muestra la salida siempre igual, sin parafrasearla y sin agregar un resumen propio:
 
 1. un bloque de código `text` con sus líneas tal cual y en su orden, menos las de cada archivo (`creado …` y `ya existía …`): quedan las de git (`git init`, `core.hooksPath`, `commit:` y `no entró al commit …`), las que piden atención (como `falta en .gitignore: …`, `no se pudo borrar …` o `no se creó …`) y la última, `resumen:`;
 2. debajo, un comentario de una línea solo para las que lo piden abajo, en el orden del bloque. Las demás no se comentan.

@@ -2401,6 +2401,123 @@ def test_la_fila_del_perfil_lo_explica_en_una_linea_llana():
     assert llana in perfil, perfil
 
 
+def test_la_fila_de_own_propone_ninguno_y_la_skill_prohibe_inferirlo():
+    paso = paso_3_del_bootstrap()
+    propio = esqueleto_de_lo_que_decides(paso)[3]
+    assert propio.startswith("- **Repos tuyos** (`own`): ninguno, todos del equipo.") and "<" not in propio, propio
+    assert "dímelo" in propio and "/odd-ws:abrir" in propio, propio
+    vineta = next(l for l in lo_que_decides(paso).split("\n") if l.startswith("- **Los repos propios**"))
+    for pedazo in ("la spec no lleva `own` salvo que el usuario diga que un repo es suyo", "No lo infieras", "local", "remoto",
+                   "lo haya creado él", "su nombre"):
+        assert pedazo in vineta, (pedazo, vineta)
+
+
+def paso_2_del_bootstrap():
+    return seccion(SKILL_BOOTSTRAP, "## 2. Detectar", "## 3. La propuesta y el ensayo")
+
+
+def pregunta_de_la_raiz():
+    paso = paso_2_del_bootstrap()
+    vineta = paso[paso.index("- **`repo_de_codigo`:**"):paso.index("- **`proyecto`:**")]
+    bloques = [lineas for lenguaje, lineas in bloques_de_codigo(vineta) if lenguaje == "text"]
+    assert len(bloques) == 1, bloques
+    return vineta, bloques[0]
+
+
+def test_la_pregunta_de_la_raiz_de_un_repo_de_codigo_es_literal_con_su_encabezado_y_sus_dos_opciones_en_orden():
+    vineta, pregunta = pregunta_de_la_raiz()
+    assert len(pregunta) == 6, pregunta
+    encabezado, texto, primera, aparte, segunda, dentro = pregunta
+    assert encabezado == "Ubicación", encabezado
+    assert texto.startswith("La carpeta de la sesión (<raíz>) es la raíz de un repo de código (<lenguaje>, con commits).") and \
+        "queda en el git de ese repo" in texto and texto.endswith("¿Dónde la creo?"), texto
+    assert (primera, segunda) == ("1. Carpeta aparte (recomendado)", "2. Dentro del repo"), (primera, segunda)
+    assert "<carpeta aparte>" in aparte and "<repo>" in aparte and "git de ese repo" in dentro, (aparte, dentro)
+    assert not re.match(r"\d\. ", aparte) and not re.match(r"\d\. ", dentro), (aparte, dentro)
+    for pedazo in ("herramienta de preguntas del CLI", "tal cual y en español", "`--proponer`", "`<raíz>-ws`", "`--raiz`",
+                   "`--confirmar-repo`", "nunca la pases sin ese sí"):
+        assert pedazo in vineta, (pedazo, vineta)
+
+
+def test_la_pregunta_de_la_raiz_no_lleva_recommended_ni_nada_en_ingles():
+    vineta, pregunta = pregunta_de_la_raiz()
+    assert not any("Recommended" in linea for linea in pregunta), pregunta
+    assert "No le agregues «(Recommended)» ni nada en inglés" in vineta, vineta
+
+
+FILAS_DE_LO_DETECTADO = ["Proyecto", "Repo", "Capa", "Extensiones sin capa", "Molde", "Commits"]
+
+
+def parte_de_arriba():
+    paso = paso_3_del_bootstrap()
+    detectado = paso[:paso.index("### La spec")]
+    esqueletos = [lineas for lenguaje, lineas in bloques_de_codigo(detectado) if lenguaje == "text"]
+    assert len(esqueletos) == 1, esqueletos
+    return detectado, esqueletos[0]
+
+
+def tabla_de_lo_detectado(esqueleto):
+    inicio = esqueleto.index("**Lo detectado**") + 1
+    filas = []
+    for linea in esqueleto[inicio:]:
+        if not linea.startswith("|"):
+            break
+        filas.append([celda.strip() for celda in linea.strip("|").split("|")])
+    return filas
+
+
+def test_la_propuesta_abre_con_una_sola_linea_fija():
+    detectado, esqueleto = parte_de_arriba()
+    assert esqueleto[:2] == ["Esto es lo que encontré y lo que voy a crear:", "**Lo detectado**"], esqueleto[:2]
+    orden = [l for l in detectado.split("\n") if re.match(r"\d\. ", l)]
+    assert "línea de apertura fija" in orden[0], orden
+
+
+def test_lo_detectado_es_una_tabla_con_encabezados_fijos_y_sus_filas_en_un_orden_fijo():
+    detectado, esqueleto = parte_de_arriba()
+    filas = tabla_de_lo_detectado(esqueleto)
+    assert filas[:2] == [["Qué", "Propuesta", "Qué significa"], ["---", "---", "---"]], filas[:2]
+    assert [fila[0] for fila in filas[2:]] == FILAS_DE_LO_DETECTADO and all(len(fila) == 3 for fila in filas), filas
+    significa = {fila[0]: fila[2] for fila in filas[2:]}
+    assert all(len(texto) <= 150 for texto in significa.values()), {k: len(v) for k, v in significa.items()}
+    for fila, pedazos in (("Proyecto", ("`proyecto.nombre`", "carpeta raíz")), ("Repo", ("`config.repos`", "`local.repos.<repo>.path`")),
+                          ("Capa", ("tecnología", "writer", "revisor", "skill", "regla", "solo si un cambio la toca")),
+                          ("Extensiones sin capa", ("Ninguna capa las cubre", "`/odd-ws:revisar`", "`completo`")),
+                          ("Molde", ("revisores", "repo", "`propio`")), ("Commits", ("sin pedirte el sí", "script", "skills", "`true`"))):
+        for pedazo in pedazos:
+            assert pedazo in significa[fila], (fila, pedazo, significa[fila])
+    capa = next(fila for fila in filas[2:] if fila[0] == "Capa")
+    assert "`<PREFIJO>-01`" in capa[1], capa
+    for pedazo in ("una fila «Repo» por repo y una «Capa» por capa", "Son datos o configuración: es lo esperado.", "«ninguna»"):
+        assert pedazo in detectado, (pedazo, detectado)
+    for extension in importlib.import_module("config_loader").ESPERADOS_SIN_CAPA[:-1]:
+        assert f"`{extension}`" in detectado, extension
+
+
+def test_el_ensayo_lleva_su_titulo_fijo_y_sus_grupos_fijos():
+    detectado, esqueleto = parte_de_arriba()
+    titulo = esqueleto.index("**El ensayo** (no escribió nada)")
+    assert titulo > esqueleto.index("**Lo detectado**") + len(tabla_de_lo_detectado(esqueleto)), esqueleto
+    grupos = esqueleto[titulo + 1:esqueleto.index("**Lo que pide atención**")]
+    assert [g.split(":**")[0] for g in grupos] == ["- **Capa `<capa>`", "- **Lo común", "- **Git"], grupos
+    for pedazo in ("su writer, su revisor, su skill, su regla y la prueba de la regla", "la plantilla del ticket", "el primer commit"):
+        assert any(pedazo in g for g in grupos), (pedazo, grupos)
+    for pedazo in ("van tal cual aunque algo ya exista", "En `controles`", "«su skill, su regla y la prueba de la regla.»"):
+        assert pedazo in detectado, (pedazo, detectado)
+
+
+def test_las_lineas_que_piden_atencion_van_bajo_su_titulo_fijo_justo_antes_de_lo_que_decides():
+    detectado, esqueleto = parte_de_arriba()
+    assert esqueleto[-4:] == ["**Lo que pide atención**", "```text", "<las líneas que piden atención, tal cual y en su orden>", "```"], esqueleto
+    for pedazo in ("justo antes de «Lo que decides»", "Si no hay ninguna, el título y su bloque no van", "sin comentarios"):
+        assert pedazo in detectado, (pedazo, detectado)
+    paso = paso_3_del_bootstrap()
+    ensayo = paso[paso.index("### El ensayo"):paso.index("### Lo que decides")]
+    for pedazo in ("«Lo que pide atención»", "`ya existe …`", "`git init: no se hizo; …`", "`commit: no se hizo; …`",
+                   "`…; entrarían también los que ya existían: …`"):
+        assert pedazo in ensayo, (pedazo, ensayo)
+
+
 SKILL_DOCTOR = AQUI.parent / "skills" / "doctor" / "SKILL.md"
 
 
@@ -3448,5 +3565,16 @@ def main():
     return 1 if fallas else 0
 
 
+def test_despues_del_si_la_respuesta_empieza_directo_con_la_aplicacion_sin_frases_antes():
+    paso4 = seccion(SKILL_BOOTSTRAP, "## 4. La aplicación", "## 5. El doctor")
+    assert "empieza directamente con el título `**La aplicación**`, sin ninguna frase antes" in paso4, paso4[:400]
+
+
+def test_las_extensiones_sin_capa_se_escriben_como_las_da_proponer_con_los_parentesis():
+    paso3 = seccion(SKILL_BOOTSTRAP, "## 3. La propuesta y el ensayo", "## 4. La aplicación")
+    assert "escritas como las da `--proponer`" in paso3 and "`(sin extensión)`, con los paréntesis" in paso3, paso3[:400]
+
+
 if __name__ == "__main__":
     sys.exit(main())
+
