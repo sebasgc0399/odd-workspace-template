@@ -42,18 +42,23 @@ Para entender el stack, mirá solo los manifiestos de la raíz de cada repo (por
 
 ## 3. La propuesta y el ensayo
 
-Armá la propuesta completa en una tabla. Cada término que aparezca lleva su explicación en una línea:
+La respuesta va en este orden, para que en una terminal de unas 24 filas lo que el usuario decide quede a la vista junto a la pregunta, sin subir:
+
+1. lo detectado, en una tabla, con la explicación de cada término;
+2. el ensayo, agrupado, con aparte las líneas que piden atención (ver «El ensayo»);
+3. el bloque «Lo que decides», con el perfil, los tickets y `own` (ver «Lo que decides»);
+4. la única pregunta, justo debajo, y nada más después.
+
+Lo detectado va en una tabla. Cada término que aparezca lleva su explicación en una línea:
 
 - **El nombre del proyecto** (`proyecto.nombre`).
-- **Los repos:** su nombre corto, que es la clave en `config.repos`, y su ruta, que va a `local.repos.<repo>.path`. Proponé cada uno como del equipo y explicá `own` en una línea: un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`.
+- **Los repos:** su nombre corto, que es la clave en `config.repos`, y su ruta, que va a `local.repos.<repo>.path`.
 - **Las capas.** El criterio es **una capa por tecnología**, es decir, por un juego de extensiones con convenciones propias: la config separa capas por extensión, no por carpeta ni por plataforma. Lo que genera una herramienta (por ejemplo, el proyecto nativo que arma un framework móvil) no lleva capa. **Los scripts del mismo lenguaje van en la misma capa:** en un proyecto TypeScript, `.js`, `.mjs` y `.cjs` van en la capa `ts`. Todo archivo que no sea doc (`.md`, `.txt` o `.rst`) y que ninguna capa cubra lleva el triaje de `/odd-ws:revisar` a modo `completo`, así que en la propuesta nombrá las extensiones de `--proponer` que quedan sin capa y por qué. **A una capa solo se le ofrece sumar extensiones de su mismo lenguaje:** las del grupo de `mismo_lenguaje` que comparte alguna de sus extensiones. Ninguna otra se ofrece para esa capa: un `.json` o un `.yml` en un repo TypeScript queda sin capa, y es esperado. Lo que cuesta una capa, dicho tal cual: mantener su writer, su revisor, su skill y su regla, y una corrida de revisor más **solo cuando un cambio toca esa capa** (`/odd-ws:revisar` corre el revisor de cada capa tocada). Por cada capa:
   - el nombre, en minúsculas y con guiones. `diseno` está reservado para el revisor de diseño;
   - las extensiones, como `.sql`, y los repos que la usan;
   - el `rule_prefix`: el prefijo de los ids de las reglas de esa capa en la matriz (`TS-01`, `TS-02`…). Sale del nombre, en mayúsculas y dígitos, empezando por letra: `sql` da `SQL`, `capa-web` da `CW`. Tiene que ser único entre las capas.
 - **El molde** (`defaults.mold_source`): `repo` quiere decir que los revisores comparan cada cambio contra el código que ya está en el repo; `propio`, que la instancia va a tener sus propios moldes. Proponé `repo`.
-- **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), proponé un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo.
 - **Los commits.** En la instancia, el agente commitea sin pedir aprobación: el primer commit lo hace este script, y los siguientes, las skills. Con `"ask_before_commit": true`, pide el sí antes de cada uno. Proponé dejarlo sin la clave.
-- **El perfil** (`profile`): `completo` es la plantilla entera, con tickets, writers, revisores y recibos; `controles` trae solo los guards, las reglas por capa y el doctor, para quien ya tiene su propia orquestación o revisión (por ejemplo, gentle-ai con su RDD). Proponé `completo`, y pasá a `controles` si el usuario dice que ya tiene su propia orquestación o revisión. En `completo` la spec no lleva la clave; en `controles` va dentro de `config` como `"profile": "controles"`, una capa cuesta solo su skill y su regla, y la fila de los tickets no va.
 
 `knowledge` y `hosts` son opcionales: sumalas solo si el usuario las menciona. `hosts` dice en qué CLI se trabaja la instancia (sin ella, solo Claude Code); el plugin conoce `claude-code`, `codex` y `pi`, y va dentro de `config`, como `"hosts": ["claude-code", "codex"]`.
 
@@ -96,7 +101,29 @@ Mostralo **agrupado**, no línea por línea:
 - git: `git init`, `core.hooksPath` y el primer commit;
 - **aparte y tal cual**, las líneas que piden atención: `ya existe …`, `falta en .gitignore: …`, `no se tocó …`, `commit: no se hizo; …`, `no entraría al commit …` y `no se crearía …`.
 
-Después, **la única pregunta**: ¿se aplica así, o qué cambia? Ese sí cubre también el primer commit. Si la acompañás con ejemplos de qué se puede cambiar y nombrás el tracker, poné entre paréntesis ejemplos conocidos para que se entienda qué es (Jira, Azure Boards, GitHub Issues, Linear). Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá solo lo que cambió.
+### Lo que decides
+
+Va al final de la respuesta, después del ensayo: un bloque corto con lo que el usuario decide, una fila por decisión, en este orden, cada una con tu propuesta y una explicación corta.
+
+- **El perfil** (`profile`): `completo` es la plantilla entera, con tickets, writers, revisores y recibos; `controles` trae solo los guards, las reglas por capa y el doctor, para quien ya tiene su propia orquestación o revisión (por ejemplo, gentle-ai con su RDD). Proponé `completo`, y pasá a `controles` si el usuario dice que ya tiene su propia orquestación o revisión. En `completo` la spec no lleva la clave; en `controles` va dentro de `config` como `"profile": "controles"`, una capa cuesta solo su skill y su regla, y la fila de los tickets no va.
+- **Los tickets.** Si el usuario no usa un tracker (Jira, Azure Boards, GitHub Issues, Linear…), proponé un prefijo corto (por ejemplo, las iniciales del proyecto) en `"tickets": {"prefix": "T"}`: empieza por letra y sigue con letras, números o guion bajo, hasta 32. Con él, `/odd-ws:abrir` propone el siguiente id (`T-1`, `T-2`…) solo. Si usa un tracker, la spec no lleva `tickets`: el id de cada ticket es el de su tracker.
+- **Los repos propios** (`own`): propón cada repo como del equipo. Un repo con `"own": true` es del usuario, y con él `/odd-ws:abrir` corre el `fetch` y crea el worktree del ticket sin pasarle los comandos. No va junto con `agent_readonly`.
+
+Muéstralo así, con los valores de tu propuesta en lugar de los `<…>`:
+
+```text
+**Lo que decides**
+
+- **Perfil:** `<perfil>`. Si ya usas tu propia orquestación o revisión (por ejemplo, gentle-ai), `controles`; si no, `completo`.
+- **Tickets:** prefijo `<P>` (`<P>-1`, `<P>-2`…), o el id de tu tracker si usas uno (Jira, Azure Boards, GitHub Issues, Linear).
+- **Repos tuyos** (`own`): <ninguno, o cuáles>. En uno tuyo, `/odd-ws:abrir` hace el `fetch` y crea el worktree del ticket por ti.
+
+¿Lo aplico así, o quieres cambiar algo? Si dices que sí, también hago el primer commit.
+```
+
+Justo debajo del bloque va **la única pregunta**, y nada más después: las filas no se preguntan una por una ni con un menú aparte, porque el usuario cambia lo que quiera en su respuesta. Al completar una instancia (paso 1), su config ya fija estas tres cosas: el bloque no va, y la pregunta sigue al ensayo.
+
+Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá solo lo que cambió.
 
 ## 4. La aplicación
 
