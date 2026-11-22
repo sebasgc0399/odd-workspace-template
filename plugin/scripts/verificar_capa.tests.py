@@ -514,7 +514,10 @@ def test_el_comando_del_aviso_se_corre_tal_cual_desde_la_raiz_con_espacios_en_la
         assert aviso.returncode == 0 and aviso.stderr == b"", aviso
         texto = json.loads(aviso.stdout)["hookSpecificOutput"]["additionalContext"]
         copiado = re.search(r"correr `([^`]+)`", texto).group(1)
-        assert copiado == '%s "%s" --calibrar web "%s" --guardar' % (interprete(), plugin / "scripts" / "reglas.py", w.web), copiado
+        partes = re.fullmatch(r'(\S+) "([^"]+)" --calibrar web "([^"]+)" --guardar', copiado)
+        assert partes and partes.group(1) == interprete(), copiado
+        assert os.path.realpath(partes.group(2)) == os.path.realpath(plugin / "scripts" / "reglas.py"), copiado
+        assert os.path.realpath(partes.group(3)) == os.path.realpath(w.web), copiado
         escribir(w.web, "Core/N.cs", "b\n")
         en_la_terminal = {k: v for k, v in env.items() if k != "CLAUDE_PROJECT_DIR"}
         corrido = subprocess.run(copiado, shell=True, cwd=str(w.raiz), capture_output=True, env=en_la_terminal, timeout=120)
