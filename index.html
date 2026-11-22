@@ -119,7 +119,8 @@
 <main>
   <h2>Así se ve un bloqueo</h2>
   <p>Tu agente intenta <code>git push --force origin main</code>. El hook de comandos lo frena antes de que corra, y el agente recibe este mensaje:</p>
-  <pre><code>guard-comandos bloqueó el comando: git push --force (si de verdad hace falta forzar, usa --force-with-lease). Si la operación es deliberada, que la corra el usuario a mano.</code></pre>
+  <pre><code>guard-comandos bloqueó el comando: git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con seguridad, el usuario mira `git log &lt;remoto&gt;/&lt;rama&gt;` y corre `git push --force-with-lease=&lt;rama&gt;:&lt;sha que esperas&gt; &lt;remoto&gt; &lt;rama&gt;`). Si la operación es deliberada, que la corra el usuario a mano.
+Comando: «git push --force origin main»</code></pre>
   <p>Lo mismo vale para tu stack. Una <b>capa</b> es una tecnología de tu proyecto (SQL, C#, Android…) con sus reglas. Si el agente no cargó los no-negociables de la capa, su primera edición ahí se bloquea y los recibe, y después de cada edición corren las reglas de esa capa. El detalle está en <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/hooks.md">Hooks</a>.</p>
 
   <h2>Para quién es</h2>
@@ -196,7 +197,8 @@
       <tr><td>Git</td><td>En Windows, Git for Windows</td></tr>
       <tr><td>Claude Code</td><td>2.1.284 o más; se recomienda 2.1.295 o más</td></tr>
       <tr><td>Codex CLI, si lo usas</td><td>0.144 o más; 0.167 o más para los writers</td></tr>
-      <tr><td>Pi, si lo usas</td><td>1.5.0 o más. Para los writers, gentle-shell (<code>npm i -g gentle-pi</code>)</td></tr>
+      <tr><td>Pi, si lo usas</td><td>1.5.0 o más. En Windows, sus hooks lanzan <code>python</code></td></tr>
+      <tr><td>gentle-shell, para los writers en Pi</td><td>El de <code>npm i -g gentle-pi</code>. Sin él, Pi corre los guards, pero no los writers</td></tr>
     </tbody>
   </table>
   <p>En Windows, <code>python3</code> lo crean el Python install manager de python.org y la Microsoft Store, no el instalador clásico. El detalle está en el <a href="https://github.com/sebasgc0399/odd-workspace-template#instalación">README</a>.</p>
@@ -215,7 +217,7 @@ claude plugin install odd-ws@odd-workspace-template --scope project</code></pre>
     <p>Antes de tu primer ticket, lee las <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/Doc/uso.md#reglas-de-la-instalación">reglas de la instalación</a>: cada ticket lleva su propio <code>.claude/settings.json</code> y su sesión se abre con <code>--add-dir</code>.</p>
   </details>
 
-  <details>
+  <details open>
     <summary>Con Codex CLI</summary>
     <ol>
       <li>Declara Codex en la instancia: <code>"hosts": ["claude-code", "codex"]</code> en <code>workspace.config.json</code>.</li>
@@ -227,12 +229,13 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
     </ol>
   </details>
 
-  <details>
+  <details open>
     <summary>Con gentle-shell (Pi)</summary>
     <ol>
       <li>Declara Pi en la instancia: <code>"hosts": ["claude-code", "pi"]</code>, o solo <code>["pi"]</code>.</li>
-      <li>Instala gentle-shell con <code>npm i -g gentle-pi</code>. El paquete de odd-ws no está en npm: se instala desde git, con la etiqueta de la versión, y necesita <code>npm</code> en el <code>PATH</code>.
-        <pre><code>gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v&lt;versión&gt;</code></pre>
+      <li>Instala gentle-shell y el paquete de odd-ws. El paquete no está en npm: se instala desde git, con la etiqueta de la versión actual, y necesita <code>npm</code> en el <code>PATH</code>.
+        <pre><code>npm i -g gentle-pi
+gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2</code></pre>
       </li>
       <li>Abre gentle-shell en la raíz de la instancia, dale confianza con <code>/trust</code> y corre <code>/skill:doctor</code>. En una instancia que ya existía, el doctor genera los agentes de <code>.pi/agents</code>.</li>
     </ol>
