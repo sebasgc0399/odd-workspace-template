@@ -284,7 +284,7 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra):
             if _sin_tiempo():
                 break
             grupos.append(_hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"]))
-    hallazgos = calibracion.aplicar(grupos, config["raiz"], config["repos"])
+    hallazgos = calibracion.aplicar(grupos, config["raiz"], config["repos"], config["layers"])
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 
 

@@ -780,7 +780,7 @@ def test_s4_el_nucleo_de_cerrar_pesa_unos_12_kb_y_el_detalle_va_a_references():
 
 
 def test_s4_cada_reference_de_cerrar_existe_la_nombra_el_nucleo_y_usa_el_marcador_de_los_scripts():
-    assert REFERENCIA_RE.findall("leé `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
+    assert REFERENCIA_RE.findall("lee `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
     nombradas = set(REFERENCIA_RE.findall(SKILL_CERRAR.read_text(encoding="utf-8")))
     archivos = {r.name for r in REFERENCIAS_DE_CERRAR.glob("*.md")} if REFERENCIAS_DE_CERRAR.is_dir() else set()
     assert nombradas, "el núcleo de cerrar no nombra ninguna reference"
@@ -836,14 +836,14 @@ def test_las_reglas_del_modo_y_la_propuesta_nombran_la_evidencia():
 def problemas_de_la_correccion(texto):
     paso = numeradas_de(seccion_de(texto, "### M4.")).get("1", "")
     oracion = next((oracion for oracion in oraciones_de(paso) if "corregir" in oracion), "")
-    faltan = [palabra for palabra in ("`matriz.py`", "la fila", "la regla", "la evidencia", "mostrá", "pedí el sí") if palabra not in oracion]
+    faltan = [palabra for palabra in ("`matriz.py`", "la fila", "la regla", "la evidencia", "muestra", "pide el sí") if palabra not in oracion]
     return ["M4.1 no dice que la corrección que pide matriz.py se muestra antes del sí: falta %r" % palabra for palabra in faltan]
 
 
 def test_la_correccion_que_pide_matriz_py_se_muestra_y_espera_el_si():
     texto = texto_de_cerrar()
     assert problemas_de_la_correccion(texto) == [], problemas_de_la_correccion(texto)
-    sin_si = texto.replace("y pedí el sí antes de escribirla", "y escribila", 1)
+    sin_si = texto.replace("y pide el sí antes de escribirla", "y escríbela", 1)
     assert sin_si != texto and problemas_de_la_correccion(sin_si), "control positivo: una corrección escrita sin el sí se detecta"
 
 

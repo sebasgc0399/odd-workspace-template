@@ -7,7 +7,7 @@ description: Mide los revisores de la instancia contra la revisión real de un l
 
 Mide a los revisores LLM de la instancia contra la revisión real de un líder, sin que vean la respuesta y de forma repetible. Los scripts los corre el orquestador, nunca el revisor. En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts`. En Windows con Codex, los comandos van con `python` en lugar de `python3`.
 
-**Perfil `controles`.** Antes de nada, leé `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores que medir: la revisión es la de la herramienta del usuario. Decilo en una línea y pará, sin correr nada.
+**Perfil `controles`.** Antes de nada, lee `workspace.config.json` en la raíz de la instancia: si dice `"profile": "controles"`, esta skill no aplica, porque esa instancia no tiene revisores que medir: la revisión es la de la herramienta del usuario. Dilo en una línea y detente, sin correr nada.
 
 ## Reglas duras
 
@@ -46,7 +46,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 
    - **CONTAMINADO** (un `Read` bajo una ruta prohibida): la corrida no cuenta, salvo que se demuestre que ese archivo no traía la verdad de terreno. Se puntúa `contaminado`.
    - **EXPOSICIÓN** (un `Grep` o un `Glob` cuyo alcance toca una ruta prohibida): significa «pudo ver», no «vio». Se resuelve leyendo el reporte. Un `Glob` solo revela nombres.
-   - **`--ceguera-fisica`** baja a info solo lo que estaba fuera del disco (las rutas que pasan por una carpeta `revision`). Usalo solo si la verdad de terreno estuvo de verdad fuera del disco.
+   - **`--ceguera-fisica`** baja a info solo lo que estaba fuera del disco (las rutas que pasan por una carpeta `revision`). Úsalo solo si la verdad de terreno estuvo de verdad fuera del disco.
 7. **Puntuar.** Un veredicto por celda (corrida × observación), con la cita del reporte, en `puntajes.json`. La escala es fija:
 
    | Veredicto | Significa |
@@ -71,7 +71,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
    python3 "<S>/puntuar.py" puntajes.json --plantilla-ratificacion tabla.md --clave clave.json
    ```
 
-   Entregá **solo** `tabla.md`; `clave.json` no se muestra. Se responde en la última columna, con `sí` o `no → <veredicto>`. Después:
+   Entrega **solo** `tabla.md`; `clave.json` no se muestra. Se responde en la última columna, con `sí` o `no → <veredicto>`. Después:
 
    ```bash
    python3 "<S>/puntuar.py" puntajes.json --aplicar-ratificacion tabla.md clave.json --ratificado-por "<quién>"
@@ -87,7 +87,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
    ```
 
    - Por corrida y por brazo, da `ok`, `parcial`, contra (`reves` + `elogio`) y el puntaje (`ok + 0,5 × parcial`).
-   - Por brazo suma la media, la unión (el mejor veredicto por observación), las estables, el k/N y los conflictos: «decide el líder o revisá a mano».
+   - Por brazo suma la media, la unión (el mejor veredicto por observación), las estables, el k/N y los conflictos: «decide el líder o se revisa a mano».
    - Con dos brazos, también la tabla pareada.
 
 ## Modo sombra (la aceptación de un cambio de revisor)

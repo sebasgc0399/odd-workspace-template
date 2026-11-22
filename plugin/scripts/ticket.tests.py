@@ -270,7 +270,7 @@ def test_sin_plantilla_se_rechaza_y_manda_a_correr_el_bootstrap():
 
 
 def test_una_plantilla_sin_settings_avisa_por_stderr_y_no_cambia_ni_la_salida_ni_el_codigo():
-    aviso = "ticket: aviso: la plantilla no tiene tickets/_plantilla/.claude/settings.json, así que una sesión abierta dentro del ticket no carga el plugin: completá la instancia con /odd-ws:bootstrap y volvé a correr ticket.py"
+    aviso = "ticket: aviso: la plantilla no tiene tickets/_plantilla/.claude/settings.json, así que una sesión abierta dentro del ticket no carga el plugin: completa la instancia con /odd-ws:bootstrap y vuelve a correr ticket.py"
     with Escenario() as e:
         (e.raiz / "tickets" / "_plantilla" / ".claude" / "settings.json").unlink()
         completos = {r: d for r, d in CREADOS.items() if r != ".claude/settings.json"}
@@ -552,7 +552,7 @@ def test_cobertura_avisa_las_extensiones_versionadas_sin_capa_de_la_instancia_y_
         antes = arbol(e.base)
         assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
             0,
-            "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2), (sin extensión) (1)\n"
+            "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2)\n"
             "  cómo: " + config_loader.AYUDA_COBERTURA + "\n",
             "",
         )
@@ -564,6 +564,57 @@ def test_cobertura_sin_extensiones_sin_capa_lo_dice_con_cero():
     with Escenario() as e:
         versionar(e, {"a.ext": b"x", "README.md": b"x"})
         assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (0, "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n", "")
+
+
+def test_cobertura_con_solo_esperados_no_avisa_y_los_nombra_con_su_conteo():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "package.json": b"{}", "tsconfig.json": b"{}", ".gitignore": b"x", "README.md": b"x"})
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0,
+            "capas-cobertura: sin capa y esperados: .json (2), (sin extensión) (1); un cambio en ellos lleva /odd-ws:revisar a modo completo\n",
+            "",
+        )
+
+
+def test_cobertura_da_el_mismo_texto_que_la_fila_del_doctor():
+    import doctor
+
+    class Contexto:
+        def ejecutar(self, args, cwd=None):
+            r = subprocess.run(args, cwd=cwd, capture_output=True, env=e.entorno, timeout=60)
+            return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
+
+    for archivos in ({"a.ext": b"x", "package.json": b"{}", "Dockerfile": b"x"}, {"x.mjs": b"x", "ci.yml": b"x"}):
+        with Escenario() as e:
+            versionar(e, archivos)
+            fila = doctor.chequear_cobertura(Contexto(), e.raiz)
+            primera = e.correr("--cobertura", "--raiz", str(e.raiz))[1].splitlines()[0]
+            prefijo = "aviso capas-cobertura: " if fila.estado == doctor.AVISO else "capas-cobertura: "
+            assert primera == prefijo + fila.detalle, (primera, fila)
+
+
+def test_cobertura_en_controles_da_el_mismo_detalle_y_la_misma_ayuda_que_el_doctor():
+    import config_loader
+    import doctor
+
+    class Contexto:
+        def ejecutar(self, args, cwd=None):
+            r = subprocess.run(args, cwd=cwd, capture_output=True, env=e.entorno, timeout=60)
+            return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
+
+    for archivos, prefijo in (({"a.ext": b"x", "package.json": b"{}", "Dockerfile": b"x"}, "capas-cobertura: "),
+                              ({"x.mjs": b"x", "ci.yml": b"x"}, "aviso capas-cobertura: ")):
+        with Escenario() as e:
+            ruta = e.raiz / "workspace.config.json"
+            config = json.loads(ruta.read_text(encoding="utf-8"))
+            config[config_loader.CLAVE_DE_PERFIL] = config_loader.CONTROLES
+            ruta.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+            versionar(e, archivos)
+            fila = doctor.chequear_cobertura(Contexto(), e.raiz)
+            codigo, salida, errores = e.correr("--cobertura", "--raiz", str(e.raiz))
+            esperada = [prefijo + fila.detalle] + (["  cómo: " + fila.ayuda] if fila.estado == doctor.AVISO else [])
+            assert (codigo, salida.splitlines(), errores) == (0, esperada, ""), (salida, fila)
+            assert config_loader.NOTA_ESPERADOS_CONTROLES in fila.detalle or fila.ayuda == config_loader.AYUDA_COBERTURA_CONTROLES, fila
 
 
 def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
@@ -900,7 +951,7 @@ def test_abrir_una_ruta_con_coma_en_windows_no_la_abre_y_sale_con_uno_y_en_los_d
         resultado = e.correr("--enlaces", "docs/comas.md", "--abrir", "1", cwd=e.base, entorno=entorno)
         if sys.platform == "win32":
             assert resultado == (1, listado, f"ticket: no se abrió {absoluta(coma)}: explorer separa las rutas en las comas y podría "
-                                             "abrir otra cosa: abrila a mano\n"), resultado
+                                             "abrir otra cosa: ábrela a mano\n"), resultado
             assert llamadas(registro) == [], llamadas(registro)
         else:
             assert resultado == (0, listado + f"abierto con su programa: {real(coma)} ({ABRIDOR_DEL_SISTEMA})\n", ""), resultado

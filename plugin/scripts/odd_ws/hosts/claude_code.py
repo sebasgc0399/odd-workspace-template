@@ -15,10 +15,10 @@ ARCHIVO_DE_HOOKS = "hooks/hooks.json"
 PYTHON = "python3"
 PYTHON_EN_WINDOWS = "python3"
 VERSION_MINIMA = (2, 1, 284)
-AYUDA_CLAUDE = "Actualizá Claude Code a 2.1.284 o superior."
+AYUDA_CLAUDE = "Actualiza Claude Code a 2.1.284 o superior."
 VERSION_ON_FAILURE = (2, 1, 295)
 AVISO_ON_FAILURE = "un hook que no arranca deja pasar"
-AYUDA_ON_FAILURE = ("Actualizá Claude Code a 2.1.295 o superior: desde esa versión, onFailure: block hace que un hook que no arranca "
+AYUDA_ON_FAILURE = ("Actualiza Claude Code a 2.1.295 o superior: desde esa versión, onFailure: block hace que un hook que no arranca "
                     "(por ejemplo, sin python3) bloquee la herramienta en vez de dejarla pasar.")
 EXPRESABLES = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,), FIN_SUBAGENTE: (Seguir,),
                INICIO_TURNO: (Permitir,), FIN_TURNO: (Seguir,)}
@@ -301,7 +301,7 @@ def _auto_memoria(entorno, home, raiz):
             return Path(home) / valor[2:], settings
         if isinstance(valor, str) and os.path.isabs(valor):
             return Path(valor), settings
-        raise base.SinMemorias("%s %r en %s no es una ruta absoluta ni empieza con ~/: corregilo o pasá --memorias <dir>"
+        raise base.SinMemorias("%s %r en %s no es una ruta absoluta ni empieza con ~/: corrígelo o pasa --memorias <dir>"
                                % (AUTO_MEMORIA, valor, settings))
     return None
 
@@ -337,6 +337,6 @@ def directorio_de_memorias(entorno, home, raiz, windows, pasado=None):
     nombre = nombre_de_proyecto(proyecto)
     if len(nombre) > LARGO_MAXIMO_DEL_PROYECTO:
         raise base.SinMemorias("la carpeta de %s en %s tendría %d caracteres, más de %d: Claude Code la corta y le agrega un hash "
-                               "que no está documentado, así que no se adivina; pasá --memorias <dir>"
+                               "que no está documentado, así que no se adivina; pasa --memorias <dir>"
                                % (proyecto, config / PROYECTOS, len(nombre), LARGO_MAXIMO_DEL_PROYECTO))
     return base.DirectorioDeMemorias(_en_disco(config / PROYECTOS, nombre, windows) / "memory", base.DERIVADA, PROYECTOS, str(proyecto))

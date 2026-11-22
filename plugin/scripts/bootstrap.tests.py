@@ -1551,7 +1551,7 @@ def test_gitignore_que_es_una_carpeta_se_dice_en_el_informe():
         codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         assert codigo == 0 and "ya existía .gitignore" in salida
         assert "no se pudo leer .gitignore: es una carpeta" in salida, salida
-        assert "workspace.local.json" in salida.split("revisá a mano que ignore:")[1], salida
+        assert "workspace.local.json" in salida.split("revisa a mano que ignore:")[1], salida
         assert (raiz / ".gitignore").is_dir()
 
 
@@ -1678,7 +1678,7 @@ def correr_con_unlink_bloqueado(e, raiz, extra=()):
 
 
 def lineas_de_sobrante(lineas, nombre):
-    patron = re.compile(r"no se pudo borrar \." + re.escape(nombre) + r"\.[0-9a-f]{32}\.tmp: borralo a mano \(es una copia de " + re.escape(nombre) + r"\)")
+    patron = re.compile(r"no se pudo borrar \." + re.escape(nombre) + r"\.[0-9a-f]{32}\.tmp: bórralo a mano \(es una copia de " + re.escape(nombre) + r"\)")
     return [l for l in lineas if patron.fullmatch(l)]
 
 
@@ -2008,9 +2008,9 @@ def test_en_windows_el_informe_dice_como_marcar_ejecutable():
         assert codigo == 0
         lineas = salida.splitlines()
         indice = lineas.index("creado .githooks/pre-commit")
-        assert lineas[indice + 1] == "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit", lineas
-        assert sum("marcalo ejecutable" in l for l in lineas) == 1
-        assert "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit" in ensayo.splitlines()
+        assert lineas[indice + 1] == "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit", lineas
+        assert sum("márcalo ejecutable" in l for l in lineas) == 1
+        assert "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit" in ensayo.splitlines()
 
 
 def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
@@ -2022,7 +2022,7 @@ def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
                 _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         finally:
             b().EN_WINDOWS = anterior
-        assert "marcalo ejecutable" not in salida
+        assert "márcalo ejecutable" not in salida
     with Escenario() as e:
         raiz = e.crear_raiz()
         (raiz / ".githooks").mkdir()
@@ -2033,7 +2033,7 @@ def test_fuera_de_windows_o_si_ya_existia_no_hay_aviso_de_ejecutable():
                 _, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         finally:
             b().EN_WINDOWS = anterior
-        assert "ya existía .githooks/pre-commit" in salida and "marcalo ejecutable" not in salida
+        assert "ya existía .githooks/pre-commit" in salida and "márcalo ejecutable" not in salida
         assert (raiz / ".githooks" / "pre-commit").read_bytes() == b"mio"
 
 
@@ -2122,10 +2122,10 @@ def test_commitear_marca_el_hook_como_ejecutable():
         commit = lineas_de_commit(salida)
         assert len(commit) == 1 and commit[0].endswith("con 3 archivos (el hook, ejecutable)"), commit
         assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
-        assert "marcalo ejecutable" not in salida, salida
+        assert "márcalo ejecutable" not in salida, salida
         ensayo = correr_con_git(e, e.base / "otra", "--ensayo", "--commitear", generadores=hook)[1]
         assert lineas_de_commit(ensayo) == ["commit: se haría con los archivos nuevos (el hook, ejecutable)"], ensayo
-        assert "marcalo ejecutable" not in ensayo, ensayo
+        assert "márcalo ejecutable" not in ensayo, ensayo
 
 
 def test_commitear_en_el_ensayo_dice_que_lo_haria_y_no_escribe_nada():
@@ -2202,7 +2202,7 @@ def test_commitear_sin_identidad_de_git_falla_sin_perder_los_archivos():
             codigo, salida, errores = correr_con_git(e, e.raiz, "--commitear")
         assert codigo == 0 and errores == "", (codigo, errores)
         commit = lineas_de_commit(salida)
-        assert len(commit) == 1 and commit[0].startswith("commit: falló") and "commitealos vos" in commit[0], commit
+        assert len(commit) == 1 and commit[0].startswith("commit: falló") and "commitéalos tú" in commit[0], commit
         assert (e.raiz / "workspace.config.json").is_file() and sin_head(e.raiz)
 
 
@@ -2220,7 +2220,7 @@ def como_en_windows():
         b().EN_WINDOWS = anterior
 
 
-AVISO_DEL_CHMOD = "al commitear, marcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
+AVISO_DEL_CHMOD = "al commitear, márcalo ejecutable: git add --chmod=+x .githooks/pre-commit"
 
 
 def test_commitear_que_no_commitea_conserva_el_aviso_del_chmod_en_windows():
@@ -2246,7 +2246,7 @@ def test_commitear_que_commitea_no_repite_el_aviso_del_chmod_en_windows():
             for raiz, extra in ((e.base / "ensayada", ["--ensayo"]), (e.raiz, [])):
                 codigo, salida, errores = correr_con_git(e, raiz, "--commitear", *extra, generadores=generador_con_hook)
                 assert codigo == 0 and errores == "", (extra, codigo, errores)
-                assert "marcalo ejecutable" not in salida, (extra, salida)
+                assert "márcalo ejecutable" not in salida, (extra, salida)
         assert git_aislado("ls-files", "-s", ".githooks/pre-commit", cwd=e.raiz)[1].startswith("100755 ")
 
 
@@ -2326,10 +2326,26 @@ def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_ta
 SKILL_BOOTSTRAP = AQUI.parent / "skills" / "bootstrap" / "SKILL.md"
 
 
+def paso_3_del_bootstrap():
+    texto = SKILL_BOOTSTRAP.read_text(encoding="utf-8")
+    return texto[texto.index("## 3. La propuesta y el ensayo"):texto.index("## 4. La aplicación")]
+
+
+def lo_que_decides(paso):
+    return paso[paso.index("### Lo que decides"):]
+
+
+def esqueleto_de_lo_que_decides(paso):
+    bloque = lo_que_decides(paso)
+    inicio = bloque.index("```text\n") + len("```text\n")
+    return [linea for linea in bloque[inicio:bloque.index("```", inicio)].split("\n") if linea.strip()]
+
+
 def test_la_skill_del_bootstrap_propone_el_perfil_y_dice_como_pasar_a_completo():
     texto = SKILL_BOOTSTRAP.read_text(encoding="utf-8")
-    propuesta = texto[texto.index("## 3. La propuesta y el ensayo"):texto.index("### La spec")]
-    linea = next(l for l in propuesta.split("\n") if l.startswith("- **El perfil**"))
+    vinetas = [l for l in lo_que_decides(paso_3_del_bootstrap()).split("\n") if l.startswith("- **")]
+    linea = vinetas[0]
+    assert linea.startswith("- **El perfil**"), vinetas
     for pedazo in ('"profile": "controles"', "`completo`", "`controles`", "orquestación", "revisión"):
         assert pedazo in linea, (pedazo, linea)
     raiz = texto[texto.index("## 1. La raíz"):texto.index("## 2. Detectar")]
@@ -2337,6 +2353,170 @@ def test_la_skill_del_bootstrap_propone_el_perfil_y_dice_como_pasar_a_completo()
         assert pedazo in raiz, (pedazo, raiz)
     siguiente = texto[texto.index("## 6. El siguiente paso"):texto.index("## Reglas")]
     assert "`controles`" in siguiente and "/odd-ws:cerrar memorias" in siguiente, siguiente
+
+
+def test_la_propuesta_del_bootstrap_muestra_lo_detectado_y_el_ensayo_y_cierra_con_lo_que_decides_y_la_pregunta():
+    paso = paso_3_del_bootstrap()
+    subsecciones = [l for l in paso.split("\n") if l.startswith("### ")]
+    assert subsecciones == ["### La spec", "### El ensayo", "### Lo que decides"], subsecciones
+    detectado = paso[:paso.index("### La spec")]
+    orden = [l for l in detectado.split("\n") if re.match(r"\d\. ", l)]
+    assert len(orden) == 4, orden
+    for linea, pedazo in zip(orden, ("detectado", "ensayo", "«Lo que decides»", "pregunta")):
+        assert pedazo in linea, (pedazo, linea)
+    assert "24 filas" in detectado and "Cada término que aparezca lleva su explicación en una línea" in detectado, detectado
+    vinetas = [l for l in detectado.split("\n") if l.startswith("- **")]
+    for vineta in ("- **El nombre del proyecto**", "- **Los repos:**", "- **Las capas.**", "- **El molde**", "- **Los commits.**"):
+        assert any(l.startswith(vineta) for l in vinetas), (vineta, vinetas)
+    for vineta in vinetas:
+        assert not vineta.startswith(("- **El perfil**", "- **Los tickets")) and "`own`" not in vineta, vineta
+    ensayo = paso[paso.index("### El ensayo"):paso.index("### Lo que decides")]
+    assert "las líneas que piden atención" in ensayo and "pregunta" not in ensayo, ensayo
+    esqueleto = esqueleto_de_lo_que_decides(paso)
+    assert esqueleto[0] == "**Lo que decides**", esqueleto
+    assert all(l.startswith("- **") for l in esqueleto[1:-1]), esqueleto
+    assert esqueleto[-1].startswith("¿Lo aplico así, o quieres cambiar algo?") and "primer commit" in esqueleto[-1], esqueleto
+    assert [l for l in esqueleto if "?" in l or "¿" in l] == [esqueleto[-1]], esqueleto
+
+
+def test_lo_que_decides_lleva_el_perfil_primero_despues_los_tickets_y_own_en_filas_cortas():
+    paso = paso_3_del_bootstrap()
+    vinetas = [l for l in lo_que_decides(paso).split("\n") if l.startswith("- **")]
+    assert len(vinetas) >= 3 and vinetas[0].startswith("- **El perfil**") and vinetas[1].startswith("- **Los tickets"), vinetas
+    assert "`own`" in vinetas[2] and '"own": true' in vinetas[2] and "agent_readonly" in vinetas[2], vinetas[2]
+    filas = esqueleto_de_lo_que_decides(paso)[1:-1]
+    assert len(filas) == 3, filas
+    perfil, tickets, propio = filas
+    assert perfil.startswith("- **Perfil"), perfil
+    assert tickets.startswith("- **Tickets"), tickets
+    for pedazo in ("prefijo", "tracker", "(Jira, Azure Boards, GitHub Issues, Linear)"):
+        assert pedazo in tickets, (pedazo, tickets)
+    assert "tuyo" in propio and "`own`" in propio, propio
+    assert all(len(fila) <= 150 for fila in filas), [len(fila) for fila in filas]
+
+
+def test_la_fila_del_perfil_lo_explica_en_una_linea_llana():
+    perfil = esqueleto_de_lo_que_decides(paso_3_del_bootstrap())[1]
+    llana = "Si ya usas tu propia orquestación o revisión (por ejemplo, gentle-ai), `controles`; si no, `completo`."
+    assert llana in perfil, perfil
+
+
+SKILL_DOCTOR = AQUI.parent / "skills" / "doctor" / "SKILL.md"
+
+
+def seccion(ruta, desde, hasta):
+    texto = ruta.read_text(encoding="utf-8")
+    return texto[texto.index(desde):texto.index(hasta)]
+
+
+def bloques_de_codigo(texto):
+    bloques, abierto = [], None
+    for linea in texto.split("\n"):
+        limpia = linea.strip()
+        if abierto is None:
+            apertura = re.fullmatch(r"(`{3,})(\w*)", limpia)
+            if apertura:
+                abierto = (apertura.group(1), apertura.group(2), [])
+        elif re.fullmatch("`{%d,}" % len(abierto[0]), limpia):
+            bloques.append((abierto[1], [l.strip() for l in abierto[2] if l.strip()]))
+            abierto = None
+        else:
+            abierto[2].append(linea)
+    assert abierto is None, "un bloque de código sin cerrar"
+    return bloques
+
+
+def presentar_del_doctor():
+    return seccion(SKILL_DOCTOR, "## Cómo presentarlo", "## Reglas")
+
+
+def linea_fija_sin_problemas():
+    fijas = [lineas for lenguaje, lineas in bloques_de_codigo(presentar_del_doctor()) if lenguaje == "text" and len(lineas) == 1]
+    assert len(fijas) == 1, fijas
+    return fijas[0][0]
+
+
+def test_el_doctor_muestra_su_salida_entera_y_tal_cual_y_comenta_solo_cada_falta_y_cada_aviso():
+    presentar = presentar_del_doctor()
+    esqueletos = [lineas for lenguaje, lineas in bloques_de_codigo(presentar) if lenguaje == "text" and len(lineas) > 1]
+    assert len(esqueletos) == 1, esqueletos
+    esqueleto = esqueletos[0]
+    assert esqueleto[0] == "```text" and esqueleto[2] == "```", esqueleto
+    assert esqueleto[1].startswith("<") and "entera y tal cual" in esqueleto[1], esqueleto
+    comentarios = esqueleto[3:]
+    assert len(comentarios) == 1 and comentarios[0].startswith("- `<id>` (<FALTA o AVISO>): "), comentarios
+    assert "qué rompe" in comentarios[0] and "qué hacer" in comentarios[0], comentarios
+    for pedazo in ("encabezados", "`arreglo:`", "`cómo:`", "línea de resumen", "una línea cada uno", "no lo presentes como pendiente",
+                   "Las filas `OK` y `NO APLICA` no se comentan", "solo si salió en FALTA o AVISO"):
+        assert pedazo in presentar, (pedazo, presentar)
+    assert linea_fija_sin_problemas() == "Todo en orden: nada falta y no hay avisos."
+
+
+def test_el_doctor_sigue_ofreciendo_los_arreglos_de_a_uno_y_conserva_las_reglas_de_cada_item():
+    presentar = presentar_del_doctor()
+    for pedazo in ("los arreglos de a uno", "`arreglo: --arreglar <id>`", "un sí explícito para **ese** ítem", "--arreglar <id>"):
+        assert pedazo in presentar, (pedazo, presentar)
+    reglas = SKILL_DOCTOR.read_text(encoding="utf-8").split("\n## Reglas\n", 1)[1]
+    for item in ("`rdd`", "gentle-ai", "`lista-negra`", "`writer-<capa>`", "`perfil`", "`instancia-hooks`", "`instancia-eol`",
+                 "`capas-cobertura`", "`hooks-apagados`", "`agentes-skills` y `agentes-hooks`", "Codex", "`codex-config`",
+                 "`codex-agentes`", "`hooks-host`"):
+        assert f"- **{item}" in reglas, item
+
+
+def test_el_paso_5_del_bootstrap_presenta_el_doctor_como_su_skill():
+    paso = seccion(SKILL_BOOTSTRAP, "## 5. El doctor", "## 6. El siguiente paso")
+    for pedazo in ("`**El doctor**`", "/odd-ws:doctor", "«Cómo presentarlo»", "entera y tal cual", "bloque de código `text`", "encabezados",
+                   "línea de resumen", "una línea por cada FALTA y cada AVISO", "no se comentan", "de a uno"):
+        assert pedazo in paso, (pedazo, paso)
+    assert f"`{linea_fija_sin_problemas()}`" in paso, paso
+
+
+def test_la_aplicacion_muestra_tal_cual_sus_lineas_menos_las_de_cada_archivo_sin_parafrasearlas():
+    paso = seccion(SKILL_BOOTSTRAP, "## 4. La aplicación", "## 5. El doctor")
+    for pedazo in ("`**La aplicación**`", "bloque de código `text`", "tal cual", "menos las de cada archivo", f"`{b().CREADO} …`",
+                   "`ya existía …`", "`commit:`", "`no entró al commit …`", "`falta en .gitignore: …`", "`no se pudo borrar …`",
+                   "`resumen:`", "sin parafrasearla", "solo para las que lo piden"):
+        assert pedazo in paso, (pedazo, paso)
+
+
+def cierres_del_bootstrap():
+    paso = seccion(SKILL_BOOTSTRAP, "## 6. El siguiente paso", "## Reglas")
+    partes = re.split(r"\n(?=### )", paso)
+    return partes[0], {parte.split("\n", 1)[0]: parte for parte in partes[1:]}
+
+
+def test_el_cierre_del_bootstrap_es_un_texto_fijo_por_perfil_y_lo_variable_va_antes_en_una_linea_aparte():
+    antes, perfiles = cierres_del_bootstrap()
+    assert list(perfiles) == ["### Con `completo`", "### Con `controles`"], list(perfiles)
+    fijos = {}
+    for titulo, parte in perfiles.items():
+        bloques = [lineas for lenguaje, lineas in bloques_de_codigo(parte) if lenguaje == "text"]
+        assert len(bloques) == 1, (titulo, bloques)
+        fijo = bloques[0]
+        assert fijo[0] == "**Lo que sigue**" and all(l.startswith("- **") for l in fijo[1:]), (titulo, fijo)
+        assert not re.search(r"[<>¿?]", "\n".join(fijo)), (titulo, fijo)
+        fijos[titulo] = "\n".join(fijo)
+    completo, controles = fijos["### Con `completo`"], fijos["### Con `controles`"]
+    for pedazo in ("/odd-ws:abrir", "vacía, y es lo normal", "`/odd-ws:cerrar`", "/odd-ws:cerrar memorias", "/odd-ws:paquetes", "reglas escritas"):
+        assert pedazo in completo, (pedazo, completo)
+    for pedazo in ("no hay tickets", "vacía, y es lo normal", "/odd-ws:cerrar memorias", "/odd-ws:paquetes", "RDD"):
+        assert pedazo in controles, (pedazo, controles)
+    assert "/odd-ws:abrir" not in controles, controles
+    for pedazo in ("tal cual", "una línea aparte", "antes del texto fijo", "solo cuando", "`claude`", "paso 2"):
+        assert pedazo in antes, (pedazo, antes)
+
+
+def test_los_textos_fijos_se_escriben_como_texto_normal_y_su_bloque_solo_los_delimita():
+    antes, _ = cierres_del_bootstrap()
+    presentar = presentar_del_doctor()
+    sin_problemas = presentar[presentar.index("3. **Si no hay ninguna FALTA"):presentar.index(linea_fija_sin_problemas())]
+    for donde, texto in (("Lo que decides", lo_que_decides(paso_3_del_bootstrap())), ("Lo que sigue", antes),
+                         ("el doctor", presentar[:presentar.index("1. **La salida")]), ("Todo en orden", sin_problemas)):
+        assert "solo" in texto and "delimita" in texto and "como texto normal" in texto, (donde, texto)
+    for donde, texto in (("Lo que decides", lo_que_decides(paso_3_del_bootstrap())), ("Lo que sigue", antes)):
+        assert "con sus negritas, sin el bloque de código" in texto, (donde, texto)
+    paso_5 = seccion(SKILL_BOOTSTRAP, "## 5. El doctor", "## 6. El siguiente paso")
+    assert f"`{linea_fija_sin_problemas()}`, tal cual y como texto normal" in paso_5, paso_5
 
 
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
@@ -2409,7 +2589,7 @@ def test_un_archivo_con_permisos_sin_bit_de_ejecucion_no_lleva_aviso():
         finally:
             b().EN_WINDOWS = anterior
         assert "git add --chmod=+x script.sh" in salida
-        assert "datos.txt" not in "".join(l for l in salida.splitlines() if "marcalo" in l)
+        assert "datos.txt" not in "".join(l for l in salida.splitlines() if "márcalo" in l)
 
 
 def test_una_raiz_que_ya_es_un_repo_no_se_reinicia_y_conserva_su_hookspath_vacio():
@@ -2864,7 +3044,7 @@ def test_una_raiz_que_es_un_enlace_a_un_repo_se_configura_en_el_repo_real():
 
 MENSAJE_CONFIG_DISTINTA = (
     "la config de la spec no es la de {}/workspace.config.json, que ya existe: el bootstrap no la reescribe, "
-    "así que la spec tiene que traerla tal cual (o cambiala a mano antes)"
+    "así que la spec tiene que traerla tal cual (o cámbiala a mano antes)"
 )
 MENSAJE_LOCAL_DISTINTO = (
     "el local de la spec no es el de {}/workspace.local.json (sin plugin_root), que ya existe: el bootstrap no lo reescribe, "

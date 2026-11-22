@@ -25,9 +25,9 @@ Son niveles de **naturaleza distinta**: nunca los sumes en un mismo conteo. Un v
 |---|---|---|
 | 1, mecánico | `conocimiento.py [--v]` | **Hallazgos**, y aparte una worklist que no es deuda. Revisa los docs indexados, los links, las anclas, las cifras en los headings, el tope de líneas del índice, la frescura por frontmatter, la cobertura de afirmaciones y lo que falta commitear. |
 | 2, afirmaciones | `conocimiento.py --claims` | **Veredictos.** Lintea el archivo de afirmaciones, ejecuta las de `repo` con una lista blanca de comandos de solo lectura y las juzga: `ok`, `+` (creció), `ROJO` o `err`. Las SQL todavía no se juzgan. |
-| 3, cruce | `conocimiento.py --cruce`, más leer | **Candidatos**, no hallazgos: el script propone y vos juzgás. Busca entidades repetidas en muchos docs y cifras del mismo sustantivo que difieren entre docs. |
+| 3, cruce | `conocimiento.py --cruce`, más leer | **Candidatos**, no hallazgos: el script propone y tú juzgas. Busca entidades repetidas en muchos docs y cifras del mismo sustantivo que difieren entre docs. |
 
-Corré los niveles 1 y 2 siempre, porque son baratos y deterministas. El cruce, solo si lo piden o si el nivel 1 sale limpio y quedan dudas de contenido. Su precisión medida en el proyecto de origen fue de alrededor del 8 %: a esa tasa, reportar sus candidatos como hallazgos sería ruido nueve de cada diez veces.
+Corre los niveles 1 y 2 siempre, porque son baratos y deterministas. El cruce, solo si lo piden o si el nivel 1 sale limpio y quedan dudas de contenido. Su precisión medida en el proyecto de origen fue de alrededor del 8 %: a esa tasa, reportar sus candidatos como hallazgos sería ruido nueve de cada diez veces.
 
 **Salidas del nivel 1:**
 - 0: sano, aunque haya worklist;
@@ -55,11 +55,11 @@ Si aparece `TIER 2 ABIERTO`, quedan afirmaciones SQL sin veredicto, y ese nivel 
 ## Reglas duras del cruce
 
 1. **Nunca reportes una cifra sin la frase que la rodea.** Dos cifras distintas del mismo sustantivo pueden ser correctas las dos (por ejemplo, una lista filtrada y el catálogo completo).
-2. **El script propone; vos decidís.** No se reporta nada sin haber leído las dos frases.
+2. **El script propone; tú decides.** No se reporta nada sin haber leído las dos frases.
 3. **Desempate: gana el doc autoritativo** (`rol: autoritativo` en el frontmatter) sobre el resumen (`rol: resumen`). Si los dos discrepan, se verifica contra el código o la base. **Nunca promedies ni concilies en una tercera cifra.**
-4. **Priorizá los resúmenes:** es donde suelen estar las divergencias reales.
-5. **Al corregir un dato, buscá sus copias** antes de cerrar.
+4. **Prioriza los resúmenes:** es donde suelen estar las divergencias reales.
+5. **Al corregir un dato, busca sus copias** antes de cerrar.
 
 ## Al cerrar
 
-Para cada hallazgo, proponé un destino (el ticket que lo originó, un ticket nuevo o el cierre del ticket en curso) y preguntá antes de escribir nada.
+Para cada hallazgo, propón un destino (el ticket que lo originó, un ticket nuevo o el cierre del ticket en curso) y pregunta antes de escribir nada.

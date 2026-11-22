@@ -17,7 +17,7 @@ USO = ("uso: bootstrap.py --spec <ruta.json> [--raiz <carpeta>] [--ensayo] [--co
        "     bootstrap.py --proponer [--raiz <carpeta>]")
 REPO_DE_CODIGO = ("la raíz {} es la raíz de un repo de código (tiene archivos versionados y no tiene workspace.config.json): "
                   "la instancia quedaría en su git, con el hook y el primer commit. Conviene una carpeta aparte, al lado del repo; "
-                  "si igual la querés acá, confirmalo con --confirmar-repo")
+                  "si igual la quieres aquí, confírmalo con --confirmar-repo")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 20
 MISMO_LENGUAJE = (frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),)
@@ -50,10 +50,10 @@ WORKSPACES = "*.code-workspace"
 RUTA_DE_LA_MAQUINA = re.compile(r"[A-Za-z]:|[\\/]")
 CON_LOS_PREVIOS = ("; entraron también los que ya existían: {}", "; entrarían también los que ya existían: {}")
 SIN_LOS_PREVIOS = ("no entró al commit {}: {}", "no entraría al commit {}: {}")
-SETTINGS_DISTINTO = "ya existía con otro contenido que el que escribe el bootstrap; si es tuyo, commitealo vos"
+SETTINGS_DISTINTO = "ya existía con otro contenido que el que escribe el bootstrap; si es tuyo, commitéalo tú"
 CON_RUTA_ABSOLUTA = ("lista carpetas con ruta absoluta, que solo valen en esta máquina; queda sin trackear",
                      "lista carpetas con ruta absoluta, que solo valen en esta máquina; quedaría sin trackear")
-WORKSPACE_ILEGIBLE = "no se pudo leer sus carpetas ({}), así que no se sabe si usan rutas relativas; si las usa, commitealo vos"
+WORKSPACE_ILEGIBLE = "no se pudo leer sus carpetas ({}), así que no se sabe si usan rutas relativas; si las usa, commitéalo tú"
 EN_WINDOWS = os.name == "nt"
 RAIZ_DEL_PLUGIN = Path(__file__).resolve().parents[1]
 
@@ -200,7 +200,7 @@ def _coincidir_con_lo_existente(spec, raiz):
     if config is not None and _canonico(config) != _canonico(spec["config"]):
         raise SpecInvalida(
             f"la config de la spec no es la de {raiz}/{config_loader.NOMBRE}, que ya existe: el bootstrap no la reescribe, "
-            "así que la spec tiene que traerla tal cual (o cambiala a mano antes)")
+            "así que la spec tiene que traerla tal cual (o cámbiala a mano antes)")
     local = _objeto_existente(Path(raiz) / config_loader.NOMBRE_LOCAL)
     if local is not None and _canonico({k: v for k, v in local.items() if k != "plugin_root"}) != _canonico(spec.get("local", {})):
         raise SpecInvalida(
@@ -575,7 +575,7 @@ def _decidir_commit(spec, plan, raiz):
     if respuesta is None:
         return "omitir", _sin_commit("git no está instalado")
     if respuesta[0] == 1:
-        return "omitir", _sin_commit("hay cambios stageados que no son del bootstrap, y no se mezclan: commiteá vos los archivos nuevos, "
+        return "omitir", _sin_commit("hay cambios stageados que no son del bootstrap, y no se mezclan: commitea tú los archivos nuevos, "
                                      f"con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})")
     if respuesta[0] != 0:
         return "omitir", _sin_commit(f"no se pudo leer el índice ({respuesta[2] or respuesta[1]})")
@@ -677,7 +677,7 @@ def commitear(spec, plan, resultados, raiz):
         if codigo != 0:
             detalle = (error or salida or f"código {codigo}").splitlines()[-1]
             pendiente = f", con el hook ejecutable (git add --chmod=+x {HOOK_DE_LA_INSTANCIA})" if con_hook else ""
-            return [f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitealos vos{pendiente}", *quedan], False
+            return [f"commit: falló ({detalle}); los archivos nuevos quedaron en el índice: commitéalos tú{pendiente}", *quedan], False
     respuesta = _git(["-C", str(raiz), "rev-parse", "--short", "HEAD"])
     corto = respuesta[1] if respuesta is not None and respuesta[0] == 0 else "?"
     total = len(rutas) + len(previos)
@@ -889,19 +889,19 @@ def informe(plan, resultados, raiz, ensayo, con_resumen=True, aviso_de_permisos=
             continue
         lineas.append(f"{fraseo[1] if existe else fraseo[0]} {ruta}")
         if aviso_de_permisos and EN_WINDOWS and not existe and ruta in ejecutables:
-            lineas.append(f"al commitear, marcalo ejecutable: git add --chmod=+x {ruta}")
+            lineas.append(f"al commitear, márcalo ejecutable: git add --chmod=+x {ruta}")
         if existe and ruta == convencion.GITIGNORE:
             destino = Path(raiz) / ruta
             pedidas = _pedidas(contenidos[ruta])
             try:
                 faltan = _lineas_que_faltan(pedidas, destino)
             except OSError as error:
-                lineas.append(f"no se pudo leer {convencion.GITIGNORE}: {_motivo(error, destino)}; revisá a mano que ignore: {', '.join(pedidas)}")
+                lineas.append(f"no se pudo leer {convencion.GITIGNORE}: {_motivo(error, destino)}; revisa a mano que ignore: {', '.join(pedidas)}")
                 continue
             for linea in faltan:
                 lineas.append(f"falta en {convencion.GITIGNORE}: {linea}")
     for temporal, destino in getattr(resultados, "sobrantes", ()):
-        lineas.append(f"no se pudo borrar {temporal}: borralo a mano (es una copia de {destino})")
+        lineas.append(f"no se pudo borrar {temporal}: bórralo a mano (es una copia de {destino})")
     if ensayo:
         lineas.extend(paso.motivo for paso in getattr(plan, "pasos_git", ()))
     else:
@@ -963,7 +963,7 @@ def resolver_raiz(texto, cwd):
     raiz = Path(texto)
     instancia = config_loader.encontrar_raiz(raiz)
     if instancia is not None and config_loader.canonica(instancia) != config_loader.canonica(raiz):
-        raise ErrorDePlan(f"la raíz {raiz} está dentro de la instancia {instancia}: usá esa carpeta como raíz o una fuera de ella")
+        raise ErrorDePlan(f"la raíz {raiz} está dentro de la instancia {instancia}: usa esa carpeta como raíz o una fuera de ella")
     return raiz
 
 

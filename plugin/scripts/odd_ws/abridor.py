@@ -16,7 +16,7 @@ NO_ABRE = {
 ABRE_UNA_CARPETA = "abierto en el gestor de archivos"
 ABRE_UN_ARCHIVO = "abierto con su programa"
 MUESTRA = "mostrado en su carpeta sin abrirlo, porque abrirlo podría ejecutarlo"
-SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: abrila a mano"
+SEPARA_EN_LAS_COMAS = "separa las rutas en las comas y podría abrir otra cosa: ábrela a mano"
 
 
 class NoAbrio(Exception):

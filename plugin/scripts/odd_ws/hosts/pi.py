@@ -152,27 +152,27 @@ SIN_COMPUERTA_EN_CONTROLES = SIN_AGENT_BEFORE_SETTLE + "la revisión del fin del
 USOS = ("odd-ws usa agent_before_settle (desde 0.87.0), appendSystemPrompt de systemPromptOptions en before_agent_start (desde "
         "0.68.0), resources_discover (desde 0.50.8) e isProjectTrusted (desde 0.79.1, y Pi respeta un «Do not trust» guardado recién "
         "desde 1.5.0)")
-AYUDA_PI = ("Instalá o actualizá Pi a 1.5.0 o superior (npm i -g @earendil-works/pi-coding-agent), o gentle-shell, que corre el suyo "
+AYUDA_PI = ("Instala o actualiza Pi a 1.5.0 o superior (npm i -g @earendil-works/pi-coding-agent), o gentle-shell, que corre el suyo "
             "(npm i -g gentle-pi).")
 SIN_GENTLE_SHELL = ("con Pi a secas no hay subagentes, así que un writer corre sin su compuerta de cierre y sin su identidad "
                     "(P5 y P6)")
-AYUDA_GENTLE_SHELL = ("Instalá gentle-shell (npm i -g gentle-pi) y abrí la instancia con gentle-shell desde su raíz, que es donde lee "
+AYUDA_GENTLE_SHELL = ("Instala gentle-shell (npm i -g gentle-pi) y abre la instancia con gentle-shell desde su raíz, que es donde lee "
                       ".pi/agents. Pi a secas también sirve, pero sin writers.")
 AYUDA_SUBCARPETA = "Con gentle-shell, los writers solo existen si la instancia es la raíz de su repo git: haz de la instancia la raíz de uno."
 SIN_GENTLE_SHELL_EN_CONTROLES = "el perfil controles no lo necesita: Pi a secas corre todos sus hooks"
-AYUDA_GENTLE_SHELL_EN_CONTROLES = ("Si usás gentle-shell, reinstalalo o actualizalo (npm i -g gentle-pi). El perfil controles no lo "
+AYUDA_GENTLE_SHELL_EN_CONTROLES = ("Si usas gentle-shell, reinstálalo o actualízalo (npm i -g gentle-pi). El perfil controles no lo "
                                    "necesita: Pi a secas corre todos sus hooks.")
-AYUDA_PAQUETE = ("Instalá el paquete de odd-ws en el home activo, con gentle-shell install <fuente> (o pi install <fuente> con Pi a "
+AYUDA_PAQUETE = ("Instala el paquete de odd-ws en el home activo, con gentle-shell install <fuente> (o pi install <fuente> con Pi a "
                  "secas): la fuente es git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>, o la raíz de un clon "
                  "del repositorio, no su carpeta plugin/. odd-ws no está en npm. El doctor no escribe en los homes de Pi.")
-AYUDA_SETTINGS = "Arreglalo a mano: tiene que ser un objeto JSON en UTF-8. El doctor no escribe en los homes de Pi."
-AYUDA_CONFIANZA = ("Abrí Pi (o gentle-shell) en la raíz de la instancia y confiá en la carpeta con /trust, que guarda la decisión. El "
+AYUDA_SETTINGS = "Arréglalo a mano: tiene que ser un objeto JSON en UTF-8. El doctor no escribe en los homes de Pi."
+AYUDA_CONFIANZA = ("Abre Pi (o gentle-shell) en la raíz de la instancia y confía en la carpeta con /trust, que guarda la decisión. El "
                    "doctor no escribe en los homes de Pi.")
-AYUDA_HOOKS = ("hooks/hooks.pi.json es del plugin: reinstalá o actualizá odd-ws en lugar de editarlo. Si el shim no lo puede leer, "
+AYUDA_HOOKS = ("hooks/hooks.pi.json es del plugin: reinstala o actualiza odd-ws en lugar de editarlo. Si el shim no lo puede leer, "
                "bloquea toda herramienta, y un grupo que no corre deja a su guard sin ver nada.")
-AYUDA_AGENTES = ("El .md de .claude/agents es la fuente de su .md de .pi/agents: pasá tu cambio al de .claude/agents (a la "
-                 "description o a un bloque <!-- instancia:... -->), sacá el de .pi/agents y corré --arreglar pi-agentes. Si el .md "
-                 "se editó fuera de sus bloques, arreglalo primero; el de un agente que ya no existe lo borrás vos.")
+AYUDA_AGENTES = ("El .md de .claude/agents es la fuente de su .md de .pi/agents: pasa tu cambio al de .claude/agents (a la "
+                 "description o a un bloque <!-- instancia:... -->), saca el de .pi/agents y corre --arreglar pi-agentes. Si el .md "
+                 "se editó fuera de sus bloques, arréglalo primero; el de un agente que ya no existe lo borras tú.")
 SIN_SKILLS = "sin confianza, la extensión no publica las skills de la instancia (.claude/skills) por resources_discover"
 CON_CONFIANZA = "que Pi lee solo con el proyecto en confianza"
 DEL_GENTLE_SHELL = " (el que corre gentle-shell; pi no está en el PATH)"
@@ -1045,7 +1045,7 @@ def _paquete(ctx, raiz, nucleo, gentle):
         sin_confianza, _, _ = _resolver_paquetes(ctx, raiz, activo, True)
         if any(estado[1] is True and estado[4] == "project" for estado in sin_confianza):
             motivos.append(f"{capas.PI}/{SETTINGS} declara odd-ws, pero Pi no carga la config del proyecto sin confianza "
-                           f"({_veredicto_de_confianza(ctx, Path(raiz), nucleo, activo)[1]}): instalalo en el home activo o dale "
+                           f"({_veredicto_de_confianza(ctx, Path(raiz), nucleo, activo)[1]}): instálalo en el home activo o dale "
                            "confianza al proyecto")
             ayuda = f"{AYUDA_PAQUETE} {AYUDA_CONFIANZA}"
     if arriba:

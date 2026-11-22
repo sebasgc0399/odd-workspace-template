@@ -300,8 +300,10 @@ def test_un_bloqueo_sin_calibrar_no_hace_seguir_y_su_aviso_dice_por_que():
         import config_loader
         bloqueos, avisos = R._chequear([(str(a), None, None)], config_loader.cargar(inst), None)
         assert bloqueos == [] and len(avisos) == 1, (bloqueos, avisos)
-        assert avisos[0].endswith("línea 3: línea marcada (aviso: sin calibrar; para que bloquee, correr "
-                                  "`reglas.py --calibrar sql <carpeta> --guardar`)"), avisos
+        from odd_ws import calibracion
+        assert avisos[0].endswith("línea 3: línea marcada (aviso: sin calibrar; para que bloquee, corregir los hallazgos y después "
+                                  'correr `%s "%s" --calibrar sql "%s" --guardar`)' % (calibracion.interprete(), AQUI / "reglas.py", repo)), \
+            avisos
 
 
 def fotos_del_writer(inst, sesion="s1", agente="writer-sql"):

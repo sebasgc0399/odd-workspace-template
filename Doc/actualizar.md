@@ -30,6 +30,10 @@ gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v
 
 Usa `gentle-shell --link install …` si trabajas con el home de `~/.pi/agent`. Reinstalar reemplaza la entrada y pone el clon en la etiqueta nueva. Si lo instalaste desde un clon tuyo, actualiza el clon y corre `/reload` en gentle-shell.
 
+## Después de actualizar: el doctor
+
+Corre `/odd-ws:doctor` (en Codex, `$doctor`). La ruta del plugin lleva la versión, así que `plugin-root` puede salir en FALTA con la de la versión anterior: aplica su arreglo, `--arreglar plugin-root`, que anota la nueva en `workspace.local.json`.
+
 ## Después de actualizar: las plantillas de la instancia
 
 El bootstrap no pisa el `CLAUDE.md` de la raíz ni la plantilla de los tickets (`tickets/_plantilla/CLAUDE.md`) si ya existen, porque son tuyos y los vas ajustando. Cuando una versión cambia esas plantillas, el CHANGELOG lo dice, y lo nuevo se copia a mano desde [`plugin/plantillas/`](../plugin/plantillas/) de esa versión. Los tickets que ya existen no hace falta tocarlos.
@@ -67,7 +71,7 @@ Desde la versión que trae `reglas.py --calibrar … --guardar` (el CHANGELOG lo
    python3 "<plugin_root>/scripts/reglas.py" --calibrar <capa> <carpeta> --guardar
    ```
 
-   Calibra también los paquetes de la capa, cada uno con la huella de su lock; una capa que solo tiene paquetes también se calibra así. La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado, tiene aciertos en bloqueo en el corpus o está disputada.
+   El aviso de la regla trae este mismo comando, con el Python de tu máquina, la ruta del plugin y la carpeta ya puestas (la de una regla de la capa que ya se calibró o, si no hay ninguna, la del primer repo de la capa): cópialo y córrelo tal cual desde la raíz de la instancia, después de corregir lo que la regla marca en esa carpeta, porque la calibración cuenta también los archivos sin commitear. Calibra también los paquetes de la capa, cada uno con la huella de su lock; una capa que solo tiene paquetes también se calibra así. La salida dice qué regla puede bloquear y por qué no las demás: sin sembrado, no atrapa su sembrado, tiene aciertos en bloqueo en el corpus o está disputada.
 3. **Commitea `.claude/registro/`**, junto con el módulo si le sumaste `sembrado`.
 
 Cada cambio posterior del módulo deja vieja la calibración de su capa, y `actualizar` un paquete a otra etiqueta deja vieja la del paquete, así que se repiten los pasos 2 y 3. Si una regla calibrada bloquea algo que está bien, ábrele una disputa (`.claude/registro/disputas/<ID>.md`, ver [Las disputas](capas-y-reglas.md#las-disputas)): vuelve a avisar hasta que se arregle su chequeo. La prueba de la suite que comprueba los `sembrado` llega solo a las instancias nuevas: en una que ya existe, cópiala de `plugin/plantillas/reglas/verificar.tests.py`.

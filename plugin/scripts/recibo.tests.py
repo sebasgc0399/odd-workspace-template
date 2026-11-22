@@ -1581,7 +1581,7 @@ def test_s3_el_nucleo_de_revisar_cabe_en_lo_que_claude_code_vuelve_a_adjuntar_tr
 
 
 def test_s3_cada_reference_de_revisar_existe_la_nombra_el_nucleo_y_usa_el_marcador_de_los_scripts():
-    assert REFERENCIA_RE.findall("leé `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
+    assert REFERENCIA_RE.findall("lee `references/a-b.md` y references/c.md") == ["a-b.md", "c.md"], "control positivo"
     nombradas = set(REFERENCIA_RE.findall(SKILL_REVISAR.read_text(encoding="utf-8")))
     archivos = {r.name for r in REFERENCIAS_DE_REVISAR.glob("*.md")} if REFERENCIAS_DE_REVISAR.is_dir() else set()
     assert nombradas, "el núcleo de revisar no nombra ninguna reference"
@@ -1595,7 +1595,7 @@ def test_s3_cada_reference_de_revisar_existe_la_nombra_el_nucleo_y_usa_el_marcad
 
 
 def test_el_prompt_de_revisar_pide_el_id_de_la_regla_sin_un_id_literal():
-    prompts = [b for b in bloques_de_codigo(texto_de_revisar("## 4.")) if b.startswith("Revisá ")]
+    prompts = [b for b in bloques_de_codigo(texto_de_revisar("## 4.")) if b.startswith("Revisa ")]
     assert len(prompts) == 1, prompts
     prompt = prompts[0]
     assert FORMATO_CON_ID in prompt and "sin ID" in prompt, prompt
@@ -1640,7 +1640,7 @@ def test_las_opciones_de_recibo_que_da_la_skill_revisar_existen_y_traen_la_bajad
 LIMITE_DE_CONCURRENCIA = ("**Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.**",
                           "«agent thread limit reached»", "`agents.max_threads`", "`max_concurrent_threads_per_session - 1`",
                           "5 corridas o más", "en todos los hosts")
-PASOS_DE_LA_TANDA = ("esperá a que termine una corrida en marcha", "cerrala", "`close_agent`", "relanzá la rechazada",
+PASOS_DE_LA_TANDA = ("espera a que termine una corrida en marcha", "ciérrala", "`close_agent`", "relanza la rechazada",
                      "la revisión va por tandas")
 
 

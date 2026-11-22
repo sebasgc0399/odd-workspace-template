@@ -178,7 +178,7 @@ def instancia_a_medias(e, spec_en_disco):
 def mensaje_de_config_distinta(raiz):
     return (
         f"error: la config de la spec no es la de {raiz}/workspace.config.json, que ya existe: el bootstrap no la reescribe, "
-        "así que la spec tiene que traerla tal cual (o cambiala a mano antes)\n"
+        "así que la spec tiene que traerla tal cual (o cámbiala a mano antes)\n"
     )
 
 

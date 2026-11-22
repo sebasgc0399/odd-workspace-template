@@ -197,7 +197,7 @@ class Mundo:
         assert not self.centinela.exists(), "ningún comando corre código del paquete: %r" % self.centinela.read_text()
 
 
-AVISO_LOCAL = ("paquetes: aviso: la fuente es una ruta local (%s): el lock solo sirve en esta máquina; para un equipo, importá desde "
+AVISO_LOCAL = ("paquetes: aviso: la fuente es una ruta local (%s): el lock solo sirve en esta máquina; para un equipo, importa desde "
                "una URL\n")
 
 
@@ -230,7 +230,7 @@ def test_importar_copia_solo_la_lista_blanca_y_escribe_el_lock():
         assert (w.raiz / LOCK).read_bytes() == (json.dumps(B.datos_del_lock(lock), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         ls = out.splitlines()
         assert ls[0] == "importado: alfa (prefijo ALF, capa sql), etiqueta v1 (commit %s), en %s" % (w.ids["v1"][:12], CARPETA), ls
-        assert any(l.startswith("Antes de commitear, revisá en el diff") for l in ls), ls
+        assert any(l.startswith("Antes de commitear, revisa en el diff") for l in ls), ls
         w.sin_rastros()
         codigo, out, err = w.correr("importar", w.fuente, "--etiqueta", "delta", "--capa", "web")
         assert codigo == 0 and sorted(B.leer_lock(str(w.raiz))) == ["alfa", "delta"], (codigo, out, err)
@@ -256,7 +256,9 @@ def test_importado_el_doctor_da_ok_y_el_hook_aplica_su_regla():
         hook = subprocess.run([sys.executable, str(AQUI / "verificar_capa.py"), "--plazo", "20"], input=json.dumps(evento).encode("utf-8"),
                               capture_output=True, env=env, timeout=120)
         contexto = json.loads(hook.stdout)["hookSpecificOutput"]["additionalContext"] if hook.returncode == 0 else hook
-        assert "[ALF-01] linea 1: regla v2 (aviso: calibración vieja; para que bloquee, correr `reglas.py --calibrar sql " in contexto, \
+        from odd_ws import calibracion
+        assert ('[ALF-01] linea 1: regla v2 (aviso: calibración vieja; para que bloquee, corregir los hallazgos y después correr `%s "%s" '
+                '--calibrar sql ' % (calibracion.interprete(), AQUI / "reglas.py")) in contexto, \
             "otra etiqueta es otra huella en el lock: hay que recalibrar (%r)" % (contexto,)
 
 
@@ -300,7 +302,7 @@ def test_importar_rechaza_el_nombre_repetido_los_prefijos_que_chocan_y_la_capa_q
         assert w.foto() == antes
         escribir(w.raiz, {".claude/reglas/paquetes/delta/nota.txt": "a mano\n"})
         codigo, out, err = w.importar("delta", "web")
-        assert (codigo, out, err) == (1, "", "paquetes: ya existe .claude/reglas/paquetes/delta y no está en el lock: sacala o elegí otro paquete\n"), (codigo, out, err)
+        assert (codigo, out, err) == (1, "", "paquetes: ya existe .claude/reglas/paquetes/delta y no está en el lock: sácala o elige otro paquete\n"), (codigo, out, err)
         w.sin_rastros()
 
 
@@ -317,7 +319,7 @@ def test_actualizar_de_v1_a_v2_cambia_commit_etiqueta_y_huella_y_dice_que_cambio
         ls = out.splitlines()
         assert ls[0] == "actualizado: alfa, etiqueta v1 -> v2 (commit %s -> %s)" % (w.ids["v1"][:12], w.ids["v2"][:12]), ls
         assert ls[1:3] == ["  nuevo LICENSE", "  cambia verificar.py"], ls
-        assert any(l.startswith("Antes de commitear, revisá en el diff") for l in ls), ls
+        assert any(l.startswith("Antes de commitear, revisa en el diff") for l in ls), ls
         carpeta = w.raiz / CARPETA
         lock = B.leer_lock(str(w.raiz))["alfa"]
         assert (lock.etiqueta, lock.commit, lock.huella) == ("v2", w.ids["v2"], B.huella(str(carpeta))), lock
@@ -456,8 +458,8 @@ def test_no_escribe_a_traves_de_un_enlace_y_deja_todo_como_estaba():
 
 
 def test_una_fuente_con_credenciales_se_rechaza_sin_mostrarlas():
-    mensaje = ("paquetes: la fuente trae usuario o contraseña en la URL y quedaría en el lock, que se commitea: configurá las "
-               "credenciales en git (un credential helper o ssh) y pasá la URL sin ellas\n")
+    mensaje = ("paquetes: la fuente trae usuario o contraseña en la URL y quedaría en el lock, que se commitea: configura las "
+               "credenciales en git (un credential helper o ssh) y pasa la URL sin ellas\n")
     with Mundo() as w:
         for fuente in ("https://usuario:SECRETO123@example.invalid/org/reglas.git", "https://SECRETO123@example.invalid/r.git",
                        "ssh://git:SECRETO123@example.invalid/r.git", "ssh://git@example.invalid/r.git"):

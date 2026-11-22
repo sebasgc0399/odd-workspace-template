@@ -395,7 +395,7 @@ def test_el_puerto_del_doctor_da_la_version_de_claude_y_el_marketplace_como_ante
     with Temporal() as base:
         ctx = Ctx(base, version="2.1.200 (Claude Code)\n")
         claude, instalado = m().version(ctx, doctor.NUCLEO)
-        assert (claude.estado, claude.ayuda, instalado) == ("FALTA", "Actualizá Claude Code a 2.1.284 o superior.", True), claude
+        assert (claude.estado, claude.ayuda, instalado) == ("FALTA", "Actualiza Claude Code a 2.1.284 o superior.", True), claude
         for cli in (doctor.NUCLEO.CLI_INSTALADO, doctor.NUCLEO.CLI_AUSENTE):
             [marketplace] = m().chequeos(ctx, None, doctor.NUCLEO, cli)
             assert marketplace.estado == "FALTA" and marketplace.comando == [
@@ -422,7 +422,7 @@ def test_claude_code_anterior_a_2_1_295_es_aviso_porque_un_hook_que_no_arranca_d
             assert (claude.estado, claude.detalle) == ("OK", version), claude
     with Temporal() as base:
         claude, _ = m().version(Ctx(base, version="2.1.283 (Claude Code)\n"), doctor.NUCLEO)
-        assert (claude.estado, claude.ayuda) == ("FALTA", "Actualizá Claude Code a 2.1.284 o superior."), claude
+        assert (claude.estado, claude.ayuda) == ("FALTA", "Actualiza Claude Code a 2.1.284 o superior."), claude
 
 
 def test_los_hooks_registrados_de_claude_code_son_command_y_args_de_hooks_json():

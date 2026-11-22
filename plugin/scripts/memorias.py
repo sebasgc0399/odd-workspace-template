@@ -223,20 +223,20 @@ def leer_registro(ruta):
     except (FileNotFoundError, NotADirectoryError):
         return None
     except OSError as error:
-        raise ErrorDeEntorno("no se puede leer el registro %s (%s): corregilo o pasá --registro <archivo>" % (ruta, error.strerror or error))
+        raise ErrorDeEntorno("no se puede leer el registro %s (%s): corrígelo o pasa --registro <archivo>" % (ruta, error.strerror or error))
     try:
         datos = json.loads(crudo.decode("utf-8-sig"))
     except ValueError:
-        raise ErrorDeEntorno("el registro %s es ilegible: no es JSON en UTF-8; corregilo o borralo" % ruta)
+        raise ErrorDeEntorno("el registro %s es ilegible: no es JSON en UTF-8; corrígelo o bórralo" % ruta)
     completo = isinstance(datos, dict) and set(datos) == {"version", "memorias"}
     version, entradas = (datos["version"], datos["memorias"]) if completo else (None, None)
     if (type(version) is not int or version != VERSION_DEL_REGISTRO or not isinstance(entradas, dict)
             or not all(_entrada_valida(clave, entrada) for clave, entrada in entradas.items())):
-        raise ErrorDeEntorno("el registro %s es ilegible: no tiene la forma %s; corregilo o borralo" % (ruta, FORMA_DEL_REGISTRO))
+        raise ErrorDeEntorno("el registro %s es ilegible: no tiene la forma %s; corrígelo o bórralo" % (ruta, FORMA_DEL_REGISTRO))
     registradas = {}
     for entrada in entradas.values():
         if entrada["slug"] in registradas:
-            raise ErrorDeEntorno("el registro %s es ilegible: tiene dos entradas para %s; corregilo o borralo" % (ruta, entrada["slug"]))
+            raise ErrorDeEntorno("el registro %s es ilegible: tiene dos entradas para %s; corrígelo o bórralo" % (ruta, entrada["slug"]))
         registradas[entrada["slug"]] = entrada
     return registradas
 
@@ -258,7 +258,7 @@ def escribir_registro(ruta, registradas):
                 os.unlink(temporal)
             except OSError:
                 pass
-        raise ErrorDeEntorno("no se puede escribir el registro %s (%s): pasá --registro <archivo>" % (ruta, error.strerror or error))
+        raise ErrorDeEntorno("no se puede escribir el registro %s (%s): pasa --registro <archivo>" % (ruta, error.strerror or error))
 
 
 def registrar(ruta, registradas, directorio, slugs, estado, fecha):
@@ -357,7 +357,7 @@ def _home(entorno):
 def _raiz(args, entorno):
     raiz = Path(os.path.abspath(args.raiz)) if args.raiz else raiz_de_instancia(entorno, os.getcwd())
     if raiz is None:
-        raise ErrorDeEntorno("no hay %s en la carpeta de la sesión ni en sus padres (pasá --raiz)" % config_loader.NOMBRE)
+        raise ErrorDeEntorno("no hay %s en la carpeta de la sesión ni en sus padres (pasa --raiz)" % config_loader.NOMBRE)
     if not (raiz / config_loader.NOMBRE).is_file():
         raise ErrorDeEntorno("no hay %s en %s" % (config_loader.NOMBRE, raiz))
     return raiz
@@ -371,7 +371,7 @@ def _directorio(elegido, args, entorno, raiz):
         de_donde = "pasado por --memorias" if pasado else "derivado de %s%s" % (
             directorio.fuente, ", %s" % directorio.detalle if directorio.detalle else "")
         raise ErrorDeEntorno("el directorio de memoria %s %s (%s)%s" % (
-            directorio.ruta, problema, de_donde, "" if pasado else ": pasá --memorias <dir>"))
+            directorio.ruta, problema, de_donde, "" if pasado else ": pasa --memorias <dir>"))
     return directorio
 
 

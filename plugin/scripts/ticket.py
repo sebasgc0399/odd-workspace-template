@@ -22,13 +22,13 @@ DOCUMENTO_DEL_TICKET = Path(capas.TICKET_PLANTILLA).name
 COPIAR_CON_POWERSHELL = ("$m = New-Object System.IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($m); "
                          "Set-Clipboard -Value ([Text.Encoding]::UTF8.GetString($m.ToArray()))")
 COBERTURA_COMPLETA = "todo lo versionado en los repos tiene capa o es doc"
-SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasá el prefijo (ticket.py --siguiente <prefijo>) "
-               f"o fijalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
+SIN_PREFIJO = (f"la config no fija {config_loader.CLAVE_DE_TICKETS}.prefix: pasa el prefijo (ticket.py --siguiente <prefijo>) "
+               f"o fíjalo en {config_loader.NOMBRE} como \"{config_loader.CLAVE_DE_TICKETS}\": {{\"prefix\": \"T\"}}")
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-PLANTILLA_FALTANTE = "falta {}: corré /odd-ws:bootstrap para generarla"
+PLANTILLA_FALTANTE = "falta {}: corre /odd-ws:bootstrap para generarla"
 AVISO_SIN_SETTINGS = (
     "ticket: aviso: la plantilla no tiene {}, así que una sesión abierta dentro del ticket no carga el plugin: "
-    "completá la instancia con /odd-ws:bootstrap y volvé a correr ticket.py"
+    "completa la instancia con /odd-ws:bootstrap y vuelve a correr ticket.py"
 )
 
 
@@ -46,9 +46,9 @@ def carpeta_del_ticket(id, slug):
 
 def _validar(id, slug):
     if not id_valido(id):
-        raise Rechazo(f"el id {id!r} no es válido: usá letras, números, guion y guion bajo (hasta 128 caracteres)")
+        raise Rechazo(f"el id {id!r} no es válido: usa letras, números, guion y guion bajo (hasta 128 caracteres)")
     if SLUG_RE.fullmatch(slug) is None:
-        raise Rechazo(f"el slug {slug!r} no es válido: usá minúsculas y números, con guiones entre ellos (por ejemplo, lector-de-codigo)")
+        raise Rechazo(f"el slug {slug!r} no es válido: usa minúsculas y números, con guiones entre ellos (por ejemplo, lector-de-codigo)")
 
 
 def _recorrer(carpeta):
@@ -100,7 +100,7 @@ def marcar_activo(raiz, relativa):
 
 def siguiente(raiz, prefijo):
     if config_loader.PREFIJO_DE_TICKETS_RE.fullmatch(prefijo) is None:
-        raise Rechazo(f"el prefijo {prefijo!r} no es válido: empezá por una letra y seguí con letras, números o guion bajo (hasta 32)")
+        raise Rechazo(f"el prefijo {prefijo!r} no es válido: empieza por una letra y sigue con letras, números o guion bajo (hasta 32)")
     numerado = re.compile(re.escape(prefijo.casefold()) + r"-([0-9]+)-")
     base = Path(raiz) / capas.TICKETS
     plantilla = Path(raiz) / capas.TICKET_PLANTILLA_DIR
@@ -203,7 +203,7 @@ def _raiz(texto):
     if texto is None:
         raiz = raiz_de_instancia(os.environ, os.getcwd())
         if raiz is None:
-            raise ErrorDeEntorno(f"no hay {config_loader.NOMBRE} en la carpeta de la sesión ni en sus padres (pasá --raiz)")
+            raise ErrorDeEntorno(f"no hay {config_loader.NOMBRE} en la carpeta de la sesión ni en sus padres (pasa --raiz)")
     else:
         raiz = Path(texto)
         if not (raiz / config_loader.NOMBRE).is_file():
@@ -244,13 +244,13 @@ def _marcar(modo, id, texto_de_raiz):
     try:
         raiz = _raiz(texto_de_raiz)
         if not id_valido(id):
-            raise Rechazo(f"el id {id!r} no es válido: usá letras, números, guion y guion bajo (hasta 128 caracteres)")
+            raise Rechazo(f"el id {id!r} no es válido: usa letras, números, guion y guion bajo (hasta 128 caracteres)")
         if modo == "activar":
             carpetas = carpetas_del_id(raiz, id)
             if not carpetas:
                 raise Rechazo(f"el id {id} no tiene carpeta en {capas.TICKETS}/")
             if len(carpetas) > 1:
-                raise Rechazo(f"el id {id} tiene varias carpetas: {', '.join(carpetas)}; activá la que corresponde a mano o renombrá las otras")
+                raise Rechazo(f"el id {id} tiene varias carpetas: {', '.join(carpetas)}; activa la que corresponde a mano o renombra las otras")
             marcar_activo(raiz, carpetas[0])
             print(f"ticket activo: {carpetas[0]}")
             return 0
@@ -285,16 +285,20 @@ def versionados(ruta):
 def _cobertura(texto_de_raiz):
     try:
         raiz = _raiz(texto_de_raiz)
-        detalle = config_loader.cobertura_de_los_repos(config_loader.cargar(raiz), versionados)
+        config = config_loader.cargar(raiz)
+        controles = config_loader.es_controles(raiz)
+        cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles)
     except ErrorDeEntorno as error:
         return _error(str(error), 2)
     except Exception as error:
         return _error(f"error interno: {type(error).__name__}: {error}", 2)
-    if detalle is None:
+    if cobertura is None:
         print(f"{config_loader.ID_COBERTURA}: {COBERTURA_COMPLETA}")
+    elif not cobertura.aviso:
+        print(f"{config_loader.ID_COBERTURA}: {cobertura.detalle}")
     else:
-        print(f"aviso {config_loader.ID_COBERTURA}: {detalle}")
-        print(f"  cómo: {config_loader.AYUDA_COBERTURA}")
+        print(f"aviso {config_loader.ID_COBERTURA}: {cobertura.detalle}")
+        print(f"  cómo: {config_loader.AYUDA_COBERTURA_CONTROLES if controles else config_loader.AYUDA_COBERTURA}")
     return 0
 
 
@@ -305,7 +309,7 @@ def documento_de(objetivo, texto_de_raiz):
         if not carpetas:
             raise Rechazo(f"el id {objetivo} no tiene carpeta en {capas.TICKETS}/")
         if len(carpetas) > 1:
-            raise Rechazo(f"el id {objetivo} tiene varias carpetas: {', '.join(carpetas)}; pasá la ruta del {DOCUMENTO_DEL_TICKET} que querés revisar")
+            raise Rechazo(f"el id {objetivo} tiene varias carpetas: {', '.join(carpetas)}; pasa la ruta del {DOCUMENTO_DEL_TICKET} que quieres revisar")
         documento = raiz / carpetas[0] / DOCUMENTO_DEL_TICKET
         if not documento.is_file():
             raise Rechazo(f"{carpetas[0]} no tiene {DOCUMENTO_DEL_TICKET}")
@@ -314,7 +318,7 @@ def documento_de(objetivo, texto_de_raiz):
         raise Rechazo("--raiz va con un id: una ruta ya dice dónde está el documento")
     documento = Path(objetivo)
     if documento.suffix.lower() != ".md" or not documento.is_file():
-        raise Rechazo(f"{objetivo} no es un .md que exista: pasá el id de un ticket o la ruta a un .md")
+        raise Rechazo(f"{objetivo} no es un .md que exista: pasa el id de un ticket o la ruta a un .md")
     return documento
 
 
