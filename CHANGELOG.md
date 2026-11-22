@@ -2,6 +2,25 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.13.2
+
+**Actualizar el plugin ya no deja el doctor en FALTA, y la primera corrida del bootstrap y del doctor sale completa, en español y sin palabras internas.**
+
+### Lo que cambia para ti
+
+- **Después de actualizar, `plugin-root` se pone al día solo.** La ruta del plugin lleva la versión, así que hasta ahora cada actualización dejaba `plugin-root` en FALTA en cada instancia, y había que correr `--arreglar plugin-root` en todas; mientras tanto, el pre-commit corría las reglas de la versión vieja. Ahora la primera sesión que abres en la instancia anota en `workspace.local.json` la versión de esa sesión, y se lo dice al agente al arrancar. Vale desde esta misma actualización: la primera sesión con la `0.13.2` ya lo hace. Solo cambia una ruta que apunta a otra versión del mismo plugin: una carpeta con nombre de versión junto a la de la sesión, como las del caché. Una que anotaste a mano en otro lado, por ejemplo en un clon, queda como está. Con el hook `verificar_capa` apagado, el arreglo del doctor sigue ahí.
+- **En «Lo detectado», la fila del repo sale completa siempre:** su «Qué significa» lleva el nombre del repo (`local.repos.mi-proyecto.path`). En la `0.13.1`, a veces quedaba `<repo>` sin llenar.
+- **El título de cada comando que corren el bootstrap y el doctor va en español.** En la `0.13.1`, a veces salía en inglés.
+- **La descripción del doctor en el autocompletado dice qué hace:** «Revisa tu máquina y esta instancia, dice qué falta y cómo arreglarlo», sin «(Capa 0)».
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **`plugin-root` (I75):** el `SessionStart` de `verificar_capa` llama a `odd_ws/raiz_del_plugin.seguir_al_vigente`, en Claude Code, Codex y Pi. Anota la carpeta del plugin de la sesión solo si no hay copia de emergencia, la anotada y la vigente tienen nombre de versión y la misma carpeta madre, son distintas y la vigente tiene `scripts/reglas.py`. Usa la misma escritura que `--arreglar plugin-root`, que pasó a ese módulo junto con `misma_carpeta` y `COPIA_DE_EMERGENCIA`. El pre-commit de la instancia y el ítem `plugin-root` del doctor no cambian.
+- **Los skills:** la regla de la tabla del paso 3 del bootstrap dice que el `<repo>` de «Qué significa» se llena; el bootstrap y el doctor piden en español la descripción de cada comando; la descripción del doctor cambió; y el bootstrap escribe la spec con la herramienta de archivos, nunca con un heredoc ni con `echo`, porque en una corrida de prueba las barras invertidas de una ruta de Windows rompieron el JSON. Los tests de `bootstrap.tests.py` fijan las cuatro cosas.
+- **Cómo se validó:** un verificador independiente simuló una actualización con dos versiones del plugin en un caché de prueba, con la versión vieja en disco y borrada: el hook anotó la nueva, el doctor dio `plugin-root` OK y el commit corrió las reglas de la versión nueva. Los casos fuera de la regla dejaron el archivo idéntico, y con la versión ya al día la salida del hook es la misma que en la `0.13.1`. Cuatro corridas reales del bootstrap con el plugin de la rama salieron con la fila del repo llena, todos los títulos de los comandos en español y el doctor en `0 FALTA, 0 AVISO`.
+- Las decisiones están en `odd/tasks/pulido-instalacion.md`.
+
 ## 0.13.1
 
 **El bootstrap muestra lo mismo en cada corrida y vuelve a proponer tus repos como del equipo.**

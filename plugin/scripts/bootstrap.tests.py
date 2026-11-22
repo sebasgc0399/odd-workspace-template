@@ -3575,6 +3575,34 @@ def test_las_extensiones_sin_capa_se_escriben_como_las_da_proponer_con_los_paren
     assert "escritas como las da `--proponer`" in paso3 and "`(sin extensión)`, con los paréntesis" in paso3, paso3[:400]
 
 
+def test_el_que_significa_de_cada_repo_lleva_el_nombre_del_repo_y_no_un_repo_literal():
+    paso3 = seccion(SKILL_BOOTSTRAP, "## 3. La propuesta y el ensayo", "## 4. La aplicación")
+    assert "| Repo | `<repo>` → `<ruta>` |" in paso3 and "`local.repos.<repo>.path`" in paso3, paso3[:400]
+    assert ("La columna «Qué significa» va tal cual, salvo el `<repo>` de la fila «Repo», que lleva el nombre corto de ese repo, "
+            "como en «Propuesta»") in paso3, paso3[:400]
+    assert "y el `<por qué>` de la fila «Extensiones sin capa»" in paso3, paso3[:400]
+
+
+def test_la_spec_se_escribe_con_la_herramienta_de_archivos_y_nunca_con_un_heredoc():
+    spec = seccion(SKILL_BOOTSTRAP, "### La spec", "## 4. La aplicación")
+    assert "Escríbela con la herramienta Write, nunca con un heredoc ni con `echo` desde la terminal" in spec, spec[:400]
+    assert "las barras invertidas de las rutas de Windows rompen el JSON" in spec, spec[:400]
+
+
+def test_el_bootstrap_y_el_doctor_describen_en_espanol_cada_comando_que_corren():
+    for skill in (SKILL_BOOTSTRAP, SKILL_DOCTOR):
+        texto = skill.read_text(encoding="utf-8")
+        assert "también la descripción de cada comando que corres" in texto and "va en español" in texto, skill
+
+
+def test_la_descripcion_del_doctor_dice_que_hace_sin_jerga_interna_y_conserva_cuando_usarlo():
+    cabecera = SKILL_DOCTOR.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+    descripcion = next(l for l in cabecera.split("\n") if l.startswith("description:"))
+    assert "Capa 0" not in descripcion and "plantilla ODD" not in descripcion, descripcion
+    assert descripcion.startswith("description: Revisa tu máquina y esta instancia"), descripcion
+    assert "Usar cuando un hook no corre" in descripcion and "después de actualizar el plugin" in descripcion, descripcion
+
+
 if __name__ == "__main__":
     sys.exit(main())
 
