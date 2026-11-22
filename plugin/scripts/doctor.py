@@ -103,6 +103,13 @@ CLI_INSTALADO, CLI_AUSENTE, CLI_DE_OTRO_HOST = "instalado", "ausente", "ausente 
 SIN_CLAUDE = "claude no está instalado"
 CON_CENTINELA = re.compile(r"criterios|capa-.+")
 SIN_INVOCACION = re.compile(r"disable-model-invocation\s*:\s*(?:true|True|TRUE)\s*(?:#.*)?$")
+DE_LA_PLANTILLA = frozenset({"repo-hooks", "lista-negra"})
+DE_LA_MAQUINA = frozenset({"plugin-root", "python", "git-credenciales", "claude", "marketplace", "codex", "codex-plugin", "codex-hooks",
+                           "codex-proyecto", "pi", "gentle-shell", "pi-plugin", "pi-confianza", "hooks-host", "gentle-ai", "rdd",
+                           "telemetria", "engram", "jq"})
+ENCABEZADO_PLANTILLA = "La plantilla (solo en un clon de odd-workspace-template):"
+ENCABEZADO_MAQUINA = "Tu máquina:"
+ENCABEZADO_INSTANCIA = "Esta instancia:"
 
 Resultado = namedtuple("Resultado", "id estado detalle comando ayuda arreglo")
 
@@ -199,6 +206,14 @@ def raiz_de_instancia(ctx):
     return config_loader.encontrar_raiz(config_loader.inicio_de_sesion(ctx.entorno, str(ctx.cwd)))
 
 
+def desde_el_home(ruta, home):
+    try:
+        relativa = Path(ruta).relative_to(home)
+    except ValueError:
+        return ruta
+    return os.path.join("~", relativa) if relativa.parts else "~"
+
+
 def misma_carpeta(a, b):
     if config_loader.canonica(a) == config_loader.canonica(b):
         return True
@@ -234,7 +249,7 @@ def chequear_plugin_root(ctx):
     if not misma_carpeta(anotado, ctx.plugin):
         return resultado("plugin-root", FALTA, f"plugin_root = {anotado} es otra copia del plugin; el doctor corre desde {ctx.plugin}",
                          arreglo=arreglo)
-    return resultado("plugin-root", OK, f"plugin_root = {anotado}")
+    return resultado("plugin-root", OK, f"plugin_root = {desde_el_home(anotado, ctx.home)}")
 
 
 def hosts_declarados(raiz):
@@ -802,18 +817,27 @@ def diagnosticar(ctx):
     ]
 
 
+def agrupar(resultados):
+    grupos = ((ENCABEZADO_PLANTILLA, [r for r in resultados if r.id in DE_LA_PLANTILLA]),
+              (ENCABEZADO_MAQUINA, [r for r in resultados if r.id in DE_LA_MAQUINA]),
+              (ENCABEZADO_INSTANCIA, [r for r in resultados if r.id not in DE_LA_PLANTILLA | DE_LA_MAQUINA]))
+    return [(encabezado, filas) for encabezado, filas in grupos if filas]
+
+
 def imprimir(resultados):
     ancho = max(len(r.id) for r in resultados)
     sangria = " " * (ancho + 13)
-    for r in resultados:
-        print(f"{r.id:<{ancho}}  {r.estado:<9}  {r.detalle}")
-        if r.estado in (FALTA, AVISO):
-            if r.comando:
-                print(f"{sangria}arreglo: --arreglar {r.id}  ({' '.join(r.comando)})")
-            elif r.arreglo:
-                print(f"{sangria}arreglo: --arreglar {r.id}")
-            if r.ayuda:
-                print(f"{sangria}cómo: {r.ayuda}")
+    for posicion, (encabezado, filas) in enumerate(agrupar(resultados)):
+        print(f"\n{encabezado}" if posicion else encabezado)
+        for r in filas:
+            print(f"{r.id:<{ancho}}  {r.estado:<9}  {r.detalle}")
+            if r.estado in (FALTA, AVISO):
+                if r.comando:
+                    print(f"{sangria}arreglo: --arreglar {r.id}  ({' '.join(r.comando)})")
+                elif r.arreglo:
+                    print(f"{sangria}arreglo: --arreglar {r.id}")
+                if r.ayuda:
+                    print(f"{sangria}cómo: {r.ayuda}")
     faltas = sum(r.estado == FALTA for r in resultados)
     avisos = sum(r.estado == AVISO for r in resultados)
     print(f"\n{faltas} FALTA, {avisos} AVISO")
