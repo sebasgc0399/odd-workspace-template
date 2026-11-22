@@ -129,6 +129,11 @@ Si el usuario corrige algo, ajustá la spec, volvé a correr el ensayo y mostrá
 
 Con el sí, corré lo mismo sin `--ensayo` (con `--commitear`).
 
+Si sale con 0, muestra la salida siempre igual, bajo el título `**La aplicación**`, sin parafrasearla y sin agregar un resumen propio:
+
+1. un bloque de código `text` con sus líneas tal cual y en su orden, menos las de cada archivo (`creado …` y `ya existía …`): quedan las de git (`git init`, `core.hooksPath`, `commit:` y `no entró al commit …`), las que piden atención (como `falta en .gitignore: …`, `no se pudo borrar …` o `no se creó …`) y la última, `resumen:`;
+2. debajo, un comentario de una línea solo para las que lo piden abajo, en el orden del bloque. Las demás no se comentan.
+
 Cómo leer la salida:
 
 - **Sale con 2:** mostrá el error tal cual.
@@ -136,30 +141,52 @@ Cómo leer la salida:
   - Si es de una config que ya existía, el arreglo es del usuario: decile qué falta.
   - Si dice que la raíz es la raíz de un repo de código, hacé la pregunta del paso 2 antes de seguir.
 - **`no se tocó` en una línea de git** (hooks propios, un worktree enlazado, un `core.hooksPath` con otro valor): explicá en una línea qué significa. No lo cambies por tu cuenta.
-- **La línea `commit:`.** `commit: <hash> con N archivos (el hook, ejecutable)` es el primer commit hecho: los archivos que el script creó, sin lo ignorado, nunca `workspace.local.json` (tiene las rutas de la máquina) y nunca un push. Si termina en `; entraron también los que ya existían: …`, sumó lo que ya estaba sin trackear y es de la instancia: el `.claude/settings.json` igual al que escribe el script (el que deja `claude plugin install --scope project`) y el `.code-workspace` de la raíz con rutas relativas. Si dice `commit: no se hizo; …` (la config pide aprobar cada commit, hay cambios stageados ajenos, la raíz está dentro de otro repo) o `commit: falló (…)`, pasale la línea al usuario tal cual: trae lo que tiene que hacer, con el `chmod` del hook.
-- **`no entró al commit …`:** un `.claude/settings.json` con otro contenido, o un `.code-workspace` con alguna ruta absoluta o que no se pudo leer. Quedan sin trackear: pasale la línea al usuario tal cual, que trae el motivo, y no los commitees vos.
-- **`falta en .gitignore: …`** y **`no se pudo borrar …`:** pasáselas al usuario. La última va antes de commitear.
-- **`no se creó … ya existía, así que lo deriva de ahí el doctor`**: el agente de otro CLI que ya tenía su `.md`. No es un error: lo genera el doctor del paso 5, desde ese `.md`, con su arreglo.
+- **La línea `commit:`** no se comenta. `commit: <hash> con N archivos (el hook, ejecutable)` es el primer commit hecho: los archivos que el script creó, sin lo ignorado, nunca `workspace.local.json` (tiene las rutas de la máquina) y nunca un push. Si termina en `; entraron también los que ya existían: …`, sumó lo que ya estaba sin trackear y es de la instancia: el `.claude/settings.json` igual al que escribe el script (el que deja `claude plugin install --scope project`) y el `.code-workspace` de la raíz con rutas relativas. Si dice `commit: no se hizo; …` (la config pide aprobar cada commit, hay cambios stageados ajenos, la raíz está dentro de otro repo) o `commit: falló (…)`, trae lo que tiene que hacer el usuario, con el `chmod` del hook.
+- **`no entró al commit …`:** un `.claude/settings.json` con otro contenido, o un `.code-workspace` con alguna ruta absoluta o que no se pudo leer. Quedan sin trackear y la línea trae el motivo: no la comentes ni los commitees tú.
+- **`falta en .gitignore: …`** y **`no se pudo borrar …`:** comenta cada una en su línea: qué falta ignorar, o que esa copia se borra a mano antes de commitear.
+- **`no se creó … ya existía, así que lo deriva de ahí el doctor`**: el agente de otro CLI que ya tenía su `.md`. No es un error: lo genera el doctor del paso 5, desde ese `.md`, con su arreglo. Dilo así en su línea.
 
 ## 5. El doctor
 
-Corré el doctor y presentalo como dice `/odd-ws:doctor`, con los arreglos de a uno y solo con un sí:
+Corre el doctor:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py"
 ```
 
-En `capas-cobertura` vale la regla del paso 3: solo ofrecé sumar a una capa las extensiones de su grupo de `mismo_lenguaje`, y las demás quedan con el aviso.
+Preséntalo bajo el título `**El doctor**`, como dice `/odd-ws:doctor` en «Cómo presentarlo»: su salida entera y tal cual en un bloque de código `text`, con los encabezados de grupo y la línea de resumen; debajo, un comentario de una línea por cada FALTA y cada AVISO (qué rompe y qué hacer) o, si no hay ninguno, la línea `Todo en orden: nada falta y no hay avisos.`, tal cual. Las filas `OK` y `NO APLICA` no se comentan, y no agregues un resumen propio.
+
+Los arreglos se ofrecen de a uno, como dice el doctor, y se corren solo con un sí para ese ítem. Si hay alguno que ofrecer, la respuesta termina con la pregunta del primero, y el cierre del paso 6 va cuando ya no quede ninguno por responder.
+
+En la línea de `capas-cobertura`, si sale en AVISO, vale la regla del paso 3: solo ofrece sumar a una capa las extensiones de su grupo de `mismo_lenguaje`; las demás quedan con el aviso.
 
 ## 6. El siguiente paso
 
-Cerrá con lo que sigue, en pocas líneas:
+El cierre va al final de la respuesta, después del doctor, y es un texto fijo según el perfil: pégalo tal cual, sin cambiar ni agregar nada. Lo que depende de esta corrida va antes del texto fijo, en una línea aparte, y solo cuando ocurre: si la raíz es la carpeta aparte del paso 2 y no la de la sesión, la línea es «Abre `claude` en `<raíz>`: la instancia se trabaja desde ahí».
 
-- **Abrir el primer ticket** con `/odd-ws:abrir`, con un cambio real y chico.
-- **Que la matriz esté vacía es lo normal.** Las reglas nacen al cerrar tickets: `/odd-ws:cerrar` gradúa lo aprendido. No las cargues a mano ahora.
+### Con `completo`
+
+```text
+**Lo que sigue**
+
+- **Abre el primer ticket** con `/odd-ws:abrir`, con un cambio real y chico.
+- **La matriz empieza vacía, y es lo normal.** Las reglas nacen al cerrar tickets: `/odd-ws:cerrar` gradúa lo aprendido. No hace falta cargarlas a mano.
 - **Dos atajos:** `/odd-ws:cerrar memorias` pasa a la matriz las reglas que ya están en las memorias del proyecto (las de la instancia y las de cada repo), y `/odd-ws:paquetes` trae las reglas de una capa desde otro repo git.
-- **Si el repo ya tiene reglas escritas** (su `CLAUDE.md`, una carpeta de gotchas, sus docs o sus propios agentes), proponé que el primer ticket sea **sembrarlas**: abrir un ticket «sembrar las reglas de <capa>», leer esas fuentes y anotar en la bitácora cada regla con su archivo y el commit del repo, para graduarlas al cerrarlo con `/odd-ws:cerrar`. La matriz cita la bitácora del ticket, porque un archivo de un repo de código no se puede citar directo como origen.
-- **En `controles`, lo de los tickets no aplica:** no hay `/odd-ws:abrir` ni cierre de tickets. Las reglas nacen con `/odd-ws:cerrar memorias` y `/odd-ws:paquetes`, y la revisión sigue siendo la de la herramienta del usuario (el doctor avisa si su RDD está apagado).
+- **Si alguno de los repos ya tiene reglas escritas** (su `CLAUDE.md`, una carpeta de gotchas, sus docs o sus propios agentes), que el primer ticket sea sembrarlas: en él se leen esas fuentes, se anota en la bitácora cada regla con su archivo y el commit del repo, y se gradúan al cerrarlo con `/odd-ws:cerrar`.
+```
+
+La siembra pasa por un ticket porque la matriz cita la bitácora del ticket: un archivo de un repo de código no se puede citar directo como origen.
+
+### Con `controles`
+
+No hay `/odd-ws:abrir` ni cierre de tickets: no los propongas.
+
+```text
+**Lo que sigue**
+
+- **En `controles` no hay tickets.** La revisión sigue siendo la de tu herramienta: el doctor avisa si su RDD está apagado.
+- **La matriz empieza vacía, y es lo normal.** Las reglas nacen con dos atajos: `/odd-ws:cerrar memorias` pasa a la matriz las reglas que ya están en las memorias del proyecto (las de la instancia y las de cada repo), y `/odd-ws:paquetes` trae las reglas de una capa desde otro repo git.
+```
 
 ## Reglas
 

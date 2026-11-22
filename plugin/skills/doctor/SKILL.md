@@ -15,15 +15,31 @@ En Windows con Codex, los comandos van con `python` en lugar de `python3`. Sale 
 
 ## Cómo presentarlo
 
-1. Mostrá la tabla tal cual sale.
-2. Para cada FALTA y cada AVISO, explicá en una línea qué rompe si no se arregla. Un AVISO opcional no rompe el plugin: decilo así y no lo presentes como pendiente.
-3. **Ofrecé los arreglos de a uno.** Si el ítem tiene arreglo automático (la línea `arreglo: --arreglar <id>`), preguntá si lo aplicás. Corré `--arreglar <id>` **solo** después de un sí explícito para **ese** ítem:
+La respuesta tiene siempre la misma forma, para que no cambie de una corrida a otra. No reformules la tabla, no la resumas y no agregues un resumen propio antes ni después:
+
+````text
+```text
+<la salida de doctor.py, entera y tal cual>
+```
+
+- `<id>` (<FALTA o AVISO>): <qué rompe si no se arregla>; <qué hacer>.
+````
+
+1. **La salida, entera y tal cual,** en un bloque de código `text`: los encabezados de cada grupo, cada fila con sus líneas `arreglo:` y `cómo:`, y la línea de resumen del final (`0 FALTA, 1 AVISO`). Van también las filas `OK` y `NO APLICA`.
+2. **Debajo, un comentario por cada FALTA y cada AVISO,** en el orden de la tabla y en una línea cada uno: qué rompe si no se arregla y qué hacer. Un AVISO opcional no rompe el plugin: dilo así y no lo presentes como pendiente. Las filas `OK` y `NO APLICA` no se comentan. Lo que dice «Reglas» de un ítem (por ejemplo, qué explicar de `capas-cobertura`) va en la línea de ese ítem, y solo si salió en FALTA o AVISO.
+3. **Si no hay ninguna FALTA ni ningún AVISO,** en lugar de los comentarios va esta línea, tal cual:
+
+   ```text
+   Todo en orden: nada falta y no hay avisos.
+   ```
+
+4. **Ofrecé los arreglos de a uno.** Si el ítem tiene arreglo automático (la línea `arreglo: --arreglar <id>`), preguntá si lo aplicás. Corré `--arreglar <id>` **solo** después de un sí explícito para **ese** ítem:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.py" --arreglar <id>
    ```
 
-4. Si el ítem no tiene arreglo automático, pasale al usuario el texto de `cómo:`. No lo hagas por tu cuenta: son cambios de la máquina (PATH, instaladores, la lista negra).
+5. Si el ítem no tiene arreglo automático, su texto de `cómo:` ya está en la tabla: el qué hacer de su línea remite a él. No lo hagas por tu cuenta: son cambios de la máquina (PATH, instaladores, la lista negra).
 
 ## Reglas
 

@@ -2401,6 +2401,111 @@ def test_la_fila_del_perfil_lo_explica_en_una_linea_llana():
     assert llana in perfil, perfil
 
 
+SKILL_DOCTOR = AQUI.parent / "skills" / "doctor" / "SKILL.md"
+
+
+def seccion(ruta, desde, hasta):
+    texto = ruta.read_text(encoding="utf-8")
+    return texto[texto.index(desde):texto.index(hasta)]
+
+
+def bloques_de_codigo(texto):
+    bloques, abierto = [], None
+    for linea in texto.split("\n"):
+        limpia = linea.strip()
+        if abierto is None:
+            apertura = re.fullmatch(r"(`{3,})(\w*)", limpia)
+            if apertura:
+                abierto = (apertura.group(1), apertura.group(2), [])
+        elif re.fullmatch("`{%d,}" % len(abierto[0]), limpia):
+            bloques.append((abierto[1], [l.strip() for l in abierto[2] if l.strip()]))
+            abierto = None
+        else:
+            abierto[2].append(linea)
+    assert abierto is None, "un bloque de código sin cerrar"
+    return bloques
+
+
+def presentar_del_doctor():
+    return seccion(SKILL_DOCTOR, "## Cómo presentarlo", "## Reglas")
+
+
+def linea_fija_sin_problemas():
+    fijas = [lineas for lenguaje, lineas in bloques_de_codigo(presentar_del_doctor()) if lenguaje == "text" and len(lineas) == 1]
+    assert len(fijas) == 1, fijas
+    return fijas[0][0]
+
+
+def test_el_doctor_muestra_su_salida_entera_y_tal_cual_y_comenta_solo_cada_falta_y_cada_aviso():
+    presentar = presentar_del_doctor()
+    esqueletos = [lineas for lenguaje, lineas in bloques_de_codigo(presentar) if lenguaje == "text" and len(lineas) > 1]
+    assert len(esqueletos) == 1, esqueletos
+    esqueleto = esqueletos[0]
+    assert esqueleto[0] == "```text" and esqueleto[2] == "```", esqueleto
+    assert esqueleto[1].startswith("<") and "entera y tal cual" in esqueleto[1], esqueleto
+    comentarios = esqueleto[3:]
+    assert len(comentarios) == 1 and comentarios[0].startswith("- `<id>` (<FALTA o AVISO>): "), comentarios
+    assert "qué rompe" in comentarios[0] and "qué hacer" in comentarios[0], comentarios
+    for pedazo in ("encabezados", "`arreglo:`", "`cómo:`", "línea de resumen", "una línea cada uno", "no lo presentes como pendiente",
+                   "Las filas `OK` y `NO APLICA` no se comentan", "solo si salió en FALTA o AVISO"):
+        assert pedazo in presentar, (pedazo, presentar)
+    assert linea_fija_sin_problemas() == "Todo en orden: nada falta y no hay avisos."
+
+
+def test_el_doctor_sigue_ofreciendo_los_arreglos_de_a_uno_y_conserva_las_reglas_de_cada_item():
+    presentar = presentar_del_doctor()
+    for pedazo in ("los arreglos de a uno", "`arreglo: --arreglar <id>`", "un sí explícito para **ese** ítem", "--arreglar <id>"):
+        assert pedazo in presentar, (pedazo, presentar)
+    reglas = SKILL_DOCTOR.read_text(encoding="utf-8").split("\n## Reglas\n", 1)[1]
+    for item in ("`rdd`", "gentle-ai", "`lista-negra`", "`writer-<capa>`", "`perfil`", "`instancia-hooks`", "`instancia-eol`",
+                 "`capas-cobertura`", "`hooks-apagados`", "`agentes-skills` y `agentes-hooks`", "Codex", "`codex-config`",
+                 "`codex-agentes`", "`hooks-host`"):
+        assert f"- **{item}" in reglas, item
+
+
+def test_el_paso_5_del_bootstrap_presenta_el_doctor_como_su_skill():
+    paso = seccion(SKILL_BOOTSTRAP, "## 5. El doctor", "## 6. El siguiente paso")
+    for pedazo in ("`**El doctor**`", "/odd-ws:doctor", "«Cómo presentarlo»", "entera y tal cual", "bloque de código `text`", "encabezados",
+                   "línea de resumen", "una línea por cada FALTA y cada AVISO", "no se comentan", "de a uno"):
+        assert pedazo in paso, (pedazo, paso)
+    assert f"`{linea_fija_sin_problemas()}`" in paso, paso
+
+
+def test_la_aplicacion_muestra_tal_cual_sus_lineas_menos_las_de_cada_archivo_sin_parafrasearlas():
+    paso = seccion(SKILL_BOOTSTRAP, "## 4. La aplicación", "## 5. El doctor")
+    for pedazo in ("`**La aplicación**`", "bloque de código `text`", "tal cual", "menos las de cada archivo", f"`{b().CREADO} …`",
+                   "`ya existía …`", "`commit:`", "`no entró al commit …`", "`falta en .gitignore: …`", "`no se pudo borrar …`",
+                   "`resumen:`", "sin parafrasearla", "solo para las que lo piden"):
+        assert pedazo in paso, (pedazo, paso)
+
+
+def cierres_del_bootstrap():
+    paso = seccion(SKILL_BOOTSTRAP, "## 6. El siguiente paso", "## Reglas")
+    partes = re.split(r"\n(?=### )", paso)
+    return partes[0], {parte.split("\n", 1)[0]: parte for parte in partes[1:]}
+
+
+def test_el_cierre_del_bootstrap_es_un_texto_fijo_por_perfil_y_lo_variable_va_antes_en_una_linea_aparte():
+    antes, perfiles = cierres_del_bootstrap()
+    assert list(perfiles) == ["### Con `completo`", "### Con `controles`"], list(perfiles)
+    fijos = {}
+    for titulo, parte in perfiles.items():
+        bloques = [lineas for lenguaje, lineas in bloques_de_codigo(parte) if lenguaje == "text"]
+        assert len(bloques) == 1, (titulo, bloques)
+        fijo = bloques[0]
+        assert fijo[0] == "**Lo que sigue**" and all(l.startswith("- **") for l in fijo[1:]), (titulo, fijo)
+        assert not re.search(r"[<>¿?]", "\n".join(fijo)), (titulo, fijo)
+        fijos[titulo] = "\n".join(fijo)
+    completo, controles = fijos["### Con `completo`"], fijos["### Con `controles`"]
+    for pedazo in ("/odd-ws:abrir", "vacía, y es lo normal", "`/odd-ws:cerrar`", "/odd-ws:cerrar memorias", "/odd-ws:paquetes", "reglas escritas"):
+        assert pedazo in completo, (pedazo, completo)
+    for pedazo in ("no hay tickets", "vacía, y es lo normal", "/odd-ws:cerrar memorias", "/odd-ws:paquetes", "RDD"):
+        assert pedazo in controles, (pedazo, controles)
+    assert "/odd-ws:abrir" not in controles, controles
+    for pedazo in ("tal cual", "una línea aparte", "antes del texto fijo", "solo cuando", "`claude`", "paso 2"):
+        assert pedazo in antes, (pedazo, antes)
+
+
 def test_git_init_en_una_raiz_fuera_de_todo_repo():
     with Escenario() as e:
         if hay_repo_arriba(e.base):
