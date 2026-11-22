@@ -11,6 +11,8 @@
 
 **Versión actual:** `0.13.2` ([qué cambió en cada versión](CHANGELOG.md)).
 
+**Instalar:** [con Claude Code](#con-claude-code) · [con Codex CLI](#con-codex-cli) · [con gentle-shell (Pi)](#con-gentle-shell-pi) · [en video](https://youtu.be/-92eWjnwjtw)
+
 ## Cómo funciona
 
 Una convención que solo vive como texto depende de que el modelo la recuerde. `odd-ws` sigue el principio *Mecanismo > Memoria*: lo que se aprende se vuelve un chequeo, no un recordatorio.
@@ -41,7 +43,7 @@ El plugin monta una **instancia**, un espacio de trabajo con agentes, en una car
 |---|---|
 | Solo Claude Code | Instala el plugin completo y corre `/odd-ws:bootstrap` ([Instalación](#instalación)) |
 | gentle-ai | En el bootstrap elige el perfil `controles`: solo guards, reglas por capa y doctor ([más abajo](#junto-a-gentle-ai-y-engram)) |
-| Codex o gentle-shell (Pi) | Declara el host en la config y sigue su guía ([Instalación](#instalación)) |
+| Codex o gentle-shell (Pi) | Declara el host en la config y sigue su guía ([Codex](#con-codex-cli) o [gentle-shell](#con-gentle-shell-pi)) |
 
 ## Las skills
 
@@ -100,8 +102,7 @@ En video: [la instalación con Claude Code, paso a paso](https://youtu.be/-92eWj
 
 En Windows, `python3` lo crean el Python install manager de python.org y la Microsoft Store, no el instalador clásico. El detalle y las herramientas opcionales están en [Requisitos de la máquina](Doc/uso.md#requisitos-de-la-máquina).
 
-<details open>
-<summary><strong>Con Claude Code</strong></summary>
+### Con Claude Code
 
 1. **Instala el plugin** desde la carpeta de la instancia: una carpeta aparte, no la de tu repo de código (puede estar vacía). `--scope project` es obligatorio: sin él, los hooks correrían en todos tus proyectos.
 
@@ -117,10 +118,7 @@ En Windows, `python3` lo crean el Python install manager de python.org y la Micr
 
 Antes de tu primer ticket, lee las [reglas de la instalación](Doc/uso.md#reglas-de-la-instalación): cada ticket lleva su `.claude/settings.json` y su sesión se abre con `--add-dir`.
 
-</details>
-
-<details>
-<summary><strong>Con Codex CLI</strong></summary>
+### Con Codex CLI
 
 Codex trabaja sobre la misma instancia: `.claude/` sigue siendo la fuente, y Codex recibe sus propios archivos generados. Una instancia puede usarse con los dos CLI a la vez.
 
@@ -136,28 +134,25 @@ Codex trabaja sobre la misma instancia: `.claude/` sigue siendo la fuente, y Cod
 
 Para sumar Codex a una instancia que ya existe, o configurar los writers en Windows, ve a [Usarlo desde Codex](Doc/uso.md#usarlo-desde-codex).
 
-</details>
-
-<details>
-<summary><strong>Con gentle-shell (Pi)</strong></summary>
+### Con gentle-shell (Pi)
 
 gentle-shell es Pi con subagentes, y trabaja sobre la misma instancia: `.claude/` sigue siendo la fuente, y Pi recibe sus agentes generados en `.pi/agents`.
 
 1. **Declara Pi en la instancia:** `"hosts": ["claude-code", "pi"]` en `workspace.config.json`, o solo `["pi"]`. En una instancia que ya existe, los agentes de `.pi/agents` los genera el doctor en el paso 4.
-2. **Instala gentle-shell y el paquete de `odd-ws`.** gentle-shell se instala con `npm i -g gentle-pi`. El paquete de `odd-ws` no está en npm: se instala desde git, con la etiqueta de la versión, o desde la raíz de un clon del repo.
+2. **Instala gentle-shell y el paquete de `odd-ws`.** gentle-shell se instala con `npm i -g gentle-pi`. El paquete de `odd-ws` no está en npm: se instala desde git, con la etiqueta de la versión actual, o desde la raíz de un clon del repo.
 
    ```text
-   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión>
-   gentle-shell install <ruta del clon>
+   npm i -g gentle-pi
+   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2
    ```
+
+   Desde un clon: `gentle-shell install <ruta del clon>`.
 
    La ruta es la raíz del clon, no `plugin/`, porque Pi instala un repo git entero. Con la fuente git, Pi corre `npm install`, así que necesita `npm` en el `PATH`. Si abres gentle-shell con `--link`, instala con `gentle-shell --link install <fuente>`.
 3. **Abre gentle-shell en la raíz de la instancia** y dale confianza al proyecto con `/trust`. gentle-shell solo lee los agentes de `<cwd>/.pi/agents`, y sin confianza no llegan las skills de la instancia.
 4. **Corre `/skill:doctor`.** En Pi, las skills del plugin se invocan con `/skill:<nombre>`. El doctor revisa la versión de Pi, gentle-shell, el paquete del home activo, la confianza del proyecto y los agentes de `.pi/agents`; en una instancia que ya existía, aplica `--arreglar pi-agentes`.
 
 Antes de lanzar un writer, lee [Usarlo desde gentle-shell](Doc/uso.md#usarlo-desde-gentle-shell): ahí está dónde corre el writer, qué herramientas cubren los guards y qué hacer si el doctor no arranca. Para pasar a otra versión, ve a [Actualizar el plugin](Doc/actualizar.md#en-gentle-shell-pi).
-
-</details>
 
 ## Dónde funciona
 

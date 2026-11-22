@@ -31,7 +31,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - la versión de la página;
     - cada `odd-ws--v<X.Y.Z>` de un comando en el README, la página, `Doc/uso.md` y `Doc/actualizar.md` (S6).
   - Además, la tabla de requisitos del README tiene que ser igual a la de la página.
-  - La página se lee de la rama local `gh-pages` o, si no existe, de `origin/gh-pages`. Si no hay ninguna de las dos, el chequeo avisa y deja pasar.
+  - La página se lee de la rama local `gh-pages` o, si no existe, de `origin/gh-pages`. Si no hay ninguna de las dos, se salta solo la parte de la página, con un aviso: el README y los docs se siguen revisando (L6).
   - Por eso la página de una versión se commitea antes de empujar `main`. `CONTRIBUTING.md` («Una entrega») suma ese paso y el de la «Versión actual» del README.
 - **S8** (nada se rompe). Fuera de lo que piden S1 a S7, los scripts conservan su comportamiento. Las instancias que ya existen no tienen que editar nada. El CHANGELOG lleva la `0.13.3`.
 - **S9** (la prueba). Un verificador independiente revisa la feature entera al final, con foco en S1, S2 y S7, que tocan el guard y el pre-push.
@@ -41,11 +41,11 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento, su espejo en engram y el enlace en R14 | inline | hecha | (con T2) |
-| T1 | S1, S2 | El guard: el push forzado y el comando literal en cada bloqueo | delegada: writer A en `D:/Project/odd-ws-wt/huecos-guard`, en paralelo con T5 (dos unidades independientes de más de 100 líneas, con superficies disjuntas) | pendiente | |
-| T2 | S3 | El fragmento en los hallazgos de la capa | inline (unidad chica) | hecha (L4) | |
-| T3 | S4, S5 | La leyenda de `tipo` y las plantillas por versión | inline (docs) | pendiente | |
-| T4 | S6 | La instalación a la vista y con la versión puesta; la página, en la rama local `gh-pages` | inline (docs) | pendiente | |
-| T5 | S7 | El chequeo de la página y el README en el pre-push | delegada: writer B en `D:/Project/odd-ws-wt/huecos-pagina`, en paralelo con T1 | pendiente | |
+| T1 | S1, S2 | El guard: el push forzado y el comando literal en cada bloqueo | delegada: writer A en `D:/Project/odd-ws-wt/huecos-guard`, en paralelo con T5 (dos unidades independientes de más de 100 líneas, con superficies disjuntas) | hecha (L5) | `d9331d8` |
+| T2 | S3 | El fragmento en los hallazgos de la capa | inline (unidad chica) | hecha (L4) | `9f61655` |
+| T3 | S4, S5 | La leyenda de `tipo` y las plantillas por versión | inline (docs) | hecha (L7) | |
+| T4 | S6 | La instalación a la vista y con la versión puesta; la página, en la rama local `gh-pages` | inline (docs) | hecha (L7) | página: `83b55b8` (local) |
+| T5 | S7 | El chequeo de la página y el README en el pre-push | delegada: writer B en `D:/Project/odd-ws-wt/huecos-pagina`, en paralelo con T1 | hecha (L6) | `6a40970` |
 | T6 | S8, S9 | El CHANGELOG, el verificador independiente y la versión | docs inline; verificador delegado; publicar, con el ok del autor | pendiente | |
 
 ## Log
@@ -89,3 +89,72 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **GREEN:** `verificar_capa` 131/131, `writer_stop` 60/60, `revisar_turno` 33/33 y `paquetes` 17/17. Las aserciones que fijaban el formato viejo con un fragmento (`MALO` o `XX`) pasan al nuevo. Las negativas («`linea 1:` no está») también, para que no pasen solas. Las de hallazgos sin fragmento (T-03, T-06, T-08, ALF-01, entre otras) quedan igual y siguen en verde.
   - **Diferencial** contra `9444075`, en un scratch fuera del worktree: sin fragmento, o con uno vacío o `None`, la salida es idéntica en los dos formateadores; con fragmento solo se suma la cita.
   - **Risk:** none (cambia un mensaje que lee el agente; ningún contrato lo parsea, y los tests que lo fijaban se actualizaron).
+- **L5** (2026-11-22) T1, del writer A en `feat/huecos-guard`:
+  - **S1:**
+    - El predicado `_opcion_forzada` lo usan las dos pasadas y reconoce `--force`, `--force-with-lease` (con o sin valor), `--force-if-includes` y `--mirror`, también abreviadas, como las acepta git (`--forc`, `--mirr`). `-f`, `-uf` y el refspec con `+` siguen el parseo de antes.
+    - El lease ya no apaga la pasada gruesa, y las dos pasadas dan el mismo motivo, `PUSH_FORZADO`, con la forma segura para el usuario. `--no-force-with-lease` solo pasa.
+    - Sale el código del lease que cubría una ref (`LEASE_REF`, `REFS`, `HEADS` y `_sin_prefijo`).
+  - **S2:** cada bloqueo y cada pregunta de `guard_comandos` (también las de plazo vencido o error interno), y el bloqueo de `writer_guard`, termina con la línea `Comando: «<literal>»`, cortada a 300 caracteres con «…». `_cita` está duplicada a propósito en los dos guards: un import que falle al armar un bloqueo lo volvería un permitir.
+  - **Tests que cambian a propósito:**
+    - En `CASOS`, 7 casos: 5 pasan de permitir a bloquear y 2 (el repo protegido y `--mirror`) de preguntar a bloquear.
+    - 4 bordes de lease, y la sonda de :1330.
+    - Los tests de :1676 y :1707.
+    - Los motivos y prefijos de :1119, :1611 y :1615, que ahora dicen «git push forzado».
+    - `pi.tests.py:1291` y `pi.test.ts:285`.
+  - **Verification del writer:** `guard_comandos` 82/82, `writer_guard` 124/124 en una corrida, `codex` 46/46, `pi` 70/70 y `pi.test.ts` 74/74.
+  - **Diferencial** sobre 137 filas en tres hosts: 44 iguales (todas permitidas), 27 que solo suman la cita, 24 con el motivo nuevo y la cita, 36 de permitir a bloquear, 6 de preguntar a bloquear y 0 otras diferencias.
+  - **Chequeo del orquestador:** `guard_comandos.tests.py` 82/82. Pasan `--follow-tags`, `--message x && git push`, `-u origin feat/x` y `--no-force-with-lease`. Bloquean `--forc`, `+main` y `--force-with-lease=main:abc123`.
+  - **Decisión de diseño ratificada:** las abreviaturas cuentan como forzadas porque git las acepta. El costo son unos pocos falsos positivos en la pasada gruesa, como un `--mirror` de otro programa en un comando que también nombra git y push. Esa pasada ya bloqueaba un `--force` en cualquier lugar.
+  - **Seguimientos** (estaban en la base, no los amplía esta feature): una opción o un refspec forzado entre comillas (`git push "--force" origin main`) pasa la capa 1, porque el texto entre comillas se lee como dato.
+  - **El mensaje literal, para la página:** «guard-comandos bloqueó el comando: git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con seguridad, el usuario mira `git log <remoto>/<rama>` y corre `git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`). Si la operación es deliberada, que la corra el usuario a mano.», más la línea `Comando: «git push --force origin main»`.
+  - **Docs:** `README.md`, `Doc/hooks.md`, `Doc/diseno.md` y `Doc/equipo.md`. No cambia ninguna plantilla.
+- **L6** (2026-11-22) T5, del writer B en `feat/huecos-pagina`:
+  - **El chequeo** vive en `tools/entrega.py` y corre después de todos los chequeos de antes, sobre cada línea del push. Así un fallo de S7 no tapa uno viejo: la primera versión tapaba las notas de una etiqueta empujada detrás de `main`.
+    - Cuando falla, lista todo lo que difiere con su `ruta:línea` y su arreglo, y dice de qué rama leyó la página.
+    - Reusa la lectura con `git show`, que salió a `leer`, `texto_en` y `commit_de`.
+  - **Decisión de diseño ratificada:** sin rama de la página se salta solo la parte de la página, con una línea `aviso:`. El README y los docs se siguen revisando.
+  - **Lo que T4 tiene que respetar:**
+    - la tabla de requisitos va bajo el primer `## ` del README que contiene «Instalación»;
+    - en la página, bajo el primer `<h2>` con `id="instalar"` o con «instal» en el texto;
+    - la página lleva una línea «Versión actual:»;
+    - todo número X.Y.Z del pie es la versión.
+  - **Tests:** 6 reglas con RED observado sobre el `entrega.py` sin cambios, más el caso en que todo coincide y 4 de preservación. Los tests que ya existían solo cambian sus fixtures, que ahora traen el README, los docs y la página al día. `entrega` 42/42, `barrido` 37/37 y `notas` 11/11.
+  - **Diferencial** contra `9444075`: 14 escenarios iguales en stdout, stderr y código de salida. Solo cambian el README con otra versión, que ahora frena, y el aviso sin rama de la página.
+  - **Lo que marca hoy sobre `9444075`** (es el trabajo de T4):
+    - los `odd-ws--v<versión>` de `README.md:150`, `Doc/uso.md:66`, `Doc/actualizar.md:28` y la página (:235);
+    - la fila de Pi, con otro texto en el README (:98) y en la página (:199);
+    - la fila de gentle-shell (`README.md:99`), que falta en la página.
+  - **Chequeo del orquestador:** `entrega.tests.py` 42/42.
+  - **Seguimientos:**
+    - los mensajes viejos de `entrega.py` usan voseo («Subí», «etiquetá»), en una herramienta del repo y no del producto;
+    - re-empujar una etiqueta vieja se compara con la página de hoy;
+    - `Doc/diseno.md` («La entrega en el pre-push», :1262-1273) no describe S7: se completa en T6.
+  - **Risk:** item 5. Va en su commit.
+- **L7** (2026-11-22) T3 y T4, inline:
+  - **S4:**
+    - En `cerrar/references/matriz.md`, la columna `tipo` dice qué es cada código y pide proponerlo y confirmarlo con el usuario. La fila vecina queda como ayuda si hay duda.
+    - `Doc/capas-y-reglas.md` («La matriz») trae la misma leyenda.
+  - **S5:** `Doc/actualizar.md` lista por versión lo que se copia a mano:
+    - la `0.2.2`, la sección «Si también usas gentle-ai»;
+    - la `0.3.1`, el `pre-commit` con `python3`;
+    - la `0.7.0`, la línea de `paquetes`;
+    - la `0.9.0`, que ya estaba;
+    - la `0.10.0`, la línea de `enlaces`;
+    - la `0.12.0`, la prueba `verificar_<capa>.tests.py` y `CLAUDE.controles.md`, nueva y sin nada que copiar.
+
+    La primera etiqueta de cada commit sale de `git tag --contains <commit> --sort=v:refname`. El orden por defecto es alfabético y pone la `0.10.0` antes que la `0.2.2`.
+    - **Decisión de diseño:** la sección cubre lo que el bootstrap no pisa y se copia a mano. Los writers ya tienen la suya (regenerar). El cambio de la `0.3.0` a las plantillas de writers y revisores, la generación por host, no se copia a mano.
+    - En la `0.13.3` no cambia ninguna plantilla.
+  - **S6, el README:**
+    - Bajo la «Versión actual», la línea «**Instalar:**» lleva a cada CLI y al video.
+    - «Por dónde empezar» enlaza Codex y gentle-shell.
+    - Los tres `<details>` de «Instalación» pasan a `###`, así que se ven sin abrir nada y tienen ancla.
+    - El bloque de Pi trae `npm i -g gentle-pi` y el comando con `0.13.2`, listos para copiar. La ruta del clon queda en una línea aparte.
+  - **S6, los docs:** `Doc/uso.md` y `Doc/actualizar.md` llevan el número en lugar de `<versión>` y de `<versión nueva>`.
+  - **S6, la página** (`83b55b8`, commit local en `gh-pages`, sin publicar):
+    - los desplegables de Codex y gentle-shell, abiertos;
+    - el comando con el número y `npm i -g gentle-pi`;
+    - la tabla de requisitos igual a la del README, con la fila de Pi corregida y la de gentle-shell nueva;
+    - el mensaje nuevo del guard (S1 y S2).
+  - **Doc/diseno.md:** «La entrega en el pre-push» describe el chequeo de S7.
+  - **Los números:** quedan en `0.13.2`, la versión del `plugin.json` de hoy, para que cada commit sea coherente. La entrega de T6 los sube a `0.13.3` junto con la página.

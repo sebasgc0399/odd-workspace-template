@@ -1269,6 +1269,12 @@ Después del barrido, el pre-push revisa cada push a `refs/heads/main`:
 - **Una entrega trae sus notas:** si el commit empujado lleva su etiqueta, `CHANGELOG.md` de ese commit tiene que tener una sección `## <versión>` con contenido. Si falta, frena con exit 1 y dice qué sección escribir. La sección la lee `tools/notas.py`, el único que sabe leer el CHANGELOG (ignora los `## ` dentro de un bloque de código), y la usan tanto este chequeo como el workflow.
 - **Cada etiqueta `odd-ws--v*` que se empuja** pasa por lo mismo, aunque `main` vaya más adelante o la etiqueta viaje sola: su nombre tiene que ser la versión del `plugin.json` de su commit, y ese commit tiene que traer sus notas.
 - **Las notas se exigen solo si el commit trae `.github/workflows/release.yml`.** GitHub corre el workflow del commit etiquetado, así que una entrega anterior al workflow no publica nada y no necesita notas; sus etiquetas y sus commits pasan como antes.
+- **El README, los docs y la página dicen la versión (I70, R14).** En un push a `main` o a una etiqueta, y solo si pasó todo lo anterior en cada línea del push para no tapar un fallo viejo, compara contra la versión V del `plugin.json` del commit:
+  - la «Versión actual» del README;
+  - la «Versión actual» y el pie de la página;
+  - cada `odd-ws--v…` del README, de `Doc/uso.md`, de `Doc/actualizar.md` y de la página, que tiene que ser `odd-ws--vV`;
+  - la tabla de requisitos de «Instalación» del README, que tiene que ser igual, celda por celda y sin el marcado, a la de la página.
+  - La página se lee de la rama local `gh-pages` o, si no está, de `origin/gh-pages`: el push de la página no pasa por ningún hook, así que se revisa antes, en el de `main`. Sin ninguna de las dos se salta solo la página, con un aviso. Frena con exit 1 y lista cada diferencia con su `ruta:línea` y su arreglo.
 - **Falla cerrado** con exit 2 si no puede verificar: un error de git, un `plugin.json` ilegible o sin `version` X.Y.Z, o una línea de entrada ilegible.
 - Las otras ramas, las etiquetas y el borrado de `main` pasan sin revisar.
 
