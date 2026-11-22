@@ -285,15 +285,17 @@ def versionados(ruta):
 def _cobertura(texto_de_raiz):
     try:
         raiz = _raiz(texto_de_raiz)
-        detalle = config_loader.cobertura_de_los_repos(config_loader.cargar(raiz), versionados)
+        cobertura = config_loader.cobertura_de_los_repos(config_loader.cargar(raiz), versionados)
     except ErrorDeEntorno as error:
         return _error(str(error), 2)
     except Exception as error:
         return _error(f"error interno: {type(error).__name__}: {error}", 2)
-    if detalle is None:
+    if cobertura is None:
         print(f"{config_loader.ID_COBERTURA}: {COBERTURA_COMPLETA}")
+    elif not cobertura.aviso:
+        print(f"{config_loader.ID_COBERTURA}: {cobertura.detalle}")
     else:
-        print(f"aviso {config_loader.ID_COBERTURA}: {detalle}")
+        print(f"aviso {config_loader.ID_COBERTURA}: {cobertura.detalle}")
         print(f"  cómo: {config_loader.AYUDA_COBERTURA}")
     return 0
 

@@ -379,10 +379,57 @@ def test_cobertura_de_los_repos_lee_lo_versionado_de_cada_repo():
             pedidos.append(ruta)
             return ["a.sql", "x.mjs", "y.mjs", "Makefile", "README.md"]
 
-        assert m().cobertura_de_los_repos(cargada, versionados) == "extensiones versionadas sin capa: .mjs (2), (sin extensión) (1)"
+        assert m().cobertura_de_los_repos(cargada, versionados) == (True, "extensiones versionadas sin capa: .mjs (2)")
         assert pedidos == [str(i.repo)], pedidos
         assert m().cobertura_de_los_repos(cargada, lambda ruta: ["a.sql", "README.md"]) is None
         assert m().cobertura_de_los_repos(cargada, lambda ruta: None) is None, "un repo que git no pudo listar no cuenta"
+
+
+def test_cobertura_con_solo_esperados_no_avisa_y_los_nombra_con_su_conteo():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        versionados = ["a.sql", "package.json", "tsconfig.json", ".gitignore", "README.md"]
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados) == (
+            False, "sin capa y esperados: .json (2), (sin extensión) (1); un cambio en ellos lleva /odd-ws:revisar a modo completo")
+
+
+def test_cobertura_con_una_no_esperada_avisa_y_lista_solo_las_no_esperadas():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        versionados = ["a.sql", "x.mjs", "sub/y.mjs", "build.sh", "package.json", "ci.yml", "Dockerfile"]
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados) == (
+            True, "extensiones versionadas sin capa: .mjs (2), .sh (1)")
+
+
+def test_los_datos_la_configuracion_y_los_archivos_sin_extension_son_esperados():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        datos = ["a.json", "b.JSONC", "c.yml", "d.yaml", "e.toml", "yarn.lock", "f.ini"]
+        sin_extension = [".gitignore", ".gitattributes", "Dockerfile", "Makefile", "sub/LICENSE"]
+        for versionados in (datos, sin_extension):
+            cobertura = m().cobertura_de_los_repos(cargada, lambda ruta: versionados)
+            assert cobertura is not None and cobertura.aviso is False, (versionados, cobertura)
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: sin_extension).detalle.startswith(
+            "sin capa y esperados: (sin extensión) (5); ")
+
+
+def test_en_controles_la_nota_de_los_esperados_no_habla_de_revisar():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        cobertura = m().cobertura_de_los_repos(cargada, lambda ruta: ["package.json", "Makefile"], controles=True)
+        assert cobertura == (False, "sin capa y esperados: (sin extensión) (1), .json (1); ninguna regla de capa los chequea"), cobertura
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: ["x.mjs", "package.json"], controles=True) == (
+            True, "extensiones versionadas sin capa: .mjs (1)")
+
+
+def test_el_triaje_sigue_contando_los_esperados_y_con_la_misma_ayuda():
+    assert m().lista_de_extensiones(m().contar_extensiones(["appsettings.json", "Makefile", "x.mjs"])) == (
+        "(sin extensión) (1), .json (1), .mjs (1)")
+    assert m().ID_COBERTURA == "capas-cobertura"
+    assert m().AYUDA_COBERTURA == (
+        "Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. Si son del "
+        "mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en workspace.config.json; "
+        "si no, es esperado y el aviso queda.")
 
 
 def test_la_ayuda_de_la_cobertura_dice_que_sube_a_completo_y_como_se_arregla():

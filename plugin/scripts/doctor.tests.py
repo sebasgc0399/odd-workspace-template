@@ -1437,17 +1437,30 @@ def test_capas_cobertura_ok_cuando_todo_lo_versionado_tiene_capa_o_es_doc():
         raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "sub/b.SQL": "x", "README.md": "x", "notas.txt": "x", "guia.rst": "x"})
         r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
         assert r.estado == "OK" and r.arreglo is None and r.comando is None, r
+        assert r.detalle == "todo lo versionado en los repos tiene capa o es doc", r.detalle
+
+
+def test_capas_cobertura_con_solo_esperados_es_ok_y_los_nombra_con_su_conteo():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "package.json": "{}", "tsconfig.json": "{}", ".gitignore": "x",
+                                                 "README.md": "x"})
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["capas-cobertura"]
+        detalle = "sin capa y esperados: .json (2), (sin extensión) (1); un cambio en ellos lleva /odd-ws:revisar a modo completo"
+        assert (r.estado, r.detalle, r.comando, r.arreglo) == ("OK", detalle, None, None), r
+        salida = correr([], ctx)[1].splitlines()
+        linea = next(i for i, l in enumerate(salida) if l.startswith("capas-cobertura "))
+        assert salida[linea].split()[:2] == ["capas-cobertura", "OK"] and salida[linea].endswith(detalle), salida[linea]
+        assert "cómo:" not in salida[linea + 1], salida[linea + 1]
 
 
 def test_capas_cobertura_avisa_las_extensiones_sin_capa_con_su_cantidad():
     with Escenario() as e:
-        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "scripts/x.mjs": "x", "scripts/y.mjs": "x", "package.json": "{}",
-                                                 "Makefile": "x", "README.md": "x"})
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "scripts/x.mjs": "x", "scripts/y.mjs": "x", "scripts/z.sh": "x",
+                                                 "package.json": "{}", "Makefile": "x", "README.md": "x"})
         r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
         assert r.estado == "AVISO" and r.arreglo is None, r
-        assert ".mjs (2)" in r.detalle and ".json (1)" in r.detalle and "(sin extensión) (1)" in r.detalle, r.detalle
-        assert ".sql" not in r.detalle and ".md" not in r.detalle, r.detalle
-        assert r.detalle.index(".mjs") < r.detalle.index(".json"), "de la más frecuente a la menos"
+        assert r.detalle == "extensiones versionadas sin capa: .mjs (2), .sh (1)", "solo las no esperadas, de la más frecuente a la menos"
         assert "completo" in r.ayuda and "extensions" in r.ayuda, r.ayuda
 
 
@@ -1468,8 +1481,8 @@ def test_capas_cobertura_sale_igual_que_antes_con_la_ayuda_compartida():
         raiz = instancia_con_repo_versionado(e, archivos)
         ctx = Falso(e.base, cwd=raiz, git_real=True)
         r = por_id(ctx)["capas-cobertura"]
-        assert r.detalle == ("extensiones versionadas sin capa: .mjs (2), (sin extensión) (1), .e0 (1), .e1 (1), .e2 (1), .e3 (1), "
-                             ".e4 (1), .e5 (1) y 3 más"), r.detalle
+        assert r.detalle == ("extensiones versionadas sin capa: .mjs (2), .e0 (1), .e1 (1), .e2 (1), .e3 (1), .e4 (1), .e5 (1), "
+                             ".e6 (1) y 1 más"), r.detalle
         assert r.ayuda == config_loader.AYUDA_COBERTURA and r.comando is None and r.arreglo is None, r
         resultados = d().diagnosticar(ctx)
         sangria = " " * (max(len(x.id) for x in resultados) + 13)
@@ -3560,6 +3573,15 @@ def test_en_controles_la_ayuda_de_capas_cobertura_no_habla_de_revisar():
         assert "revisar" not in r.ayuda and "triaje" not in r.ayuda and "extensions" in r.ayuda and "workspace.config.json" in r.ayuda, r.ayuda
         con_profile(raiz, "completo")
         assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].ayuda == config_loader.AYUDA_COBERTURA
+
+
+def test_en_controles_los_esperados_son_ok_sin_hablar_de_revisar():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "package.json": "{}", "Dockerfile": "x"})
+        con_profile(raiz, "controles")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
+        assert (r.estado, r.detalle) == ("OK", "sin capa y esperados: (sin extensión) (1), .json (1); ninguna regla de capa los chequea"), r
+        assert "revisar" not in r.detalle and "triaje" not in r.detalle, r.detalle
 
 
 def test_el_claude_md_reducido_con_el_perfil_completo_es_aviso_sin_arreglo():

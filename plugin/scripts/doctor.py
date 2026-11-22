@@ -294,11 +294,14 @@ def chequear_cobertura(ctx, raiz):
         codigo, salida = ctx.ejecutar(["git", "-C", ruta, "ls-files", "-z"])
         return list(filter(None, salida.split("\0"))) if codigo == 0 else None
 
-    detalle = config_loader.cobertura_de_los_repos(config, versionados)
-    if detalle is None:
+    controles = config_loader.es_controles(raiz)
+    cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles)
+    if cobertura is None:
         return resultado(id, OK, "todo lo versionado en los repos tiene capa o es doc")
-    ayuda = config_loader.AYUDA_COBERTURA_CONTROLES if config_loader.es_controles(raiz) else config_loader.AYUDA_COBERTURA
-    return resultado(id, AVISO, detalle, None, ayuda)
+    if not cobertura.aviso:
+        return resultado(id, OK, cobertura.detalle)
+    ayuda = config_loader.AYUDA_COBERTURA_CONTROLES if controles else config_loader.AYUDA_COBERTURA
+    return resultado(id, AVISO, cobertura.detalle, None, ayuda)
 
 
 def chequear_config(raiz):

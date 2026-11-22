@@ -552,7 +552,7 @@ def test_cobertura_avisa_las_extensiones_versionadas_sin_capa_de_la_instancia_y_
         antes = arbol(e.base)
         assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
             0,
-            "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2), (sin extensión) (1)\n"
+            "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2)\n"
             "  cómo: " + config_loader.AYUDA_COBERTURA + "\n",
             "",
         )
@@ -564,6 +564,33 @@ def test_cobertura_sin_extensiones_sin_capa_lo_dice_con_cero():
     with Escenario() as e:
         versionar(e, {"a.ext": b"x", "README.md": b"x"})
         assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (0, "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n", "")
+
+
+def test_cobertura_con_solo_esperados_no_avisa_y_los_nombra_con_su_conteo():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "package.json": b"{}", "tsconfig.json": b"{}", ".gitignore": b"x", "README.md": b"x"})
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0,
+            "capas-cobertura: sin capa y esperados: .json (2), (sin extensión) (1); un cambio en ellos lleva /odd-ws:revisar a modo completo\n",
+            "",
+        )
+
+
+def test_cobertura_da_el_mismo_texto_que_la_fila_del_doctor():
+    import doctor
+
+    class Contexto:
+        def ejecutar(self, args, cwd=None):
+            r = subprocess.run(args, cwd=cwd, capture_output=True, env=e.entorno, timeout=60)
+            return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
+
+    for archivos in ({"a.ext": b"x", "package.json": b"{}", "Dockerfile": b"x"}, {"x.mjs": b"x", "ci.yml": b"x"}):
+        with Escenario() as e:
+            versionar(e, archivos)
+            fila = doctor.chequear_cobertura(Contexto(), e.raiz)
+            primera = e.correr("--cobertura", "--raiz", str(e.raiz))[1].splitlines()[0]
+            prefijo = "aviso capas-cobertura: " if fila.estado == doctor.AVISO else "capas-cobertura: "
+            assert primera == prefijo + fila.detalle, (primera, fila)
 
 
 def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():

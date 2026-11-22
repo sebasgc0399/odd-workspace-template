@@ -28,6 +28,9 @@ PREFIJO_DE_TICKETS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 EXTENSIONES_DE_DOCS = (".md", ".txt", ".rst")
 SIN_EXTENSION = "(sin extensión)"
 TOPE_DE_EXTENSIONES = 8
+ESPERADOS_SIN_CAPA = (".json", ".jsonc", ".yml", ".yaml", ".toml", ".lock", ".ini", SIN_EXTENSION)
+NOTA_ESPERADOS = "un cambio en ellos lleva /odd-ws:revisar a modo completo"
+NOTA_ESPERADOS_CONTROLES = "ninguna regla de capa los chequea"
 ID_COBERTURA = "capas-cobertura"
 SUMAR_A_UNA_CAPA = ("Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), sumalos a sus extensions en "
                     f"{NOMBRE}; si no, es esperado y el aviso queda.")
@@ -36,6 +39,7 @@ AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisa
 AYUDA_COBERTURA_CONTROLES = "Ninguna capa cubre esos archivos, así que ninguna regla de capa los chequea. " + SUMAR_A_UNA_CAPA
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
+Cobertura = namedtuple("Cobertura", "aviso detalle")
 
 
 class ConfigRota(Exception):
@@ -503,7 +507,7 @@ def lista_de_extensiones(cuenta):
     return lista + resto
 
 
-def cobertura_de_los_repos(config, versionados):
+def cobertura_de_los_repos(config, versionados, controles=False):
     cuenta = {}
     for repo in config["repos"].values():
         relativas = versionados(repo["path"])
@@ -511,4 +515,10 @@ def cobertura_de_los_repos(config, versionados):
             continue
         for clave, n in extensiones_sin_capa([os.path.join(repo["path"], relativa) for relativa in relativas], config).items():
             cuenta[clave] = cuenta.get(clave, 0) + n
-    return "extensiones versionadas sin capa: " + lista_de_extensiones(cuenta) if cuenta else None
+    if not cuenta:
+        return None
+    no_esperadas = {clave: n for clave, n in cuenta.items() if clave not in ESPERADOS_SIN_CAPA}
+    if no_esperadas:
+        return Cobertura(True, "extensiones versionadas sin capa: " + lista_de_extensiones(no_esperadas))
+    nota = NOTA_ESPERADOS_CONTROLES if controles else NOTA_ESPERADOS
+    return Cobertura(False, f"sin capa y esperados: {lista_de_extensiones(cuenta)}; {nota}")
