@@ -104,7 +104,7 @@
   <h1>Que tu agente no vuelva a cometer el mismo error</h1>
   <p class="lema">Un plugin que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.</p>
   <p class="clis">Para Claude Code, Codex CLI y gentle-shell (Pi). Código abierto, licencia MIT.</p>
-  <p class="version">Versión actual: <b>0.13.2</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
+  <p class="version">Versión actual: <b>0.13.3</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
   <div class="botones">
     <a class="boton principal" href="https://github.com/sebasgc0399/odd-workspace-template">Ver el repo en GitHub</a>
     <a class="boton" href="#instalar">Instalar</a>
@@ -235,7 +235,7 @@ codex plugin add odd-ws@odd-workspace-template</code></pre>
       <li>Declara Pi en la instancia: <code>"hosts": ["claude-code", "pi"]</code>, o solo <code>["pi"]</code>.</li>
       <li>Instala gentle-shell y el paquete de odd-ws. El paquete no está en npm: se instala desde git, con la etiqueta de la versión actual, y necesita <code>npm</code> en el <code>PATH</code>.
         <pre><code>npm i -g gentle-pi
-gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2</code></pre>
+gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.3</code></pre>
       </li>
       <li>Abre gentle-shell en la raíz de la instancia, dale confianza con <code>/trust</code> y corre <code>/skill:doctor</code>. En una instancia que ya existía, el doctor genera los agentes de <code>.pi/agents</code>.</li>
     </ol>
@@ -257,6 +257,7 @@ gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v
   </ul>
 
   <h2>Novedades</h2>
+  <p class="novedad"><b>0.13.3.</b> El agente ya no puede forzar un push de ninguna forma, y cada bloqueo muestra el comando que frenó. La instalación se ve de un vistazo, con el comando de cada CLI listo para copiar.</p>
   <p class="novedad"><b>0.13.2.</b> Después de actualizar el plugin, la primera sesión pone al día la ruta del plugin en cada instancia y el doctor ya no queda en FALTA. El bootstrap llena siempre la fila de tu repo y describe sus comandos en español.</p>
   <p class="novedad"><b>0.13.1.</b> El bootstrap muestra lo mismo en cada corrida, con la pregunta de la raíz de un repo siempre igual, y vuelve a proponer tus repos como del equipo.</p>
   <p class="novedad"><b>0.13.0.</b> La propuesta del bootstrap deja a la vista lo que decides, el doctor se lee de un vistazo, una instancia nueva sale sin avisos y el aviso de calibrar trae un comando que se corre tal cual. Todo el texto de odd-ws pasa a tuteo neutro.</p>
@@ -286,7 +287,7 @@ gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v
 </main>
 
 <footer>
-  <p>odd-ws 0.13.2 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
+  <p>odd-ws 0.13.3 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
 </footer>
 </body>
 </html>
