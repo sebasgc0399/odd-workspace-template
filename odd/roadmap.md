@@ -2,7 +2,7 @@
 
 Lo que viene después de cada entrega, en orden. Es una cola viva: un ítem que espera algo externo no frena a los demás, y una idea nueva pasa primero por una bandeja antes de entrar a la cola. El detalle de cada ítem vive en su documento de `odd/tasks/`; acá van solo el orden y el estado.
 
-Actualizado: 2026-11-22, con la `0.13.0`, las ideas I1 a I75 y R3 a demanda. La `0.12.1` cerró R11, la carga de odd-ws en el prompt (I65), y la `0.13.0` cerró R12, la primera impresión (I66 a I69, I72 a I74). Lo demás sigue saliendo de los estudios de `odd/estudios/`, que se deciden con el autor, y de las revisiones medidas que deciden O6 y O5 (S8 de [costo-de-revisar](tasks/costo-de-revisar.md)).
+Actualizado: 2026-11-22, con la `0.13.1`, las ideas I1 a I75 y R3 a demanda. La `0.12.1` cerró R11, la carga de odd-ws en el prompt (I65), y la `0.13.0` cerró R12, la primera impresión (I66 a I69, I72 a I74), que la `0.13.1` completó con el bootstrap igual en cada corrida. Lo demás sigue saliendo de los estudios de `odd/estudios/`, que se deciden con el autor, y de las revisiones medidas que deciden O6 y O5 (S8 de [costo-de-revisar](tasks/costo-de-revisar.md)).
 
 ## Cómo se mueve
 
@@ -21,7 +21,7 @@ Actualizado: 2026-11-22, con la `0.13.0`, las ideas I1 a I75 y R3 a demanda. La 
 | R9 | El doctor apaga el RDD nativo solo en la instancia (`--scope clone`) y no en toda la máquina, y el README deja de decir a la vez que no reemplaza a gentle-ai y que apaga su revisión | P3 de la retroalimentación de Maik (I62 a I64): `doctor.py:27` usa `--scope global`, y `README.md:46` contradice a `:55` | hecha (`0.11.0`) |
 | R10 | Instalar solo los controles (I62) | [solo-controles](tasks/solo-controles.md) | hecha (`0.12.0`) |
 | R11 | La carga de odd-ws en el prompt: nada fuera de una instancia ni en los subagentes, y skills con un núcleo corto (I65) | La retroalimentación de _00_ sobre la `0.11.0` | hecha (`0.12.1`, [carga-en-el-prompt](tasks/carga-en-el-prompt.md)) |
-| R12 | La primera impresión: la propuesta del bootstrap, el doctor legible, el comando de calibrar y el tuteo en todo el producto, antes de regrabar el video (I66 a I69, I72 a I74) | [primera-impresion](tasks/primera-impresion.md) | hecha (`0.13.0`) |
+| R12 | La primera impresión: la propuesta del bootstrap, el doctor legible, el comando de calibrar y el tuteo en todo el producto, antes de regrabar el video (I66 a I69, I72 a I74) | [primera-impresion](tasks/primera-impresion.md) | hecha (`0.13.0` y `0.13.1`) |
 
 ## Esperando
 
@@ -135,6 +135,7 @@ Anotados en el documento de cada feature, sin lugar en la cola:
 
 | Versión | Qué |
 |---|---|
+| `0.13.1` | El bootstrap igual en cada corrida: la pregunta de la raíz de un repo y la parte de arriba de la propuesta, literales; y los repos otra vez propuestos del equipo, que corrige una regresión de la `0.13.0` (R12, T8 a T10, [primera-impresion](tasks/primera-impresion.md)) |
 | `0.13.0` | La primera impresión, antes de regrabar el video (R12, [primera-impresion](tasks/primera-impresion.md)): la propuesta del bootstrap con «Lo que decides» al final, el doctor en grupos y sin la ruta del usuario, una instancia nueva sin avisos por sus archivos de datos y configuración, el comando de calibrar que se corre tal cual, la salida del doctor y el cierre del bootstrap fijos, y todo el producto en tuteo neutro con un test que lo cuida (I66 a I69, I72 a I74) |
 | `0.12.1` | Lo que odd-ws suma al prompt: nada en los subagentes de gentle-shell ni fuera de una instancia, `revisar` y `cerrar` con un núcleo corto que sobrevive a la compactación, y descripciones más cortas (R11, la I65, [carga-en-el-prompt](tasks/carga-en-el-prompt.md)) |
 | `0.12.0` | Instalar solo los controles y apagar un hook (R10: la I62 con la I5, [solo-controles](tasks/solo-controles.md)) y las reglas por capa que bloquean solo después de calibrarse, con disputas y paquetes (I64, [reglas-observan](tasks/reglas-observan.md)) |
