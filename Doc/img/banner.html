@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  Fuente de Doc/img/odd-ws-banner.png, el banner del README (1600x500).
+  Estilo: el de la tarjeta y el GIF del ciclo (papel con puntos, Shantell Sans 700, Red Hat Mono 500).
+  Render, con Chrome y un perfil descartable; las fuentes vienen de Google Fonts, así que hace falta red:
+    chrome --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1
+      --user-data-dir=<scratch> --window-size=1600,500 --virtual-time-budget=6000
+      --screenshot=<carpeta>/odd-ws-banner.png file:///<carpeta>/banner.html
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Mono:wght@500&family=Shantell+Sans:wght@700&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1600px; height: 500px; overflow: hidden; }
+  body {
+    position: relative;
+    background-color: #fbf8f1;
+    background-image: radial-gradient(circle, #e3dccb 2px, transparent 2.6px);
+    background-size: 40px 40px;
+    background-position: 20px 20px;
+    color: #1a1a1a;
+    font-family: "Shantell Sans", sans-serif;
+  }
+  .borde { position: absolute; inset: 0; border: 3px solid #ddd5c3; }
+  .nombre { position: absolute; left: 90px; top: 70px; margin: 0; font-size: 150px; line-height: 1; font-weight: 700; }
+  .lema { position: absolute; left: 92px; top: 262px; margin: 0; font-size: 62px; line-height: 1.12; font-weight: 700; }
+  .lema span { color: #2b59c3; }
+  .tarjeta {
+    position: absolute; left: 1010px; width: 500px; background: #fff;
+    border: 3px solid #e2dac8; border-radius: 8px; box-shadow: 0 7px 0 #ebe4d4;
+    font-family: "Red Hat Mono", monospace; font-weight: 500;
+  }
+  .t1 { top: 80px; height: 120px; }
+  .t2 { top: 236px; height: 180px; }
+  .linea { position: absolute; left: 30px; margin: 0; font-size: 34px; line-height: 46px; white-space: nowrap; }
+  .gris { color: #6b6f76; }
+  .punto { position: absolute; left: 30px; top: 36px; width: 15px; height: 15px; border-radius: 50%; background: #d93a2b; }
+  .etiqueta {
+    position: absolute; left: 1384px; top: 54px; margin: 0; padding: 0 14px; font-size: 32px; line-height: 1.25;
+    font-weight: 700; color: #6b6f76; background: #f1e6bf; transform: rotate(-3deg);
+  }
+  svg { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+  <p class="nombre">odd-ws</p>
+  <p class="lema">Que tu agente no vuelva<br>a cometer <span>el mismo error</span></p>
+
+  <div class="tarjeta t1">
+    <p class="linea gris" style="top: 16px">…/v_proveedores.sql</p>
+    <p class="linea" style="top: 62px">FROM proveedores;</p>
+  </div>
+  <p class="etiqueta">T-125</p>
+
+  <div class="tarjeta t2">
+    <div class="punto"></div>
+    <p class="linea gris" style="top: 20px; left: 62px">verificar-capa</p>
+    <p class="linea" style="top: 70px">[SQL-01 CRITICAL]</p>
+    <p class="linea gris" style="top: 116px">no filtra WHERE activo</p>
+  </div>
+
+  <svg width="1600" height="500" viewBox="0 0 1600 500" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 444 410 C 600 403, 770 405, 916 399" stroke="#2b59c3" stroke-width="8"/>
+    <path d="M 1206 143 C 1300 141, 1404 148, 1406 168 C 1408 191, 1300 202, 1204 201 C 1110 200, 1022 192, 1020 171 C 1018 151, 1100 144, 1214 146" stroke="#d93a2b" stroke-width="5"/>
+    <path d="M 1040 359 C 1150 355, 1270 354, 1362 357" stroke="#d93a2b" stroke-width="5"/>
+  </svg>
+  <div class="borde"></div>
+</body>
+</html>

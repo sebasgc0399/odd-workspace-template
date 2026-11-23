@@ -1,6 +1,6 @@
 # Usar odd-ws
 
-Esta guía es para quien ya instaló el plugin y lo usa en su proyecto: los conceptos, lo que necesita la máquina, el ciclo de un ticket y qué hace cada skill. La instalación en tres pasos está en el [README](../README.md#instalación), y cómo comparte un equipo una instancia, en [Trabajar en equipo](equipo.md).
+Esta guía es para quien ya instaló el plugin y lo usa en su proyecto: los conceptos, lo que necesita la máquina, el ciclo de un ticket y qué hace cada skill. La instalación de cada CLI está en el [README](../README.md#instalación), y cómo comparte un equipo una instancia, en [Trabajar en equipo](equipo.md).
 
 ## Conceptos
 
@@ -32,11 +32,11 @@ Se desarrolla en Windows, y las suites corren también en Linux y macOS (ver [D�
 | Git | Los repos y los worktrees. En Windows, Git for Windows: su `sh` corre los hooks de git | Sí |
 | Un `credential.helper` de git | Empujar a GitHub (en Windows, Git Credential Manager) | Solo para empujar |
 | PowerShell | El análisis AST de la biblioteca T-SQL (ScriptDom). Sin él, esos chequeos no encuentran nada | Solo con una capa SQL |
-| gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún script del plugin los invoca | No |
+| gentle-ai ≥ 4.2.0, engram ≥ 3.5.0 y jq | El entorno del mantenedor. Ningún hook los necesita: el doctor los consulta y, con tu sí, apaga la revisión nativa de gentle-ai (`rdd`) en el clon | No |
 
-> **`python3` en Windows.** Lo crean el Python install manager de python.org y la Microsoft Store. El instalador clásico, winget y choco no lo crean, y entonces `python3` cae en el alias de la Store, que no corre: los hooks no arrancan. `/odd-ws:doctor` lo marca como FALTA en el ítem `python`, con el arreglo. En Windows, los hooks de Codex lanzan `python`, así que con `codex` declarado el doctor revisa también ese. Si en Windows usas solo Codex, los comandos de esta guía y de las skills van con `python` en lugar de `python3`.
+> **`python3` en Windows.** Lo crean el Python install manager de python.org y la Microsoft Store. El instalador clásico, winget y choco no lo crean, y entonces `python3` cae en el alias de la Store, que no corre: los hooks no arrancan. `/odd-ws:doctor` lo marca como FALTA en el ítem `python`, con el arreglo. En Windows, los hooks de Codex y los de Pi lanzan `python`, así que con `codex` o `pi` declarado el doctor revisa también ese. Si en Windows usas solo Codex o Pi, los comandos de esta guía y de las skills van con `python` en lugar de `python3`.
 
-> **El doctor y las herramientas opcionales.** Si no encuentra gentle-ai, engram, jq o un `credential.helper`, `/odd-ws:doctor` lo marca como AVISO con «opcional» en el detalle, y no falla por eso. Si tienes gentle-ai, el doctor también pide que su revisión nativa (`rdd`) esté apagada: la instancia trae revisores propios.
+> **El doctor y las herramientas opcionales.** Si no encuentra gentle-ai, engram, jq o un `credential.helper`, `/odd-ws:doctor` lo marca como AVISO con «opcional» en el detalle, y no falla por eso. Si tienes gentle-ai, en una instancia completa el doctor te propone apagar su revisión nativa (`rdd`) solo en el clon de la instancia, porque ahí la instancia trae revisores propios; lo aplica con tu sí (`--arreglar rdd`), nunca solo. En el perfil `controles` es al revés: la revisión de gentle-ai apagada sale como AVISO. Fuera de una instancia, el ítem no aplica.
 
 ## Reglas de la instalación
 
