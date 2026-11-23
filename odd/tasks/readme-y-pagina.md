@@ -69,10 +69,10 @@ El origen es el pedido del autor (L1). Lo marcado como **decisión de diseño** 
 
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
-| T0 | todas | Este documento, su espejo en engram y R17 en el roadmap | inline | hecha | (con T1) |
-| T1 | S1, S2, S4, S5 | El README nuevo, el banner y las correcciones de `Doc/` | inline | hecha (L4) | |
-| T2 | S1, S3, S4 | La página nueva | delegada: writer en `D:/Project/odd-ws-wt/pages`, en paralelo con T1 (dos unidades independientes de más de 100 líneas, en ramas distintas) | pendiente | |
-| T3 | S6, S7 | Las capturas, el chequeo de S7 y los links; la entrega, con el ok del autor | inline | pendiente | |
+| T0 | todas | Este documento, su espejo en engram y R17 en el roadmap | inline | hecha | `f001b14` |
+| T1 | S1, S2, S4, S5 | El README nuevo, el banner y las correcciones de `Doc/` | inline | hecha (L4) | `f001b14` |
+| T2 | S1, S3, S4 | La página nueva | delegada: writer en `D:/Project/odd-ws-wt/pages`, en paralelo con T1 (dos unidades independientes de más de 100 líneas, en ramas distintas) | hecha (L5) | `8056b48` (gh-pages) |
+| T3 | S6, S7 | Las capturas, el chequeo de S7 y los links; la entrega, con el ok del autor | inline | hecha (L6) | `main` `f001b14`, `gh-pages` `8056b48` |
 
 ## Log
 
@@ -124,3 +124,32 @@ El origen es el pedido del autor (L1). Lo marcado como **decisión de diseño** 
   - **Lo que aprendí del método:**
     - La API de markdown en modo `gfm` convierte cada salto de línea en `<br>`; el README se ve como en GitHub en modo `markdown`.
     - Una captura de página completa con Playwright, con escala 1.25, sale recortada aunque la página no se salga: lo que vale es la captura del viewport.
+- **L5** (2026-11-23) T2, del writer en `gh-pages`:
+  - **La página** es un `index.html` estático (58 KB) con:
+    - navegación fija;
+    - el hero con el comando de Claude Code copiable, los CTA «Instalar paso a paso» y «Ver en GitHub», y «Funciona con…» en texto;
+    - el GIF al lado en escritorio;
+    - el problema antes que la solución («En el chat es un consejo» / «En tu repo, es un chequeo»);
+    - el glosario;
+    - el bloqueo con salto de línea;
+    - 8 tarjetas con íconos de Lucide (ISC);
+    - pestañas por CLI con ARIA y teclado (sin JS se ven los tres paneles);
+    - skills, gentle-ai y engram, una FAQ de 6 preguntas, novedades, dónde funciona, documentación y el pie con los créditos.
+  - **Los archivos:** `favicon.svg`, `assets/icons.txt` y las fuentes Shantell Sans 700 y Red Hat Mono 500, con sus OFL oficiales.
+  - **La verificación del writer:**
+    - la tabla de requisitos, la versión, el pie y los comandos dan cero desfases contra el README;
+    - las 11 anclas y los 17 links a `Doc/` resuelven;
+    - el contraste es AA, con un mínimo de 5.44;
+    - las capturas reales a 1440 y a 390 (un `iframe` de 390, porque Chrome headless no baja de 500), en claro (`--blink-settings=preferredColorScheme=1`) y en oscuro.
+  - **Lo que no está textual en `Doc/`:** la FAQ «¿por qué está en español?» y que fuera de una instancia los guards dejan pasar todo. Las dos se respaldan en el código: la auditoría cita `guard_comandos.py:1108-1110`.
+  - **La revisión del orquestador:** las capturas del writer en claro, oscuro y celular. Con Playwright, la escala de pantalla de Windows (125 %) le desalinea las capturas después del scroll y por elemento, así que las capturas de Chrome del writer son las que valen.
+- **L6** (2026-11-23) La entrega, con el ok del autor («te doy el ok para publicarlo»):
+  - Sobre `f001b14` con la `gh-pages` local `8056b48`, `desfases_de_la_entrega` da `None`.
+  - El push a `main` (`1a11fdf..f001b14`) dio «entrega limpia» en el pre-push.
+  - Después, `gh-pages` `8a86aa1..8056b48`.
+  - **Pendiente del autor:** subir la tarjeta (`Doc/img/odd-ws-tarjeta.png`) como social preview del repo en Settings → General.
+- **L7** (2026-11-23) El autor, ya publicada la página: «Ya subi esa imagen, Por cierto esto de la contribuccion tambien deberiamos actualizarlo no?». La social preview quedó subida. `CONTRIBUTING.md` estaba al día en «Una entrega» (la 0.13.3), pero no en esto:
+  - **El pre-commit** decía «unos 4 minutos», y en Windows tarda unos 20. Además corre las suites `*.test.ts` del shim de Pi con `node --test`, que la tabla no nombraba.
+  - **Los requisitos del clon:** faltaban Python 3.12 y Node 22.18 o más. El mínimo de Node sale del mensaje de `.githooks/pre-commit`; el CI usa 24.
+  - **«Las pruebas»** no traía el comando de `node --test`.
+  - **La estructura** solo nombraba `hooks.json`. Faltaban el `plugin.json` de Codex, el `package.json` del paquete de Pi, `hooks.codex.json` y `hooks.pi.json`, el shim, `Doc/img/` con la fuente del banner, `odd/` y la rama `gh-pages`. «Dónde está el porqué» suma el roadmap.

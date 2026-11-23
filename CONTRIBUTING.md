@@ -4,6 +4,8 @@ Esta guía es para quien modifica la plantilla misma. Si quieres usar el plugin 
 
 ## Puesta en marcha del clon
 
+Necesitas Python 3.12 o más, porque las suites lo piden, y Node 22.18 o más (el CI usa 24) para las suites del shim de Pi, que el pre-commit también corre.
+
 1. Clona el repo (si no eres colaborador, trabaja en un fork y propón el cambio con un pull request) y, desde el clon, corre `python3 plugin/scripts/doctor.py`. Muestra qué falta, con el arreglo de cada ítem.
 2. `python3 plugin/scripts/doctor.py --arreglar repo-hooks` (o `git config core.hooksPath .githooks`). **Obligatorio:** git no instala hooks solo, y un clon sin este paso no corre ningún barrido.
 3. Crea la lista negra en `~/.odd-ws/denylist.txt` (o apunta `ODD_WS_DENYLIST` a otra ruta). Va **fuera** del repo y no viaja con él. Sin ella, el barrido bloquea todos los commits: falla cerrado.
@@ -13,7 +15,7 @@ Esta guía es para quien modifica la plantilla misma. Si quieres usar el plugin 
 
 | Hook | Qué corre |
 |---|---|
-| `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado, el chequeo de marcadores de conflicto y todas las suites `*.tests.py` (unos 4 minutos) |
+| `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado, el chequeo de marcadores de conflicto, todas las suites `*.tests.py` y las `*.test.ts` del shim de Pi. En Windows tarda unos 20 minutos, y un pre-commit corriendo a la vez que otro puede hacer fallar las pruebas de latencia |
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
 | `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión, sus notas en `CHANGELOG.md` y que el README y la página digan esa versión y los mismos requisitos |
 
@@ -23,11 +25,12 @@ El chequeo de marcadores (`plugin/scripts/odd_ws/marcadores.py`) frena el commit
 
 ## Las pruebas
 
-No hay pytest: cada `*.tests.py` es un script que se corre solo. `.github/workflows/pruebas.yml` corre todas las suites en Ubuntu, Windows y macOS con Python 3.12, porque los tests piden 3.12 (`shutil.rmtree(onexc=)` y `os.path.isjunction`).
+No hay pytest: cada `*.tests.py` es un script que se corre solo. Las suites del shim de Pi son `*.test.ts` y corren con `node --test`, sin flags. `.github/workflows/pruebas.yml` corre todas en Ubuntu, Windows y macOS, con Python 3.12 (los tests usan `shutil.rmtree(onexc=)` y `os.path.isjunction`) y Node 24.
 
 ```text
 python3 plugin/scripts/<script>.tests.py
 for suite in $(git ls-files -- '*.tests.py'); do python3 "$suite"; done
+node --test plugin/shim/*.test.ts
 ```
 
 ## Una entrega
@@ -66,15 +69,18 @@ La sección `## <versión>` es lo que lee la comunidad en el release, así que v
 |---|---|
 | [`Doc/diseno.md`](Doc/diseno.md) | Todas las decisiones de diseño y la especificación de cada script |
 | `odd/tasks/<feature>.md` | La bitácora de cada feature: los requisitos, las tareas con su commit y el log de decisiones |
+| `odd/roadmap.md` | Lo que viene: la cola, lo que espera, las ideas con su fuente y lo hecho por versión |
 
 ## Estructura del repo
 
 | Ruta | Qué es |
 |---|---|
 | `.claude-plugin/marketplace.json` | El catálogo: un solo plugin, `odd-ws` |
-| `plugin/.claude-plugin/plugin.json` | El nombre y la versión del plugin |
+| `plugin/.claude-plugin/plugin.json` | El nombre y la versión del plugin. `plugin/.codex-plugin/plugin.json` es el de Codex, con la misma versión |
+| `package.json` | El paquete de Pi, que gentle-shell instala desde git: apunta al shim y a las skills, y lleva la misma versión |
 | `plugin/skills/` | Las 9 skills |
-| `plugin/hooks/hooks.json` | Los hooks del plugin |
+| `plugin/hooks/` | Los hooks del plugin en cada CLI: `hooks.json` (Claude Code), `hooks.codex.json` y `hooks.pi.json` |
+| `plugin/shim/` | El shim de Pi en TypeScript (`pi.ts` y `nucleo.ts`), que lleva los eventos de Pi a los hooks de Python, con sus `*.test.ts` |
 | `plugin/scripts/` | Los scripts de las skills y los hooks, cada uno con su `*.tests.py`. `odd_ws/` es la biblioteca que importan los hooks y las reglas de la instancia |
 | `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md` (o `CLAUDE.controles.md` con el perfil `controles`), `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
 | `tools/` | `barrido.py` (el barrido de confidencialidad), `entrega.py` (el chequeo de la entrega) y `notas.py` (saca del CHANGELOG las notas de una versión). Son del repo, no viajan con el plugin |
@@ -82,3 +88,6 @@ La sección `## <versión>` es lo que lee la comunidad en el release, así que v
 | `.github/workflows/release.yml` | Publica el release de cada etiqueta `odd-ws--v*` |
 | `CHANGELOG.md` | Las notas de cada versión, una sección `## <versión>` por entrega |
 | `README.md` y `Doc/` | La portada y la referencia de uso: `uso.md`, `equipo.md`, `hooks.md`, `capas-y-reglas.md` y `actualizar.md`. `diseno.md` guarda el porqué |
+| `Doc/img/` | Las imágenes del README y de las redes: el banner (`odd-ws-banner.png`, con su fuente `banner.html` y el comando para renderizarlo), el GIF del ciclo y la tarjeta, que también es la imagen social del repo |
+| `odd/` | La bitácora del proyecto: `roadmap.md`, `tasks/` (una por feature) y `estudios/` |
+| La rama `gh-pages` | La página del proyecto: un `index.html` estático, con sus fuentes y su favicon en `assets/`. Se commitea antes de empujar `main` (ver «Una entrega») |
