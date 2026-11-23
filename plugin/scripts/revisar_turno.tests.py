@@ -281,9 +281,9 @@ def test_un_archivo_de_capa_escrito_por_cualquier_via_con_un_bloqueo_hace_seguir
         git(repo, "apply", str(parche))
         texto = motivo(fin(inst))
         assert nombra(texto, a) and nombra(texto, b), texto
-        assert "[T-01 ALTA]" in texto and "línea 3: línea marcada" in texto and "línea 2: línea marcada" in texto, texto
-        assert "Avisos" in texto and "línea 4: línea marcada" in texto, "los avisos van en el mismo mensaje: %s" % texto
-        assert texto.index("Avisos") > texto.index("línea 2: línea marcada"), texto
+        assert "[T-01 ALTA]" in texto and "línea 3 en «MALO»: línea marcada" in texto and "línea 2 en «MALO»: línea marcada" in texto, texto
+        assert "Avisos" in texto and "línea 4 en «MALO»: línea marcada" in texto, "los avisos van en el mismo mensaje: %s" % texto
+        assert texto.index("Avisos") > texto.index("línea 2 en «MALO»: línea marcada"), texto
         assert FRASE in texto, texto
         assert "Edit o Write" in texto, texto
         assert foto(inst).is_dir(), "con un bloqueo la foto queda para la continuación"
@@ -301,7 +301,7 @@ def test_un_bloqueo_sin_calibrar_no_hace_seguir_y_su_aviso_dice_por_que():
         bloqueos, avisos = R._chequear([(str(a), None, None)], config_loader.cargar(inst), None)
         assert bloqueos == [] and len(avisos) == 1, (bloqueos, avisos)
         from odd_ws import calibracion
-        assert avisos[0].endswith("línea 3: línea marcada (aviso: sin calibrar; para que bloquee, corregir los hallazgos y después "
+        assert avisos[0].endswith("línea 3 en «MALO»: línea marcada (aviso: sin calibrar; para que bloquee, corregir los hallazgos y después "
                                   'correr `%s "%s" --calibrar sql "%s" --guardar`)' % (calibracion.interprete(), AQUI / "reglas.py", repo)), \
             avisos
 

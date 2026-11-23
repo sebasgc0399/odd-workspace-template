@@ -32,10 +32,64 @@ def notas_de(*versiones):
 
 WORKFLOW = ".github/workflows/release.yml"
 CON_WORKFLOW = {WORKFLOW: "name: release\n"}
+GH_PAGES = "refs/heads/gh-pages"
+ORIGIN_GH_PAGES = "refs/remotes/origin/gh-pages"
+FILAS_MD = [
+    "Python, invocable como `python3` | 3.7 o más",
+    "**Git** | En Windows, [Git for Windows](https://gitforwindows.org)",
+    "Pi, si lo usas | 1.5.0 o más; Node & npm",
+]
+FILAS_HTML = [
+    "<td>Python, invocable como <code>python3</code></td><td>3.7 o más</td>",
+    '<td><b>Git</b></td><td>En Windows, <a href="https://gitforwindows.org">Git for Windows</a></td>',
+    "<td>Pi, si lo usas</td><td>1.5.0 o más; Node &amp; npm</td>",
+]
+SIN_PAGINA = "aviso: no hay rama gh-pages, ni local ni en origin, así que no se revisa la página"
 
 
 def a_etiqueta(version, objeto, remoto=CEROS):
     return f"refs/tags/odd-ws--v{version} {objeto} refs/tags/odd-ws--v{version} {remoto}"
+
+
+def readme_de(version, actual=None, comando=None, filas=FILAS_MD, sin_actual=False):
+    presentacion = "" if sin_actual else f"**Versión actual:** `{actual or version}` ([qué cambió en cada versión](CHANGELOG.md)).\n\n"
+    return (
+        "# odd-ws\n\n" + presentacion
+        + "## Cómo funciona\n\n| Paso | Qué |\n|---|---|\n| uno | algo |\n\n"
+        "## Instalación\n\n| Herramienta | Versión |\n|---|---|\n" + "".join(f"| {fila} |\n" for fila in filas)
+        + f"\n```text\ngentle-shell install git:github.com/x/y@odd-ws--v{comando or version}\n```\n\n"
+        "## Dónde funciona\n\n| CLI | Windows |\n|---|---|\n| Claude Code | sí |\n"
+    )
+
+
+def uso_de(comando):
+    return f"# Uso\n\n- **Instalar:** `gentle-shell install git:github.com/x/y@odd-ws--v{comando}`, o la ruta de un clon tuyo.\n"
+
+
+def actualizar_de(comando):
+    return f"# Actualizar\n\n```text\ngentle-shell install git:github.com/x/y@odd-ws--v{comando}\n```\n"
+
+
+def docs_al_dia(version):
+    return {"README.md": readme_de(version), "Doc/uso.md": uso_de(version), "Doc/actualizar.md": actualizar_de(version)}
+
+
+def pagina_de(version, actual=None, pie=None, comando=None, filas=FILAS_HTML, sin_actual=False):
+    encabezado = "" if sin_actual else f'  <p class="version">Versión actual: <b>{actual or version}</b> · <a href="x">qué cambió</a></p>\n'
+    return (
+        '<!doctype html>\n<html lang="es">\n<body>\n<header>\n' + encabezado + "</header>\n<main>\n"
+        "  <h2>Qué trae</h2>\n  <table>\n    <tr><th>Comando</th><th>Para qué</th></tr>\n  </table>\n"
+        '  <h2 id="instalar">Instalar</h2>\n  <table>\n    <thead><tr><th>Herramienta</th><th>Versión</th></tr></thead>\n    <tbody>\n'
+        + "".join(f"      <tr>{fila}</tr>\n" for fila in filas)
+        + "    </tbody>\n  </table>\n"
+        f"  <pre><code>gentle-shell install git:github.com/x/y@odd-ws--v{comando or version}</code></pre>\n"
+        '  <h2>Novedades</h2>\n  <p class="novedad"><b>0.0.9.</b> Lo de antes.</p>\n'
+        f'</main>\n<footer>\n  <p>odd-ws {pie or version} · <a href="https://github.com/x/y">github.com/x/y</a> · Licencia MIT</p>\n</footer>\n</body>\n</html>\n'
+    )
+
+
+def linea(texto, fragmento):
+    return next(numero for numero, renglon in enumerate(texto.splitlines(), 1) if fragmento in renglon)
 
 
 class Escenario:
@@ -64,8 +118,8 @@ class Escenario:
     def __exit__(self, *_):
         shutil.rmtree(self.dir, onexc=_forzar_borrado)
 
-    def git(self, *args, cwd=None):
-        return subprocess.run(["git", *args], cwd=cwd or self.obra, env=self.env, capture_output=True, check=True)
+    def git(self, *args, cwd=None, entrada=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.obra, env=self.env, capture_output=True, check=True, input=entrada)
 
     def git_salida(self, *args):
         return self.git(*args).stdout.decode("utf-8").strip()
@@ -83,9 +137,15 @@ class Escenario:
         self.git("tag", "-a", f"odd-ws--v{version}", "-m", f"entrega {version}", *([sha] if sha else []))
 
     def entrega_inicial(self, version="0.1.0"):
-        sha = self.commit({PLUGIN_JSON: plugin_json(version), "plugin/skills/uno.md": "uno\n", "README.md": "base\n"}, "base")
+        sha = self.commit({PLUGIN_JSON: plugin_json(version), "plugin/skills/uno.md": "uno\n", **docs_al_dia(version)}, "base")
         self.etiquetar(version)
+        self.pagina(pagina_de(version))
         return sha
+
+    def pagina(self, contenido, ref=GH_PAGES):
+        blob = self.git("hash-object", "-w", "--stdin", entrada=contenido.encode("utf-8")).stdout.decode().strip()
+        arbol = self.git("mktree", entrada=f"100644 blob {blob}\tindex.html\n".encode()).stdout.decode().strip()
+        self.git("update-ref", ref, self.git("commit-tree", arbol, "-m", "pagina").stdout.decode().strip())
 
     def correr(self, lineas, cwd=None):
         entrada = "".join(f"{linea}\n" for linea in lineas).encode("utf-8")
@@ -130,7 +190,7 @@ def test_el_borrado_de_main_se_ignora():
 def test_main_con_cambios_solo_fuera_de_plugin_desde_la_etiqueta_pasa():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({"README.md": "otro\n", "tools/x.py": "x\n"})
+        sha = e.commit({"Doc/otro.md": "otro\n", "tools/x.py": "x\n"})
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
 
 
@@ -168,8 +228,9 @@ def test_etiqueta_de_la_version_en_otro_commit_bloquea():
 def test_version_subida_y_etiqueta_en_el_commit_pasa():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0", "0.1.0")})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0", "0.1.0"), **docs_al_dia("0.2.0")})
         e.etiquetar("0.2.0")
+        e.pagina(pagina_de("0.2.0"))
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
 
 
@@ -199,8 +260,9 @@ def test_una_seccion_sin_publicar_no_cuenta_como_las_notas_de_una_version():
     with Escenario() as e:
         e.entrega_inicial()
         sin_publicar = "# Changelog\n\n## Sin publicar\n\n- lo que viene\n\n## 0.1.0\n\n- algo\n"
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": sin_publicar, **CON_WORKFLOW})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": sin_publicar, **CON_WORKFLOW, **docs_al_dia("0.2.0")})
         e.etiquetar("0.2.0")
+        e.pagina(pagina_de("0.2.0"))
         asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "no tiene notas para 0.2.0")
         e.git("tag", "-d", "odd-ws--v0.2.0")
         con_version = sin_publicar.replace("## 0.1.0", "## 0.2.0\n\n- cambios de la 0.2.0\n\n## 0.1.0")
@@ -212,8 +274,9 @@ def test_una_seccion_sin_publicar_no_cuenta_como_las_notas_de_una_version():
 def test_una_entrega_de_un_commit_sin_el_workflow_no_pide_notas():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n"})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", **docs_al_dia("0.2.0")})
         e.etiquetar("0.2.0")
+        e.pagina(pagina_de("0.2.0"))
         asegurar(e.correr([a_main(sha), a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
 
 
@@ -231,9 +294,10 @@ def test_una_etiqueta_empujada_detras_de_main_tambien_exige_sus_notas():
 def test_una_etiqueta_empujada_con_sus_notas_pasa_y_una_ajena_a_su_version_bloquea():
     with Escenario() as e:
         e.entrega_inicial()
-        e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0"), **CON_WORKFLOW})
+        e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0"), **CON_WORKFLOW, **docs_al_dia("0.2.0")})
         e.etiquetar("0.2.0")
         e.etiquetar("0.9.0")
+        e.pagina(pagina_de("0.2.0"))
         asegurar(e.correr([a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
         asegurar(
             e.correr([a_etiqueta("0.9.0", e.git_salida("rev-parse", "odd-ws--v0.9.0"))]), 1, "",
@@ -252,13 +316,14 @@ def test_el_borrado_de_una_etiqueta_se_ignora():
 def test_un_push_a_main_que_no_entrega_no_pide_notas():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({"README.md": "otro\n", "CHANGELOG.md": "# Changelog\n"})
+        sha = e.commit({"Doc/otro.md": "otro\n", "CHANGELOG.md": "# Changelog\n"})
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
 
 
 def test_sin_ninguna_etiqueta_y_con_plugin_bloquea_y_pasa_al_etiquetar():
     with Escenario() as e:
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0")})
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0"), **docs_al_dia("0.1.0")})
+        e.pagina(pagina_de("0.1.0"))
         asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "desde el inicio", f"{sha[:7]} no tiene la etiqueta odd-ws--v0.1.0")
         e.etiquetar("0.1.0")
         asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
@@ -315,8 +380,9 @@ def test_con_varias_lineas_basta_una_de_main_que_falle_para_bloquear():
 def test_con_varias_lineas_todas_en_regla_pasan():
     with Escenario() as e:
         e.entrega_inicial()
-        sha = e.commit({"plugin/skills/uno.md": "dos\n", PLUGIN_JSON: plugin_json("0.2.0"), "CHANGELOG.md": notas_de("0.2.0")})
+        sha = e.commit({"plugin/skills/uno.md": "dos\n", PLUGIN_JSON: plugin_json("0.2.0"), "CHANGELOG.md": notas_de("0.2.0"), **docs_al_dia("0.2.0")})
         e.etiquetar("0.2.0")
+        e.pagina(pagina_de("0.2.0"))
         lineas = [f"refs/heads/feature {sha} refs/heads/feature {CEROS}", a_main(sha)]
         asegurar(e.correr(lineas), 0, "entrega limpia\n")
 
@@ -370,6 +436,173 @@ def test_un_argumento_de_mas_es_un_error_de_uso():
         assert resultado.stdout == b"" and b"uso:" in resultado.stderr, resultado
 
 
+def sin_chequeo_de_pagina(resultado):
+    for marca in ("la página y el README", "gh-pages", "aviso:"):
+        assert marca not in resultado[2], (marca, resultado)
+
+
+def test_el_readme_con_otra_version_actual_o_sin_ella_bloquea_y_dice_como_arreglarlo():
+    with Escenario() as e:
+        e.entrega_inicial("0.2.0")
+        viejo = readme_de("0.2.0", actual="0.1.0")
+        sha = e.commit({"README.md": viejo})
+        resultado = e.correr([a_main(sha)])
+        asegurar(
+            resultado, 1, "",
+            "ENTREGA BLOQUEADA", f"la página y el README no coinciden con {PLUGIN_JSON} de {sha[:7]}, que dice 0.2.0",
+            f"README.md:{linea(viejo, 'Versión actual')} dice «Versión actual: 0.1.0»: sube la «Versión actual» del README a 0.2.0",
+        )
+        assert "gh-pages" not in resultado[2], resultado
+        sha = e.commit({"README.md": readme_de("0.2.0", sin_actual=True)})
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "README.md no tiene la línea «Versión actual»: escríbela con 0.2.0")
+
+
+def test_la_pagina_con_otra_version_bloquea_en_main_y_en_la_etiqueta_y_las_novedades_viejas_no_cuentan():
+    with Escenario() as e:
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "CHANGELOG.md": notas_de("0.2.0"), **CON_WORKFLOW, **docs_al_dia("0.2.0")})
+        e.etiquetar("0.2.0")
+        objeto = e.git_salida("rev-parse", "odd-ws--v0.2.0")
+        actual_vieja = pagina_de("0.2.0", actual="0.1.0")
+        pie_viejo = pagina_de("0.2.0", pie="0.1.0")
+        casos = [
+            (actual_vieja, f"gh-pages:index.html:{linea(actual_vieja, 'Versión actual')} dice «Versión actual: 0.1.0»: sube la versión de la página a 0.2.0"),
+            (pie_viejo, f"gh-pages:index.html:{linea(pie_viejo, 'odd-ws 0.1.0')} dice 0.1.0 en el pie: sube la versión del pie a 0.2.0"),
+            (pagina_de("0.2.0", sin_actual=True), "gh-pages:index.html no tiene la línea «Versión actual»: escríbela con 0.2.0"),
+        ]
+        for pagina, motivo in casos:
+            e.pagina(pagina)
+            for lineas in ([a_main(sha)], [a_etiqueta("0.2.0", objeto)]):
+                asegurar(
+                    e.correr(lineas), 1, "",
+                    "ENTREGA BLOQUEADA", motivo, "La página se lee de gh-pages: commitea la página de la versión en la rama gh-pages antes de empujar main",
+                )
+        e.pagina(pagina_de("0.2.0"))
+        asegurar(e.correr([a_main(sha), a_etiqueta("0.2.0", objeto)]), 0, "entrega limpia\n")
+
+
+def test_un_comando_sin_el_numero_de_la_version_bloquea_en_el_readme_los_docs_y_la_pagina():
+    with Escenario() as e:
+        e.entrega_inicial("0.2.0")
+        readme, uso, actualizar = readme_de("0.2.0", comando="<versión>"), uso_de("<versión>"), actualizar_de("<versión nueva>")
+        sha = e.commit({"README.md": readme, "Doc/uso.md": uso, "Doc/actualizar.md": actualizar})
+        pagina = pagina_de("0.2.0", comando="&lt;versión&gt;")
+        e.pagina(pagina)
+        asegurar(
+            e.correr([a_main(sha)]), 1, "",
+            "ENTREGA BLOQUEADA",
+            f"README.md:{linea(readme, 'odd-ws--v')} tiene odd-ws--v<versión>: cámbialo por odd-ws--v0.2.0",
+            f"Doc/uso.md:{linea(uso, 'odd-ws--v')} tiene odd-ws--v<versión>: cámbialo por odd-ws--v0.2.0",
+            f"Doc/actualizar.md:{linea(actualizar, 'odd-ws--v')} tiene odd-ws--v<versión nueva>: cámbialo por odd-ws--v0.2.0",
+            f"gh-pages:index.html:{linea(pagina, 'odd-ws--v')} tiene odd-ws--v<versión>: cámbialo por odd-ws--v0.2.0",
+        )
+        sha = e.commit({**docs_al_dia("0.2.0"), "Doc/uso.md": uso_de("0.1.0")})
+        e.pagina(pagina_de("0.2.0"))
+        resultado = e.correr([a_main(sha)])
+        asegurar(resultado, 1, "", "ENTREGA BLOQUEADA", f"Doc/uso.md:{linea(uso_de('0.1.0'), 'odd-ws--v')} tiene odd-ws--v0.1.0: cámbialo por odd-ws--v0.2.0")
+        assert "README.md:" not in resultado[2] and "Doc/actualizar.md" not in resultado[2] and "gh-pages" not in resultado[2], resultado
+
+
+def test_la_tabla_de_requisitos_distinta_entre_el_readme_y_la_pagina_bloquea_y_dice_que_fila_o_celda_difiere():
+    with Escenario() as e:
+        sha = e.entrega_inicial("0.2.0")
+        readme = readme_de("0.2.0")
+        otra_celda = pagina_de("0.2.0", filas=FILAS_HTML[:2] + ["<td>Pi, si lo usas</td><td>1.5.0 o más. Para los writers, gentle-shell</td>"])
+        una_menos = pagina_de("0.2.0", filas=FILAS_HTML[:2])
+        una_mas = pagina_de("0.2.0", filas=FILAS_HTML + ["<td>gentle-shell</td><td>El de <code>npm i -g gentle-pi</code></td>"])
+        casos = [
+            (otra_celda, (
+                f"la fila 3 de la tabla de requisitos («Pi, si lo usas»), columna «Versión», dice «1.5.0 o más; Node & npm» en README.md:{linea(readme, 'Pi, si lo usas')} "
+                f"y «1.5.0 o más. Para los writers, gentle-shell» en gh-pages:index.html:{linea(otra_celda, 'Pi, si lo usas')}"
+            )),
+            (una_menos, f"la fila 3 de la tabla de requisitos («Pi, si lo usas», README.md:{linea(readme, 'Pi, si lo usas')}) no está en la página"),
+            (una_mas, f"la fila 4 de la tabla de requisitos («gentle-shell», gh-pages:index.html:{linea(una_mas, '<td>gentle-shell')}) no está en el README"),
+        ]
+        for pagina, motivo in casos:
+            e.pagina(pagina)
+            asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", motivo, "La página se lee de gh-pages")
+        e.pagina(pagina_de("0.2.0").replace('<h2 id="instalar">Instalar</h2>', "<h2>👉 Instalación</h2>"))
+        sha = e.commit({"README.md": readme.replace("## Instalación", "## 👉 Instalación 👈")})
+        asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
+        sha = e.commit({"README.md": readme.replace("## Instalación", "## Instalar")})
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", "README.md no tiene la tabla de requisitos en su sección «Instalación»")
+
+
+def test_sin_rama_de_la_pagina_avisa_en_una_linea_y_no_frena_pero_revisa_el_readme():
+    with Escenario() as e:
+        sha = e.entrega_inicial("0.2.0")
+        e.git("update-ref", "-d", GH_PAGES)
+        resultado = e.correr([a_main(sha)])
+        asegurar(resultado, 0, "entrega limpia\n", SIN_PAGINA)
+        assert resultado[2].startswith(SIN_PAGINA) and resultado[2].count("\n") == 1, resultado
+        viejo = readme_de("0.2.0", actual="0.1.0")
+        sha = e.commit({"README.md": viejo})
+        asegurar(e.correr([a_main(sha)]), 1, "", SIN_PAGINA, f"README.md:{linea(viejo, 'Versión actual')} dice «Versión actual: 0.1.0»")
+
+
+def test_sin_rama_local_la_pagina_se_lee_de_origin_y_la_local_manda_si_existe():
+    with Escenario() as e:
+        sha = e.entrega_inicial("0.2.0")
+        e.git("update-ref", "-d", GH_PAGES)
+        vieja = pagina_de("0.2.0", actual="0.1.0")
+        e.pagina(vieja, ORIGIN_GH_PAGES)
+        asegurar(
+            e.correr([a_main(sha)]), 1, "",
+            "ENTREGA BLOQUEADA", f"origin/gh-pages:index.html:{linea(vieja, 'Versión actual')} dice «Versión actual: 0.1.0»", "La página se lee de origin/gh-pages",
+        )
+        e.pagina(pagina_de("0.2.0"))
+        asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
+
+
+def test_con_el_readme_los_docs_y_la_pagina_al_dia_la_entrega_pasa_en_main_y_en_la_etiqueta():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", "CHANGELOG.md": notas_de("0.2.0"), **CON_WORKFLOW, **docs_al_dia("0.2.0")})
+        e.etiquetar("0.2.0")
+        e.pagina(pagina_de("0.2.0"))
+        asegurar(e.correr([a_main(sha), a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
+
+
+def test_con_la_pagina_y_el_readme_desfasados_una_etiqueta_ajena_a_su_version_sigue_frenando_con_su_mensaje():
+    with Escenario() as e:
+        e.entrega_inicial("0.3.0")
+        sha = e.commit({"plugin/x.txt": "x\n", **docs_al_dia("9.9.9")})
+        e.pagina(pagina_de("9.9.9"))
+        e.etiquetar("0.4.0")
+        resultado = e.correr([a_main(sha)])
+        asegurar(resultado, 1, "", "ENTREGA BLOQUEADA", "odd-ws--v0.4.0", "dice 0.3.0", "debería ser odd-ws--v0.3.0", "claude plugin tag ./plugin")
+        sin_chequeo_de_pagina(resultado)
+
+
+def test_con_la_pagina_y_el_readme_desfasados_una_entrega_sin_notas_sigue_frenando_con_su_mensaje():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.2.0"), "plugin/skills/uno.md": "dos\n", **CON_WORKFLOW, **docs_al_dia("9.9.9")})
+        e.etiquetar("0.2.0")
+        e.pagina(pagina_de("9.9.9"))
+        for lineas in ([a_main(sha)], [a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]):
+            resultado = e.correr(lineas)
+            asegurar(resultado, 1, "", "ENTREGA BLOQUEADA", f"CHANGELOG.md en {sha[:7]} no tiene notas para 0.2.0", "«## 0.2.0»")
+            sin_chequeo_de_pagina(resultado)
+
+
+def test_sin_pagina_y_con_el_readme_desfasado_un_cambio_de_plugin_sin_etiqueta_sigue_frenando_con_su_mensaje():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({"plugin/skills/uno.md": "dos\n", **docs_al_dia("9.9.9")})
+        e.git("update-ref", "-d", GH_PAGES)
+        resultado = e.correr([a_main(sha)])
+        asegurar(resultado, 1, "", "ENTREGA BLOQUEADA", f"{sha[:7]} no tiene la etiqueta odd-ws--v0.1.0", "Subí «version»", "junto con la rama")
+        sin_chequeo_de_pagina(resultado)
+
+
+def test_sin_pagina_y_con_el_readme_desfasado_un_push_a_otra_rama_sigue_sin_revisarse():
+    with Escenario() as e:
+        e.entrega_inicial()
+        sha = e.commit({"plugin/skills/uno.md": "dos\n", **docs_al_dia("9.9.9")})
+        e.git("update-ref", "-d", GH_PAGES)
+        asegurar(e.correr([f"refs/heads/feature {sha} refs/heads/feature {CEROS}"]), 0, "")
+
+
 class RepoConHook:
     def __init__(self, e):
         self.e = e
@@ -408,7 +641,8 @@ def test_el_hook_sigue_frenando_contenido_con_la_lista_negra_y_deja_pasar_lo_lim
 def test_el_hook_frena_el_push_a_main_con_plugin_sin_etiqueta_y_lo_deja_pasar_con_ella():
     with Escenario() as e:
         repo = RepoConHook(e)
-        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0")}, "base")
+        sha = e.commit({PLUGIN_JSON: plugin_json("0.1.0"), "CHANGELOG.md": notas_de("0.1.0"), **docs_al_dia("0.1.0")}, "base")
+        e.pagina(pagina_de("0.1.0"))
         codigo, salida = repo.empujar("main")
         assert codigo != 0, salida
         assert "ENTREGA BLOQUEADA" in salida and "odd-ws--v0.1.0" in salida, salida

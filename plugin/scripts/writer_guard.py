@@ -119,6 +119,7 @@ MAX_BARRAS_JUNTO_A_UN_PUNTO = 6
 CD_OPCIONES = re.compile(r"-[LPe@]+")
 SET_OPCIONES = re.compile(r"[-+][A-Za-z]+")
 MAX_CWDS = 64
+MAX_CITA = 300
 
 _COLECTOR = None
 _ESCRITURAS = None
@@ -1379,14 +1380,20 @@ def escrituras(comando, cwd=None, herramienta=None):
         _ESCRITURAS = previas
 
 
-def _mensaje(motivo):
+def _cita(comando):
+    if not isinstance(comando, str):
+        return ""
+    return "\nComando: «%s»" % (comando if len(comando) <= MAX_CITA else comando[:MAX_CITA] + "…")
+
+
+def _mensaje(motivo, comando):
     if motivo.startswith("git "):
         que = ("`%s`: los writers no commitean, no cambian de rama ni tocan el índice; eso lo decide el orquestador o el "
                "usuario. Deja el árbol como está y reporta los archivos en el bloque `## Resultado`." % motivo)
     else:
         que = ("%s: una escritura por shell esquiva a verificar_capa en los archivos de capa y en los repos declarados en "
                "workspace.config.json." % motivo)
-    return "writer-guard bloqueó el comando. %s Para cambiar código usa Edit o Write." % que
+    return "writer-guard bloqueó el comando. %s Para cambiar código usa Edit o Write." % que + _cita(comando)
 
 
 def carpeta_fotos(raiz, sesion, agente):
@@ -1499,7 +1506,7 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, bitacora=False):
         decision = None
         try:
             motivo = analizar(comando, cwd if isinstance(cwd, str) else None, Zonas(estado.config), evento.dialecto)
-            decision = Bloquear(_mensaje(motivo)) if motivo else Permitir()
+            decision = Bloquear(_mensaje(motivo, comando)) if motivo else Permitir()
         finally:
             if bitacora and not isinstance(decision, Bloquear):
                 anotar(evento, estado.config["raiz"])

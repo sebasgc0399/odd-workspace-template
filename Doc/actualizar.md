@@ -22,10 +22,10 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 
 ## En gentle-shell (Pi)
 
-Instalado por git, Pi fija la etiqueta de la versión, y `pi update` no la mueve. Para pasar a otra versión, vuelve a instalar con la etiqueta nueva:
+Instalado por git, Pi fija la etiqueta de la versión, y `pi update` no la mueve. Para pasar a la versión actual, vuelve a instalar con su etiqueta:
 
 ```text
-gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v<versión nueva>
+gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2
 ```
 
 Usa `gentle-shell --link install …` si trabajas con el home de `~/.pi/agent`. Reinstalar reemplaza la entrada y pone el clon en la etiqueta nueva. Si lo instalaste desde un clon tuyo, actualiza el clon y corre `/reload` en gentle-shell.
@@ -36,7 +36,19 @@ Corre `/odd-ws:doctor` (en Codex, `$doctor`). La ruta del plugin lleva la versi�
 
 ## Después de actualizar: las plantillas de la instancia
 
-El bootstrap no pisa el `CLAUDE.md` de la raíz ni la plantilla de los tickets (`tickets/_plantilla/CLAUDE.md`) si ya existen, porque son tuyos y los vas ajustando. Cuando una versión cambia esas plantillas, el CHANGELOG lo dice, y lo nuevo se copia a mano desde [`plugin/plantillas/`](../plugin/plantillas/) de esa versión. Los tickets que ya existen no hace falta tocarlos.
+El bootstrap no pisa el `CLAUDE.md` de la raíz, la plantilla de los tickets (`tickets/_plantilla/CLAUDE.md`), el `.githooks/pre-commit` ni la prueba de las reglas de cada capa si ya existen, porque son tuyos o ya están commiteados en la instancia. Cuando una versión cambia esas plantillas, lo nuevo se copia a mano desde [`plugin/plantillas/`](../plugin/plantillas/). Abajo está cada cambio, por versión: si tu instancia se creó antes de una de ellas, copia lo de esa versión y lo de las que siguen. Los tickets que ya existen no hace falta tocarlos.
+
+En la `0.2.2`:
+
+- **El `CLAUDE.md` de la raíz**, desde `plugin/plantillas/CLAUDE.md`: la sección «Si también usas gentle-ai», entera.
+
+En la `0.3.1`:
+
+- **El `.githooks/pre-commit`**: cópialo encima desde `plugin/plantillas/pre-commit`. El nuevo prueba `python3`, `python` y `py`, así que también corre en macOS, Ubuntu y Debian, que no traen `python`.
+
+En la `0.7.0`:
+
+- **El `CLAUDE.md` de la raíz**: en «Skills del plugin», la línea de `/odd-ws:paquetes`.
 
 En la `0.9.0`:
 
@@ -47,6 +59,15 @@ En la `0.9.0`:
   - en «Si también usas gentle-ai», el primer ajuste: el trabajo de un ticket se anota en su carpeta;
   - en «Skills del plugin», el párrafo de los rituales.
 - **La plantilla de los tickets**, desde `plugin/plantillas/ticket.md`: las secciones `## Specs`, `## Tareas` y `## Seguimientos`, y la nota de la Bitácora.
+
+En la `0.10.0`:
+
+- **El `CLAUDE.md` de la raíz**: en «Skills del plugin», la línea de `/odd-ws:enlaces`.
+
+En la `0.12.0`:
+
+- **La prueba de las reglas de cada capa**, `.claude/reglas/verificar_<capa>.tests.py`: cópiala encima desde `plugin/plantillas/reglas/verificar.tests.py`. Comprueba los `sembrado` de las reglas que bloquean (ver [calibrar las reglas que bloquean](#después-de-actualizar-calibrar-las-reglas-que-bloquean)).
+- **`CLAUDE.controles.md`** es nueva, y la usa solo una instancia creada con el perfil `controles`: en una instancia que ya existe no hay nada que copiar.
 
 ## Después de actualizar: regenerar los writers
 

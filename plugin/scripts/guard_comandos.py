@@ -23,9 +23,7 @@ DOBLES = re.compile(r'"[^"]*"')
 SIMPLES = re.compile(r"'[^']*'")
 GIT = re.compile(r"(?i)\bgit\b")
 PUSH = re.compile(r"(?i)\bpush\b")
-FORCE = re.compile(r"(?i)(^|\s)--force(\s|$)")
 FORCE_CORTO = re.compile(r"(?i)(^|\s)-f(\s|$)")
-LEASE = re.compile(r"(?i)--force-with-lease")
 PARCHE_DE_CODEX = re.compile(r"(?i)(^|\s)--codex-run-as-apply-patch(?=[\s;&|)}<>]|$)")
 PUSHES = re.compile(r"(?i)\bgit(?:\.exe)?(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir\s+\S+|--work-tree\s+\S+|--namespace\s+\S+|"
                     r"--?[\w-]+(?:=\S+)?))*\s+push\b([^;&|)}\r\n]*)")
@@ -33,11 +31,8 @@ CONTINUACION = re.compile(r"[\\`]\r?\n")
 REDIRECCION = re.compile(r"(^|\s)\d?[<>]+&?\S*")
 PEGADA = re.compile(r"[<>]\S*")
 ESPACIOS = re.compile(r"\s+")
-LEASE_REF = re.compile(r"(?i)^--force-with-lease=([^:]*)")
 PUSH_CON_VALOR = re.compile(r"(?i)^--(push-option|repo|receive-pack|exec|recurse-submodules)$")
 CORTA = re.compile(r"^-[^-]")
-REFS = re.compile(r"(?i)^refs/")
-HEADS = re.compile(r"(?i)^heads/")
 RESET = re.compile(r"(?i)\breset\b")
 HARD = re.compile(r"(?i)(^|\s)--h(a(r(d)?)?)?(?=[\s;&|)}>]|$)")
 CLEAN = re.compile(r"(?i)\bclean\b")
@@ -80,6 +75,10 @@ ENVOLTORIO = re.compile(r"(?i)^[$({!@&`%]*(?:[^\\/]*[\\/])*(sudo|doas|xargs|comm
                         r"foreach|invoke-command|start-job|-exec|-execdir|-ok|-okdir)(\.exe)?$")
 BORRAN = ("rm", "remove-item", "ri", "del", "erase", "rd", "rmdir")
 SOLO_DE_POWERSHELL = ("remove-item", "ri", "del", "erase", "rd")
+PUSH_FORZADAS = ("force", "force-with-lease", "force-if-includes", "mirror")
+PUSH_FORZADO = ("git push forzado (no lo corras tú: un lease sin `ref:sha` lo satisface cualquier `fetch`; para forzar con "
+                "seguridad, el usuario mira `git log <remoto>/<rama>` y corre "
+                "`git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`)")
 
 GIT_LECTURA = ("status", "log", "diff", "show", "grep", "ls-tree", "ls-files", "ls-remote", "rev-parse", "rev-list",
                "cat-file", "blame", "annotate", "describe", "shortlog", "merge-base", "name-rev", "for-each-ref", "show-ref",
@@ -164,6 +163,7 @@ DOBLES_PS = '"' + "".join(map(chr, (0x201C, 0x201D, 0x201E)))
 QUEDA_ESCAPADO_PS = "0abfnrtv \t\r\n;|&(){}<>,$@`" + SIMPLES_PS + DOBLES_PS
 MAX_RUTA = 4096
 MAX_PROFUNDIDAD_MENCION = 3
+MAX_CITA = 300
 ROTA = object()
 
 _LIMITE = None
@@ -263,31 +263,22 @@ def _es_comando(token, palabras):
     return _palabra(token).lower() in palabras
 
 
-def _sin_prefijo(ref):
-    return HEADS.sub("", REFS.sub("", ref))
+def _opcion_forzada(token):
+    if not token.startswith("--"):
+        return False
+    nombre = token[2:].split("=", 1)[0].lower()
+    return nombre != "" and any(opcion.startswith(nombre) for opcion in PUSH_FORZADAS)
 
 
 def _push(argumentos):
     limpio = PEGADA.sub("", REDIRECCION.sub(" ", argumentos))
     tokens = [t for t in ESPACIOS.split(limpio) if t]
-    posicionales, forzado, lease, cubiertas = [], False, False, []
+    posicionales, forzado = [], False
     k = 0
     while k < len(tokens):
         t = tokens[k]
         k += 1
-        bajo = t.lower()
-        if bajo == "--force-with-lease":
-            lease = True
-            continue
-        m = LEASE_REF.match(t)
-        if m:
-            cubiertas.append(_sin_prefijo(m.group(1)))
-            continue
-        if bajo == "--no-force-with-lease":
-            lease = False
-            cubiertas.clear()
-            continue
-        if bajo == "--force":
+        if _opcion_forzada(t):
             forzado = True
             continue
         if PUSH_CON_VALOR.match(t):
@@ -304,28 +295,15 @@ def _push(argumentos):
         if t.startswith("-"):
             continue
         posicionales.append(t)
-    return posicionales, forzado, lease, cubiertas
+    return posicionales, forzado
 
 
 def _push_forzado(texto):
     for m in PUSHES.finditer(CONTINUACION.sub(" ", texto)):
         _vigente()
-        posicionales, forzado, lease, cubiertas = _push(m.group(1))
-        if forzado:
-            return "git push --force/-f (anula también el --force-with-lease del mismo push: usa --force-with-lease solo)"
-        if lease:
-            continue
-        for ref in posicionales[1:]:
-            if not ref.startswith("+"):
-                continue
-            ref = ref.lstrip("+")
-            c = ref.find(":")
-            if c >= 0 and ref[c + 1:] != "":
-                ref = ref[c + 1:]
-            elif c >= 0:
-                ref = ref[:c]
-            if _sin_prefijo(ref) not in cubiertas:
-                return 'git push con un refspec "+" sin un --force-with-lease sobre esa misma ref (es un push forzado)'
+        posicionales, forzado = _push(m.group(1))
+        if forzado or any(ref.startswith("+") for ref in posicionales[1:]):
+            return PUSH_FORZADO
     return None
 
 
@@ -584,8 +562,8 @@ def _sin_cuerpos_de_texto(texto):
 
 def _reglas_de_git(texto):
     scan = SIMPLES.sub(" ", DOBLES.sub(" ", texto))
-    if GIT.search(scan) and PUSH.search(scan) and (FORCE.search(scan) or FORCE_CORTO.search(scan)) and not LEASE.search(scan):
-        return "git push --force (si de verdad hace falta forzar, usa --force-with-lease)"
+    if GIT.search(scan) and PUSH.search(scan) and (FORCE_CORTO.search(scan) or any(map(_opcion_forzada, ESPACIOS.split(scan)))):
+        return PUSH_FORZADO
     motivo = _push_forzado(SIMPLES.sub(" QARG ", DOBLES.sub(" QARG ", texto)))
     if motivo:
         return motivo
@@ -1075,19 +1053,26 @@ def analizar(comando, cwd=None, entorno=None, protegidos=None, herramienta=None)
     return None, None
 
 
-def _mensaje(motivo):
-    return "guard-comandos bloqueó el comando: %s. Si la operación es deliberada, que la corra el usuario a mano." % motivo
+def _cita(comando):
+    if not isinstance(comando, str):
+        return ""
+    return "\nComando: «%s»" % (comando if len(comando) <= MAX_CITA else comando[:MAX_CITA] + "…")
 
 
-def _preguntar(motivo):
-    return Preguntar("guard-comandos pregunta antes de correr el comando: " + motivo)
+def _mensaje(motivo, comando):
+    return ("guard-comandos bloqueó el comando: %s. Si la operación es deliberada, que la corra el usuario a mano." % motivo
+            + _cita(comando))
 
 
-def _mensaje_de_capa(ruta, capa):
+def _preguntar(motivo, comando):
+    return Preguntar("guard-comandos pregunta antes de correr el comando: " + motivo + _cita(comando))
+
+
+def _mensaje_de_capa(ruta, capa, comando):
     return ("guard-comandos bloqueó el comando: escribe por la shell en %s, un archivo de la capa %s, y así se salta el chequeo "
             "de la capa, con sus no-negociables y sus reglas. Escríbelo con la herramienta de edición: Edit o Write en Claude "
             "Code, apply_patch en Codex, edit o write en Pi. Para mover o renombrar un archivo que ya está en git, usa `git mv`."
-            % (ruta, capa))
+            % (ruta, capa) + _cita(comando))
 
 
 def _escritura_de_capa(evento, comando, cwd, protegidos):
@@ -1110,7 +1095,7 @@ def _escritura_de_capa(evento, comando, cwd, protegidos):
 
 def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
     global _LIMITE
-    protegidos = None
+    protegidos, comando = None, None
     try:
         if not isinstance(evento, Herramienta) or evento.fase != "pre":
             return Permitir()
@@ -1128,22 +1113,22 @@ def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
             return Permitir()
         resultado, motivo = analizar(comando, cwd, entorno, protegidos, evento.dialecto)
         if resultado == "block":
-            return Bloquear(_mensaje(motivo))
+            return Bloquear(_mensaje(motivo, comando))
         capa = _escritura_de_capa(evento, comando, cwd, protegidos)
         if capa:
-            return Bloquear(_mensaje_de_capa(*capa))
+            return Bloquear(_mensaje_de_capa(*capa, comando))
         if resultado == "ask":
-            return _preguntar(motivo)
+            return _preguntar(motivo, comando)
         return Permitir()
     except _SinTiempo:
         if protegidos is not None and protegidos.activa:
             return _preguntar(_pregunta(protegidos, "(el análisis no terminó dentro del plazo)", "no se puede leer qué git corre",
-                                        ROTA if protegidos.rota is not None else None))
+                                        ROTA if protegidos.rota is not None else None), comando)
         return Permitir()
     except (Exception, SystemExit) as error:
         if protegidos is not None and protegidos.activa:
             return _preguntar(_pregunta(protegidos, "(el guard falló al leerlo)", "error interno: %s" % error,
-                                        ROTA if protegidos.rota is not None else None))
+                                        ROTA if protegidos.rota is not None else None), comando)
         return Permitir()
     finally:
         _LIMITE = None

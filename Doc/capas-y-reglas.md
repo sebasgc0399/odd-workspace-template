@@ -12,7 +12,7 @@ La plantilla trae una sola biblioteca de reglas, la de T-SQL (`odd_ws.tsql`). Pa
   ```
 
   `--test` corre las pruebas de las reglas. `--calibrar` pasa las reglas sobre una carpeta de código real y cuenta cuántas veces salta cada una; con `--guardar`, además escribe la calibración que deja bloquear (abajo). Las dos aceptan `--raiz <instancia>`.
-- **La matriz.** Cada convención nueva entra como una fila de `.claude/reglas/matriz.csv`, con su id `<prefijo>-NN`, su origen, su tipo, su destino y su severidad. `/odd-ws:cerrar` la agrega por ti.
+- **La matriz.** Cada convención nueva entra como una fila de `.claude/reglas/matriz.csv`, con su id `<prefijo>-NN`, su origen, su tipo, su destino y su severidad. `/odd-ws:cerrar` la agrega por ti. El tipo dice qué clase de conocimiento es: `CE`, convención de escritura; `CC`, convención con caso; `PR`, procedimiento de revisión; `CR`, contexto de repos; `MT`, matiz transversal; `META`, los metadatos del agente, como su frontmatter.
 - **Agregar una capa a una instancia que ya existe.** Suma la capa a `workspace.config.json` y la ruta de sus repos a `workspace.local.json`, a mano. Después vuelve a correr `/odd-ws:bootstrap`: genera lo que falta de la capa nueva sin tocar lo que ya existe.
 
 Cuándo corren estas reglas durante una sesión está en [Hooks](hooks.md#cuándo-corre-cada-uno).

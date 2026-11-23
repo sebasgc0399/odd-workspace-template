@@ -394,8 +394,8 @@ def test_filtro_descarta_lo_que_ya_estaba_en_una_linea_quitada_del_mismo_hunk():
         codigo, out, err = w.correr(evento(ruta))
         contexto = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         assert codigo == 0 and err == b""
-        assert "linea 1:" not in contexto, contexto
-        assert "linea 4:" in contexto and "linea 5:" in contexto, contexto
+        assert "linea 1 en «MALO»:" not in contexto, contexto
+        assert "linea 4 en «MALO»:" in contexto and "linea 5 en «MALO»:" in contexto, contexto
         assert "tiene 2 aviso(s)" in contexto, contexto
 
 
@@ -444,7 +444,7 @@ def test_filtro_extremo_a_extremo_una_quitada_cancela_uno_de_dos():
         commitear(w.web)
         ruta = escribir(w.web, "Core/A.cs", "int a; // MALO nuevo\nint z; // MALO otro\nint b;\n")
         contexto = json.loads(w.correr(evento(ruta))[1])["hookSpecificOutput"]["additionalContext"]
-        assert "tiene 1 aviso(s)" in contexto and "linea 2:" in contexto and "linea 1:" not in contexto, contexto
+        assert "tiene 1 aviso(s)" in contexto and "linea 2 en «MALO»:" in contexto and "linea 1 en «MALO»:" not in contexto, contexto
 
 
 def test_salida_con_bloqueo_exit_2_stderr_en_bytes_utf8():
@@ -458,9 +458,31 @@ def test_salida_con_bloqueo_exit_2_stderr_en_bytes_utf8():
         assert codigo == 2 and out == "" and isinstance(err, bytes)
         lineas = err.decode("utf-8").rstrip("\n").split("\n")
         assert lineas[0] == "verificar-capa: Core/N.cs tiene 2 problema(s): corregir y reintentar.", lineas[0]
-        assert lineas[1] == "[T-02 CRITICAL] linea 2: está mal → así, molde: x/y.cs", lineas[1]
-        assert lineas[2] == "[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs", lineas[2]
+        assert lineas[1] == "[T-02 CRITICAL] linea 2 en «MALO»: está mal → así, molde: x/y.cs", lineas[1]
+        assert lineas[2] == "[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs", lineas[2]
         assert len(lineas) == 3, lineas
+
+
+def test_la_cita_del_fragmento_va_en_una_linea_y_corta_lo_largo():
+    assert M.cita_del_fragmento({"fragmento": None}) == ""
+    assert M.cita_del_fragmento({}) == ""
+    assert M.cita_del_fragmento({"fragmento": "  \n "}) == ""
+    assert M.cita_del_fragmento({"fragmento": 7}) == ""
+    assert M.cita_del_fragmento({"fragmento": ["a"]}) == ""
+    assert M.cita_del_fragmento({"fragmento": "a\n   b"}) == " en «a b»"
+    largo = "x" * (M.LARGO_DE_LA_CITA + 5)
+    assert M.cita_del_fragmento({"fragmento": largo}) == " en «%s…»" % ("x" * (M.LARGO_DE_LA_CITA - 1))
+    assert M.cita_del_fragmento({"fragmento": "y" * M.LARGO_DE_LA_CITA}) == " en «%s»" % ("y" * M.LARGO_DE_LA_CITA)
+
+
+def test_un_hallazgo_de_archivo_con_fragmento_lo_cita():
+    with Mundo() as w:
+        ruta = escribir(w.web, "Core/N.cs", "a\n")
+        w.modulo("web", 'def verificar(ctx):\n    return [{"id": "T-12", "modo": "aviso", "severidad": "", "linea": None, '
+                        '"fragmento": "namespace Viejo", "mensaje": "todo el archivo"}]\n')
+        codigo, out, err = w.correr(evento(ruta))
+        assert codigo == 0 and err == b"" and contexto(out).split("\n")[1:] == ["[T-12] archivo en «namespace Viejo»: todo el archivo"], \
+            (codigo, out, err)
 
 
 def contexto_de(salida):
@@ -495,8 +517,8 @@ def test_un_bloqueo_sin_calibrar_llega_como_aviso_con_el_motivo_y_el_comando():
         lineas = contexto_de(w.correr(evento(ruta)))
         assert lineas[0] == ("verificar-capa (aviso): Core/N.cs tiene 2 aviso(s); el cambio ya quedó escrito: "
                              "corregirlo si es propio (no hace falta reintentar)."), lineas[0]
-        assert lineas[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
-                              "[T-02 CRITICAL] linea 2: está mal → así, molde: x/y.cs" + sin_calibrar(w)], lineas
+        assert lineas[1:] == ["[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs",
+                              "[T-02 CRITICAL] linea 2 en «MALO»: está mal → así, molde: x/y.cs" + sin_calibrar(w)], lineas
 
 
 def test_el_comando_del_aviso_se_corre_tal_cual_desde_la_raiz_con_espacios_en_las_rutas():
@@ -526,7 +548,7 @@ def test_el_comando_del_aviso_se_corre_tal_cual_desde_la_raiz_con_espacios_en_la
         assert json.loads((w.raiz / ".claude/registro/calibracion.json").read_text(encoding="utf-8"))["capas"]["web"]["T-02"]["corpus"]["repo"] == "web"
         escribir(w.web, "Core/N.cs", "b // MALO BLOQ\n")
         bloqueo = subprocess.run(hook, input=e, capture_output=True, env=env, timeout=120)
-        assert bloqueo.returncode == 2 and "[T-02 CRITICAL] linea 1:" in bloqueo.stderr.decode("utf-8"), bloqueo
+        assert bloqueo.returncode == 2 and "[T-02 CRITICAL] linea 1 en «MALO»:" in bloqueo.stderr.decode("utf-8"), bloqueo
 
 
 def test_calibrado_con_reglas_py_bloquea_y_si_el_modulo_cambia_avisa_que_la_calibracion_es_vieja():
@@ -541,7 +563,7 @@ def test_calibrado_con_reglas_py_bloquea_y_si_el_modulo_cambia_avisa_que_la_cali
         assert w.correr(evento(ruta))[0] == 2, "el fin de línea no invalida la calibración"
         w.modulo("web", STUB_MALO + "\n")
         lineas = contexto_de(w.correr(evento(ruta)))
-        assert lineas[1] == ("[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs (aviso: calibración vieja; para que bloquee, "
+        assert lineas[1] == ("[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs (aviso: calibración vieja; para que bloquee, "
                              "%s)" % CORREGIR % comando(corpus)), lineas
 
 
@@ -650,7 +672,7 @@ def test_un_paquete_cuyo_REGLAS_sale_con_SystemExit_avisa_y_no_calla_a_la_capa()
         poner_paquete(w, "sale", "SAL", REGLAS_QUE_SALEN % {"id": "SAL-01"})
         codigo, out, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and out == "", (codigo, out, err)
-        assert problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+        assert problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs",
                                          "[SAL-01] linea 1: sale (aviso: sin calibrar; para que bloquee, declarar su `sembrado` en "
                                          "REGLAS (en el repo del paquete sale, con una etiqueta nueva), "
                                          "%s)" % CORREGIR % comando(w.web)], problemas_de(err)
@@ -680,7 +702,7 @@ def test_una_disputa_abierta_vuelve_a_aviso_y_borrarla_vuelve_a_bloquear():
         assert w.correr(evento(ruta))[0] == 2, "control: calibrada, bloquea"
         disputa = escribir(w.raiz, ".claude/registro/disputas/T-02.md", DISPUTA % "T-02")
         lineas = contexto_de(w.correr(evento(ruta)))
-        assert lineas[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs" + disputada(w, "T-02")], lineas
+        assert lineas[1:] == ["[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs" + disputada(w, "T-02")], lineas
         disputa.unlink()
         assert w.correr(evento(ruta))[0] == 2, "cerrada la disputa, vuelve a bloquear"
 
@@ -774,7 +796,7 @@ def test_git_corre_con_timeout_corto_y_sin_variables_de_repo():
             assert 0 < (k.get("timeout") or 0) <= M.TIMEOUT_GIT, k.get("timeout")
             env = k.get("env")
             assert env is not None and not any(v in env for v in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE")), a[0][:5]
-        assert codigo == 0 and "linea 2:" in out, (codigo, err)
+        assert codigo == 0 and "linea 2 en «MALO»:" in contexto(out), (codigo, err)
         assert not (w.base / "indice-del-commit").exists()
         assert git(trampa, "rev-list", "--all") == ""
 
@@ -872,7 +894,7 @@ def test_linea_base_permite_las_reglas_con_alcance_por_carpeta():
         nuevo = w.taller("esq.Proc_B.sql", PROC.replace("Proc_A", "Proc_B").replace("\tSELECT 1;\n", "\tSELECT 1;\n\tXX;\n"))
         assert w.correr(evento(legado, "Write")) == (0, "", b"")
         codigo, _, err = w.correr(evento(nuevo, "Write"))
-        assert codigo == 2 and b"[T-05 CRITICAL] linea 5:" in err, (codigo, err)
+        assert codigo == 2 and "[T-05 CRITICAL] linea 5 en «XX»:".encode("utf-8") in err, (codigo, err)
 
 
 def test_repo_relativa_repo_es_la_relativa():
@@ -1034,7 +1056,7 @@ def test_sin_tiempo_para_git_falla_abierto_sin_colgarse():
         commitear(w.web)
         ruta = escribir(w.web, "Core/A.cs", "uno\ndos MALO\n")
         assert w.correr(evento(ruta), plazo=-1) == (0, "", b"")
-        assert w.correr(evento(ruta), plazo=25)[0] == 0 and "linea 2:" in w.correr(evento(ruta), plazo=25)[1]
+        assert w.correr(evento(ruta), plazo=25)[0] == 0 and "linea 2 en «MALO»:" in contexto(w.correr(evento(ruta), plazo=25)[1])
 
 
 def test_la_raiz_sale_de_la_sesion_si_no_se_pasa():
@@ -2102,7 +2124,7 @@ def test_paquetes_sus_hallazgos_se_suman_a_los_de_la_capa_en_orden_de_nombre():
         codigo, out, err = w.correr(evento(archivo_con_malo(w)))
         assert codigo == 2 and out == "", (codigo, out, err)
         assert problemas_de(err) == ["verificar-capa: Core/N.cs tiene 3 problema(s): corregir y reintentar.",
-                                     "[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+                                     "[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs",
                                      "[ALF-01] linea 1: regla del paquete alfa-uno en verificar_capa_paquete_alfa_uno",
                                      "[ZET-01] linea 1: regla del paquete zeta en verificar_capa_paquete_zeta"], problemas_de(err)
 
@@ -2136,7 +2158,7 @@ def test_paquetes_uno_roto_no_calla_la_capa_ni_a_los_otros():
             poner_paquete(w, nombre, prefijos[nombre], fuente)
         poner_paquete(w, "pide-mas-api", "API", api=2)
         codigo, out, err = w.correr(evento(archivo_con_malo(w)))
-        assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs",
+        assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs",
                                                          "[ZZZ-01] linea 1: regla del paquete sano en verificar_capa_paquete_sano"], err
 
 
@@ -2180,7 +2202,7 @@ def test_paquetes_con_el_lock_roto_se_ignoran_y_la_capa_sigue_verificando():
             poner_paquete(w, "alfa", "ALF")
             escribir(w.raiz, ".claude/reglas/paquetes.json", lock)
             codigo, _, err = w.correr(evento(archivo_con_malo(w)))
-            assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1: está mal → así, molde: x/y.cs"], (lock, err)
+            assert codigo == 2 and problemas_de(err)[1:] == ["[T-02 CRITICAL] linea 1 en «MALO»: está mal → así, molde: x/y.cs"], (lock, err)
 
 
 def test_paquetes_el_hook_no_mira_la_huella():

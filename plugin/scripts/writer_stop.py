@@ -210,8 +210,8 @@ def _describir(h, relativa):
     severidad = h.get("severidad") or ""
     etiqueta = "[%s %s]" % (h["id"], severidad) if severidad else "[%s]" % h["id"]
     linea = h.get("linea")
-    return "%s %s %s: %s%s" % (etiqueta, relativa, "línea %d" % linea if linea is not None else "archivo", h["mensaje"],
-                               calibracion.sufijo(h))
+    return "%s %s %s%s: %s%s" % (etiqueta, relativa, "línea %d" % linea if linea is not None else "archivo",
+                                 _verificar_capa().cita_del_fragmento(h), h["mensaje"], calibracion.sufijo(h))
 
 
 def _chequear(archivos, config, limite):
