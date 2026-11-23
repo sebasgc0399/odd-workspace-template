@@ -63,7 +63,7 @@ Dos cosas a tener en cuenta:
 gentle-shell es un agente de código sobre Pi que le suma subagentes. La instancia sigue siendo la misma: `.claude/` es la fuente, y Pi recibe sus propios archivos generados (`.pi/agents`).
 
 - **Declarar Pi:** `"hosts": ["claude-code", "pi"]` en `workspace.config.json`. En una instancia que ya existe, agrega `"pi"` y corre `/odd-ws:doctor` con `--arreglar pi-agentes`.
-- **Instalar:** `npm i -g gentle-pi`, y después `gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2` (la versión actual), o la ruta de un clon tuyo. El paquete es la raíz del repositorio, no `plugin/`. Con la fuente git hace falta `npm` en el PATH. Por defecto, gentle-shell usa un home aislado (`~/.gentle-shell/agent`); con `gentle-shell --link install …` usa el de Pi (`~/.pi/agent`).
+- **Instalar:** `npm i -g gentle-pi`, y después `gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.3` (la versión actual), o la ruta de un clon tuyo. El paquete es la raíz del repositorio, no `plugin/`. Con la fuente git hace falta `npm` en el PATH. Por defecto, gentle-shell usa un home aislado (`~/.gentle-shell/agent`); con `gentle-shell --link install …` usa el de Pi (`~/.pi/agent`).
 - **Abrir en la raíz de la instancia:** gentle-shell solo lee los agentes de `<carpeta donde lo abres>/.pi/agents`.
 - **Confiar el proyecto (`/trust`):** sin confianza, Pi no carga las skills de la instancia ni los paquetes declarados en `.pi/settings.json`.
 - **Las skills se invocan con `/skill:<nombre>`,** por ejemplo `/skill:doctor`. No tienen el prefijo `odd-ws:`.

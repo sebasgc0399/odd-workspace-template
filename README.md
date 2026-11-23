@@ -9,7 +9,7 @@
 
 **Que tu agente no vuelva a cometer el mismo error.** `odd-ws` es un plugin para Claude Code, Codex CLI y gentle-shell (Pi) que convierte lo que aprendes en un proyecto en chequeos que corren solos, en vez de notas que el agente tiene que recordar.
 
-**Versión actual:** `0.13.2` ([qué cambió en cada versión](CHANGELOG.md)).
+**Versión actual:** `0.13.3` ([qué cambió en cada versión](CHANGELOG.md)).
 
 **Instalar:** [con Claude Code](#con-claude-code) · [con Codex CLI](#con-codex-cli) · [con gentle-shell (Pi)](#con-gentle-shell-pi) · [en video](https://youtu.be/-92eWjnwjtw)
 
@@ -144,7 +144,7 @@ gentle-shell es Pi con subagentes, y trabaja sobre la misma instancia: `.claude/
 
    ```text
    npm i -g gentle-pi
-   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.2
+   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.3
    ```
 
    Desde un clon: `gentle-shell install <ruta del clon>`.

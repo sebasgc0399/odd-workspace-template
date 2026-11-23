@@ -46,7 +46,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T3 | S4, S5 | La leyenda de `tipo` y las plantillas por versión | inline (docs) | hecha (L7) | |
 | T4 | S6 | La instalación a la vista y con la versión puesta; la página, en la rama local `gh-pages` | inline (docs) | hecha (L7) | página: `83b55b8` (local) |
 | T5 | S7 | El chequeo de la página y el README en el pre-push | delegada: writer B en `D:/Project/odd-ws-wt/huecos-pagina`, en paralelo con T1 | hecha (L6) | `6a40970` |
-| T6 | S8, S9 | El CHANGELOG, el verificador independiente y la versión | docs inline; verificador delegado; publicar, con el ok del autor (L8) | verificador sin bloqueantes (L8); la versión, en curso | |
+| T6 | S8, S9 | El CHANGELOG, el verificador independiente y la versión | docs inline; verificador delegado; publicar, con el ok del autor (L8) | hecha (L9) | `release/0.13.3` |
 
 ## Log
 
@@ -181,3 +181,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - S7 revisa toda aparición de `odd-ws--v…`, no solo las de un comando, así que un enlace a una etiqueta vieja frenaría la entrega;
     - re-empujar una etiqueta vieja se compara con la página de hoy;
     - la página no tiene un acceso por CLI cerca del principio, solo el botón «Instalar».
+- **L9** (2026-11-22) La versión `0.13.3`, en `release/0.13.3` desde `origin/main`:
+  - La rama entró con `--no-ff`. Subieron a `0.13.3` las tres versiones, la «Versión actual» del README y el comando de gentle-shell del README, `Doc/uso.md` y `Doc/actualizar.md`.
+  - Se sumó la sección del CHANGELOG, y en el roadmap R14 y sus ideas quedaron hechas.
+  - La página de la versión quedó commiteada en la `gh-pages` local (`8a86aa1`) antes de empujar `main`, como pide S7.
+  - Publicar lo autorizó el autor (L8).

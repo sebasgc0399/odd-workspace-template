@@ -2,6 +2,40 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.13.3
+
+**El agente ya no puede forzar un push de ninguna forma, y cada bloqueo muestra el comando que frenó. La instalación se ve de un vistazo, con la versión puesta.**
+
+### Lo que cambia para ti
+
+- **El agente ya no puede forzar un push de ninguna forma.** Hasta ahora `git push --force-with-lease` pasaba, y el guard hasta lo recomendaba, pero un lease sin `ref:sha` lo satisface cualquier `fetch`. Ahora bloquean siempre `--force`, `-f`, `--force-with-lease` en cualquier forma, `--force-if-includes`, `--mirror` y un refspec con `+`, también abreviados y también en un repo protegido. El mensaje te da la forma segura para correrlo tú: mira `git log <remoto>/<rama>` y corre `git push --force-with-lease=<rama>:<sha que esperas> <remoto> <rama>`.
+- **Cada bloqueo y cada pregunta de un comando muestran el comando tal cual**, en la línea `Comando: «…»`. Uno de más de 300 caracteres se corta con «…».
+- **Un hallazgo de la capa cita el fragmento que lo disparó** cuando la regla lo trae: `[T-02 CRITICAL] linea 4 en «MALO»: …`.
+- **La instalación se ve sin abrir nada.** En el README, una línea «Instalar» lleva a cada CLI y al video, y la instalación de Claude Code, Codex y gentle-shell ya no está en desplegables. El comando de gentle-shell lleva el número de la versión, listo para copiar y pegar, también en la página y en `Doc/`.
+- **La columna `tipo` de la matriz dice qué es cada código** (`CE`, `CC`, `PR`, `CR`, `MT` y `META`), en `/odd-ws:cerrar` y en `Doc/capas-y-reglas.md`.
+- **`Doc/actualizar.md` lista por versión lo que se copia a mano de las plantillas.** Si tu instancia es de una versión vieja, ahí ves qué le falta a tu `CLAUDE.md`, a tu `pre-commit` o a la prueba de tus reglas. Esta versión no cambia ninguna plantilla.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md).
+
+### Detalle técnico
+
+- **El push forzado (I49):** el predicado `_opcion_forzada` reconoce toda opción forzada y sus prefijos. Lo usan las dos pasadas de `guard_comandos`, que ahora dan el mismo motivo. Sale el código del lease que cubría una ref.
+- **El comando literal y el fragmento (el M3 de Maik):**
+  - En `guard_comandos`, citan el comando `_mensaje`, `_preguntar` y `_mensaje_de_capa`, también en las preguntas por plazo vencido o por error interno.
+  - En `writer_guard`, lo cita su `_mensaje`. En Codex y Pi, la nota del host va después de la cita.
+  - El fragmento lo citan `verificar_capa._formatear` y `writer_stop._describir`, que también usa `revisar_turno`.
+- **El chequeo de la entrega (I70):** en un push a `main` o a una etiqueta, `tools/entrega.py` compara con el `plugin.json` del commit:
+  - la «Versión actual» del README;
+  - la versión de la página;
+  - cada `odd-ws--v…` del README, de `Doc/uso.md`, de `Doc/actualizar.md` y de la página;
+  - la tabla de requisitos del README con la de la página.
+
+  La página se lee de la rama local `gh-pages`, así que se commitea antes de empujar `main`; `CONTRIBUTING.md` suma esos pasos. Es una herramienta del repo: no cambia el plugin.
+- **Cómo se validó:**
+  - Un verificador independiente corrió 67 comandos de push en los tres CLI, con y sin repo protegido, contra la `0.13.2`. Las únicas diferencias son los push forzados que ahora bloquean y la cita del comando.
+  - Probó el chequeo de la entrega en un repo de prueba con todos sus casos, y los chequeos de antes dieron la misma salida, byte a byte.
+  - Las 52 suites de Python y las de node pasaron sobre el árbol integrado, y sus sondas quedaron como tests.
+- Las decisiones están en `odd/tasks/huecos-chicos.md`.
+
 ## 0.13.2
 
 **Actualizar el plugin ya no deja el doctor en FALTA, y la primera corrida del bootstrap y del doctor sale completa, en español y sin palabras internas.**
