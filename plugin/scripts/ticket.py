@@ -286,8 +286,13 @@ def _cobertura(texto_de_raiz):
     try:
         raiz = _raiz(texto_de_raiz)
         config = config_loader.cargar(raiz)
+        try:
+            sin_capa = config_loader.sin_capa(raiz)
+        except config_loader.ConfigRota as error:
+            raise ErrorDeEntorno(f"la config de {raiz} está rota ({error})")
         controles = config_loader.es_controles(raiz)
-        cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles)
+        cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles, sin_capa)
+        hooks = config_loader.hooks_de_los_repos(config) if config_loader.declara_claude_code(raiz) else None
     except ErrorDeEntorno as error:
         return _error(str(error), 2)
     except Exception as error:
@@ -298,7 +303,10 @@ def _cobertura(texto_de_raiz):
         print(f"{config_loader.ID_COBERTURA}: {cobertura.detalle}")
     else:
         print(f"aviso {config_loader.ID_COBERTURA}: {cobertura.detalle}")
-        print(f"  cómo: {config_loader.AYUDA_COBERTURA_CONTROLES if controles else config_loader.AYUDA_COBERTURA}")
+        print(f"  cómo: {cobertura.ayuda}")
+    if hooks is not None:
+        print(f"aviso {config_loader.ID_HOOKS_DE_REPOS}: {hooks}")
+        print(f"  cómo: {config_loader.AYUDA_HOOKS_DE_REPOS}")
     return 0
 
 

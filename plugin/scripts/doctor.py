@@ -285,14 +285,17 @@ def chequear_cobertura(ctx, raiz):
         codigo, salida = ctx.ejecutar(["git", "-C", ruta, "ls-files", "-z"])
         return list(filter(None, salida.split("\0"))) if codigo == 0 else None
 
+    try:
+        sin_capa = config_loader.sin_capa(raiz)
+    except config_loader.ConfigRota:
+        return resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")
     controles = config_loader.es_controles(raiz)
-    cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles)
+    cobertura = config_loader.cobertura_de_los_repos(config, versionados, controles, sin_capa)
     if cobertura is None:
         return resultado(id, OK, "todo lo versionado en los repos tiene capa o es doc")
     if not cobertura.aviso:
         return resultado(id, OK, cobertura.detalle)
-    ayuda = config_loader.AYUDA_COBERTURA_CONTROLES if controles else config_loader.AYUDA_COBERTURA
-    return resultado(id, AVISO, cobertura.detalle, None, ayuda)
+    return resultado(id, AVISO, cobertura.detalle, None, cobertura.ayuda)
 
 
 def chequear_config(raiz):
@@ -302,7 +305,7 @@ def chequear_config(raiz):
         return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
     for validar, ayuda in ((config_loader.prefijo_de_tickets, AYUDA_TICKETS), (config_loader.pide_aprobar_commits, AYUDA_CLAVE),
                            (config_loader.repos_propios, AYUDA_CLAVE), (config_loader.hooks_apagados, AYUDA_CLAVE),
-                           (config_loader.perfil, AYUDA_CLAVE)):
+                           (config_loader.perfil, AYUDA_CLAVE), (config_loader.sin_capa, AYUDA_CLAVE)):
         try:
             validar(raiz)
         except config_loader.ConfigRota as error:
@@ -323,6 +326,25 @@ def chequear_hooks_apagados(ctx):
         return [resultado(id, OK, f"los {len(config_loader.HOOKS)} hooks del plugin corren en esta instancia")]
     ayuda = AYUDA_HOOKS_APAGADOS + (AYUDA_GUARD_APAGADO if "guard_comandos" in apagados else "")
     return [resultado(id, AVISO, f"apagados en {config_loader.NOMBRE}: {', '.join(apagados)}", None, ayuda)]
+
+
+def chequear_hooks_de_repos(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id = config_loader.ID_HOOKS_DE_REPOS
+    try:
+        config = config_loader.cargar(raiz)
+    except config_loader.ConfigRota:
+        return [resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")]
+    if not config["repos"]:
+        return [resultado(id, NO_APLICA, "la instancia no declara repos")]
+    if not config_loader.declara_claude_code(raiz):
+        return [resultado(id, NO_APLICA, "la instancia no declara Claude Code, el único CLI que corre los hooks de .claude/settings.json")]
+    detalle = config_loader.hooks_de_los_repos(config)
+    if detalle is None:
+        return [resultado(id, OK, f"ningún repo trae hooks en {' ni en '.join(config_loader.SETTINGS_DE_UN_REPO)}")]
+    return [resultado(id, AVISO, detalle, None, config_loader.AYUDA_HOOKS_DE_REPOS)]
 
 
 def chequear_perfil(ctx):
@@ -797,6 +819,7 @@ def diagnosticar(ctx):
         *chequear_instancia(ctx),
         *chequear_hooks_apagados(ctx),
         *chequear_perfil(ctx),
+        *chequear_hooks_de_repos(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),

@@ -975,7 +975,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1031,7 +1031,8 @@ def test_los_items_de_antes_conservan_su_orden_y_los_nuevos_van_tras_plugin_root
 PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de odd-workspace-template):", "Tu máquina:", "Esta instancia:")
 RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
 DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
-DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "writer-sql",
+DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos",
+                   "writer-sql",
                    "paquetes", "agentes-skills", "agentes-hooks"]
 
 
@@ -1483,7 +1484,8 @@ def test_capas_cobertura_sale_igual_que_antes_con_la_ayuda_compartida():
         r = por_id(ctx)["capas-cobertura"]
         assert r.detalle == ("extensiones versionadas sin capa: .mjs (2), .e0 (1), .e1 (1), .e2 (1), .e3 (1), .e4 (1), .e5 (1), "
                              ".e6 (1) y 1 más"), r.detalle
-        assert r.ayuda == config_loader.AYUDA_COBERTURA and r.comando is None and r.arreglo is None, r
+        cuenta = {".mjs": 2, **{".e%d" % n: 1 for n in range(8)}}
+        assert r.ayuda == config_loader.ayuda_de_cobertura(cuenta) and r.comando is None and r.arreglo is None, r
         resultados = d().diagnosticar(ctx)
         sangria = " " * (max(len(x.id) for x in resultados) + 13)
         salida = correr([], ctx)[1].splitlines()
@@ -1491,7 +1493,100 @@ def test_capas_cobertura_sale_igual_que_antes_con_la_ayuda_compartida():
         assert salida[linea].split()[:2] == ["capas-cobertura", "AVISO"] and salida[linea].endswith(r.detalle), salida[linea]
         assert salida[linea + 1] == sangria + "cómo: Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no " \
             "puede clasificarlos. Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus " \
-            "extensions en workspace.config.json; si no, el aviso queda.", salida[linea + 1]
+            "extensions en workspace.config.json. Si van sin capa a propósito (imágenes, recursos, archivos de build), reconócelos una "             "vez en workspace.config.json con esta línea, sin las extensiones que sí son código: "             '"sin_capa": [".mjs", ".e0", ".e1", ".e2", ".e3", ".e4", ".e5", ".e6", ".e7"]', salida[linea + 1]
+
+
+def con_sin_capa(raiz, valor):
+    ruta = raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["sin_capa"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_capas_cobertura_con_sin_capa_pasa_sus_extensiones_a_las_esperadas_y_el_como_trae_la_linea():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "res/i.png": "x", "res/j.png": "x", "res/k.xml": "x", "package.json": "{}"})
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["capas-cobertura"]
+        assert (r.estado, r.detalle, r.comando, r.arreglo) == ("AVISO", "extensiones versionadas sin capa: .png (2), .xml (1)", None, None), r
+        assert r.ayuda.endswith('con esta línea, sin las extensiones que sí son código: "sin_capa": [".png", ".xml"]'), r.ayuda
+        codigo, salida = correr(["--arreglar", "capas-cobertura"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        assert "sin_capa" not in json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8")), "el doctor no toca la config"
+        con_sin_capa(raiz, [".png", ".xml"])
+        r = por_id(ctx)["capas-cobertura"]
+        detalle = "sin capa y esperados: .png (2), .json (1), .xml (1); un cambio en ellos lleva /odd-ws:revisar a modo completo"
+        assert (r.estado, r.detalle, r.ayuda) == ("OK", detalle, ""), r
+        assert por_id(ctx)["config"].estado == "OK"
+        con_sin_capa(raiz, [".png"])
+        r = por_id(ctx)["capas-cobertura"]
+        assert (r.estado, r.detalle) == ("AVISO", "extensiones versionadas sin capa: .xml (1)"), r
+        assert r.ayuda.endswith('"sin_capa": [".png", ".xml"]'), r.ayuda
+
+
+def test_sin_capa_invalido_es_falta_en_config_y_capas_cobertura_no_aplica():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x", "res/i.png": "x"})
+        for malo in (".png", ["png"], [".png", 3], {".png": True}):
+            con_sin_capa(raiz, malo)
+            r = por_id(Falso(e.base, cwd=raiz, git_real=True))
+            assert r["config"].estado == "FALTA" and r["config"].detalle.startswith("sin_capa"), (malo, r["config"])
+            assert "workspace.config.json" in r["config"].ayuda, r["config"]
+            assert r["capas-cobertura"].estado == "NO APLICA" and "config" in r["capas-cobertura"].detalle, (malo, r["capas-cobertura"])
+
+
+def poner_hooks_en(repo, nombre="settings.json", contenido=None):
+    hooks = {"hooks": {"PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "npx prettier --write"}]}]}}
+    return poner(repo, ".claude/" + nombre, json.dumps(hooks) if contenido is None else contenido)
+
+
+def test_hooks_de_repos_avisa_los_repos_de_la_config_con_hooks_propios_y_no_tiene_arreglo():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x"})
+        ctx = Falso(e.base, cwd=raiz, git_real=True)
+        r = por_id(ctx)["hooks-de-repos"]
+        assert r.estado == "OK" and r.comando is None and r.arreglo is None, r
+        poner_hooks_en(e.base / "db")
+        poner_hooks_en(e.base / "db", "settings.local.json")
+        r = por_id(ctx)["hooks-de-repos"]
+        assert r.estado == "AVISO" and r.comando is None and r.arreglo is None, r
+        assert r.detalle == "repos con hooks propios: db (.claude/settings.json, .claude/settings.local.json)", r.detalle
+        assert "corren solo si la sesión arranca en el repo" in r.ayuda, r.ayuda
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("hooks-de-repos "))
+        assert lineas[i].split()[:2] == ["hooks-de-repos", "AVISO"] and lineas[i + 1].strip() == "cómo: " + r.ayuda, lineas[i:i + 2]
+        codigo, salida = correr(["--arreglar", "hooks-de-repos"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+
+
+def test_hooks_de_repos_no_aplica_si_la_instancia_no_declara_claude_code():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x"})
+        ruta = raiz / "workspace.config.json"
+        config = json.loads(ruta.read_text(encoding="utf-8"))
+        config["hosts"] = ["codex"]
+        ruta.write_text(json.dumps(config), encoding="utf-8")
+        poner_hooks_en(e.base / "db")
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["hooks-de-repos"]
+        assert r.estado == "NO APLICA" and "Claude Code" in r.detalle and r.arreglo is None, r
+
+
+def test_hooks_de_repos_calla_con_un_settings_ilegible_o_sin_hooks_y_no_aplica_sin_repos_o_con_la_config_rota():
+    with Escenario() as e:
+        raiz = instancia_con_repo_versionado(e, {"a.sql": "x"})
+        poner_hooks_en(e.base / "db", contenido="{roto")
+        poner_hooks_en(e.base / "db", "settings.local.json", contenido=json.dumps({"permissions": {"allow": ["Bash(git status)"]}}))
+        poner_hooks_en(raiz, contenido=None)
+        r = por_id(Falso(e.base, cwd=raiz, git_real=True))["hooks-de-repos"]
+        assert r.estado == "OK", r
+    with Escenario() as e:
+        assert "hooks-de-repos" not in por_id(Falso(e.base)), "fuera de una instancia no sale"
+        r = por_id(Falso(e.base, cwd=e.instancia()))["hooks-de-repos"]
+        assert r.estado == "NO APLICA" and "no declara repos" in r.detalle, r
+    with Escenario() as e:
+        raiz = instancia_con_repos(e, {"repos": {}})
+        r = por_id(Falso(e.base, cwd=raiz))["hooks-de-repos"]
+        assert r.estado == "NO APLICA" and "config" in r.detalle, r
 
 
 def test_las_extensiones_de_docs_del_doctor_son_las_del_triaje():
@@ -3569,10 +3664,10 @@ def test_en_controles_la_ayuda_de_capas_cobertura_no_habla_de_revisar():
         con_profile(raiz, "controles")
         r = por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"]
         assert r.estado == "AVISO" and r.detalle == "extensiones versionadas sin capa: .mjs (1)", r
-        assert r.ayuda == config_loader.AYUDA_COBERTURA_CONTROLES and r.comando is None and r.arreglo is None, r
+        assert r.ayuda == config_loader.ayuda_de_cobertura({".mjs": 1}, controles=True) and r.comando is None and r.arreglo is None, r
         assert "revisar" not in r.ayuda and "triaje" not in r.ayuda and "extensions" in r.ayuda and "workspace.config.json" in r.ayuda, r.ayuda
         con_profile(raiz, "completo")
-        assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].ayuda == config_loader.AYUDA_COBERTURA
+        assert por_id(Falso(e.base, cwd=raiz, git_real=True))["capas-cobertura"].ayuda == config_loader.ayuda_de_cobertura({".mjs": 1})
 
 
 def test_en_controles_los_esperados_son_ok_sin_hablar_de_revisar():

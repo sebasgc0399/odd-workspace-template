@@ -32,14 +32,22 @@ ESPERADOS_SIN_CAPA = (".json", ".jsonc", ".yml", ".yaml", ".toml", ".lock", ".in
 NOTA_ESPERADOS = "un cambio en ellos lleva /odd-ws:revisar a modo completo"
 NOTA_ESPERADOS_CONTROLES = "ninguna regla de capa los chequea"
 ID_COBERTURA = "capas-cobertura"
-SUMAR_A_UNA_CAPA = ("Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus extensions en "
-                    f"{NOMBRE}; si no, el aviso queda.")
-AYUDA_COBERTURA = ("Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos. "
-                   + SUMAR_A_UNA_CAPA)
-AYUDA_COBERTURA_CONTROLES = "Ninguna capa cubre esos archivos, así que ninguna regla de capa los chequea. " + SUMAR_A_UNA_CAPA
+CLAVE_SIN_CAPA = "sin_capa"
+SUMAR = f"Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus extensions en {NOMBRE}"
+SUMAR_A_UNA_CAPA = SUMAR + "; si no, el aviso queda."
+CAUSA_COBERTURA = "Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos."
+CAUSA_COBERTURA_CONTROLES = "Ninguna capa cubre esos archivos, así que ninguna regla de capa los chequea."
+AYUDA_COBERTURA = f"{CAUSA_COBERTURA} {SUMAR_A_UNA_CAPA}"
+AYUDA_COBERTURA_CONTROLES = f"{CAUSA_COBERTURA_CONTROLES} {SUMAR_A_UNA_CAPA}"
+RECONOCER_SIN_CAPA = (f"Si van sin capa a propósito (imágenes, recursos, archivos de build), reconócelos una vez en {NOMBRE} con esta "
+                      "línea, sin las extensiones que sí son código:")
+SETTINGS_DE_UN_REPO = (".claude/settings.json", ".claude/settings.local.json")
+ID_HOOKS_DE_REPOS = "hooks-de-repos"
+AYUDA_HOOKS_DE_REPOS = ("Esos hooks corren solo si la sesión arranca en el repo: una sesión abierta en la instancia no los corre. Si los "
+                        "necesitas, como un guard o un formateador, abre la sesión en el repo o corre a mano lo que hacen.")
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
-Cobertura = namedtuple("Cobertura", "aviso detalle")
+Cobertura = namedtuple("Cobertura", "aviso detalle ayuda")
 
 
 class ConfigRota(Exception):
@@ -343,6 +351,21 @@ def hook_apagado(raiz, nombre):
         return False
 
 
+def sin_capa_de(config):
+    if CLAVE_SIN_CAPA not in config:
+        return []
+    valor = config[CLAVE_SIN_CAPA]
+    if not isinstance(valor, list) or not all(isinstance(e, str) and len(e) > 1 and e.startswith(".") for e in valor):
+        raise ConfigRota(f'{CLAVE_SIN_CAPA} debe ser una lista de extensiones con punto (por ejemplo, [".png", ".xml"])')
+    return list(valor)
+
+
+def sin_capa(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return sin_capa_de(config)
+
+
 def perfil_de(config):
     if CLAVE_DE_PERFIL not in config:
         return COMPLETO
@@ -500,14 +523,26 @@ def extensiones_sin_capa(rutas, config):
                               if os.path.splitext(ruta)[1].lower() not in EXTENSIONES_DE_DOCS and not clasificar(ruta, config))
 
 
+def _ordenadas(cuenta):
+    return sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))
+
+
 def lista_de_extensiones(cuenta):
-    ordenadas = sorted(cuenta.items(), key=lambda par: (-par[1], par[0]))
+    ordenadas = _ordenadas(cuenta)
     lista = ", ".join("%s (%d)" % par for par in ordenadas[:TOPE_DE_EXTENSIONES])
     resto = " y %d más" % (len(ordenadas) - TOPE_DE_EXTENSIONES) if len(ordenadas) > TOPE_DE_EXTENSIONES else ""
     return lista + resto
 
 
-def cobertura_de_los_repos(config, versionados, controles=False):
+def ayuda_de_cobertura(cuenta, sin_capa=(), controles=False):
+    nuevas = [clave for clave, _ in _ordenadas(cuenta) if clave.startswith(".")]
+    if not nuevas:
+        return AYUDA_COBERTURA_CONTROLES if controles else AYUDA_COBERTURA
+    linea = f'"{CLAVE_SIN_CAPA}": ' + json.dumps(list(sin_capa) + nuevas, ensure_ascii=False)
+    return f"{CAUSA_COBERTURA_CONTROLES if controles else CAUSA_COBERTURA} {SUMAR}. {RECONOCER_SIN_CAPA} {linea}"
+
+
+def cobertura_de_los_repos(config, versionados, controles=False, sin_capa=()):
     cuenta = {}
     for repo in config["repos"].values():
         relativas = versionados(repo["path"])
@@ -517,8 +552,34 @@ def cobertura_de_los_repos(config, versionados, controles=False):
             cuenta[clave] = cuenta.get(clave, 0) + n
     if not cuenta:
         return None
-    no_esperadas = {clave: n for clave, n in cuenta.items() if clave not in ESPERADOS_SIN_CAPA}
+    esperadas = set(ESPERADOS_SIN_CAPA) | {extension.lower() for extension in sin_capa}
+    no_esperadas = {clave: n for clave, n in cuenta.items() if clave not in esperadas}
     if no_esperadas:
-        return Cobertura(True, "extensiones versionadas sin capa: " + lista_de_extensiones(no_esperadas))
+        return Cobertura(True, "extensiones versionadas sin capa: " + lista_de_extensiones(no_esperadas),
+                         ayuda_de_cobertura(no_esperadas, sin_capa, controles))
     nota = NOTA_ESPERADOS_CONTROLES if controles else NOTA_ESPERADOS
-    return Cobertura(False, f"sin capa y esperados: {lista_de_extensiones(cuenta)}; {nota}")
+    return Cobertura(False, f"sin capa y esperados: {lista_de_extensiones(cuenta)}; {nota}", "")
+
+
+def _declara_hooks(ruta):
+    try:
+        datos = json.loads(Path(ruta).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(datos, dict) and isinstance(datos.get("hooks"), dict) and bool(datos["hooks"])
+
+
+def declara_claude_code(raiz):
+    try:
+        return registro_de_hosts.FUENTE in hosts_de(_leer_objeto(Path(raiz) / NOMBRE))
+    except ConfigRota:
+        return False
+
+
+def hooks_de_los_repos(config):
+    con_hooks = []
+    for clave, repo in config["repos"].items():
+        archivos = [nombre for nombre in SETTINGS_DE_UN_REPO if _declara_hooks(Path(repo["path"]) / nombre)]
+        if archivos:
+            con_hooks.append(f"{clave} ({', '.join(archivos)})")
+    return "repos con hooks propios: " + ", ".join(con_hooks) if con_hooks else None

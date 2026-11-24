@@ -209,7 +209,7 @@ Preséntalo bajo el título `**El doctor**`, como dice `/odd-ws:doctor` en «Có
 
 Los arreglos se ofrecen de a uno, como dice el doctor, y se corren solo con un sí para ese ítem. Si hay alguno que ofrecer, la respuesta termina con la pregunta del primero, y el cierre del paso 6 va cuando ya no quede ninguno por responder.
 
-En la línea de `capas-cobertura`, si sale en AVISO, vale la regla del paso 3: solo ofrece sumar a una capa las extensiones de su grupo de `mismo_lenguaje`; las demás quedan con el aviso.
+En la línea de `capas-cobertura`, si sale en AVISO, vale la regla del paso 3: solo ofrece sumar a una capa las extensiones de su grupo de `mismo_lenguaje`; las demás quedan con el aviso, salvo las que van sin capa a propósito (imágenes, recursos, archivos de build), que el usuario reconoce en la clave `sin_capa`, como dice el `cómo:` del aviso.
 
 ## 6. El siguiente paso
 
