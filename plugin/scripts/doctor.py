@@ -14,6 +14,7 @@ import config_loader
 import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
+from odd_ws import fallas
 from odd_ws import hosts as registro_de_hosts
 from odd_ws import paquetes
 from odd_ws import raiz_del_plugin
@@ -93,6 +94,10 @@ AYUDA_CLAVE = "Corrige esa clave en workspace.config.json (es tu archivo: el doc
 AYUDA_HOOKS_APAGADOS = (f"Si no fue a propósito, sácalo de {config_loader.CLAVE_DE_HOOKS_APAGADOS} en {config_loader.NOMBRE} (es tu archivo: "
                         "el doctor no lo toca). Un hook apagado deja pasar todo en Claude Code, Codex y Pi.")
 AYUDA_GUARD_APAGADO = " Con guard_comandos apagado, nada frena un force push, un reset --hard ni un borrado recursivo del agente."
+AYUDA_FALLAS = ("Un hook que falla deja pasar lo que le tocaba revisar, así que eso quedó sin chequeo: revisa lo que cambió a esa hora. "
+                "Si la misma falla se repite, repórtala con el hook, el evento y el error. Cuando ya las viste, --arreglar vacía el registro.")
+AYUDA_FALLAS_ILEGIBLE = "Bórralo a mano: el próximo hook que falle lo vuelve a crear."
+ULTIMAS_FALLAS = 3
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agrega "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -323,6 +328,27 @@ def chequear_hooks_apagados(ctx):
         return [resultado(id, OK, f"los {len(config_loader.HOOKS)} hooks del plugin corren en esta instancia")]
     ayuda = AYUDA_HOOKS_APAGADOS + (AYUDA_GUARD_APAGADO if "guard_comandos" in apagados else "")
     return [resultado(id, AVISO, f"apagados en {config_loader.NOMBRE}: {', '.join(apagados)}", None, ayuda)]
+
+
+def chequear_fallas_de_hooks(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id, ruta = "hooks-fallas", convencion.FALLAS_DE_HOOKS
+    entradas = fallas.leer(raiz)
+    if entradas is None:
+        return [resultado(id, AVISO, f"no se puede leer {ruta}", None, AYUDA_FALLAS_ILEGIBLE)]
+    if not entradas:
+        return [resultado(id, OK, f"ningún hook anotó una falla en {ruta}")]
+    ultimas = "; ".join(fallas.linea(entrada) for entrada in reversed(entradas[-ULTIMAS_FALLAS:]))
+    cuantas = "1 falla anotada" if len(entradas) == 1 else f"{len(entradas)} fallas anotadas"
+    cuales = "" if len(entradas) <= ULTIMAS_FALLAS else f"; las {ULTIMAS_FALLAS} últimas"
+    detalle = f"{cuantas} en {ruta}{cuales}: {ultimas}"
+
+    def arreglo():
+        return fallas.vaciar(raiz)
+
+    return [resultado(id, AVISO, detalle, None, AYUDA_FALLAS, arreglo)]
 
 
 def chequear_perfil(ctx):
@@ -797,6 +823,7 @@ def diagnosticar(ctx):
         *chequear_instancia(ctx),
         *chequear_hooks_apagados(ctx),
         *chequear_perfil(ctx),
+        *chequear_fallas_de_hooks(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),

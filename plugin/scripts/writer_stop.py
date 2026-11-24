@@ -13,6 +13,7 @@ import unicodedata
 import config_loader
 from odd_ws import calibracion
 from odd_ws import capas as convencion
+from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws.capacidades import FIN_SUBAGENTE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, correr_hook, entorno_git, host_de, id_valido, plazo_de,
@@ -345,13 +346,14 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
 def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
         return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, host))
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
+        fallas.anotar("writer_stop", evento, error, raiz)
         return SILENCIO
 
 
 def main():
     plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host))
+    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host), hook="writer_stop")
 
 
 if __name__ == "__main__":

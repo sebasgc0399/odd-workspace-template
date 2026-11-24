@@ -2392,6 +2392,65 @@ def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_verificar_capa():
             assert codigo == 2 and (REGLA % "SQL").encode("utf-8") in err, (valor, err)
 
 
+FALLAS = ".claude/estado/fallas-de-hooks.jsonl"
+
+
+@contextlib.contextmanager
+def decidir_que_falla(error):
+    original = M.decidir
+
+    def falla(*_args, **_kwargs):
+        raise error
+
+    M.decidir = falla
+    try:
+        yield
+    finally:
+        M.decidir = original
+
+
+def fallas_anotadas(raiz):
+    ruta = Path(raiz) / FALLAS
+    return [json.loads(linea) for linea in ruta.read_bytes().splitlines()] if ruta.exists() else []
+
+
+def test_una_falla_que_se_traga_correr_queda_anotada_sin_el_payload():
+    with Toque() as w:
+        secreto = "nombre-que-no-se-anota"
+        with decidir_que_falla(RuntimeError("se rompió\n  " + "x" * 400)):
+            assert w.correr(evento(w.db / "src" / (secreto + ".sql"))) == (0, "", b"")
+        assert secreto.encode("utf-8") not in (w.raiz / FALLAS).read_bytes()
+        [anotada] = fallas_anotadas(w.raiz)
+        assert set(anotada) == {"id", "momento", "hook", "evento", "tipo", "mensaje"}, anotada
+        assert (anotada["hook"], anotada["evento"], anotada["tipo"]) == ("verificar_capa", "PostToolUse", "RuntimeError"), anotada
+        assert anotada["mensaje"].startswith("se rompió xxx") and anotada["mensaje"].endswith("...") and len(anotada["mensaje"]) == 203, anotada
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", anotada["momento"]), anotada
+
+
+def test_el_inicio_muestra_una_sola_vez_las_fallas_anotadas_desde_el_ultimo_aviso():
+    with Toque() as w:
+        with decidir_que_falla(RuntimeError("la primera")):
+            w.correr(leer(w.sql))
+        texto = aviso_de(w.correr(inicio("startup"))[1])
+        assert "verificar_capa (PostToolUse): RuntimeError: la primera" in texto and "/odd-ws:doctor" in texto, texto
+        assert w.correr(inicio("resume")) == (0, "", b""), "ya se mostró"
+        with decidir_que_falla(ValueError("la segunda")):
+            w.correr(a_escribir(w.sql))
+        texto = aviso_de(w.correr(inicio("compact"))[1])
+        assert "PreToolUse): ValueError: la segunda" in texto and "la primera" not in texto, texto
+        assert w.correr(inicio("clear")) == (0, "", b""), "ya se mostró"
+        assert [a["mensaje"] for a in fallas_anotadas(w.raiz)] == ["la primera", "la segunda"], "mostrarlas no las borra"
+
+
+def test_las_fallas_anotadas_tienen_tope_y_quedan_las_ultimas():
+    from odd_ws import fallas
+    with Toque() as w:
+        for numero in range(fallas.TOPE + 5):
+            with decidir_que_falla(RuntimeError("falla %d" % numero)):
+                w.correr(evento(w.sql))
+        assert [a["mensaje"] for a in fallas_anotadas(w.raiz)] == ["falla %d" % n for n in range(5, fallas.TOPE + 5)]
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

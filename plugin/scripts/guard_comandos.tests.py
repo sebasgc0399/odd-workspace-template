@@ -1530,6 +1530,31 @@ def test_el_hook_real_como_proceso():
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
 
 
+def test_una_falla_interna_deja_pasar_como_antes_y_queda_anotada_sin_el_comando():
+    with carpeta() as base:
+        inst = instancia(base)
+        entorno = entorno_de(inst)
+        e = evento("git push --force origin rama-secreta")
+        assert G.correr(e, entorno=entorno)[0] == 2, "control: sin la falla, bloquea"
+        original = G.decidir
+
+        def falla(*_args, **_kwargs):
+            raise RuntimeError("se rompió")
+
+        G.decidir = falla
+        try:
+            assert G.correr(e, entorno=entorno) == (0, "", b""), "con la falla deja pasar, como antes"
+        finally:
+            G.decidir = original
+        r = subprocess.run([sys.executable, str(_RUTA)], input=b"no es json: git push --force origin rama-secreta", capture_output=True,
+                           env=dict(os.environ, **entorno), cwd=str(base), timeout=60)
+        assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
+        crudo = (inst / ".claude" / "estado" / "fallas-de-hooks.jsonl").read_bytes()
+        assert b"rama-secreta" not in crudo and b"push" not in crudo, crudo
+        anotadas = [(a["hook"], a["evento"], a["tipo"]) for a in map(json.loads, crudo.splitlines())]
+        assert anotadas == [("guard_comandos", "PreToolUse", "RuntimeError"), ("guard_comandos", None, "JSONDecodeError")], anotadas
+
+
 def test_los_dos_guards_resuelven_las_rutas_con_odd_ws_rutas():
     from odd_ws import rutas
     spec = importlib.util.spec_from_file_location("writer_guard_atado", AQUI / "writer_guard.py")

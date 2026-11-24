@@ -564,7 +564,10 @@ def test_otros_eventos_y_basura_callan():
                      {"hook_event_name": "PreToolUse", "agent_type": "writer-web", "session_id": "s1", "agent_id": "a1"},
                      {}, [], "no es json", None, 5, b"\xff"):
             assert correr(caso, inst) == SILENCIO, caso
-        assert not (inst / ".claude" / "estado").exists()
+        estado = inst / ".claude" / "estado"
+        assert [p.name for p in estado.iterdir()] == ["fallas-de-hooks.jsonl"], "la basura solo deja su falla anotada"
+        anotadas = [json.loads(linea)["hook"] for linea in (estado / "fallas-de-hooks.jsonl").read_bytes().splitlines()]
+        assert anotadas == ["writer_stop", "writer_stop"], anotadas
 
 
 def test_falla_abierto_ante_cualquier_error_interno():
@@ -1206,6 +1209,25 @@ def test_disabled_hooks_invalido_o_con_otros_hooks_no_apaga_writer_stop():
             t = transcript(base, [("Edit", {"file_path": str(archivo)})])
             assert bloqueo(correr(evento(t, "sin bloque"), inst)[1]) is not None, valor
             assert estado_escrito(inst) is not None, valor
+
+
+def test_una_falla_que_se_traga_correr_queda_anotada_sin_el_payload():
+    with temporal() as base:
+        inst = instancia(base, modulo=None)
+        original = W.decidir
+
+        def falla(*_args, **_kwargs):
+            raise RuntimeError("se rompió")
+
+        W.decidir = falla
+        try:
+            assert correr(evento(base / "agent-1.jsonl", "mensaje-secreto"), inst) == comun.SILENCIO
+        finally:
+            W.decidir = original
+        crudo = (inst / convencion.ESTADO / "fallas-de-hooks.jsonl").read_bytes()
+        assert b"mensaje-secreto" not in crudo, crudo
+        [anotada] = map(json.loads, crudo.splitlines())
+        assert [anotada[k] for k in ("hook", "evento", "tipo", "mensaje")] == ["writer_stop", "SubagentStop", "RuntimeError", "se rompió"]
 
 
 def main():
