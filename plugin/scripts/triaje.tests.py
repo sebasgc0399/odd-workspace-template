@@ -703,9 +703,9 @@ def test_un_repo_fuera_del_config_no_tiene_capa():
         assert r["repos"][0]["archivos"][0]["capa"] is None and nivel(r, "capas") == "positiva"
 
 
-def aviso_de_cobertura(detalle_):
+def aviso_de_cobertura(detalle_, cuenta, sin_capa=()):
     import config_loader
-    return {"id": "capas-cobertura", "detalle": detalle_, "ayuda": config_loader.AYUDA_COBERTURA}
+    return {"id": "capas-cobertura", "detalle": detalle_, "ayuda": config_loader.ayuda_de_cobertura(cuenta, sin_capa)}
 
 
 def test_sin_capa_tiene_clave_propia_cuando_es_el_unico_motivo_de_capas():
@@ -714,7 +714,8 @@ def test_sin_capa_tiene_clave_propia_cuando_es_el_unico_motivo_de_capas():
         r = w.analizar(repos=[w.web])
         assert r["modo"] == "completo" and r["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"], r["motivos"]
         assert r["sin_capa"] == {"archivos": ["Makefile", "appsettings.json"], "unico_motivo_de_capas": True,
-                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: (sin extensión) (1), .json (1)")}, r["sin_capa"]
+                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: (sin extensión) (1), .json (1)",
+                                                           {"(sin extensión)": 1, ".json": 1})}, r["sin_capa"]
 
 
 def test_sin_capa_junto_a_mas_de_una_capa_no_es_el_unico_motivo_y_sin_ella_la_clave_es_nula():
@@ -727,7 +728,7 @@ def test_sin_capa_junto_a_mas_de_una_capa_no_es_el_unico_motivo_y_sin_ella_la_cl
         r = w.analizar(repos=[w.db, w.web])
         assert r["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"], r["motivos"]
         assert r["sin_capa"] == {"archivos": ["appsettings.json"], "unico_motivo_de_capas": False,
-                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)")}, r["sin_capa"]
+                                 "aviso": aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)", {".json": 1})}, r["sin_capa"]
     with Mundo() as w:
         assert w.analizar()["sin_capa"] is None, "sin cambios"
         escribir(w.db, {"README.md": "# db\nnota\n"})
@@ -758,14 +759,14 @@ def test_el_aviso_de_cobertura_sale_en_el_texto_despues_de_los_motivos_y_en_el_j
             "  señal consumidores: invalida",
             "  señal capas: positiva",
             "aviso capas-cobertura: extensiones sin capa en el cambio: .json (1)",
-            "  cómo: " + config_loader.AYUDA_COBERTURA,
+            "  cómo: " + config_loader.ayuda_de_cobertura({".json": 1}),
             "instancia: %s" % w.raiz,
         ], salida
         assert salida.count("capas-cobertura") == 1, salida
         codigo, salida, error = correr(args + ["--json"])
         assert codigo == 0 and error == "", error
         datos = json.loads(salida)
-        assert datos["sin_capa"]["aviso"] == aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)"), datos["sin_capa"]
+        assert datos["sin_capa"]["aviso"] == aviso_de_cobertura("extensiones sin capa en el cambio: .json (1)", {".json": 1}), datos["sin_capa"]
         assert datos["modo"] == "completo" and datos["motivos"] == ["señal consumidores: invalida", "señal capas: positiva"]
 
 
@@ -783,6 +784,49 @@ def test_sin_archivos_sin_capa_el_texto_y_el_json_salen_como_antes():
         datos = json.loads(salida)
         assert list(datos) == ["raiz", "origin_head", "repos", "taller", "senales", "modo", "motivos", "sin_capa", "no_detectable"], list(datos)
         assert datos["sin_capa"] is None
+
+
+def con_sin_capa(w, valor):
+    ruta = w.raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["sin_capa"] = valor
+    ruta.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_sin_capa_de_la_config_saca_sus_extensiones_del_aviso_y_salen_con_su_nota_sin_cambiar_el_modo():
+    with Mundo() as w:
+        escribir(w.web, {"res/logo.png": "x\n", "res/icono.PNG": "x\n"})
+        sin_la_clave = w.analizar(repos=[w.web])
+        assert sin_la_clave["sin_capa"]["aviso"]["detalle"] == "extensiones sin capa en el cambio: .png (2)", sin_la_clave["sin_capa"]
+        con_sin_capa(w, [".png"])
+        r = w.analizar(repos=[w.web])
+        assert (r["modo"], r["motivos"], r["senales"], r["repos"]) == (
+            sin_la_clave["modo"], sin_la_clave["motivos"], sin_la_clave["senales"], sin_la_clave["repos"]), r
+        assert r["sin_capa"] == {"archivos": ["res/icono.PNG", "res/logo.png"], "unico_motivo_de_capas": True, "aviso": None}, r["sin_capa"]
+        codigo, salida, error = correr(["--repo", str(w.web), "--raiz", str(w.raiz)])
+        assert codigo == 0 and error == "", error
+        assert salida.splitlines()[:5] == [
+            "triaje — modo: COMPLETO",
+            "  señal consumidores: invalida",
+            "  señal capas: positiva",
+            "capas-cobertura: sin capa y esperados en el cambio: .png (2); un cambio en ellos lleva /odd-ws:revisar a modo completo",
+            "instancia: %s" % w.raiz,
+        ], salida
+        assert "aviso capas-cobertura" not in salida and "cómo:" not in salida, salida
+        escribir(w.web, {"scripts/x.mjs": "x\n"})
+        r = w.analizar(repos=[w.web])
+        assert r["sin_capa"]["archivos"] == ["res/icono.PNG", "res/logo.png", "scripts/x.mjs"], r["sin_capa"]
+        assert r["sin_capa"]["aviso"] == aviso_de_cobertura("extensiones sin capa en el cambio: .mjs (1)", {".mjs": 1}, [".png"]), r["sin_capa"]
+        assert r["sin_capa"]["aviso"]["ayuda"].endswith('"sin_capa": [".png", ".mjs"]'), r["sin_capa"]["aviso"]["ayuda"]
+
+
+def test_sin_capa_invalido_en_la_config_sale_con_dos_sin_triar():
+    with Mundo() as w:
+        escribir(w.web, {"res/logo.png": "x\n"})
+        con_sin_capa(w, ["png"])
+        codigo, salida, error = correr(["--repo", str(w.web), "--raiz", str(w.raiz)])
+        assert (codigo, salida) == (2, ""), (codigo, salida)
+        assert "está rota: sin_capa debe ser una lista de extensiones con punto" in error, error
 
 
 # ---------------------------------------------------------------- entrada: sin trackear, índice, base

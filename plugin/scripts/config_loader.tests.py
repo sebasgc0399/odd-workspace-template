@@ -379,7 +379,7 @@ def test_cobertura_de_los_repos_lee_lo_versionado_de_cada_repo():
             pedidos.append(ruta)
             return ["a.sql", "x.mjs", "y.mjs", "Makefile", "README.md"]
 
-        assert m().cobertura_de_los_repos(cargada, versionados) == (True, "extensiones versionadas sin capa: .mjs (2)")
+        assert m().cobertura_de_los_repos(cargada, versionados)[:2] == (True, "extensiones versionadas sin capa: .mjs (2)")
         assert pedidos == [str(i.repo)], pedidos
         assert m().cobertura_de_los_repos(cargada, lambda ruta: ["a.sql", "README.md"]) is None
         assert m().cobertura_de_los_repos(cargada, lambda ruta: None) is None, "un repo que git no pudo listar no cuenta"
@@ -389,7 +389,7 @@ def test_cobertura_con_solo_esperados_no_avisa_y_los_nombra_con_su_conteo():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)
         versionados = ["a.sql", "package.json", "tsconfig.json", ".gitignore", "README.md"]
-        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados) == (
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados)[:2] == (
             False, "sin capa y esperados: .json (2), (sin extensión) (1); un cambio en ellos lleva /odd-ws:revisar a modo completo")
 
 
@@ -397,7 +397,7 @@ def test_cobertura_con_una_no_esperada_avisa_y_lista_solo_las_no_esperadas():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)
         versionados = ["a.sql", "x.mjs", "sub/y.mjs", "build.sh", "package.json", "ci.yml", "Dockerfile"]
-        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados) == (
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados)[:2] == (
             True, "extensiones versionadas sin capa: .mjs (2), .sh (1)")
 
 
@@ -417,9 +417,120 @@ def test_en_controles_la_nota_de_los_esperados_no_habla_de_revisar():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)
         cobertura = m().cobertura_de_los_repos(cargada, lambda ruta: ["package.json", "Makefile"], controles=True)
-        assert cobertura == (False, "sin capa y esperados: (sin extensión) (1), .json (1); ninguna regla de capa los chequea"), cobertura
-        assert m().cobertura_de_los_repos(cargada, lambda ruta: ["x.mjs", "package.json"], controles=True) == (
+        assert cobertura[:2] == (False, "sin capa y esperados: (sin extensión) (1), .json (1); ninguna regla de capa los chequea"), cobertura
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: ["x.mjs", "package.json"], controles=True)[:2] == (
             True, "extensiones versionadas sin capa: .mjs (1)")
+
+
+def test_sin_capa_sin_la_clave_es_una_lista_vacia_y_la_cobertura_sale_como_antes():
+    assert m().sin_capa_de({}) == []
+    with Instancia() as i:
+        assert m().sin_capa(i.raiz) == []
+        cargada = m().cargar(i.raiz)
+        assert "sin_capa" not in cargada, cargada
+        versionados = ["a.sql", "i.png", "x.mjs", "package.json"]
+        assert m().cobertura_de_los_repos(cargada, lambda ruta: versionados) == m().cobertura_de_los_repos(
+            cargada, lambda ruta: versionados, sin_capa=m().sin_capa(i.raiz))
+
+
+def test_sin_capa_pasa_sus_extensiones_a_las_esperadas_sin_distinguir_mayusculas():
+    for valor in ([".png", ".XML"], [".PNG", ".xml"]):
+        assert m().sin_capa_de({"sin_capa": list(valor)}) == valor, valor
+        with Instancia(config=con_clave("sin_capa", list(valor))) as i:
+            assert m().sin_capa(i.raiz) == valor, valor
+            cargada = m().cargar(i.raiz)
+            reconocidas = m().sin_capa(i.raiz)
+            solo_reconocidas = ["a.sql", "res/i.png", "res/j.png", "res/k.xml", "package.json"]
+            assert m().cobertura_de_los_repos(cargada, lambda ruta: solo_reconocidas, sin_capa=reconocidas) == (
+                False, "sin capa y esperados: .png (2), .json (1), .xml (1); un cambio en ellos lleva /odd-ws:revisar a modo completo", "")
+            cobertura = m().cobertura_de_los_repos(cargada, lambda ruta: solo_reconocidas + ["x.mjs"], sin_capa=reconocidas)
+            assert cobertura[:2] == (True, "extensiones versionadas sin capa: .mjs (1)"), cobertura
+
+
+def test_sin_capa_invalido_es_rota_y_cargar_no_lo_mira():
+    malos = (".png", None, 3, True, {".png": True}, [1], [None], ["png"], ["."], [""], [[".png"]], [".png", 2])
+    for malo in malos:
+        try:
+            m().sin_capa_de({"sin_capa": malo})
+        except m().ConfigRota as error:
+            assert str(error).startswith("sin_capa debe ser una lista de extensiones con punto"), (malo, str(error))
+        else:
+            raise AssertionError(f"sin_capa_de() debe lanzar ConfigRota para {malo!r}")
+        with Instancia(config=con_clave("sin_capa", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().sin_capa(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"sin_capa() debe lanzar ConfigRota para {malo!r}")
+    assert m().sin_capa_de({"sin_capa": []}) == []
+
+
+def test_el_como_de_la_cobertura_trae_la_linea_de_sin_capa_con_todas_las_extensiones_del_aviso():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        versionados = ["a.sql", "x.mjs", "y.mjs", "i.png", "package.json"] + ["otros/a%d.e%d" % (n, n) for n in range(8)]
+        cobertura = m().cobertura_de_los_repos(cargada, lambda ruta: versionados)
+        assert cobertura.aviso is True and cobertura.detalle.endswith(" y 2 más"), cobertura
+        todas = [".mjs"] + [".e%d" % n for n in range(8)] + [".png"]
+        assert cobertura.ayuda == m().ayuda_de_cobertura({".mjs": 2, ".png": 1, **{".e%d" % n: 1 for n in range(8)}}), cobertura.ayuda
+        assert cobertura.ayuda.startswith(m().AYUDA_COBERTURA.split("; si no,")[0] + ". "), cobertura.ayuda
+        assert cobertura.ayuda.endswith(' "sin_capa": ' + json.dumps(todas)), cobertura.ayuda
+        assert "sin capa a propósito" in cobertura.ayuda and "sin las extensiones que sí son código" in cobertura.ayuda, cobertura.ayuda
+        previas = m().cobertura_de_los_repos(cargada, lambda ruta: versionados, sin_capa=[".gradle", ".PNG"])
+        assert previas.ayuda.endswith(' "sin_capa": ' + json.dumps([".gradle", ".PNG"] + todas[:-1])), previas.ayuda
+        controles = m().cobertura_de_los_repos(cargada, lambda ruta: versionados, controles=True)
+        assert controles.ayuda.startswith(m().AYUDA_COBERTURA_CONTROLES.split("; si no,")[0] + ". "), controles.ayuda
+        assert controles.ayuda.endswith(' "sin_capa": ' + json.dumps(todas)), controles.ayuda
+    assert m().ayuda_de_cobertura({"(sin extensión)": 2}) == m().AYUDA_COBERTURA
+    assert m().ayuda_de_cobertura({"(sin extensión)": 2}, controles=True) == m().AYUDA_COBERTURA_CONTROLES
+
+
+def config_con_dos_repos():
+    config = config_valida()
+    config["repos"] = {"db": {}, "web": {}}
+    return config
+
+
+def poner_settings_de_repo(repo, nombre, contenido):
+    ruta = Path(repo) / ".claude" / nombre
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(contenido if isinstance(contenido, bytes) else json.dumps(contenido).encode("utf-8"))
+
+
+def test_hooks_de_los_repos_nombra_cada_repo_de_la_config_con_hooks_y_sus_archivos():
+    hooks = {"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "prettier"}]}]}}
+    with Instancia() as i:
+        web = i.base / "repos" / "web"
+        web.mkdir()
+        (i.raiz / "workspace.config.json").write_text(json.dumps(config_con_dos_repos()), encoding="utf-8")
+        (i.raiz / "workspace.local.json").write_text(json.dumps({"repos": {"db": {"path": str(i.repo)}, "web": {"path": str(web)}}}),
+                                                     encoding="utf-8")
+        assert m().hooks_de_los_repos(m().cargar(i.raiz)) is None
+        poner_settings_de_repo(web, "settings.json", hooks)
+        poner_settings_de_repo(web, "settings.local.json", hooks)
+        poner_settings_de_repo(i.repo, "settings.local.json", hooks)
+        assert m().hooks_de_los_repos(m().cargar(i.raiz)) == (
+            "repos con hooks propios: db (.claude/settings.local.json), web (.claude/settings.json, .claude/settings.local.json)")
+        afuera = i.base / "repos" / "afuera"
+        poner_settings_de_repo(afuera, "settings.json", hooks)
+        poner_settings_de_repo(i.raiz, "settings.json", hooks)
+        assert "afuera" not in m().hooks_de_los_repos(m().cargar(i.raiz)), "solo cuentan los repos de la config"
+        assert m().ID_HOOKS_DE_REPOS == "hooks-de-repos"
+        assert "corren solo si la sesión arranca en el repo" in m().AYUDA_HOOKS_DE_REPOS, m().AYUDA_HOOKS_DE_REPOS
+
+
+def test_hooks_de_los_repos_calla_con_un_settings_ilegible_o_sin_hooks():
+    for contenido in (b"{roto", b"\xff\xfe\x00no es utf-8", b"[]", b'"hooks"', {"permissions": {"allow": ["Bash"]}}, {"hooks": {}},
+                      {"hooks": []}, {"hooks": None}):
+        with Instancia() as i:
+            poner_settings_de_repo(i.repo, "settings.json", contenido)
+            poner_settings_de_repo(i.repo, "settings.local.json", contenido)
+            assert m().hooks_de_los_repos(m().cargar(i.raiz)) is None, contenido
+    with Instancia() as i:
+        (i.repo / ".claude" / "settings.json").mkdir(parents=True)
+        assert m().hooks_de_los_repos(m().cargar(i.raiz)) is None, "una carpeta en lugar del archivo no se puede leer"
 
 
 def test_el_triaje_sigue_contando_los_esperados_y_con_la_misma_ayuda():

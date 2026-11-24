@@ -426,7 +426,7 @@ def _cargar_config(raiz):
     if not (Path(raiz) / config_loader.NOMBRE).is_file():
         raise ErrorEntorno("no hay %s en %s" % (config_loader.NOMBRE, raiz))
     try:
-        return str(raiz), config_loader.cargar(raiz)
+        return str(raiz), config_loader.cargar(raiz), config_loader.sin_capa(raiz)
     except config_loader.ConfigRota as exc:
         raise ErrorEntorno("la configuración de %s está rota: %s" % (raiz, exc))
 
@@ -446,7 +446,7 @@ def _repo_de_salida(r, con_origen):
 
 
 def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
-    raiz, config = _cargar_config(raiz)
+    raiz, config, reconocidas = _cargar_config(raiz)
     if ticket is not None and not os.path.isdir(ticket):
         raise ErrorUso("la carpeta del ticket no existe: %s" % ticket)
     instancia = cargar_senales(raiz)
@@ -471,7 +471,8 @@ def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
         "repos": [_repo_de_salida(r, ticket is not None) for r in recolectados],
         "taller": [{"ruta": Path(c["abs"]).as_posix(), "capa": c["capa"], "origen": c["origen"], "contraparte": c["contraparte"]}
                    for c in del_taller],
-        "senales": senales, "modo": modo, "motivos": motivos, "sin_capa": _sin_capa(activos), "no_detectable": no_detectable,
+        "senales": senales, "modo": modo, "motivos": motivos, "sin_capa": _sin_capa(activos, reconocidas),
+        "no_detectable": no_detectable,
     }
 
 
@@ -479,13 +480,18 @@ def _capas_y_sin_capa(activos):
     return sorted({c["capa"] for c in activos if c["capa"]}), sorted(c["ruta"] for c in activos if not c["capa"])
 
 
-def _sin_capa(activos):
+def _sin_capa(activos, reconocidas):
     sin_capa = _capas_y_sin_capa(activos)[1]
     if not sin_capa:
         return None
-    detalle = "extensiones sin capa en el cambio: " + config_loader.lista_de_extensiones(config_loader.contar_extensiones(sin_capa))
+    propias = {extension.lower() for extension in reconocidas}
+    cuenta = config_loader.contar_extensiones(ruta for ruta in sin_capa if os.path.splitext(ruta)[1].lower() not in propias)
+    aviso = None
+    if cuenta:
+        detalle = "extensiones sin capa en el cambio: " + config_loader.lista_de_extensiones(cuenta)
+        aviso = {"id": config_loader.ID_COBERTURA, "detalle": detalle, "ayuda": config_loader.ayuda_de_cobertura(cuenta, reconocidas)}
     return {"archivos": sin_capa, "unico_motivo_de_capas": recibo.sin_capa_es_el_unico_motivo([c["capa"] for c in activos]),
-            "aviso": {"id": config_loader.ID_COBERTURA, "detalle": detalle, "ayuda": config_loader.AYUDA_COBERTURA}}
+            "aviso": aviso}
 
 
 def _evaluar_senales(senales, activos, instancia, clones):
@@ -561,7 +567,13 @@ def formatear(r):
     salida += ["  " + m for m in r["motivos"]]
     if r.get("sin_capa"):
         aviso = r["sin_capa"]["aviso"]
-        salida += ["aviso %s: %s" % (aviso["id"], aviso["detalle"]), "  cómo: %s" % aviso["ayuda"]]
+        if aviso:
+            salida += ["aviso %s: %s" % (aviso["id"], aviso["detalle"]), "  cómo: %s" % aviso["ayuda"]]
+        else:
+            cuenta = config_loader.contar_extensiones(r["sin_capa"]["archivos"])
+            salida.append("%s: sin capa y esperados en el cambio: %s; %s" % (config_loader.ID_COBERTURA,
+                                                                             config_loader.lista_de_extensiones(cuenta),
+                                                                             config_loader.NOTA_ESPERADOS))
     salida.append("instancia: %s" % r["raiz"])
     salida.append("origin/HEAD usado (sin fetch; si está viejo, hazlo antes):")
     for clon, h in r["origin_head"].items():

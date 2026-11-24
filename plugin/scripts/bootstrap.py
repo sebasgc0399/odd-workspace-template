@@ -139,6 +139,7 @@ def _cargar_en_temporal(contenidos, prefijo):
             config_loader.repos_propios(copia)
             config_loader.hooks_apagados(copia)
             config_loader.perfil(copia)
+            config_loader.sin_capa(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 

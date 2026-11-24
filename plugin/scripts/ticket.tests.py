@@ -553,7 +553,7 @@ def test_cobertura_avisa_las_extensiones_versionadas_sin_capa_de_la_instancia_y_
         assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
             0,
             "aviso capas-cobertura: extensiones versionadas sin capa: .mjs (2)\n"
-            "  cómo: " + config_loader.AYUDA_COBERTURA + "\n",
+            "  cómo: " + config_loader.ayuda_de_cobertura({".mjs": 2}) + "\n",
             "",
         )
         assert arbol(e.base) == antes
@@ -614,7 +614,8 @@ def test_cobertura_en_controles_da_el_mismo_detalle_y_la_misma_ayuda_que_el_doct
             codigo, salida, errores = e.correr("--cobertura", "--raiz", str(e.raiz))
             esperada = [prefijo + fila.detalle] + (["  cómo: " + fila.ayuda] if fila.estado == doctor.AVISO else [])
             assert (codigo, salida.splitlines(), errores) == (0, esperada, ""), (salida, fila)
-            assert config_loader.NOTA_ESPERADOS_CONTROLES in fila.detalle or fila.ayuda == config_loader.AYUDA_COBERTURA_CONTROLES, fila
+            assert (config_loader.NOTA_ESPERADOS_CONTROLES in fila.detalle
+                    or fila.ayuda == config_loader.ayuda_de_cobertura({".mjs": 1}, controles=True)), fila
 
 
 def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
@@ -622,6 +623,77 @@ def test_cobertura_sin_instancia_o_con_la_config_rota_sale_con_dos():
         rechazado(e, 2, "no hay workspace.config.json", "--cobertura", "--raiz", str(e.base))
         (e.raiz / "workspace.config.json").write_bytes(b"{roto")
         rechazado(e, 2, "está rota", "--cobertura", "--raiz", str(e.raiz))
+
+
+def con_sin_capa(e, valor):
+    ruta = e.raiz / "workspace.config.json"
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    config["sin_capa"] = valor
+    ruta.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+
+
+def test_cobertura_con_sin_capa_pasa_sus_extensiones_a_las_esperadas_y_el_como_trae_la_linea():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "res/i.png": b"x", "res/j.png": b"x", "res/k.xml": b"x", "package.json": b"{}"})
+        codigo, salida, errores = e.correr("--cobertura", "--raiz", str(e.raiz))
+        assert (codigo, errores) == (0, ""), errores
+        assert salida.splitlines()[0] == "aviso capas-cobertura: extensiones versionadas sin capa: .png (2), .xml (1)", salida
+        assert salida.splitlines()[1].endswith('sin las extensiones que sí son código: "sin_capa": [".png", ".xml"]'), salida
+        con_sin_capa(e, [".png", ".xml"])
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0,
+            "capas-cobertura: sin capa y esperados: .png (2), .json (1), .xml (1); un cambio en ellos lleva /odd-ws:revisar a modo completo\n",
+            "",
+        )
+
+
+def test_cobertura_con_sin_capa_invalido_sale_con_dos():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "i.png": b"x"})
+        con_sin_capa(e, ["png"])
+        rechazado(e, 2, "está rota (sin_capa debe ser una lista de extensiones con punto", "--cobertura", "--raiz", str(e.raiz))
+
+
+HOOKS_DE_UN_REPO = {"hooks": {"PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "npx prettier --write"}]}]}}
+
+
+def test_cobertura_no_avisa_los_hooks_de_un_repo_si_la_instancia_no_declara_claude_code():
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "README.md": b"x"})
+        e.escribir({".claude/settings.json": json.dumps(HOOKS_DE_UN_REPO).encode("utf-8")}, raiz=e.repo)
+        ruta = e.raiz / "workspace.config.json"
+        config = json.loads(ruta.read_text(encoding="utf-8"))
+        config["hosts"] = ["codex"]
+        ruta.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0, "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n", "")
+
+
+def test_cobertura_avisa_los_repos_con_hooks_propios_despues_de_la_cobertura():
+    import config_loader
+    with Escenario() as e:
+        versionar(e, {"a.ext": b"x", "README.md": b"x"})
+        e.escribir({".claude/settings.json": json.dumps(HOOKS_DE_UN_REPO).encode("utf-8")}, raiz=e.repo)
+        antes = arbol(e.base)
+        assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+            0,
+            "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n"
+            "aviso hooks-de-repos: repos con hooks propios: repo-a (.claude/settings.json)\n"
+            "  cómo: " + config_loader.AYUDA_HOOKS_DE_REPOS + "\n",
+            "",
+        )
+        assert arbol(e.base) == antes
+
+
+def test_cobertura_no_avisa_hooks_con_un_settings_ilegible_o_sin_hooks():
+    for settings, local in ((b"{roto", json.dumps({"permissions": {"allow": ["Bash(git status)"]}}).encode("utf-8")),
+                            (json.dumps({"hooks": {}}).encode("utf-8"), b"\xff\xfe"),):
+        with Escenario() as e:
+            versionar(e, {"a.ext": b"x", "README.md": b"x"})
+            e.escribir({".claude/settings.json": settings, ".claude/settings.local.json": local}, raiz=e.repo)
+            e.escribir({".claude/settings.json": json.dumps(HOOKS_DE_UN_REPO).encode("utf-8")})
+            assert e.correr("--cobertura", "--raiz", str(e.raiz)) == (
+                0, "capas-cobertura: todo lo versionado en los repos tiene capa o es doc\n", ""), settings
 
 
 DOC_CON_ENLACES = (

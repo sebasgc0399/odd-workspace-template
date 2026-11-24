@@ -2308,6 +2308,20 @@ def test_disabled_hooks_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_v
         assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
 
 
+def test_sin_capa_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in (".png", ["png"], [".png", 3], ["."], {".png": True}):
+            spec = e.spec()
+            spec["config"]["sin_capa"] = valor
+            rechazada(e, spec, "sin_capa")
+        spec = e.spec()
+        spec["config"]["sin_capa"] = [".png", ".gradle"]
+        raiz = e.base / "instancia-con-sin-capa"
+        codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+        assert codigo == 0 and errores == "", (codigo, errores)
+        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+
+
 def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
     with Escenario() as e:
         for valor in ("control", "Controles", "", None, 1, ["controles"], {"controles": True}):
