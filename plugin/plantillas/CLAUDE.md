@@ -11,8 +11,9 @@ lo mide `/odd-ws:conocimiento`). El detalle estable va a los docs del proyecto y
 
 Los `CLAUDE.md` se apilan (se concatenan), no se sobreescriben. Regla práctica: si vas a trabajar UN
 ticket, ábrelo por dentro (su carpeta en `{{tickets}}/`): cargan la raíz **y** el ticket, y ambos se
-reinyectan tras `/compact`. Abrir la raíz sirve para orquestar o mirar varios tickets: el contexto de uno
-solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve hasta tocarlo de nuevo.
+reinyectan tras `/compact`. Abrir la raíz sirve para orquestar o mirar varios tickets: el `CLAUDE.md` de
+uno solo entra al leer un archivo de su carpeta, y tras `/compact` no vuelve entero: del ticket activo
+vuelve un resumen, como se explica más abajo.
 
 Si el ticket toca repos de código, abre su sesión con esos repos agregados: `claude --add-dir <ruta>`,
 una vez por cada repo o worktree de «Worktree y rama». Sin eso, Claude Code pide permiso para leer o

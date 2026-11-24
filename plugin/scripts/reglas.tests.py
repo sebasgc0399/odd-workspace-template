@@ -1082,6 +1082,17 @@ def test_la_suite_de_la_plantilla_acepta_los_dos_sembrados_y_comprueba_que_la_re
                 assert len(fallas) == 1 and fallas[0].startswith("FALLA test_cada_sembrado_") and motivo in fallas[0], (que, out)
 
 
+def test_correr_a_mano_la_suite_copiada_de_la_plantilla_no_deja_pycache():
+    entorno = {clave: valor for clave, valor in os.environ.items() if clave != "PYTHONDONTWRITEBYTECODE"}
+    with temporal() as raiz:
+        instancia(raiz, modulo=MODULO_CON_RUTAS % SEMBRADOS_CON_RUTA, suite=PLANTILLA_DE_LA_SUITE.read_text(encoding="utf-8"),
+                  capas=CAPAS_CON_DOS_EXTENSIONES)
+        prueba = subprocess.run([sys.executable, SUITE_RUTA], capture_output=True, cwd=str(raiz), env=entorno)
+        assert prueba.returncode == 0, (prueba.stdout.decode("utf-8"), prueba.stderr.decode("utf-8"))
+        cache = Path(raiz) / ".claude" / "reglas" / "__pycache__"
+        assert not cache.exists(), sorted(p.name for p in cache.iterdir())
+
+
 def test_guardar_un_paquete_cuyo_REGLAS_sale_con_SystemExit_es_un_error_y_no_corta_el_script():
     modulo = ('import sys\n'
               'class _Reglas:\n'

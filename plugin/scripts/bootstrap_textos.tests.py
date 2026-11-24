@@ -215,6 +215,14 @@ def test_la_raiz_fija_el_idioma_del_usuario_tambien_despues_de_compactar():
     assert "resumen quedó en otro idioma" in contexto, contexto
 
 
+def test_la_raiz_dice_una_sola_cosa_sobre_lo_que_vuelve_tras_compactar():
+    texto = textos()["CLAUDE.md"]
+    contexto = " ".join(texto.split("## Cómo se carga el contexto")[1].split("## Ciclo de un ticket")[0].split())
+    assert "no vuelve hasta tocarlo de nuevo" not in contexto, contexto
+    assert "tras `/compact` no vuelve entero" in contexto and "del ticket activo vuelve un resumen" in contexto, contexto
+    assert "llega como resumen al arrancar y después de cada `/compact`" in contexto, contexto
+
+
 def test_la_raiz_dice_que_los_rituales_los_escribe_el_usuario():
     texto = textos()["CLAUDE.md"]
     seccion = " ".join(texto.split("## Skills del plugin")[1].split())

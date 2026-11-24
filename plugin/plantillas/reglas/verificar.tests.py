@@ -1,5 +1,8 @@
-import importlib.util
 import sys
+
+sys.dont_write_bytecode = True
+
+import importlib.util
 from pathlib import Path
 
 MODOS = ("aviso", "bloqueo")
