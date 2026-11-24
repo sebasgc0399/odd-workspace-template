@@ -415,6 +415,32 @@ def test_main_como_hook_real():
     comprobar(fallos)
 
 
+def test_una_falla_interna_deja_pasar_como_antes_y_queda_anotada_sin_el_comando():
+    fallos = []
+    with instancia_temporal() as raiz:
+        e = dict(evento_bash("git commit -m rama-secreta"), cwd=str(raiz))
+        esperar(fallos, correr(e, raiz)[0] == 2, "control: sin la falla, bloquea")
+        original = G.decidir
+
+        def falla(*_args, **_kwargs):
+            raise RuntimeError("se rompió")
+
+        G.decidir = falla
+        try:
+            esperar(fallos, correr(e, raiz) == (0, "", b""), "con la falla deja pasar, como antes")
+        finally:
+            G.decidir = original
+        r = _hook(b"no es json: writer-sql git commit -m rama-secreta",entorno=dict(_entorno_sin_git(), CLAUDE_PROJECT_DIR=str(raiz)))
+        esperar(fallos, (r.returncode, r.stdout, r.stderr) == (0, b"", b""), "el hook real con basura deja pasar, como antes: %r" % r)
+        ruta = raiz / convencion.ESTADO / "fallas-de-hooks.jsonl"
+        crudo = ruta.read_bytes() if ruta.exists() else b""
+        esperar(fallos, b"rama-secreta" not in crudo and b"commit" not in crudo, "no anota el comando: %r" % crudo)
+        anotadas = [(a["hook"], a["evento"], a["tipo"]) for a in map(json.loads, crudo.splitlines())]
+        esperar(fallos, anotadas == [("writer_guard", "PreToolUse", "RuntimeError"), ("writer_guard", None, "JSONDecodeError")],
+                "anota las dos fallas: %r" % anotadas)
+    comprobar(fallos)
+
+
 AJENOS = ("Explore", "revisor-sql", "general-purpose", "", None, 7, ["writer-sql"], "writer-", "writer-SQL", "Writer-sql",
           "odd-ws:writer-sql", "xwriter-sql", "writer-sql ", "writer-sql:x", "writer--x", "writer-_x")
 WRITERS = ("writer-sql", "writer-web", "writer-movil", "writer-otra", "writer-a1-b2", "writer-9")

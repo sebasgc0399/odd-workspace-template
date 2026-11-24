@@ -218,6 +218,34 @@ def test_correr_hook_falla_abierto_ante_system_exit():
     assert m().correr_hook(manejador, io.BytesIO(b""), Flujo(), Flujo()) == 0
 
 
+def test_correr_hook_anota_la_falla_en_la_instancia_del_evento_solo_si_sabe_de_que_hook_es():
+    with Temporal() as base:
+        inst = base / "inst"
+        inst.mkdir()
+        (inst / "workspace.config.json").write_text("{}", encoding="utf-8")
+        crudo = json.dumps({"hook_event_name": "PreToolUse", "cwd": str(inst), "tool_input": {"command": "secreto"}}).encode("utf-8")
+        estado = inst / ".claude" / "estado"
+
+        def manejador(_crudo):
+            raise RuntimeError("roto")
+
+        previo = os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        try:
+            assert m().correr_hook(manejador, io.BytesIO(crudo), Flujo(), Flujo()) == 0
+            assert not estado.exists(), "sin el nombre del hook no anota"
+            assert m().correr_hook(manejador, io.BytesIO(crudo), Flujo(), Flujo(), hook="guard_comandos") == 0
+            datos = (estado / "fallas-de-hooks.jsonl").read_bytes()
+            assert b"secreto" not in datos, datos
+            [anotada] = map(json.loads, datos.splitlines())
+            assert [anotada[k] for k in ("hook", "evento", "tipo", "mensaje")] == ["guard_comandos", "PreToolUse", "RuntimeError", "roto"]
+            shutil.rmtree(estado)
+            estado.write_bytes(b"")
+            assert m().correr_hook(manejador, io.BytesIO(crudo), Flujo(), Flujo(), hook="guard_comandos") == 0, "anotar no lanza"
+        finally:
+            if previo is not None:
+                os.environ["CLAUDE_PROJECT_DIR"] = previo
+
+
 def test_silencio_no_escribe_nada_y_sale_con_cero():
     salida, error = Flujo(), Flujo()
     assert m().correr_hook(lambda _crudo: m().SILENCIO, io.BytesIO(b""), salida, error) == 0

@@ -975,7 +975,7 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1031,7 +1031,7 @@ def test_los_items_de_antes_conservan_su_orden_y_los_nuevos_van_tras_plugin_root
 PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de odd-workspace-template):", "Tu máquina:", "Esta instancia:")
 RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
 DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
-DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos",
+DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
                    "writer-sql",
                    "paquetes", "agentes-skills", "agentes-hooks"]
 
@@ -1298,6 +1298,33 @@ def test_hooks_apagados_es_ok_sin_la_clave_y_aviso_con_sus_nombres_sin_arreglo()
         codigo, salida = correr(["--arreglar", "hooks-apagados"], ctx)
         assert codigo == 2 and "no tiene arreglo automático" in salida, salida
         assert json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))["disabled_hooks"] == ["guard_comandos"]
+
+
+def test_hooks_fallas_es_ok_sin_fallas_aviso_con_las_ultimas_y_arreglar_las_vacia():
+    from odd_ws import fallas
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["hooks-fallas"]
+        assert r.estado == "OK" and r.comando is None and r.arreglo is None, r
+        for numero in range(5):
+            fallas.anotar("guard_comandos", {"hook_event_name": "PreToolUse", "tool_input": {"command": "secreto"}},
+                          RuntimeError("falla %d" % numero), raiz)
+        r = por_id(ctx)["hooks-fallas"]
+        assert r.estado == "AVISO" and r.detalle.startswith("5 fallas anotadas en .claude/estado/fallas-de-hooks.jsonl"), r
+        assert [n for n in range(5) if "falla %d" % n in r.detalle] == [2, 3, 4], r
+        assert r.detalle.index("falla 4") < r.detalle.index("falla 2"), "de la más nueva a la más vieja"
+        assert "guard_comandos (PreToolUse): RuntimeError: falla 4" in r.detalle and "secreto" not in r.detalle, r
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("hooks-fallas "))
+        assert lineas[i].split()[:2] == ["hooks-fallas", "AVISO"], lineas[i]
+        assert "arreglo: --arreglar hooks-fallas" in lineas[i + 1] and "cómo:" in lineas[i + 2], lineas[i:i + 3]
+        codigo, salida = correr(["--arreglar", "hooks-fallas"], ctx)
+        assert codigo == 0 and "hooks-fallas: OK" in salida, salida
+        assert not (raiz / ".claude" / "estado" / "fallas-de-hooks.jsonl").exists()
+        (raiz / ".claude" / "estado" / "fallas-de-hooks.jsonl").mkdir()
+        r = por_id(ctx)["hooks-fallas"]
+        assert r.estado == "AVISO" and r.detalle.startswith("no se puede leer") and r.arreglo is None and r.ayuda, r
 
 
 def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config():

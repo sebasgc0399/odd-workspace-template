@@ -9,7 +9,7 @@ import sys
 from collections import namedtuple
 from dataclasses import replace
 
-from odd_ws import rutas
+from odd_ws import fallas, rutas
 from odd_ws.capas import BITACORA
 from odd_ws.eventos import POSIX, POWERSHELL, Bloquear, Contexto, Permitir, Preguntar
 
@@ -289,12 +289,14 @@ def raiz_de_instancia(entorno, cwd):
     return encontrar_raiz(inicio_de_sesion(entorno, cwd))
 
 
-def correr_hook(manejador, entrada=None, salida=None, error=None):
+def correr_hook(manejador, entrada=None, salida=None, error=None, hook=None):
     entrada = entrada or sys.stdin.buffer
     salida = salida or sys.stdout
     error = error or sys.stderr
+    leido = None
     try:
-        codigo, texto, crudo = manejador(entrada.read())
+        leido = entrada.read()
+        codigo, texto, crudo = manejador(leido)
         if texto:
             salida.write(texto)
             salida.flush()
@@ -302,5 +304,7 @@ def correr_hook(manejador, entrada=None, salida=None, error=None):
             error.buffer.write(crudo)
             error.buffer.flush()
         return codigo
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as falla:
+        if hook:
+            fallas.anotar(hook, leido, falla)
         return 0

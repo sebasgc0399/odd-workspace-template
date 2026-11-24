@@ -729,6 +729,26 @@ def test_main_lee_stdin_y_falla_abierto():
             assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), (entrada, r)
 
 
+def test_una_falla_que_se_traga_correr_queda_anotada_sin_el_payload():
+    with temporal() as base:
+        inst = escribir(base / "inst", "workspace.config.json", "{}").parent
+        original = R.decidir
+
+        def falla(*_args, **_kwargs):
+            raise RuntimeError("se rompió")
+
+        R.decidir = falla
+        try:
+            e = {"hook_event_name": "Stop", "session_id": "s1", "cwd": str(inst), "last_assistant_message": "mensaje-secreto"}
+            assert R.correr(e, raiz=str(inst)) == SILENCIO
+        finally:
+            R.decidir = original
+        crudo = (inst / convencion.ESTADO / "fallas-de-hooks.jsonl").read_bytes()
+        assert b"mensaje-secreto" not in crudo, crudo
+        [anotada] = map(json.loads, crudo.splitlines())
+        assert [anotada[k] for k in ("hook", "evento", "tipo", "mensaje")] == ["revisar_turno", "Stop", "RuntimeError", "se rompió"]
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

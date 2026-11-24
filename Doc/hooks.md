@@ -11,7 +11,7 @@ Comando: «git push --force origin main»
 
 | Cuándo | Qué hace |
 |---|---|
-| Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
+| Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Avisa una vez de los hooks que fallaron desde el último aviso (ver [Si un hook falla](#si-un-hook-falla)). Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
 | Al empezar el turno | `revisar_turno.py` saca una foto de los archivos de capa que ya están modificados, para saber después qué cambió durante el turno. Corre solo en el agente principal: un subagente no saca foto. |
 | Al leer por primera vez un archivo de una capa | Inyecta sus no-negociables como contexto. |
 | Antes de editar un archivo de una capa | Si los no-negociables no se cargaron, bloquea la primera edición y los inyecta. El reintento pasa. |
@@ -32,6 +32,16 @@ Los guards frenan los errores y los atajos del agente, también cuando escribe e
 Una capa sin no-negociables no tiene primer toque: si el bloque `<!-- no-negociables -->` de su skill está vacío, o conserva el texto que trae la plantilla de la capa, la lectura no inyecta nada y la primera edición no se bloquea.
 
 En Claude Code, los hooks los lanza `python3`; en Windows, los de Codex y Pi los lanza `python`. Si no arranca, en Claude Code 2.1.295 o más y en Pi la herramienta queda bloqueada con el error; con una versión anterior de Claude Code, y siempre en Codex, la herramienta pasa sin el chequeo. En ese caso, la defensa es el ítem `python` de `/odd-ws:doctor`, que revisa el intérprete que lanza cada CLI declarado.
+
+## Si un hook falla
+
+Un hook que arranca pero falla por dentro, con un error que no esperaba, no frena nada: deja pasar lo que le tocaba revisar, como siempre. Lo que cambia es que la falla deja rastro:
+
+- **Queda anotada** en `.claude/estado/fallas-de-hooks.jsonl`, en la raíz de la instancia: el hook, el evento, la fecha, y el tipo y el mensaje del error, recortado a 200 caracteres. Nunca se anota el comando, el archivo ni el resto del evento. Se guardan las últimas 20.
+- **La sesión siguiente la muestra una vez.** Al abrir, retomar, compactar o limpiar la sesión, el agente recibe las fallas que todavía no vio, para que te las cuente.
+- **El doctor la muestra** en el ítem `hooks-fallas`, en AVISO, con las tres más recientes, hasta que vacíes el registro con `--arreglar hooks-fallas`.
+
+Lo que el hook ya resuelve por su cuenta no se anota: una regla de capa que se cae en el fin del turno, una etapa de la compuerta del writer (esa queda en el estado del writer) o una foto que no se pudo guardar.
 
 ## Apagar un hook
 

@@ -14,6 +14,7 @@ import config_loader
 from odd_ws import calibracion
 from odd_ws import capas as convencion
 from odd_ws import enlaces
+from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws import paquetes
 from odd_ws import raiz_del_plugin
@@ -636,10 +637,10 @@ def _session_start(evento, config):
                     except OSError:
                         pass
     aviso = raiz_del_plugin.seguir_al_vigente(config["raiz"])
+    anotadas = fallas.aviso_de_inicio(config["raiz"])
     ticket = _ticket_activo(evento, config)
-    if aviso:
-        return Contexto(aviso + "\n\n" + ticket.texto if ticket else aviso)
-    return ticket or Permitir()
+    partes = [texto for texto in (aviso, anotadas, ticket.texto if ticket else None) if texto]
+    return Contexto("\n\n".join(partes)) if partes else Permitir()
 
 
 def _post_tool_use_o_read(evento, config):
@@ -694,13 +695,14 @@ def decidir(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
 def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
         return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, host))
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
+        fallas.anotar("verificar_capa", evento, error, raiz)
         return SILENCIO
 
 
 def main():
     plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host))
+    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host), hook="verificar_capa")
 
 
 if __name__ == "__main__":

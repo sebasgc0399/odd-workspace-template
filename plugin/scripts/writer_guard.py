@@ -19,6 +19,7 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws import rutas
 from odd_ws.capacidades import PRE
@@ -1519,13 +1520,14 @@ def correr(evento, raiz=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
         bitacora = hosts.necesita_bitacora(host)
         return hosts.atender(host, evento, lambda leido: decidir(leido, raiz, plazo, bitacora), pre_por_defecto=True)
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
+        fallas.anotar("writer_guard", evento, error, raiz)
         return SILENCIO
 
 
 def main():
     plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(ENTRADA if ENTRADA is not None else crudo, plazo=plazo, host=host))
+    return correr_hook(lambda crudo: correr(ENTRADA if ENTRADA is not None else crudo, plazo=plazo, host=host), hook="writer_guard")
 
 
 if __name__ == "__main__":

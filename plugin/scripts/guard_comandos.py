@@ -9,6 +9,7 @@ import time
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import fallas
 from odd_ws import hosts, rutas
 from odd_ws.capacidades import PRE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, carpeta_scratch, correr_hook, host_de, plazo_de,
@@ -1137,13 +1138,14 @@ def decidir(evento, entorno=None, plazo=PLAZO_POR_DEFECTO):
 def correr(evento, entorno=None, plazo=PLAZO_POR_DEFECTO, host=HOST_POR_DEFECTO):
     try:
         return hosts.atender(host, evento, lambda leido: decidir(leido, entorno, plazo), pre_por_defecto=True)
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
+        fallas.anotar("guard_comandos", evento, error, entorno=entorno)
         return SILENCIO
 
 
 def main():
     plazo, host = plazo_de(sys.argv[1:]), host_de(sys.argv[1:])
-    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host))
+    return correr_hook(lambda crudo: correr(crudo, plazo=plazo, host=host), hook="guard_comandos")
 
 
 if __name__ == "__main__":
