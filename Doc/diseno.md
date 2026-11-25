@@ -1206,11 +1206,33 @@ El agente ve el porqué de las líneas que reemplaza, sacado de la historia y si
 - **La clave `porque_al_editar`** de `workspace.config.json`: `"todo"` (por defecto: la pausa y el contexto), `"indice"` (solo la pausa) o `"apagado"`. Se valida como `profile`: `config_loader.porque_al_editar` (o `porque_al_editar_de`, sin leer el disco) lanza `ConfigRota` con otro valor; `cargar` no la mira, y la validan el bootstrap antes de escribir y el doctor en el ítem `config`. El hook la lee por su cuenta con `config_loader.modo_del_porque`, como `hook_apagado`, y ante una `ConfigRota` usa `"todo"`. Con `"apagado"` y sin `desviaciones.csv`, la salida del hook es la de antes, byte a byte.
 - **Lo que no ve:** el código borrado, que cubre la I91; lo que reemplaza un `MultiEdit`; y, en Pi, un `edit` sin `oldText`.
 
+### Lo que se quita vuelve como regla (`quitado.py`, I91)
+
+El blame de la I90 no ve el código borrado: lo que un ticket quita (una dependencia, un archivo, un patrón) puede volver en el ticket siguiente sin que nadie lo decida. Al cerrar, `cerrar` lo muestra y pregunta, por cada ítem, si puede volver; lo que no, se gradúa como un chequeo que lo frena.
+
+- **`quitado.py --repo RUTA[#BASE] [--repo …] [--json]`** lista, por repo, lo que el diff quitó desde su base. Reusa lo de `recibo`: `raiz_del_repo`, `elegir_base`, `git` (con el entorno limpio y la config fija, así que un `GIT_INDEX_FILE` o un `GIT_DIR` ajenos no lo mueven) y `_partir_repo` para `RUTA#BASE`, como `triaje.py`. Es de solo lectura.
+  - **La base** es la de `--repo RUTA#BASE` o el merge-base con la rama de `origin/HEAD`. `elegir_base` va sin ticket: la base sellada de una revisión escondería lo que el ticket quitó antes de esa revisión.
+  - **El diff** es `git diff --name-status -z --find-renames <base>`, contra la copia de trabajo: cuenta lo commiteado y lo que no, como el triaje. `--find-renames` pisa el `diff.renames=false` de `recibo.CONFIG_FIJA`, porque un renombre no es una baja (el triaje usa `--no-renames`). Un archivo sin trackear no está en el diff, así que un `mv` sin `git add` cuenta como borrado.
+  - **Los archivos borrados** son las entradas `D`.
+  - **Las dependencias** salen de comparar, en cada manifiesto modificado o renombrado, la versión de la base (`git cat-file blob <base>:<ruta>`) con la del disco, decodificadas con `triaje.decodificar` (UTF-8 con o sin BOM, o UTF-16 con BOM, como un `.csproj` de Visual Studio). Una dependencia cuenta como quitada si está en la base y no en la actual, por nombre y sin versión: subirla no es quitarla, ni pasarla de una sección a otra. Cada una sale con la línea que la declaraba en la base, que es el `sembrado` de la regla. Los manifiestos y lo que se lee de cada uno:
+    - `package.json`: las claves de `dependencies` y `devDependencies`;
+    - `requirements*.txt`: el nombre de cada requisito, normalizado como PEP 503, sin comentarios, opciones (`-r`, `-e`) ni URLs sueltas;
+    - `pyproject.toml`: `dependencies` y `optional-dependencies` de `[project]`, con el mismo nombre;
+    - `go.mod`: el módulo de cada `require`, suelto o en bloque;
+    - `*.csproj`: el `Include` de cada `PackageReference`, sin distinguir mayúsculas, como NuGet;
+    - `build.gradle` y `build.gradle.kts`: `grupo:artefacto` de las declaraciones (`implementation`, `api`, `compileOnly`, `runtimeOnly`, `kapt`, `ksp` y sus variantes, como `testImplementation`), en texto o en mapa (`group:`, `name:`), y el alias de un catálogo (`libs.okhttp`);
+    - `Cargo.toml`: las claves de `[dependencies]` y `[dev-dependencies]`, también como tabla (`[dependencies.tokio]`).
+  - **Lo que no lee, lo dice.** Un manifiesto que no se puede leer (un JSON o un TOML roto, o un TOML con un Python anterior a la 3.11, que no trae `tomllib`) da un aviso, nunca silencio. Un manifiesto borrado sale como archivo, sin sus dependencias.
+  - **Un diff vacío.** Después del merge del ticket, el merge-base es `HEAD` y el diff sale vacío: lo dice en una línea y pide la base con `--repo RUTA#BASE`. Se decide por contenido: el entorno limpio apaga `diff.autoRefreshIndex`, así que un archivo tocado sin cambios sale `M` en `--name-status` (y el código de salida de `--exit-code` cambia con `--no-ext-diff`, según la versión de git). Por eso una entrada `M` solo cuenta si su `diff -U0` trae algo, como en el triaje.
+  - **Sale** con 0 si corrió, con ítems o sin ellos, y con 2 por un error de uso o de entorno (un repo que no existe o no es git, una base que no existe, un repo sin `origin/HEAD` y sin base), con el mensaje por stderr.
+- **En `cerrar`,** el paso 2 lo corre con cada repo del ticket; sin nada quitado sigue sin decirlo, así que el cierre de siempre no cambia. Si lista algo, la reference `quitado.md` lleva la pregunta y la regla: lo que no puede volver es una fila con `destino` `chequeo` por la graduación de siempre (I22), con su porqué en el `motivo` y en la evidencia. El `sembrado` lleva la ruta del manifiesto o del archivo quitado, porque la regla mira la ruta. Si ninguna capa cubre ese archivo, el chequeo no lo vería, y la regla va a `pasiva` o `criterios`.
+- **Lo que no ve:** un patrón (una llamada, un estilo), que nombra el usuario en la pregunta; las dependencias de un manifiesto fuera de la lista, como `[build-dependencies]` de Cargo, `peerDependencies` o la sección de Poetry; y una rama del ticket que no está en ninguna copia de trabajo.
+
 ### Cerrar (`skills/cerrar`, T9)
 
 Es el ritual de cierre de un ticket, y es el circuito de mejora continua de D6: lo aprendido sale de la carpeta del ticket. Solo lo invoca el usuario.
 
-Como `revisar`, el `SKILL.md` es un núcleo corto, de unos 13 KB, con los pasos 1 a 10 y sus comandos. El detalle vive en `skills/cerrar/references/` (`memorias.md` con el modo memorias completo, `matriz.md`, `desviaciones.md` y `entrega.md`), detrás de compuertas que se abren con un evento visible: el argumento `memorias`, una fila de la matriz o una disputa, una desviación conocida, un ticket que usó worktree, y la entrega.
+Como `revisar`, el `SKILL.md` es un núcleo corto, de unos 13 KB, con los pasos 1 a 10 y sus comandos. El detalle vive en `skills/cerrar/references/` (`memorias.md` con el modo memorias completo, `matriz.md`, `desviaciones.md`, `quitado.md` y `entrega.md`), detrás de compuertas que se abren con un evento visible: el argumento `memorias`, una fila de la matriz o una disputa, una desviación conocida, algo que el ticket quitó, la foto de la entrega, un ticket que usó worktree, y la entrega.
 
 - **El triaje** decide adónde va cada aprendizaje:
   - lo que es del ticket se queda;
@@ -1230,7 +1252,8 @@ Como `revisar`, el `SKILL.md` es un núcleo corto, de unos 13 KB, con los pasos 
 - **Los dos relojes:**
   - Conocimiento pasa a `graduado` (con los candidatos vacíos) o `descartado`;
   - Estado no se toca, salvo que cambie la entrega;
-  - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado».
+  - la última entrada de la bitácora lleva la foto de la entrega por repo, que se arma con git de lectura. Sin forma de comprobarla, va «no verificado». Su detalle vive en `entrega.md`, para dejarle lugar en el núcleo al paso de lo quitado.
+- **Lo que el ticket quitó (I91):** en el triaje, `quitado.py` lista los archivos borrados y las dependencias que salieron de un manifiesto, y lo que no puede volver se gradúa como un chequeo (ver «Lo que se quita vuelve como regla»).
 - **Después de editar los docs**, corre `conocimiento.py`.
 - **El commit de cierre** se hace solo en la raíz de la instancia: con el `status` mostrado y un `git add` explícito anclado con `:/` (nunca `-A`). No pide un segundo sí, porque el de la propuesta ya lo cubre (I10); con `"ask_before_commit": true`, sí lo pide. Nunca hace push. La rama no se borra. Si la entrega ya está (`listo`), quita la marca de ticket activo; si no, la marca se queda.
 - **El worktree (I41):** en un repo con `"own": true`, la skill lo desarma (`worktree remove` y `prune`) solo si está limpio y su rama ya está en `origin`; si no, dice qué falta. En un repo del equipo lo desarma el usuario. En un ticket real, el usuario tuvo que pedirle al agente que desarmara el worktree de su propio repo, que `abrir` había armado solo.

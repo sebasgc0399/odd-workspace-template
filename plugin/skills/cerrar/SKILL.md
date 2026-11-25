@@ -43,6 +43,8 @@ Por cada decisión, gotcha, hallazgo y candidato del ticket, decide a dónde va:
 
 **Cada aprendizaje se clasifica además como de dominio o de motor.** De dominio es lo del proyecto; **de motor**, lo que habla del propio plugin `odd-ws` (un script, una skill o la plantilla), que no se gradúa a ningún destino de la instancia: se anota en la última entrada de la bitácora como `→ motor: <hallazgo>`, sin buzón, y queda para quien mantiene el plugin.
 
+**Lo que el ticket quitó** puede volver sin que nadie lo decida: corre `python3 "<S>/quitado.py" --repo <ruta>` con cada repo del ticket (o su worktree). Sin nada quitado, sigue sin decirlo. Con algo, un diff vacío o un error, lee `references/quitado.md`: por cada ítem preguntas si puede volver, y lo que no, va a la propuesta como una fila `chequeo`.
+
 Los ítems de la **sección «Candidatos a graduar»** ya vienen marcados como generales y con su destino: promuévelos ahí o descártalos con razón. Al graduar, la sección **queda vacía**, para que la apertura de un ticket hermano no vuelva a ver lo ya promovido.
 
 ## 3. El modo sombra va primero
@@ -84,7 +86,7 @@ En el `CLAUDE.md` del ticket, lo que mostró la propuesta:
 
 - **`Conocimiento`:** `graduado (AAAA-MM-DD)`, o `descartado (AAAA-MM-DD, motivo)` si el ciclo se cierra sin cosechar nada (un ticket reasignado, por ejemplo). Con `graduado`, **«Candidatos a graduar» tiene que quedar vacía**: `graduado` es un recibo, no una declaración, y ningún script lo chequea: lo miras tú antes de escribir la fecha.
 - **`Estado` no se toca** salvo que la entrega haya cambiado de verdad: el conocimiento gradúa cuando está verificado y es general, no cuando el código sale, así que un ticket puede quedar `en revisión` y `graduado`.
-- **Una última entrada de la bitácora** con lo que se graduó y a dónde, lo pendiente, lo de motor como `→ motor: <hallazgo>` y **la foto de la entrega, por repo:** la rama con su hash, o qué falta subir y de quién (también en la `Nota de estado`), con git de solo lectura: `git -C <repo> log -1 --format=%h <rama>` y, si está pusheada, `git -C <repo> branch -r --contains <hash>`. Si el `origin` puede estar atrasado, propón el `git fetch` de ese repo y córrelo solo con el sí del usuario, porque habla con el remoto; sin fetch ni forma de comprobarlo, se anota **«no verificado»**. Es una foto: informa, no condiciona el `graduado`.
+- **Una última entrada de la bitácora** con lo que se graduó y a dónde, lo pendiente, lo de motor como `→ motor: <hallazgo>` y **la foto de la entrega, por repo**, que se saca como dice «La foto de la entrega» en `references/entrega.md`. Es una foto: informa, no condiciona el `graduado`.
 
 ## 7. Desarmar el worktree
 

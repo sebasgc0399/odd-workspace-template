@@ -65,8 +65,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
-| T1 | S1 | El blame antes de editar | un explorador y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
-| T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 | pendiente | |
+| T1 | S1 | El blame antes de editar | un explorador y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `bfd7115` |
+| T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 (motivo: el respaldo de contexto del orquestador) | hecha (L5) | |
 | T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -123,3 +123,30 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - Las notas del `MANIFIESTO` de Codex y Pi (P2 y P3) no nombran la pausa de una edición.
   - **Risk: items 2 y 3.** Cambia el comportamiento de un hook que puede pausar o bloquear una edición, y el evento suma un campo. Lo revisa el verificador de la feature.
   - **Scratch del writer:** `%TEMP%\tmp.xj4DhJgKYg`. Va a la limpieza del autor.
+- **L5** (2026-11-25) T2, un writer, desde `bfd7115`. Cubrió S2.
+  - **`quitado.py`, de solo lectura,** lista por repo lo que el diff quitó desde la base:
+    - los archivos borrados, con `--find-renames`, así que un renombre no cuenta;
+    - las dependencias que salieron de `package.json`, `requirements*.txt`, `pyproject.toml`, `go.mod`, `*.csproj`, `build.gradle(.kts)` y `Cargo.toml`, cada una con la línea que la declaraba en la base, que es el `sembrado` de su regla.
+  - **Tiene `--json`.** Con el diff vacío lo dice y pide la base con `--repo RUTA#BASE`. Sale con 2 por un error de uso o de entorno.
+  - **Reusa** `recibo.elegir_base` (sin ticket), `recibo.git`, `recibo._partir_repo` y `triaje.decodificar`.
+  - **`cerrar`:** el paso 2 suma una línea que corre `quitado.py`, y el detalle va en la referencia nueva `references/quitado.md`: qué preguntar por cada ítem y cómo proponer la regla con su sembrado. Si nada se quitó, `cerrar` no dice nada.
+  - **El núcleo de `cerrar`** pasa de 13.297 a 13.302 bytes, con un tope estricto de 13.312. La foto de la entrega del paso 6 (648 bytes) se movió a «La foto de la entrega» en `references/entrega.md`.
+  - **Decisiones del writer que se aceptan:**
+    - **La base.** Es la de `#` o el merge-base, y no la base sellada de una revisión: esa escondería lo que el ticket quitó antes.
+    - **El diff.**
+      - Compara la base con la copia de trabajo, como `triaje`.
+      - Un `M` cuenta como cambio solo si su `diff -U0` tiene contenido, porque con `diff.autoRefreshIndex=false` un archivo con solo la fecha cambiada aparece como `M`.
+    - **Las dependencias.**
+      - Se comparan por nombre, sin la versión, y moverlas de sección no cuenta.
+      - `requirements` y `pyproject` normalizan como PEP 503, y NuGet sin distinguir mayúsculas.
+      - Gradle cubre la notación de mapa, los alias del catálogo y `platform(...)`.
+    - **Los casos borde.** Un manifiesto borrado sale como archivo. Uno ilegible da un aviso, nunca silencio.
+    - **Sin capa que vea el archivo** (por ejemplo, ninguna con `.json`), la referencia propone la regla como `pasiva` o `criterios`.
+    - **La prueba de guarda.** Una prueba comprueba que cada comando de `quitado.py` del núcleo y de la referencia lo acepta su parser.
+  - **Test-first:**
+    - RED: 0/20 antes del script.
+    - GREEN: `quitado` 21/21, `memorias` 43/43 (con el tamaño del núcleo), `registro` 7/7, `recibo` 116/116 y `triaje` 111/111. Todo también con un `GIT_INDEX_FILE` ajeno.
+    - Mutaciones: 14, cada una atrapada por la prueba de su regla.
+  - **El ejemplo de regla de la referencia** se calibró en una instancia de prueba: `EJ-07 puede bloquear`.
+  - **Risk: ninguno** de los ítems 1 a 6. El script es nuevo y de solo lectura, y en `cerrar` cambia el texto y se mueve un párrafo.
+  - **Scratch del writer:** `%TEMP%\tmp.ziox3RJBtD` y la copia de mutaciones en el scratchpad de la sesión. Van a la limpieza del autor.
