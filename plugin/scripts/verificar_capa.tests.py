@@ -1380,6 +1380,53 @@ def test_al_iniciar_la_sesion_el_aviso_de_plugin_root_va_junto_al_ticket_activo(
         assert texto.index("0.13.2") < texto.index("hacer algo concreto"), texto
 
 
+PLANTILLAS_DEL_SALTO = {"CLAUDE.md": ("# {{nombre}} — guía de trabajo\n\nRaíz de **{{nombre}}**, con `{{tickets}}/`.\n",) * 2,
+                        "ticket.md": ("# ticket\n",) * 2, "pre-commit": ("#!/bin/sh\necho 1\n", "#!/bin/sh\necho 2\n"),
+                        "reglas/verificar.tests.py": ("print(1)\n", "print(2)\n")}
+
+
+def huella_del_salto(texto):
+    import hashlib
+    return "sha256:" + hashlib.sha256(texto.replace("{{tickets}}", "tickets").encode("utf-8")).hexdigest()
+
+
+def con_plantillas_del_salto(raiz, vigente, copiadas):
+    escribir(vigente, ".claude-plugin/plugin.json", json.dumps({"name": "odd-ws", "version": "0.13.2"}))
+    for plantilla, (vieja, nueva) in PLANTILLAS_DEL_SALTO.items():
+        escribir(vigente, "plantillas/" + plantilla, nueva)
+    escribir(vigente, "plantillas/huellas.json", json.dumps({p: {"0.13.1": huella_del_salto(v), "0.13.2": huella_del_salto(n)}
+                                                             for p, (v, n) in PLANTILLAS_DEL_SALTO.items()}))
+    config = json.loads((Path(raiz) / "workspace.config.json").read_text(encoding="utf-8"))
+    escribir(raiz, "workspace.config.json", json.dumps({**config, "plantillas": "0.13.1"}))
+    cual = 0 if copiadas == "viejas" else 1
+    escribir(raiz, "CLAUDE.md", PLANTILLAS_DEL_SALTO["CLAUDE.md"][cual].replace("{{tickets}}", "tickets").replace("{{nombre}}", "Toque"))
+    escribir(raiz, "tickets/_plantilla/CLAUDE.md", PLANTILLAS_DEL_SALTO["ticket.md"][cual])
+    escribir(raiz, ".githooks/pre-commit", PLANTILLAS_DEL_SALTO["pre-commit"][cual])
+    for capa in config["layers"]:
+        escribir(raiz, ".claude/reglas/verificar_%s.tests.py" % capa, PLANTILLAS_DEL_SALTO["reglas/verificar.tests.py"][cual])
+    return sorted(config["layers"])
+
+
+def test_tras_el_salto_de_version_el_inicio_nombra_las_plantillas_copiadas_que_cambiaron_y_manda_al_doctor():
+    with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        capas = con_plantillas_del_salto(w.raiz, vigente, "viejas")
+        escribir(w.raiz, ".claude/reglas/verificar_%s.tests.py" % capas[0], "editada a mano\n")
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        linea = next(l for l in texto.split("\n\n") if "cambiaron plantillas" in l)
+        cambiaron = [".githooks/pre-commit"] + [".claude/reglas/verificar_%s.tests.py" % capa for capa in capas]
+        assert all(ruta in linea for ruta in cambiaron) and "CLAUDE.md" not in linea, linea
+        assert "\n" not in linea and "/odd-ws:doctor" in linea and "ítem plantillas" in linea and "0.13.2" in linea, linea
+        assert texto.index("apuntaba a la versión 0.13.1") < texto.index(linea), texto
+        assert w.correr(inicio_en("startup", w.raiz)) == (0, "", b""), "sin salto no lo repite, aunque las copias sigan viejas"
+
+
+def test_tras_el_salto_de_version_con_las_copias_al_dia_el_inicio_no_suma_la_linea_de_plantillas():
+    with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        con_plantillas_del_salto(w.raiz, vigente, "nuevas")
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        assert "0.13.2" in texto and "plantillas" not in texto, texto
+
+
 def test_con_verificar_capa_apagado_plugin_root_no_cambia():
     with Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
         config = json.loads((w.raiz / "workspace.config.json").read_text(encoding="utf-8"))

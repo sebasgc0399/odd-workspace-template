@@ -99,6 +99,13 @@ def local_esperado(spec):
     return esperado_json({**spec["local"], "plugin_root": str(b().RAIZ_DEL_PLUGIN)})
 
 
+VERSION_DEL_PLUGIN = json.loads((AQUI.parent / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8-sig"))["version"]
+
+
+def config_esperada(config):
+    return esperado_json({**config, "plantillas": VERSION_DEL_PLUGIN})
+
+
 @contextlib.contextmanager
 def generadores_temporales(*altas):
     copia = list(b().GENERADORES)
@@ -379,7 +386,7 @@ def test_tickets_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_ta
         raiz = e.base / "instancia-con-prefijo"
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
         assert codigo == 0 and errores == "", (codigo, errores)
-        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+        assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"])
 
 
 def test_hosts_valido_pasa_y_viaja_tal_cual_en_la_config():
@@ -390,7 +397,7 @@ def test_hosts_valido_pasa_y_viaja_tal_cual_en_la_config():
             raiz = e.base / ("instancia-" + "-".join(valor))
             codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
             assert codigo == 0 and errores == "", (valor, codigo, errores)
-            assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"]), valor
+            assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"]), valor
 
 
 def test_con_pi_en_hosts_el_plan_estandar_crea_sus_agentes_y_en_una_instancia_que_ya_existe_los_deja_al_doctor():
@@ -443,7 +450,7 @@ def test_instancia_nueva_crea_los_tres_archivos():
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(e.raiz)])
         assert codigo == 0 and errores == "", (codigo, errores)
         assert arbol(e.raiz) == {
-            "workspace.config.json": esperado_json(spec["config"]),
+            "workspace.config.json": config_esperada(spec["config"]),
             "workspace.local.json": local_esperado(spec),
             ".gitignore": GITIGNORE_ESPERADO.encode("utf-8"),
         }
@@ -570,7 +577,7 @@ def test_plan_marca_crear_y_ya_existe():
             ("workspace.local.json", "ya_existe"),
             (".gitignore", "crear"),
         ]
-        assert plan[0].contenido == esperado_json(e.spec()["config"])
+        assert plan[0].contenido == config_esperada(e.spec()["config"])
         assert plan[2].contenido == GITIGNORE_ESPERADO.encode("utf-8")
         assert arbol(raiz) == {"workspace.local.json": b"x"}
 
@@ -1796,7 +1803,7 @@ def test_un_nombre_de_temporal_ocupado_no_se_usa():
         assert (raiz / f".workspace.config.json.{fijo}.tmp").read_bytes() == b"del usuario"
         assert list(fuera.iterdir()) == []
         assert os.path.islink(roto) if hay_enlace else roto.read_bytes() == b"del usuario 2"
-        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(e.spec()["config"])
+        assert (raiz / "workspace.config.json").read_bytes() == config_esperada(e.spec()["config"])
         assert (raiz / "workspace.local.json").read_bytes() == local_esperado(e.spec())
         assert sorted(n for n in os.listdir(raiz) if n.endswith(".tmp")) == sorted([f".workspace.config.json.{fijo}.tmp", roto.name])
 
@@ -1904,6 +1911,8 @@ def test_plugin_root_sale_de_la_constante_del_modulo():
         finally:
             b().RAIZ_DEL_PLUGIN = anterior
         assert json.loads((e.raiz / "workspace.local.json").read_text(encoding="utf-8"))["plugin_root"] == str(e.base / "otro-plugin")
+        config = json.loads((e.raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        assert "plantillas" not in config, "sin el plugin.json de esa carpeta no hay versión que anotar, y el doctor la infiere"
 
 
 def test_plugin_root_no_se_anota_si_el_local_ya_existia():
@@ -1914,6 +1923,40 @@ def test_plugin_root_no_se_anota_si_el_local_ya_existia():
         codigo, salida, _ = correr(["--spec", str(e.archivo_spec()), "--raiz", str(raiz)])
         assert codigo == 0 and "ya existía workspace.local.json" in salida
         assert (raiz / "workspace.local.json").read_bytes() == previo
+
+
+def test_al_crear_la_instancia_la_config_anota_en_plantillas_la_version_del_plugin_que_las_copio():
+    with Escenario() as e:
+        spec = e.spec()
+        assert correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(e.raiz)])[0] == 0
+        escrita = (e.raiz / "workspace.config.json").read_bytes()
+        assert escrita == config_esperada(spec["config"]), escrita
+        assert list(json.loads(escrita))[-1] == "plantillas", escrita
+        con_otra = e.spec()
+        con_otra["config"]["plantillas"] = "0.2.0"
+        raiz = e.base / "instancia-con-otra-version"
+        assert correr(["--spec", str(e.archivo_spec(con_otra)), "--raiz", str(raiz)])[0] == 0
+        assert json.loads((raiz / "workspace.config.json").read_bytes())["plantillas"] == VERSION_DEL_PLUGIN, "la copia es de esta versión"
+    with Escenario() as e:
+        for malo in ("0.2", "v0.2.0", 2, None):
+            spec = e.spec()
+            spec["config"]["plantillas"] = malo
+            rechazada(e, spec, "plantillas")
+
+
+def test_en_una_instancia_que_ya_existe_plantillas_no_cuenta_al_comparar_la_config_y_no_se_reescribe():
+    for en_la_spec in (None, "0.2.0", VERSION_DEL_PLUGIN):
+        with Escenario() as e:
+            raiz = e.crear_raiz()
+            previa = (json.dumps({**e.spec()["config"], "plantillas": "0.9.1"}, indent=2) + "\n").encode("utf-8")
+            (raiz / "workspace.config.json").write_bytes(previa)
+            spec = e.spec()
+            if en_la_spec is not None:
+                spec["config"]["plantillas"] = en_la_spec
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+            assert codigo == 0 and errores == "", (en_la_spec, codigo, errores)
+            assert "ya existía workspace.config.json" in salida.splitlines(), salida
+            assert (raiz / "workspace.config.json").read_bytes() == previa, en_la_spec
 
 
 def test_la_spec_sigue_rechazando_plugin_root_en_local():
@@ -2305,7 +2348,7 @@ def test_disabled_hooks_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_v
         raiz = e.base / "instancia-con-hooks-apagados"
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
         assert codigo == 0 and errores == "", (codigo, errores)
-        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+        assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"])
 
 
 def test_sin_capa_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
@@ -2319,7 +2362,7 @@ def test_sin_capa_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_t
         raiz = e.base / "instancia-con-sin-capa"
         codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
         assert codigo == 0 and errores == "", (codigo, errores)
-        assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"])
+        assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"])
 
 
 def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
@@ -2334,7 +2377,7 @@ def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_ta
             raiz = e.base / ("instancia-" + valor)
             codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
             assert codigo == 0 and errores == "", (valor, codigo, errores)
-            assert (raiz / "workspace.config.json").read_bytes() == esperado_json(spec["config"]), valor
+            assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"]), valor
 
 
 SKILL_BOOTSTRAP = AQUI.parent / "skills" / "bootstrap" / "SKILL.md"
@@ -2590,7 +2633,7 @@ def test_el_doctor_sigue_ofreciendo_los_arreglos_de_a_uno_y_conserva_las_reglas_
     reglas = SKILL_DOCTOR.read_text(encoding="utf-8").split("\n## Reglas\n", 1)[1]
     for item in ("`rdd`", "gentle-ai", "`lista-negra`", "`writer-<capa>`", "`perfil`", "`instancia-hooks`", "`instancia-eol`",
                  "`capas-cobertura`", "`hooks-apagados`", "`agentes-skills` y `agentes-hooks`", "Codex", "`codex-config`",
-                 "`codex-agentes`", "`hooks-host`"):
+                 "`codex-agentes`", "`hooks-host`", "`plantillas`"):
         assert f"- **{item}" in reglas, item
 
 

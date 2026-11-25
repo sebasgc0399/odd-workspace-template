@@ -975,7 +975,8 @@ def test_leer_version():
     assert d().leer_version("sin numeros") is None
 
 
-NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas")
+NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
+          "plantillas")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1032,7 +1033,7 @@ PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de
 RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
 DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
 DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
-                   "writer-sql",
+                   "plantillas", "writer-sql",
                    "paquetes", "agentes-skills", "agentes-hooks"]
 
 
@@ -1325,6 +1326,206 @@ def test_hooks_fallas_es_ok_sin_fallas_aviso_con_las_ultimas_y_arreglar_las_vaci
         (raiz / ".claude" / "estado" / "fallas-de-hooks.jsonl").mkdir()
         r = por_id(ctx)["hooks-fallas"]
         assert r.estado == "AVISO" and r.detalle.startswith("no se puede leer") and r.arreglo is None and r.ayuda, r
+
+
+VERSIONES_FALSAS = ("0.1.0", "0.2.0", "0.2.1", "0.3.0")
+CAMBIOS_FALSOS = {"CLAUDE.md": ("0.1.0", "0.2.0", "0.3.0"), "CLAUDE.controles.md": ("0.2.0", "0.3.0"), "ticket.md": ("0.1.0",),
+                  "pre-commit": ("0.1.0", "0.3.0"), "reglas/verificar.tests.py": ("0.1.0",)}
+NOMBRE_DEL_PROYECTO = "Mi proyecto"
+
+
+def plantilla_falsa(plantilla, version):
+    cambios = [v for v in CAMBIOS_FALSOS[plantilla] if VERSIONES_FALSAS.index(v) <= VERSIONES_FALSAS.index(version)]
+    if not cambios:
+        return None
+    if plantilla.startswith("CLAUDE"):
+        return (f"# {{{{nombre}}}} — guía de trabajo\n\nRaíz de **{{{{nombre}}}}**, sus tickets en `{{{{tickets}}}}/` y los tickets "
+                f"archivados.\nCambió en la {cambios[-1]}.\n")
+    return f"{plantilla} de la {cambios[-1]}\n"
+
+
+def huella_falsa(texto):
+    import hashlib
+    return "sha256:" + hashlib.sha256(texto.replace("{{tickets}}", "tickets").encode("utf-8")).hexdigest()
+
+
+def plugin_falso(base, actual="0.3.0", tabla=None):
+    plugin = base / ("plugin-" + actual)
+    poner(plugin, ".claude-plugin/plugin.json", json.dumps({"name": "odd-ws", "version": actual}))
+    hasta = VERSIONES_FALSAS[:VERSIONES_FALSAS.index(actual) + 1]
+    for plantilla in CAMBIOS_FALSOS:
+        if plantilla_falsa(plantilla, actual) is not None:
+            poner(plugin, "plantillas/" + plantilla, plantilla_falsa(plantilla, actual))
+    if tabla is None:
+        tabla = {p: {v: huella_falsa(plantilla_falsa(p, v)) for v in hasta if plantilla_falsa(p, v) is not None} for p in CAMBIOS_FALSOS}
+    poner(plugin, "plantillas/huellas.json", tabla if isinstance(tabla, (str, bytes)) else json.dumps(tabla))
+    return plugin
+
+
+def renderizada(plantilla, version, nombre=NOMBRE_DEL_PROYECTO):
+    texto = plantilla_falsa(plantilla, version)
+    return texto.replace("{{tickets}}", "tickets").replace("{{nombre}}", nombre) if plantilla.startswith("CLAUDE") else texto
+
+
+def instancia_copiada(e, version, anotada=None, controles=False, nombre=NOMBRE_DEL_PROYECTO):
+    raiz = e.instancia()
+    config = {"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}}}
+    if controles:
+        config["profile"] = "controles"
+    if anotada is not None:
+        config["plantillas"] = anotada
+    (raiz / "workspace.config.json").write_text(json.dumps(config), encoding="utf-8")
+    poner(raiz, "CLAUDE.md", renderizada("CLAUDE.controles.md" if controles else "CLAUDE.md", version, nombre))
+    if not controles:
+        poner(raiz, "tickets/_plantilla/CLAUDE.md", renderizada("ticket.md", version))
+    poner(raiz, ".githooks/pre-commit", renderizada("pre-commit", version))
+    poner(raiz, ".claude/reglas/verificar_sql.tests.py", renderizada("reglas/verificar.tests.py", version))
+    return raiz
+
+
+def con_plugin(ctx, plugin):
+    ctx.plugin = plugin
+    return ctx
+
+
+def test_plantillas_ok_con_la_version_anotada_igual_a_la_del_plugin_o_sin_cambios_desde_la_anotada():
+    with Escenario() as e:
+        ctx = con_plugin(Falso(e.base, cwd=instancia_copiada(e, "0.3.0", anotada="0.3.0")), plugin_falso(e.base))
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "OK" and r.detalle == "las plantillas copiadas están anotadas en la 0.3.0, la del plugin", r
+        assert r.arreglo is None and r.comando is None, r
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0")
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base, actual="0.2.1"))
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "OK" and r.detalle == "anotadas en la 0.2.0: ninguna plantilla copiada cambió hasta la 0.2.1, la del plugin", r
+        poner(raiz, "CLAUDE.md", "editada a mano\n")
+        assert por_id(ctx)["plantillas"].estado == "OK", "con la versión anotada al día, una copia editada no avisa"
+
+
+def test_plantillas_avisa_que_copias_cambiaron_y_separa_las_sin_tocar_de_las_editadas():
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.1.0", anotada="0.1.0")
+        poner(raiz, ".githooks/pre-commit", renderizada("pre-commit", "0.1.0") + "echo propio\n")
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "AVISO" and r.arreglo is not None and r.comando is None, r
+        assert r.detalle == ("anotadas en la 0.1.0 y el plugin es la 0.3.0; cambiaron: CLAUDE.md (sin tocar: se reemplaza), "
+                             ".githooks/pre-commit (editada: fusiónala a mano); lee en Doc/actualizar.md lo de después de la 0.1.0 "
+                             "hasta la 0.3.0"), r.detalle
+        assert "ANTES de correr --arreglar plantillas" in r.ayuda and "Doc/actualizar.md" in r.ayuda, r.ayuda
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("plantillas "))
+        assert lineas[i].split()[:2] == ["plantillas", "AVISO"], lineas[i]
+        assert lineas[i + 1].strip() == "arreglo: --arreglar plantillas" and lineas[i + 2].strip() == "cómo: " + r.ayuda, lineas[i:i + 3]
+
+
+def test_plantillas_compara_el_claude_md_raiz_con_el_nombre_de_la_instancia_vuelto_a_su_marcador():
+    for controles in (False, True):
+        with Escenario() as e:
+            raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0", controles=controles, nombre="Acme — sede 2")
+            r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
+            assert "CLAUDE.md (sin tocar: se reemplaza)" in r.detalle, (controles, r.detalle)
+    casos = {"el nombre también sale en el texto de la plantilla": ("tickets", None),
+             "la primera línea ya no es la de la plantilla": (NOMBRE_DEL_PROYECTO, lambda texto: texto.replace("— guía", "- guía", 1)),
+             "una línea de más": (NOMBRE_DEL_PROYECTO, lambda texto: texto + "mía\n"),
+             "no es UTF-8": (NOMBRE_DEL_PROYECTO, lambda texto: b"\xff" + texto.encode("utf-8"))}
+    for caso, (nombre, editar) in casos.items():
+        with Escenario() as e:
+            raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0", nombre=nombre)
+            if editar is not None:
+                poner(raiz, "CLAUDE.md", editar(renderizada("CLAUDE.md", "0.2.0", nombre)))
+            antes = (raiz / "CLAUDE.md").read_bytes()
+            ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+            r = por_id(ctx)["plantillas"]
+            assert "CLAUDE.md (editada: fusiónala a mano)" in r.detalle, (caso, r.detalle)
+            assert correr(["--arreglar", "plantillas"], ctx)[0] == 0, caso
+            assert (raiz / "CLAUDE.md").read_bytes() == antes, (caso, "una copia editada nunca se reemplaza")
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0")
+        poner(raiz, "CLAUDE.md", "﻿" + renderizada("CLAUDE.md", "0.2.0").replace("\n", "\r\n"))
+        r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
+        assert "CLAUDE.md (sin tocar: se reemplaza)" in r.detalle, ("el BOM y los CRLF no cuentan como edición", r.detalle)
+
+
+def test_plantillas_sin_la_clave_infiere_la_version_de_las_copias_sin_tocar_y_avisa_igual():
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.2.0")
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "AVISO" and r.arreglo is not None, r
+        assert r.detalle == ("sin versión anotada en workspace.config.json (por las copias sin tocar, la 0.2.0) y el plugin es la 0.3.0; "
+                             "cambiaron: CLAUDE.md (sin tocar: se reemplaza), .githooks/pre-commit (sin tocar: se reemplaza); "
+                             "lee en Doc/actualizar.md lo de después de la 0.2.0 hasta la 0.3.0"), r.detalle
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.3.0")
+        r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
+        assert r.estado == "AVISO" and r.detalle == ("sin versión anotada en workspace.config.json (por las copias sin tocar, la 0.3.0) "
+                                                     "y el plugin es la 0.3.0; las copias ya están al día: falta anotar la versión"), r
+        assert r.arreglo is not None and "no toca ninguna copia" in r.ayuda, r
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.2.0")
+        for relativa in ("CLAUDE.md", "tickets/_plantilla/CLAUDE.md", ".githooks/pre-commit", ".claude/reglas/verificar_sql.tests.py"):
+            poner(raiz, relativa, "todo editado\n")
+        r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
+        assert r.detalle.startswith("sin versión anotada en workspace.config.json (ninguna copia coincide con una versión publicada) y "
+                                    "el plugin es la 0.3.0; cambiaron: CLAUDE.md (editada: fusiónala a mano), "), r.detalle
+        assert r.detalle.endswith("; lee en Doc/actualizar.md lo de todas las versiones hasta la 0.3.0"), r.detalle
+
+
+def test_arreglar_plantillas_reemplaza_solo_las_copias_sin_tocar_y_anota_la_version():
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.1.0", anotada="0.1.0")
+        editada = renderizada("pre-commit", "0.1.0") + "echo propio\n"
+        poner(raiz, ".githooks/pre-commit", editada)
+        config = (json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}}, "plantillas": "0.1.0"}, indent=4)
+                  .replace("\n", "\r\n") + "\r\n")
+        poner(raiz, "workspace.config.json", "﻿" + config)
+        intactas = {r: (raiz / r).read_bytes() for r in ("tickets/_plantilla/CLAUDE.md", ".claude/reglas/verificar_sql.tests.py")}
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+        codigo, salida = correr(["--arreglar", "plantillas"], ctx)
+        assert codigo == 0, salida
+        assert salida.splitlines() == ['escribiendo: CLAUDE.md con la plantilla de la 0.3.0; "plantillas": "0.3.0" en workspace.config.json',
+                                       "plantillas: OK — las plantillas copiadas están anotadas en la 0.3.0, la del plugin"], salida
+        assert (raiz / "CLAUDE.md").read_text(encoding="utf-8") == renderizada("CLAUDE.md", "0.3.0"), "con el nombre de la instancia"
+        assert (raiz / ".githooks/pre-commit").read_text(encoding="utf-8") == editada, "la editada no se toca"
+        assert {r: (raiz / r).read_bytes() for r in intactas} == intactas, "las que no cambiaron tampoco"
+        assert (raiz / "workspace.config.json").read_bytes() == ("﻿" + config.replace('"0.1.0"', '"0.3.0"')).encode("utf-8")
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.2.0")
+        antes = json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+        assert correr(["--arreglar", "plantillas"], ctx)[0] == 0
+        assert json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8")) == {**antes, "plantillas": "0.3.0"}
+        assert (raiz / ".githooks/pre-commit").read_text(encoding="utf-8") == renderizada("pre-commit", "0.3.0")
+        assert por_id(ctx)["plantillas"].estado == "OK"
+
+
+def test_plantillas_sin_poder_leer_avisa_sin_arreglo_y_con_la_config_rota_no_aplica():
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.1.0", anotada="0.1.0")
+        ctx = Falso(e.base, cwd=raiz)
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "AVISO" and r.arreglo is None and "plugin.json" in r.detalle and "Reinstala el plugin" in r.ayuda, r
+        for tabla in ("{roto", json.dumps({"CLAUDE.md": {"0.1.0": "md5:x"}}), json.dumps(["no"])):
+            r = por_id(con_plugin(ctx, plugin_falso(e.base, tabla=tabla)))["plantillas"]
+            assert r.estado == "AVISO" and r.arreglo is None and "huellas.json" in r.detalle, (tabla, r)
+        con_plugin(ctx, plugin_falso(e.base))
+        (raiz / "tickets" / "_plantilla" / "CLAUDE.md").unlink()
+        (raiz / "tickets" / "_plantilla" / "CLAUDE.md").mkdir()
+        r = por_id(ctx)["plantillas"]
+        assert r.estado == "AVISO" and r.arreglo is None and r.detalle.startswith("no se puede leer tickets/_plantilla/CLAUDE.md"), r
+        codigo, salida = correr(["--arreglar", "plantillas"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        (raiz / "tickets" / "_plantilla" / "CLAUDE.md").rmdir()
+        assert por_id(ctx)["plantillas"].estado == "AVISO", "una copia que falta no impide revisar las demás"
+        assert "tickets/_plantilla" not in por_id(ctx)["plantillas"].detalle
+        poner(raiz, "workspace.config.json", json.dumps({"schema_version": 1, "layers": {"sql": {"extensions": [".sql"]}},
+                                                         "plantillas": "0.1"}))
+        r = por_id(ctx)
+        assert r["plantillas"].estado == "NO APLICA" and r["config"].estado == "FALTA" and "plantillas" in r["config"].detalle, r
+    with Escenario() as e:
+        assert "plantillas" not in por_id(Falso(e.base)), "fuera de una instancia no sale"
 
 
 def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config():

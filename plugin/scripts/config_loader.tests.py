@@ -467,6 +467,29 @@ def test_sin_capa_invalido_es_rota_y_cargar_no_lo_mira():
     assert m().sin_capa_de({"sin_capa": []}) == []
 
 
+def test_plantillas_es_la_version_anotada_y_un_valor_invalido_es_rota_sin_que_cargar_lo_mire():
+    assert m().plantillas_de({}) is None
+    for valor in ("0.14.0", "1.2.3", "0.14.0-rc.1"):
+        assert m().plantillas_de({"plantillas": valor}) == valor, valor
+        with Instancia(config=con_clave("plantillas", valor)) as i:
+            assert m().plantillas(i.raiz) == valor, valor
+    for malo in ("", "0.14", "v0.14.0", " 0.14.0", "0.14.0 ", "latest", None, 14, True, ["0.14.0"], {"version": "0.14.0"}):
+        try:
+            m().plantillas_de({"plantillas": malo})
+        except m().ConfigRota as error:
+            assert str(error).startswith("plantillas debe ser la versión del plugin"), (malo, str(error))
+        else:
+            raise AssertionError(f"plantillas_de() debe lanzar ConfigRota para {malo!r}")
+        with Instancia(config=con_clave("plantillas", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().plantillas(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"plantillas() debe lanzar ConfigRota para {malo!r}")
+
+
 def test_el_como_de_la_cobertura_trae_la_linea_de_sin_capa_con_todas_las_extensiones_del_aviso():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)

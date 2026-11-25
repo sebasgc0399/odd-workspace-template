@@ -36,7 +36,17 @@ Corre `/odd-ws:doctor` (en Codex, `$doctor`). La ruta del plugin lleva la versi�
 
 ## Después de actualizar: las plantillas de la instancia
 
-El bootstrap no pisa el `CLAUDE.md` de la raíz, la plantilla de los tickets (`tickets/_plantilla/CLAUDE.md`), el `.githooks/pre-commit` ni la prueba de las reglas de cada capa si ya existen, porque son tuyos o ya están commiteados en la instancia. Cuando una versión cambia esas plantillas, lo nuevo se copia a mano desde [`plugin/plantillas/`](../plugin/plantillas/). Abajo está cada cambio, por versión: si tu instancia se creó antes de una de ellas, copia lo de esa versión y lo de las que siguen. Los tickets que ya existen no hace falta tocarlos.
+El bootstrap no pisa el `CLAUDE.md` de la raíz, la plantilla de los tickets (`tickets/_plantilla/CLAUDE.md`), el `.githooks/pre-commit` ni la prueba de las reglas de cada capa si ya existen, porque son tuyos o ya están commiteados en la instancia. Los tickets que ya existen no hace falta tocarlos.
+
+El ítem `plantillas` de `/odd-ws:doctor` te dice cuáles cambiaron desde la versión con que quedaron tus copias, anotada en `"plantillas"` de `workspace.config.json`:
+
+- **Sin tocar: se reemplaza.** La copia es igual a la plantilla de alguna versión publicada, así que no tiene nada tuyo. `--arreglar plantillas` la reemplaza por la de esta versión, con el nombre de tu proyecto en el `CLAUDE.md`.
+- **Editada: fusiónala a mano.** La copia tiene cambios tuyos, y el doctor no la toca. Lleva a mano lo nuevo de [`plugin/plantillas/`](../plugin/plantillas/), con la lista de abajo.
+- **Primero las editadas, después el arreglo.** `--arreglar plantillas` reemplaza las sin tocar y anota la versión nueva en `"plantillas"`; desde ahí el ítem sale OK. Después, commitea las copias.
+- **Sin la clave** (una instancia creada antes de la 0.14.0), el doctor dice «sin versión anotada» y deduce la versión de las copias sin tocar.
+- **La primera sesión después de actualizar** ya te nombra las copias que cambiaron y te manda al doctor.
+
+Abajo está cada cambio, por versión, para fusionar las editadas: el doctor te dice desde qué versión leer. Copia lo de esa versión y lo de las que siguen.
 
 En la `0.2.2`:
 
