@@ -129,6 +129,34 @@ def test_la_clave_privada_conserva_sus_lineas_y_el_prefijo_de_cada_una():
             assert "\r\n" not in tapado.replace(fin, "") and lineas[0] == "antes" and lineas[7] == "despues", tapado
 
 
+def test_un_diff_que_rota_una_clave_conserva_el_prefijo_de_diff_de_cada_linea():
+    viejas = [BASE64[i * 5:i * 5 + 64] for i in range(3)]
+    nuevas = [BASE64[i * 9 + 1:i * 9 + 65] for i in range(3)]
+    diff = "\n".join(["@@ -1,5 +1,5 @@", " -----BEGIN RSA PRIVATE KEY-----"] + ["-" + l for l in viejas]
+                     + ["+" + l for l in nuevas] + [" -----END RSA PRIVATE KEY-----", ""])
+    tapado, cuantos = m().tapar(diff)
+    lineas = tapado.split("\n")
+    assert cuantos == 1, (cuantos, tapado)
+    assert lineas[:2] == ["@@ -1,5 +1,5 @@", " -----BEGIN RSA PRIVATE KEY-----"], lineas
+    assert lineas[2:5] == ["-<PRIVATE_KEY>"] * 3 and lineas[5:8] == ["+<PRIVATE_KEY>"] * 3, lineas
+    assert lineas[8] == " -----END RSA PRIVATE KEY-----", lineas
+
+
+def test_nombrar_los_encabezados_de_una_clave_en_prosa_o_en_codigo_no_tapa_lo_de_en_medio():
+    prosa = ("[WARNING] sin ID a.cs:3 — compara con `-----BEGIN PRIVATE KEY-----`\n"
+             "[CRITICAL] sin ID b.cs:9 — el CUFE se arma sin la fecha\n"
+             "[SUGGESTION] sin ID c.cs:1 — nombra `-----END PRIVATE KEY-----`\n")
+    assert m().tapar(prosa) == (prosa, 0), m().tapar(prosa)
+    codigo = ('+const string Begin = "-----BEGIN RSA PRIVATE KEY-----";\n'
+              "+var x = Leer();\n+var y = Firmar(x);\n"
+              '+const string End = "-----END RSA PRIVATE KEY-----";\n')
+    assert m().tapar(codigo) == (codigo, 0), m().tapar(codigo)
+    clave = clave_privada("", 2)
+    tapado, cuantos = m().tapar("nombra `-----BEGIN PRIVATE KEY-----` en prosa\n" + clave)
+    assert cuantos == 1 and tapado.startswith("nombra `-----BEGIN PRIVATE KEY-----` en prosa\n"), tapado
+    assert BASE64[:20] not in tapado and tapado.count("<PRIVATE_KEY>") == 2, tapado
+
+
 def test_una_clave_privada_en_una_sola_linea_se_tapa_entre_sus_encabezados():
     texto = 'KEY = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END PRIVATE KEY-----\\n"'
     assert m().tapar(texto) == ('KEY = "-----BEGIN PRIVATE KEY-----<PRIVATE_KEY>-----END PRIVATE KEY-----\\n"', 1)

@@ -55,7 +55,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
 | T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5, L6) | `a70cd94` |
 | T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `b37a860` |
-| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador pendiente; sin publicar | |
+| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador hecho y sus dos bloqueantes corregidos (L9); sin publicar, espera al autor y su auditor | `44fffdf` y la corrección |
 
 El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el skill `revisar` lo tocan las cuatro. Va de a una unidad, sin writers en paralelo (L1).
 
@@ -173,3 +173,29 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
     - **Al publicar:** después de etiquetar la `0.14.0`, hay que regenerar la tabla en esta rama antes de empujar la `0.15.0`. El pre-push lo exige.
     - Una instancia que anotó «0.14.0» necesita esa entrada para saber que nada cambió desde ahí.
   - Falta el verificador independiente de toda la feature (Risk item 3), y después el ok del autor y su auditor.
+- **L9** (2026-11-25) El verificador independiente, sobre `44fffdf` contra `f915b0b`. Lo cortó el límite de 5 horas y se lo retomó con su contexto.
+  - **S1, S2, S3 y S5: PASS.**
+    - Los diferenciales del triaje, del rescate (Claude Code y Pi, al estilo viejo) y del doctor solo cambian lo pedido.
+    - Los marcadores son iguales con y sin `GIT_INDEX_FILE` o `GIT_DIR` ajenos.
+    - El índice no se toca, y el CLI de lo stageado no cambia.
+    - Suites: 61 de 61 archivos (2.792 pruebas) y el shim en verde, y las 8 suites del entorno del hook en verde con un índice ajeno.
+  - **S4: FAIL, por dos bloqueantes en las claves privadas de `odd_ws/secretos.py`:**
+    - **B1.** En el diff de una rotación de clave (BEGIN y END de contexto, cuerpo con `-` y `+`), las líneas del cuerpo perdían su prefijo de diff, y el parche quedaba corrupto.
+    - **B2.** Dos menciones de los encabezados PEM a menos de 12.000 caracteres se tomaban como una clave, y se borraba lo de en medio: un hallazgo CRITICAL del reporte rescatado, o el código de quien firma XML.
+  - **La corrección, un solo lote, inline:**
+    - Un bloque se tapa solo si su cuerpo son líneas de armadura base64, encabezados PEM (`Proc-Type`, `DEK-Info`, `Version`, `Comment`, `Hash`), líneas vacías o separadores de diff (`@@`, `\ `).
+    - Cada línea conserva su propio prefijo de diff (`+`, `-` o espacio) y su sangría.
+    - Si un emparejamiento no valida, la búsqueda sigue desde el `BEGIN` siguiente, así que una clave real después de una mención en prosa igual se tapa.
+    - El tope del cuerpo sube a 64.000 caracteres: era la advertencia 7, una clave PGP grande.
+  - **RED**, con dos pruebas nuevas en `secretos.tests.py`: la rotación de clave en un diff, y los encabezados nombrados en prosa y en código, más la clave real después de la prosa.
+  - **GREEN:** `secretos` 13/13 y `tapar` 9/9.
+  - **La recomprobación de B1**, con un diff real de rotación de una clave RSA: las líneas `+/-` siguen siendo 16, y `git apply --numstat` da `8 8`, así que el parche sigue bien formado.
+  - **Advertencias para el autor y su auditor** (no se arreglaron en este lote):
+    1. Una devolución de una línea con otra forma, como `**VEREDICTO:**`, se guarda como el reporte, con salida 0. Ya pasaba en la base, pero I35 lo vuelve más probable.
+    2. Si falla una escritura en un archivo posterior, `tapar.py` deja escritos los anteriores, y sale con 2.
+    3. `triaje.json` no se tapa, a propósito, y ahora trae los mensajes de las reglas de la instancia.
+    4. La `ubicacion` de una desviación no puede llevar una ruta con espacios, porque hereda `RE_RANGO`.
+    5. El modo 0 no dice qué hacer con «corregir antes de lanzar».
+    6. A los núcleos les queda poco margen: 96 bytes a `revisar` y 15 a `cerrar`.
+    7. Una corrida `solo_veredicto` queda como `sin_reporte` en `costo.json`.
+  - **El scratch del verificador y de la recomprobación va a la limpieza del autor:** `%TEMP%\r16-verif-24Toof` y `%TEMP%\r16-recheck-b1-faqsc8h2`.

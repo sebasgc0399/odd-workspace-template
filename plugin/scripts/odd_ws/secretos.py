@@ -6,8 +6,13 @@ import os
 import re
 
 CLAVE_PRIVADA = "PRIVATE_KEY"
-BLOQUE_RE = re.compile(r"(-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----)([\s\S]{1,12000}?)"
+BLOQUE_RE = re.compile(r"(-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----)([\s\S]{1,64000}?)"
                        r"(-----END[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----)")
+CUERPO_DE_CLAVE_RE = re.compile(r"[A-Za-z0-9+/=]+")
+ENCABEZADO_DE_CLAVE_RE = re.compile(r"(?:Proc-Type|DEK-Info|Version|Comment|Hash):")
+ESCAPES_RE = re.compile(r"\\[nr]")
+MARCAS_DE_DIFF = "+- "
+SEPARADORES_DE_DIFF = ("@@", "\\ ")
 PATRONES = tuple((nombre, re.compile(patron)) for nombre, patron in (
     ("ANTHROPIC_API_KEY", r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{32,}"),
     ("OPENAI_API_KEY", r"(?<![A-Za-z0-9])sk-(?:(?:proj|svcacct|admin)-[A-Za-z0-9_-]{32,}|[A-Za-z0-9]{40,})"),
@@ -23,35 +28,71 @@ def marcador(nombre):
     return "<%s>" % nombre
 
 
-def _linea_tapada(linea, prefijo):
-    contenido, fin = (linea[:-1], "\r") if linea.endswith("\r") else (linea, "")
-    conservado = os.path.commonprefix([contenido, prefijo])
+def _sin_fin(linea):
+    return (linea[:-1], "\r") if linea.endswith("\r") else (linea, "")
+
+
+def _prefijo_de(contenido, prefijo):
+    if prefijo[:1] and prefijo[0] in MARCAS_DE_DIFF and contenido[:1] in MARCAS_DE_DIFF:
+        return contenido[0] + os.path.commonprefix([contenido[1:], prefijo[1:]])
+    return os.path.commonprefix([contenido, prefijo])
+
+
+def _es_de_clave(resto):
+    limpio = resto.strip()
+    return not limpio or bool(CUERPO_DE_CLAVE_RE.fullmatch(limpio) or ENCABEZADO_DE_CLAVE_RE.match(limpio))
+
+
+def _linea_tapada(contenido, fin, conservado):
     resto = contenido[len(conservado):]
-    return conservado + (marcador(CLAVE_PRIVADA) if resto.strip() else resto) + fin
+    if not resto.strip():
+        return contenido + fin
+    return conservado + resto[:len(resto) - len(resto.lstrip())] + marcador(CLAVE_PRIVADA) + fin
 
 
 def _cuerpo_tapado(m):
     lineas = m.group(2).split("\n")
     if len(lineas) == 1:
-        return marcador(CLAVE_PRIVADA)
+        limpio = ESCAPES_RE.sub("", lineas[0]).strip()
+        return marcador(CLAVE_PRIVADA) if CUERPO_DE_CLAVE_RE.fullmatch(limpio) else None
+    if lineas[0].strip():
+        return None
     texto = m.string
     prefijo = texto[texto.rfind("\n", 0, m.start()) + 1:m.start()]
-    primera = _linea_tapada(lineas[0], "")
-    return "\n".join([primera] + [_linea_tapada(linea, prefijo) for linea in lineas[1:]])
+    salida = [lineas[0]]
+    for linea in lineas[1:-1]:
+        contenido, fin = _sin_fin(linea)
+        if contenido.startswith(SEPARADORES_DE_DIFF):
+            salida.append(linea)
+            continue
+        conservado = _prefijo_de(contenido, prefijo)
+        if not _es_de_clave(contenido[len(conservado):]):
+            return None
+        salida.append(_linea_tapada(contenido, fin, conservado))
+    final = lineas[-1]
+    if final[len(_prefijo_de(final, prefijo)):].strip():
+        return None
+    return "\n".join(salida + [final])
 
 
 def _tapar_bloques(texto):
-    cuantos = 0
-
-    def reemplazo(m):
-        nonlocal cuantos
+    cuantos, partes, hecho, desde = 0, [], 0, 0
+    while True:
+        m = BLOQUE_RE.search(texto, desde)
+        if not m:
+            break
         cuerpo = _cuerpo_tapado(m)
-        if cuerpo == m.group(2):
-            return m.group(0)
-        cuantos += 1
-        return m.group(1) + cuerpo + m.group(3)
-
-    return BLOQUE_RE.sub(reemplazo, texto), cuantos
+        if cuerpo is None:
+            desde = m.start() + 1
+            continue
+        if cuerpo != m.group(2):
+            partes += [texto[hecho:m.start()], m.group(1), cuerpo, m.group(3)]
+            hecho = m.end()
+            cuantos += 1
+        desde = m.end()
+    if not cuantos:
+        return texto, 0
+    return "".join(partes + [texto[hecho:]]), cuantos
 
 
 def intentar_tapar(texto):
