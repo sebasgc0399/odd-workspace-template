@@ -21,8 +21,12 @@ Ya decidido en el ticket (## Decisiones), no lo vuelvas a plantear como hallazgo
 
 Entrega el reporte con tu contrato. En cada hallazgo, justo después de la severidad, cita el ID de la regla de la matriz que rompe, o `sin ID` si no viene de una regla con ID:
 [SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar
+
+Escribe el reporte entero como tu último bloque de texto y, en la misma respuesta, devuelve solo esta línea, con tus cuentas:
+VEREDICTO: <n> CRITICAL, <n> WARNING, <n> SUGGESTION
 ```
 
+- **El reporte va en el último bloque de texto y la devolución es una línea (I35).** Cada reporte, de 14k a 27k caracteres, entraba entero al contexto del orquestador. Ahora el orquestador recibe solo el `VEREDICTO:`, y `rescatar.py` lee el reporte del texto que el revisor escribió justo antes de devolverlo. Si el revisor devuelve solo el veredicto, sin el reporte antes, el rescate falla en voz alta y no escribe nada. Para leer los hallazgos, el orquestador abre el `<nombre>.md` rescatado. La regla va en el prompt y no en las plantillas, por la misma razón que el ID de la regla.
 - **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
 - **El ID de la regla también va en el prompt**, y no en las plantillas de los revisores: un cambio de plantilla no llega a los revisores ya generados. `revisor-diseno` solo ve los IDs de `criterios`, así que `sin ID` es una respuesta normal. Nunca pongas un ID de ejemplo en el prompt: el revisor lo copiaría.
 - **En un rechequeo**, el prompt suma los hallazgos de la ronda anterior (sección 9) y no lleva orden barajado.

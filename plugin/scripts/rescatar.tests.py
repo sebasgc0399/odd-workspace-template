@@ -154,6 +154,55 @@ def test_extraer_sin_handback_toma_el_texto_final():
     assert r["reporte"] == "## Hallazgos\n\n## Veredicto" and r["origen"] == "texto_final", r
 
 
+VEREDICTO = "VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION"
+
+
+def test_extraer_con_veredicto_el_reporte_es_el_texto_previo_a_la_devolucion():
+    reporte = "## Hallazgos\n[WARNING] sin ID a.sql:3 — x — y"
+    with Temporal() as base:
+        r = m().extraer_corrida(agente(base, "a", [
+            usuario("p"), asistente({"type": "text", "text": "voy a leer"}, uso("Read", {"file_path": "x"})),
+            asistente({"type": "text", "text": reporte}, uso("SubagentHandback", {"message": VEREDICTO}))]))
+    assert r["reporte"] == reporte and r["origen"] == "texto_previo" and r["veredicto"] == VEREDICTO, r
+
+
+def test_extraer_solo_el_veredicto_no_da_reporte():
+    with Temporal() as base:
+        r = m().extraer_corrida(agente(base, "a", [
+            usuario("p"), asistente({"type": "text", "text": "voy a leer"}, uso("Read", {"file_path": "x"})),
+            asistente(uso("SubagentHandback", {"message": VEREDICTO}))]))
+    assert r["reporte"] is None and r["origen"] == "solo_veredicto" and r["veredicto"] == VEREDICTO, r
+
+
+def test_extraer_una_devolucion_sin_veredicto_sigue_siendo_el_reporte_aunque_haya_texto_antes():
+    with Temporal() as base:
+        r = m().extraer_corrida(agente(base, "a", [
+            usuario("p"), asistente({"type": "text", "text": "te lo entrego"}, uso("SubagentHandback", {"message": "## Reporte\nentero"}))]))
+    assert r["reporte"] == "## Reporte\nentero" and r["origen"] == "handback" and r["veredicto"] is None, r
+
+
+def test_rescatar_solo_el_veredicto_falla_en_voz_alta_y_no_escribe():
+    with Temporal() as base:
+        sub, dest = base / "subagents", base / "corridas"
+        agente(sub, "abc", [usuario("p"), asistente(uso("Read", {"file_path": "x"})), asistente(uso("SubagentHandback", {"message": VEREDICTO}))])
+        codigo, out, err = cli("--sesion", sub, "--destino", dest, "--corrida", "c1=abc")
+        assert codigo == 1 and "FAIL c1: el revisor devolvio solo el veredicto" in out and not dest.exists(), (codigo, out, err)
+
+
+def test_pi_con_veredicto_el_reporte_es_el_texto_despues_de_la_ultima_herramienta():
+    reporte = "## Hallazgos\nninguno"
+    items = hilo_pi() + [{"kind": "text", "text": reporte}, {"kind": "text", "text": VEREDICTO}]
+    datos = tarea_pi(resultado=VEREDICTO, items=items)
+    r = m()._corrida_de_tarea(datos["task"], datos["thread"])
+    assert r["reporte"] == reporte and r["origen"] == "texto_previo" and r["veredicto"] == VEREDICTO, r
+
+
+def test_pi_solo_el_veredicto_no_da_reporte():
+    datos = tarea_pi(resultado=VEREDICTO)
+    r = m()._corrida_de_tarea(datos["task"], datos["thread"])
+    assert r["reporte"] is None and r["origen"] == "solo_veredicto", r
+
+
 def test_extraer_comandos_con_exit_y_error():
     with Temporal() as base:
         r = m().extraer_corrida(agente(base, "a", con_comandos()))

@@ -31,6 +31,7 @@ SIN_MEDIR = "sin medir"
 MAX_SALIDA = 2000
 CODIGO_DE_SALIDA_RE = re.compile(r"Exit code (-?[0-9]+)")
 CLAVES_REPORTE = ("message", "result", "report")
+VEREDICTO = "VEREDICTO:"
 MODOS = ("0", "rapido", "completo")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 COSTO = "costo.json"
@@ -51,6 +52,10 @@ def texto_usuario(obj):
         partes = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
         return "\n".join(partes) if partes else None
     return None
+
+
+def es_veredicto(texto):
+    return isinstance(texto, str) and texto.strip().startswith(VEREDICTO) and "\n" not in texto.strip()
 
 
 def _reporte_de(entrada):
@@ -89,6 +94,7 @@ def extraer_corrida(jsonl):
     pendientes = {}
     no_auditadas = {}
     texto_final = []
+    previo = None
     for obj in registros:
         if obj.get("type") == "user" and prompt is None:
             prompt = texto_usuario(obj)
@@ -106,8 +112,10 @@ def extraer_corrida(jsonl):
                 continue
             if b.get("type") != "tool_use":
                 continue
-            texto_final = []
             nombre = b.get("name")
+            if nombre == HANDBACK:
+                previo = "\n\n".join(texto_final)
+            texto_final = []
             if nombre in LECTURA:
                 lecturas.append({"tool": nombre, "input": b.get("input", {})})
             elif nombre == HANDBACK:
@@ -121,10 +129,15 @@ def extraer_corrida(jsonl):
                     if b.get("id"):
                         pendientes[b["id"]] = comando
     origen = "handback" if reporte else None
-    if not reporte and texto_final:
+    veredicto = None
+    if es_veredicto(reporte):
+        veredicto = reporte.strip()
+        reporte = previo or None
+        origen = "texto_previo" if reporte else "solo_veredicto"
+    elif not reporte and texto_final:
         reporte = "\n\n".join(texto_final)
         origen = "texto_final"
-    return {"prompt": prompt, "reporte": reporte, "origen": origen, "lecturas": lecturas,
+    return {"prompt": prompt, "reporte": reporte, "origen": origen, "veredicto": veredicto, "lecturas": lecturas,
             "comandos": comandos, "no_auditadas": no_auditadas, "salteadas": salteadas, "costo": costo(registros)}
 
 
@@ -140,7 +153,7 @@ def _guardar(destino, nombre, agente, meta, datos, costos):
         costos.append({"corrida": nombre, "agente": agente, "estado": "ok" if datos["reporte"] else "sin_reporte",
                        "agentType": meta.get("agentType"), "model": meta.get("model"), "costo": datos["costo"]})
     if not datos["reporte"]:
-        return {"corrida": nombre, "agente": agente, "estado": "sin_reporte",
+        return {"corrida": nombre, "agente": agente, "estado": "solo_veredicto" if datos.get("origen") == "solo_veredicto" else "sin_reporte",
                 "lecturas": len(datos["lecturas"]), "salteadas": datos["salteadas"]}
     destino.mkdir(parents=True, exist_ok=True)
     (destino / ("%s.md" % nombre)).write_text(datos["reporte"], encoding="utf-8", newline="\n")
@@ -225,9 +238,23 @@ def _corrida_de_tarea(tarea, hilo):
             corridos.append(comando)
     resultado = tarea.get("result")
     reporte = resultado if tarea.get("status") == COMPLETADA and isinstance(resultado, str) and resultado else None
+    origen = "resultado" if reporte else None
+    veredicto = None
+    if es_veredicto(reporte):
+        veredicto = reporte.strip()
+        textos = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("kind") == "tool":
+                textos = []
+            elif item.get("kind") == "text" and isinstance(item.get("text"), str) and item["text"].strip() not in ("", veredicto):
+                textos.append(item["text"])
+        reporte = "\n\n".join(textos) or None
+        origen = "texto_previo" if reporte else "solo_veredicto"
     prompt = tarea.get("prompt")
     descartados = hilo.get("dropped")
-    return {"prompt": prompt if isinstance(prompt, str) else None, "reporte": reporte, "origen": "resultado" if reporte else None,
+    return {"prompt": prompt if isinstance(prompt, str) else None, "reporte": reporte, "origen": origen, "veredicto": veredicto,
             "lecturas": lecturas, "comandos": corridos, "no_auditadas": no_auditadas,
             "salteadas": descartados if _es_entero(descartados) and descartados > 0 else 0, "costo": _costo_pi(tarea)}
 
@@ -537,7 +564,10 @@ def _parser():
 
 
 def _avisar_fallo(r, sub, host):
-    if r["estado"] == "sin_reporte" and host == PI:
+    if r["estado"] == "solo_veredicto":
+        print("FAIL %s: el revisor devolvio solo el veredicto y su reporte no quedo como texto antes de la devolucion, "
+              "%d lecturas, no se escribio nada" % (r["corrida"], r.get("lecturas", 0)))
+    elif r["estado"] == "sin_reporte" and host == PI:
         print("FAIL %s: tarea %s en estado %s, sin reporte (corrida cortada), %d lecturas, no se escribio nada" % (
             r["corrida"], r["agente"], r["tarea"], r.get("lecturas", 0)))
     elif r["estado"] == "sin_reporte":
