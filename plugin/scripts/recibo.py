@@ -12,6 +12,7 @@ import re
 import subprocess
 
 import config_loader
+from odd_ws import secretos
 from odd_ws.comun import entorno_git
 
 VERSION = 1
@@ -614,10 +615,31 @@ def _con_el_resultado_nuevo(guardado, args, bajada):
     return datos
 
 
+def _con_el_texto_libre_tapado(datos):
+    tapados, cuantos = dict(datos), 0
+    tapados["repos"] = []
+    for entrada in datos["repos"]:
+        entrada = dict(entrada)
+        if "verificacion" in entrada:
+            entrada["verificacion"], n = secretos.tapar_valores(entrada["verificacion"])
+            cuantos += n
+        tapados["repos"].append(entrada)
+    if "derivados" in datos:
+        tapados["derivados"], n = secretos.tapar_valores(datos["derivados"])
+        cuantos += n
+    if isinstance(datos.get("bajada"), dict) and "motivo" in datos["bajada"]:
+        motivo, n = secretos.tapar(datos["bajada"]["motivo"])
+        tapados["bajada"] = dict(datos["bajada"], motivo=motivo)
+        cuantos += n
+    return tapados, cuantos
+
+
 def _guardar(destino, datos):
+    tapados, cuantos = _con_el_texto_libre_tapado(datos)
     with open(destino, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
+        json.dump(tapados, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    return cuantos
 
 
 def _detalle(datos):
@@ -663,9 +685,10 @@ def escribir_recibo(args):
         if bajada is not None:
             datos["bajada"] = bajada
     os.makedirs(carpeta, exist_ok=True)
-    _guardar(destino, datos)
-    print("recibo escrito: %s (%d repo(s), %d archivo(s)%s)" % (
-        destino.replace("\\", "/"), len(datos["repos"]), sum(len(r["archivos"]) for r in datos["repos"]), _detalle(datos)))
+    tapados = _guardar(destino, datos)
+    print("recibo escrito: %s (%d repo(s), %d archivo(s)%s%s)" % (
+        destino.replace("\\", "/"), len(datos["repos"]), sum(len(r["archivos"]) for r in datos["repos"]), _detalle(datos),
+        "; %d secreto(s) tapado(s)" % tapados if tapados else ""))
     return 0
 
 

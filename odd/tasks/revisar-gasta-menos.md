@@ -52,7 +52,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S2 | El reporte fuera del contexto | inline (unos 100 líneas, y el único lugar de agente lo ocupaba el verificador de R15) | hecha (L3) | (con T0) |
-| T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | por definir | pendiente | |
+| T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
 | T3 | S1 | Los chequeos antes de los revisores | por definir | pendiente | |
 | T4 | S3 | Las desviaciones conocidas | por definir | pendiente | |
 | T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
@@ -87,3 +87,24 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
     - en Pi, solo el veredicto.
   - **GREEN:** `rescatar` 67/67.
   - **Risk: item 3 (contratos).** Cambia el contrato entre el orquestador y los revisores: lo que devuelven y de dónde se rescata. Lo revisa el verificador de la R16.
+- **L4** (2026-11-25) T2, un writer. Lo cortó el límite de 5 horas y se lo retomó con su contexto. Cubrió S4.
+  - **`odd_ws/secretos.py`:**
+    - `tapar` usa solo los patrones concretos de S4, y `intentar_tapar` devuelve además el error interno.
+    - `tapar_valores` recorre dicts y listas y tapa solo los valores, nunca las claves.
+    - Una clave privada conserva su BEGIN y su END y tapa cada línea del cuerpo con el prefijo que comparte con el BEGIN, como el `+` de un diff. Así el diff sigue siendo válido.
+    - Slack exige un número después de `xox?-`, para no tocar la prosa.
+  - **`tapar.py`:**
+    - Expande los comodines él mismo, porque PowerShell y cmd no lo hacen.
+    - No reescribe un archivo sin secretos y conserva la codificación.
+    - Sale con 2 si falla, sin escribir.
+  - **Dónde se aplica:**
+    - `rescatar._guardar` tapa sus cuatro archivos, y los JSON siguen siendo válidos.
+    - `recibo._guardar` tapa `--verificacion`, `--derivado` y `--bajada`.
+    - El paso 8 del skill suma una línea que remite a «Los secretos» en `references/recibo.md`: `tapar.py` sobre `entrada/*.diff` y `consolidado.md`, antes del `--check`.
+  - **El recibo sigue valiendo:** hashea el `git diff` vivo de cada repo, no `entrada/*.diff`. Una prueba corre el flujo real (`--write`, `tapar.py`, `--check`, `--sellar`), y no hubo que excluir ningún archivo.
+  - **La salida:** sin secretos es igual byte a byte que antes (diferencial de 5 comandos y 15 archivos). Con secretos, la línea `ok` y la de `recibo escrito` dicen cuántos se taparon.
+  - **Las pruebas:** los tokens falsos se arman concatenando, para que el código commiteado no traiga ningún token literal.
+  - **Suites:** `secretos` 11/11, `tapar` 9/9, `rescatar` 68/68, `recibo` 116/116, `triaje` 103/103, y `registro`, `comun`, `paquetes`, `memorias`, `auditar_lecturas` y `puntuar` en verde. El barrido sobre lo tocado salió limpio.
+  - **Para T3 y T4:** el núcleo de `skills/revisar/SKILL.md` pesa 17.381 bytes contra un tope de 17.408 (`NUCLEO_MAXIMO` en `recibo.tests.py`). Lo nuevo va a las referencias, o hay que liberar espacio en el núcleo.
+  - **Risk: item 3.** Cambian los archivos guardados y el texto del recibo cuando hay un secreto. Lo revisa el verificador.
+  - **Scratch del writer:** `%TEMP%\tapar-diferencial-2siIec`. Va a la limpieza del autor.

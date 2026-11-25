@@ -723,6 +723,7 @@ Mide a los revisores de la instancia contra la revisión real de un líder (D6),
     - `.prompt.txt`;
     - `.lecturas.json`, con `{agente, meta, lecturas, no_auditadas, costo}`: los `Read`, `Grep` y `Glob`, la cuenta de las demás herramientas y el costo de la corrida;
     - `.comandos.json`, solo si hubo `Bash` o `PowerShell`, con el exit y la salida cortada a 2 000 caracteres.
+  - Antes de escribir, tapa los secretos de los cuatro archivos con `odd_ws.secretos` (I86, en «Los secretos tapados»).
   - Sale con 0; con 1 si alguna corrida no tiene reporte o no existe (esa corrida no escribe nada); y con 2 ante un error. Avisa por stderr las líneas salteadas.
   - **`--costo` (I28)** es opcional porque `eval-reviewers` rescata a un scratch. Escribe también `costo.json` en `--destino`, que tiene que ser la carpeta `corridas` de una revisión (`<ticket>/revision/<fecha>-<modo>[-<n>]/corridas`, con el `CARPETA_RE` de `recibo.py`); con otra, sale con 2 sin escribir nada. Guarda `{modo, motivos, corridas, lineas_diff}`:
     - `modo`: el de la carpeta;
@@ -1135,6 +1136,30 @@ El `SKILL.md` es un núcleo de menos de unos 5.000 tokens, porque Claude Code so
   - **La huella, el porqué (issue #1):** el triaje guardado antes de la última edición de un archivo habilitó bajar a `rapido` un cambio que, triado de nuevo, sumaba un efecto hacia otro sistema. El recibo no vuelve a correr el triaje (L3 de `odd/tasks/integridad-del-recibo.md`): la huella detecta el triaje viejo con un solo paso más para el usuario y no suma el tiempo del triaje a cada `--write`.
   - El porqué: un cambio de 6 líneas en un `.yml` de CI forzó `completo` por dos límites del instrumento (`consumidores` inválida y un archivo sin capa), y su revisión costó cerca de 1M tokens. La bajada da alivio sin tocar el default, y cada una queda en el recibo como evidencia, para cruzarla después con lo que la unidad siguiente encuentre como «ya estaba antes del cambio» (O3 del [estudio](../odd/estudios/costo-de-revisar.md)).
 - **El modo sombra** sigue siendo de `/odd-ws:eval-reviewers`. Esta skill no congela nada.
+- **Los secretos (I86):** lo que la revisión deja en la instancia sale con los secretos tapados (sección siguiente). Los revisores ven los diffs crudos.
+
+### Los secretos tapados (`odd_ws/secretos.py` y `tapar.py`, I86)
+
+Antes de guardar texto en la instancia, odd-ws tapa los secretos que encuentra con un marcador que nombra su tipo.
+
+- **`secretos.tapar(texto) -> (texto, cuantos)`** usa solo patrones concretos, cada uno con su prueba de control positivo:
+  - AWS: `AKIA` + 16 mayúsculas o dígitos → `<AWS_ACCESS_KEY_ID>`;
+  - GitHub: `ghp_`, `gho_`, `ghu_`, `ghs_` y `ghr_` + 36 alfanuméricos o más, y `github_pat_` → `<GITHUB_TOKEN>`;
+  - Slack: `xoxb-`, `xoxa-`, `xoxp-`, `xoxr-` y `xoxs-`, seguidos de un número → `<SLACK_TOKEN>`;
+  - Google: `AIza` + 35 → `<GOOGLE_API_KEY>`;
+  - OpenAI: `sk-` + 40 alfanuméricos o más, y `sk-proj-`, `sk-svcacct-` y `sk-admin-` con un cuerpo largo → `<OPENAI_API_KEY>`;
+  - Anthropic: `sk-ant-` con un cuerpo largo → `<ANTHROPIC_API_KEY>`;
+  - Stripe: `sk_live_` y `rk_live_` → `<STRIPE_KEY>`;
+  - los bloques `-----BEGIN … PRIVATE KEY-----` … `-----END … PRIVATE KEY-----` → `<PRIVATE_KEY>`.
+- **No hay un patrón genérico de «etiqueta: valor».** En la prueba de align-cli solo dio falsos positivos (`dark:`, `sm:`, `mailto:` de Tailwind y HTML) y estropeaba los reportes guardados. Un hash de git, un sha256, un UUID, `sk-learn` o la prosa que dice «token» no se tocan.
+- **Un bloque de clave privada conserva sus líneas:** los encabezados quedan, y cada línea del cuerpo pasa a ser `<PRIVATE_KEY>` con el prefijo que comparte con la línea del `BEGIN` (el `+` de un diff, el `> ` de una cita). Así un diff tapado sigue siendo un diff, y `rescatar` cuenta las mismas `lineas_diff`. Se cuenta un secreto por bloque.
+- **Nunca lanza:** un texto sin secretos vuelve idéntico, con 0; ante cualquier error interno, devuelve el texto igual, con 0. `intentar_tapar` devuelve además el error, para que `tapar.py` no escriba nada. `tapar_valores` recorre dicts, listas y tuplas, y tapa solo los valores de texto, nunca las claves.
+- **Dónde se tapa,** siempre después del rescate y antes del commit:
+  - `rescatar._guardar` tapa el reporte, el `.prompt.txt` y los valores de `.lecturas.json` y `.comandos.json` antes del `json.dumps`, así que los JSON siguen siendo válidos. La línea `ok` suma `(<n> secreto(s) tapado(s) antes de guardar)`, y el dict de la corrida, `tapados`, solo si tapó alguno: sin secretos, la salida es la de antes, byte a byte. `caracteres` es el largo del reporte tapado.
+  - `recibo._guardar` tapa el texto libre: `--verificacion`, `--derivado` (el hallazgo y el destino) y el motivo de `--bajada`. La línea `recibo escrito` suma `; <n> secreto(s) tapado(s)`. Las huellas, las rutas y las bases no se tocan.
+  - `revisar` corre `tapar.py` sobre `entrada/*.diff` y `consolidado.md` antes del `--check` (paso 8 y «Los secretos» en `references/recibo.md`).
+- **El recibo sigue valiendo:** guarda la huella del `git diff` de cada repo, no la de `entrada/`, y `triaje.json` no se tapa. Una prueba corre el recibo, `tapar.py` sobre la carpeta de la revisión, `--check`, la reescritura y `--sellar`, y el sello queda como base del triaje siguiente.
+- **`tapar.py ARCHIVO…`** reescribe cada archivo en el lugar y dice cuántos secretos tapó en cada uno. Lee UTF-8 (los bytes que no lo son vuelven tal cual) y, con BOM, UTF-16, y escribe con la misma codificación, el mismo BOM y los mismos fines de línea. Un archivo sin secretos no se reescribe. Expande él mismo los comodines (`entrada/*.diff`), porque PowerShell y cmd no lo hacen. Sale con 0, o con 2 sin escribir nada si un archivo no existe, es una carpeta, un comodín no encuentra nada, un archivo no se lee o el tapado falla.
 
 ### Cerrar (`skills/cerrar`, T9)
 

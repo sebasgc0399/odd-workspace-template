@@ -1986,6 +1986,34 @@ def test_bajada_de_completo_a_rapido_guarda_el_motivo_y_la_respuesta_del_lider()
         assert list(datos) == ["version", "fecha", "ticket", "repos", "bajada"] and datos["bajada"]["motivo"] == "solo inválidas", datos
 
 
+GITHUB = "gh" + "p_" + ("aB3dE5fG7h" * 4)[:36]
+AWS = "AK" + "IA" + "Z7Q4X2W9R5T8Y3U6"
+
+
+def test_el_recibo_guarda_tapados_los_secretos_del_texto_libre_y_sigue_valiendo():
+    with temporal() as t:
+        repo, base, ticket, carpeta = unidad_bajada(t)
+        guardar_triaje(carpeta, triaje_con(), repos=[(repo, base, ["a.sql", "c.txt"])])
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], [
+            "--fecha", "2026-10-21", "--verificacion", "curl -H 'Authorization: token %s' x: 200" % GITHUB,
+            "--derivado", "clave %s en a.sql:2=T9" % AWS, *bajar("solo c.txt sin capa; la clave era " + AWS)]))
+        assert codigo == 0 and error == "", (salida, error)
+        assert salida.endswith("(1 repo(s), 2 archivo(s); 1 derivado(s); bajado de completo a rapido; 3 secreto(s) tapado(s))\n"), salida
+        crudo = (carpeta / "recibo.json").read_text(encoding="utf-8")
+        assert GITHUB not in crudo and AWS not in crudo, crudo
+        datos = json.loads(crudo)
+        assert datos["repos"][0]["verificacion"] == ["curl -H 'Authorization: token <GITHUB_TOKEN>' x: 200"], datos["repos"][0]
+        assert datos["derivados"] == [{"hallazgo": "clave <AWS_ACCESS_KEY_ID> en a.sql:2", "destino": "T9"}], datos["derivados"]
+        assert datos["bajada"] == {"de": "completo", "a": "rapido", "motivo": "solo c.txt sin capa; la clave era <AWS_ACCESS_KEY_ID>",
+                                   "va_a_lider": False}, datos["bajada"]
+        assert datos["repos"][0]["sha256"] == calc(repo, base, ["a.sql", "c.txt"])["sha256"]
+        assert correr(["--check", str(carpeta)])[0] == 0
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "a.sql", repo / "c.txt"], [
+            "--fecha", "2026-10-21", "--estado", "con-hallazgos"]))
+        assert codigo == 0 and salida.endswith("bajado de completo a rapido)\n"), (salida, error)
+        assert json.loads((carpeta / "recibo.json").read_text(encoding="utf-8"))["bajada"] == datos["bajada"]
+
+
 def test_una_bajada_que_no_vale_es_error_de_uso_y_no_escribe_nada():
     with temporal() as t:
         repo, base, ticket, carpeta = unidad_bajada(t)

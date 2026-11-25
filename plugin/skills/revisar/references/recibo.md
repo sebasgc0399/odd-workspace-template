@@ -40,6 +40,21 @@ Un falso positivo solo cuesta una revisión de más; un falso negativo cuesta un
 - Escribe `revision/<fecha>-<modo>[-<n>]/recibo.json`, con una entrada por repo (base, hash del diff por archivo, archivos, modo, revisores, verificación y estado). Sale con 0, con 1 si ese recibo ya existe con otro diff, o con 2 si falta el ticket, un repo, un `--archivo` o el `--modo`.
 - **Si el recibo ya existe**, `recibo.py` compara el diff de esta llamada (repos, bases, archivos y el hash de cada uno) con el que guarda. Si es el mismo, cambia el estado y conserva el sello y lo demás: lo que la llamada nombra (`--reviewer`, `--verificacion`, `--derivado`, `--bajada`) reemplaza lo guardado, y lo que no nombra queda. Si es otro (un archivo cambió, sobra o falta, o falta un repo), sale con 1 sin escribir y nombra cada diferencia: lo que cambió va en un rechequeo con `--previo` en la ronda siguiente (sección 9); si es el mismo diff, repite los mismos `--repo`, `--archivo` y `--previo`.
 
+## Los secretos
+
+Con corridas (`rapido` o `completo`), cuando `consolidado.md` ya tiene su destino y antes del `--check`, tapa los secretos de la entrada y de la consolidación, que quedan en la instancia:
+
+```bash
+python3 "<S>/tapar.py" "<ticket>/revision/<fecha>-<modo>/entrada/*.diff" "<ticket>/revision/<fecha>-<modo>/consolidado.md"
+```
+
+- Reescribe cada archivo en el lugar, con su codificación y sus fines de línea, y dice cuántos secretos tapó en cada uno. Cada secreto queda como un marcador con su tipo, como `<GITHUB_TOKEN>`. Correrlo de nuevo no cambia nada.
+- Tapa solo formatos concretos: claves de AWS, tokens de GitHub, Slack, Google, OpenAI, Anthropic y Stripe, y bloques de clave privada. No busca «etiqueta: valor»: en una prueba real solo dio falsos positivos (`dark:`, `sm:`, `mailto:`).
+- El comodín va entre comillas, porque `tapar.py` lo expande él mismo, también en PowerShell y en cmd.
+- Se tapa después del rescate y nunca antes de lanzar: los revisores ven los diffs crudos, porque un secreto en el código es un hallazgo `CRITICAL`. Los reportes de `corridas/` ya salen tapados del rescate, y el recibo tapa su texto libre (`--verificacion`, `--derivado` y `--bajada`).
+- No invalida el recibo, que guarda la huella del diff de los repos y no la de `entrada/`; `triaje.json` no se toca.
+- Sale con 0; con 2, sin escribir nada, si un archivo no existe, es una carpeta, el comodín no encuentra nada o un archivo no se puede leer. Muestra el mensaje y no digas «listo».
+
 ## `--check`
 
 - Pasa la carpeta de esta revisión. Si pasas la del ticket, toma el recibo más reciente, y a igual fecha el de modo `completo`, que puede no ser el de esta revisión; en ese caso filtra con `--modo <m>` o apunta con `--recibo <ruta>`.
@@ -65,3 +80,4 @@ Un falso positivo solo cuesta una revisión de más; un falso negativo cuesta un
 | `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
 | `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente o, con `--host pi`, desde la tarea que guarda gentle-shell; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
 | `recibo.py` | `--write` escribe el recibo, con `--previo` el de un rechequeo, que hereda lo que no cambió, y con `--bajada` la bajada de un escalón que pidió el usuario; `--check` lo compara con el diff actual y con lo que entraría al commit; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió, el índice no es lo revisado, el recibo ya existe con otro diff, no se puede sellar o el rechequeo no puede heredar · 2 error de uso o de entorno |
+| `tapar.py` | tapa en el lugar los secretos de `entrada/*.diff` y `consolidado.md` antes del `--check` | 0 ok · 2 error de uso o de lectura, sin escribir nada |

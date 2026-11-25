@@ -12,6 +12,7 @@ import re
 import types
 from pathlib import Path
 
+from odd_ws import secretos
 from odd_ws.capas import TICKETS
 from odd_ws.hosts import pi
 from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, comandos, costo, en_serie, lanzamientos, leer
@@ -155,20 +156,28 @@ def _guardar(destino, nombre, agente, meta, datos, costos):
     if not datos["reporte"]:
         return {"corrida": nombre, "agente": agente, "estado": "solo_veredicto" if datos.get("origen") == "solo_veredicto" else "sin_reporte",
                 "lecturas": len(datos["lecturas"]), "salteadas": datos["salteadas"]}
+    reporte, tapados = secretos.tapar(datos["reporte"])
+    prompt, en_el_prompt = secretos.tapar(datos["prompt"] or "")
+    lecturas, en_las_lecturas = secretos.tapar_valores({"agente": agente, "meta": meta, "lecturas": datos["lecturas"],
+                                                        "no_auditadas": datos["no_auditadas"], "costo": datos["costo"]})
+    tapados += en_el_prompt + en_las_lecturas
     destino.mkdir(parents=True, exist_ok=True)
-    (destino / ("%s.md" % nombre)).write_text(datos["reporte"], encoding="utf-8", newline="\n")
-    (destino / ("%s.prompt.txt" % nombre)).write_text(datos["prompt"] or "", encoding="utf-8", newline="\n")
+    (destino / ("%s.md" % nombre)).write_text(reporte, encoding="utf-8", newline="\n")
+    (destino / ("%s.prompt.txt" % nombre)).write_text(prompt, encoding="utf-8", newline="\n")
     (destino / ("%s.lecturas.json" % nombre)).write_text(
-        json.dumps({"agente": agente, "meta": meta, "lecturas": datos["lecturas"], "no_auditadas": datos["no_auditadas"],
-                    "costo": datos["costo"]}, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+        json.dumps(lecturas, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     if datos["comandos"]:
+        comandos, en_los_comandos = secretos.tapar_valores({"agente": agente, "meta": meta, "comandos": datos["comandos"]})
+        tapados += en_los_comandos
         (destino / ("%s.comandos.json" % nombre)).write_text(
-            json.dumps({"agente": agente, "meta": meta, "comandos": datos["comandos"]},
-                       ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
-    return {"corrida": nombre, "agente": agente, "estado": "ok", "comandos": len(datos["comandos"]),
-            "caracteres": len(datos["reporte"]), "lecturas": len(datos["lecturas"]),
-            "agentType": meta.get("agentType"), "model": meta.get("model"),
-            "no_auditadas": datos["no_auditadas"], "salteadas": datos["salteadas"]}
+            json.dumps(comandos, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    resultado = {"corrida": nombre, "agente": agente, "estado": "ok", "comandos": len(datos["comandos"]),
+                 "caracteres": len(reporte), "lecturas": len(datos["lecturas"]),
+                 "agentType": meta.get("agentType"), "model": meta.get("model"),
+                 "no_auditadas": datos["no_auditadas"], "salteadas": datos["salteadas"]}
+    if tapados:
+        resultado["tapados"] = tapados
+    return resultado
 
 
 def rescatar(sesion, destino, corridas, costos=None):
@@ -615,6 +624,8 @@ def main(argv=None):
                     "%s x%d" % kv for kv in sorted(r["no_auditadas"].items()))
             if r["comandos"]:
                 extra += "  (comandos Bash/PowerShell: %d en %s.comandos.json)" % (r["comandos"], r["corrida"])
+            if r.get("tapados"):
+                extra += "  (%d secreto(s) tapado(s) antes de guardar)" % r["tapados"]
             print("ok   %s: %d car., %d lecturas, %s/%s%s" % (
                 r["corrida"], r["caracteres"], r["lecturas"], r["agentType"], r["model"], extra))
         else:

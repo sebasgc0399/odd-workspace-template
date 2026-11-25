@@ -189,6 +189,44 @@ def test_rescatar_solo_el_veredicto_falla_en_voz_alta_y_no_escribe():
         assert codigo == 1 and "FAIL c1: el revisor devolvio solo el veredicto" in out and not dest.exists(), (codigo, out, err)
 
 
+GITHUB = "gh" + "p_" + ("aB3dE5fG7h" * 4)[:36]
+AWS = "AK" + "IA" + "Z7Q4X2W9R5T8Y3U6"
+
+
+def test_rescatar_tapa_los_secretos_de_lo_que_guarda_y_los_json_siguen_validos():
+    reporte = "## Hallazgos\n[CRITICAL] sin ID a.py:1 — un token en el código: `%s`" % GITHUB
+    with Temporal() as base:
+        sub, dest = base / "subagents", base / "corridas"
+        agente(sub, "abc", [
+            usuario("Revisa el cambio; la clave de prueba es " + AWS),
+            asistente(uso("Grep", {"pattern": GITHUB, "path": "C:\\x"}),
+                      uso("Bash", {"command": "curl -H 'Authorization: token %s' x" % GITHUB}, "b1")),
+            resultado_de("b1", "AWS=" + AWS),
+            asistente({"type": "text", "text": reporte}, uso("SubagentHandback", {"message": VEREDICTO}))])
+        res = m().rescatar(sub, dest, {"c1": "abc"})
+        tapado = reporte.replace(GITHUB, "<GITHUB_TOKEN>")
+        assert res == [{"corrida": "c1", "agente": "abc", "estado": "ok", "comandos": 1, "caracteres": len(tapado), "lecturas": 1,
+                        "agentType": "revisor-x", "model": "opus", "no_auditadas": {"Bash": 1}, "salteadas": 0, "tapados": 5}], res
+        for escrito in sorted(dest.iterdir()):
+            texto = escrito.read_text(encoding="utf-8")
+            assert GITHUB not in texto and AWS not in texto, (escrito.name, texto)
+        assert (dest / "c1.md").read_text(encoding="utf-8") == tapado
+        assert (dest / "c1.prompt.txt").read_text(encoding="utf-8") == "Revisa el cambio; la clave de prueba es <AWS_ACCESS_KEY_ID>"
+        assert leer_json(dest / "c1.lecturas.json")["lecturas"] == [{"tool": "Grep", "input": {"pattern": "<GITHUB_TOKEN>", "path": "C:\\x"}}]
+        comando = leer_json(dest / "c1.comandos.json")["comandos"][0]
+        assert comando == {"tool": "Bash", "comando": "curl -H 'Authorization: token <GITHUB_TOKEN>' x", "exit": 0, "error": None,
+                           "salida": "AWS=<AWS_ACCESS_KEY_ID>"}, comando
+        shutil.rmtree(dest)
+        codigo, out, err = cli("--sesion", sub, "--destino", dest, "--corrida", "c1=abc")
+        assert codigo == 0 and err == "", (codigo, err)
+        assert out == ("ok   c1: %d car., 1 lecturas, revisor-x/opus  (herramientas NO auditadas: Bash x1)  (comandos Bash/PowerShell: "
+                       "1 en c1.comandos.json)  (5 secreto(s) tapado(s) antes de guardar)\n" % len(tapado)), out
+        carpeta = guardar_tarea(base / "agente", tarea_pi(resultado="Reporte de Pi con " + AWS))
+        res = m().rescatar_pi(carpeta, base / "pi", {"c2": "t1"})
+        assert res[0]["estado"] == "ok" and res[0]["tapados"] == 1, res
+        assert (base / "pi" / "c2.md").read_text(encoding="utf-8") == "Reporte de Pi con <AWS_ACCESS_KEY_ID>"
+
+
 def test_pi_con_veredicto_el_reporte_es_el_texto_despues_de_la_ultima_herramienta():
     reporte = "## Hallazgos\nninguno"
     items = hilo_pi() + [{"kind": "text", "text": reporte}, {"kind": "text", "text": VEREDICTO}]

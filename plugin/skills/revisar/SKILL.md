@@ -127,6 +127,8 @@ La hace el orquestador, en prosa, con los reportes de `corridas/`, en `consolida
    **Antes de usar `--bajada`, `--derivado` o `--ronda`, de reescribir un recibo, o si `recibo.py` sale con 1 o 2, lee `references/recibo.md`.** `<base>` es la base completa del triaje; `--fecha`, la de la carpeta (sin ella, la de hoy); `--reviewer`, los agentes que corrieron, y `--verificacion`, lo que se corrió de verdad. `--estado` es `limpio` sin hallazgos, `pendiente` si el usuario todavía no los resolvió y `con-hallazgos` si ya los corrigió o los descartó con su motivo; un `pendiente` resuelto sin tocar lo revisado se reescribe con `con-hallazgos`, y si se tocó, es un rechequeo (sección 9).
 
    **Completa el destino** en la línea de rendimiento de `consolidado.md` cuando el recibo queda `con-hallazgos` o `limpio`: `destino: corregidos <c>, derivados <d>, descartados <e>`. En un rechequeo, también el de la ronda anterior, donde lo que el rechequeo vio resuelto cuenta como corregido.
+
+   Tapa los secretos con `tapar.py`: lee «Los secretos» en `references/recibo.md`.
 3. **Antes de decir «listo» o «listo para commit», corre `--check`** con la carpeta de esta revisión:
 
    ```bash
