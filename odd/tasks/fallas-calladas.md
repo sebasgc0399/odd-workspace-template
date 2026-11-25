@@ -28,7 +28,14 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - Se valida con el par `sin_capa_de(config)` / `sin_capa(raiz)`, como `hooks_apagados`, y se registra en `bootstrap._cargar_en_temporal` y en `doctor.chequear_config`.
     - Las extensiones listadas pasan a las esperadas, que salen en OK con su nota, en el doctor, en `ticket.py --cobertura` y en el triaje.
     - El `cómo:` del AVISO muestra la línea exacta de la clave con las extensiones del aviso, para que el usuario saque las que sí son código. No hay `--arreglar`, porque reconocer todo de una vez taparía código sin capa.
-- **S4** (I85, las plantillas viejas). «El doctor avisa cuando una plantilla copiada a la instancia quedó en una versión vieja, y la primera sesión después de actualizar dice qué copiar.» Las plantillas copiadas son el `CLAUDE.md` raíz, `tickets/_plantilla/CLAUDE.md`, `.githooks/pre-commit` y `.claude/reglas/verificar_<capa>.tests.py`. **Decisión de diseño:** pendiente de la pregunta al autor (L2).
+- **S4** (I85, las plantillas viejas). «El doctor avisa cuando una plantilla copiada a la instancia quedó en una versión vieja, y la primera sesión después de actualizar dice qué copiar.» Las plantillas copiadas son el `CLAUDE.md` raíz, `tickets/_plantilla/CLAUDE.md`, `.githooks/pre-commit` y `.claude/reglas/verificar_<capa>.tests.py`.
+  - **Diseño aprobado por el autor (opción A, L5):**
+    - La instancia anota con qué versión del plugin quedaron sus plantillas.
+    - El plugin trae, como datos bajo `plugin/`, la huella de cada plantilla en cada versión publicada, generada al publicar. El plugin instalado no tiene etiquetas de git.
+    - El doctor avisa qué plantillas cambiaron desde la versión anotada.
+    - `--arreglar` reemplaza las copias sin tocar, que son las que coinciden con la huella de alguna versión. Después de que el usuario fusiona las editadas, anota la versión nueva.
+    - La primera sesión después de actualizar dice qué copiar.
+  - **Decisión de diseño:** el `CLAUDE.md` raíz se compara ya renderizado con los valores de la instancia (`{{nombre}}` y `{{tickets}}`).
 - **S5** (I88, el `__pycache__`). «Correr las pruebas de reglas copiadas a la instancia no deja `__pycache__`.»
   - `verificar.tests.py` y `pre-commit.tests.py` ponen `sys.dont_write_bytecode = True` antes de cargar nada.
   - `verificar.py` no lo necesita, porque lo carga su prueba con el flag ya puesto.
@@ -48,11 +55,11 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento, su espejo en engram y la cola del roadmap con el orden nuevo | inline | hecha | (con T1) |
-| T1 | S5, S6 | El `__pycache__` y el `/compact` | inline (unidad chica) | hecha (L3) | |
-| T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | en curso | |
-| T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | en curso | |
-| T4 | S4 | Las plantillas viejas | delegada tras la decisión de L2 y la integración de T2 y T3 | pendiente | |
-| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
+| T1 | S5, S6 | El `__pycache__` y el `/compact` | inline (unidad chica) | hecha (L3) | `47ab32b` |
+| T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | hecha (L7) | `b0e7093`, integrada en `ffce153` |
+| T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | hecha (L6) | `b9f00f6`, integrada en `fd94d72` |
+| T4 | S4 | Las plantillas viejas | delegada: un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153` (motivo: el respaldo de contexto del orquestador) | hecha (L9) | `4b39845`, integrada en `649cd7f` |
+| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador pendiente; sin publicar | |
 
 ## Log
 
@@ -87,3 +94,87 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - la instancia anota con qué versión quedaron sus plantillas;
     - el plugin trae las huellas por versión;
     - `--arreglar` reemplaza las copias sin tocar y, después de fusionar las editadas, anota la versión nueva.
+- **L5** (2026-11-24) El autor aprobó la opción A para S4: «Vale me parece bien».
+  - Después dejó el resto de la jornada a criterio del orquestador: «Apartir de ahora te dejo a tu criterio, probablemente antes de sacar la version enviare un auditor, asi que tu sigue trabajando el resto de versiones solo dejalas listas que mañana miramos en que quedamos ya te dejo libremente espero que nada que interrumpa».
+  - Y pidió, solo para este loop: «intenta trabajar con menos agentes paso a paso solo lo necesario». Desde ahí va un agente por vez y nunca en paralelo.
+- **L6** (2026-11-24) T3, el writer B. Cubrió S2 y S3.
+  - **Suites:** `config_loader` 116/116, `ticket` 68/68, `doctor` 233/233, `bootstrap` 209/209, `triaje` 103/103.
+  - **Diferencial contra `0b44438`:** solo cambian la fila nueva del doctor, el aviso nuevo, el `cómo:` de la cobertura y el efecto de `sin_capa`.
+  - **Decisiones del writer que se aceptan:**
+    - `Cobertura` suma el campo `ayuda`, que arma `ayuda_de_cobertura`, para que el doctor y `ticket.py` digan lo mismo.
+    - El `cómo:` de la cobertura cambia en todo AVISO, porque «si no, el aviso queda» ya no era cierto.
+    - En el triaje no cambian ni la lista ni el modo, y `sin_capa.aviso` puede ser `null` cuando la clave cubre todo.
+    - Las extensiones se comparan sin distinguir mayúsculas.
+    - Para S2, «trae hooks» es un objeto `hooks` no vacío, y solo se lee la ruta principal de cada repo.
+  - **El orquestador, inline:**
+    - `hooks-de-repos` no aplica en una instancia que no declara Claude Code, porque los hooks de `.claude/settings.json` solo corren ahí. Es `config_loader.declara_claude_code`, y `ticket.py --cobertura` tampoco avisa en ese caso. RED con dos pruebas nuevas, después GREEN: `ticket` 69/69 y `doctor` 234/234.
+    - `skills/bootstrap/SKILL.md` ya no dice que las demás extensiones «quedan con el aviso»: también se reconocen en `sin_capa`.
+  - **Risk: item 3 (contratos).** Cambian la tupla `Cobertura`, el texto del `cómo:` y el `null` de `sin_capa.aviso` en el JSON del triaje. Son contratos internos del plugin; el verificador los revisa.
+  - **Scratch del writer:** `%TEMP%\tmp.w631YHxaIh` y `%TEMP%\tmp.WyA413be6K`. El guard no deja borrarlos, así que van a la limpieza del autor.
+- **L7** (2026-11-24) T2, el writer A. Cubrió S1.
+  - **Lo nuevo:** `odd_ws/fallas.py` es el módulo compartido. Lo usan los cinco hooks, `correr_hook` (con el argumento opcional `hook`) y el doctor.
+    - El rastro va en `.claude/estado/fallas-de-hooks.jsonl`, con los campos `{id, momento, hook, evento, tipo, mensaje}`.
+    - El mensaje va en una sola línea, cortado a 200 caracteres. El evento se guarda solo si es un nombre válido.
+    - El tope es de 20 entradas, reescritas con `os.replace`.
+    - `fallas-de-hooks.vista` guarda el último que mostró el inicio de sesión.
+    - SessionStart muestra las nuevas una sola vez, con las 5 más recientes y la cuenta de las demás, entre el aviso de I75 y el ticket activo.
+    - El doctor suma el ítem `hooks-fallas`, después de `perfil`. Sale OK sin fallas y AVISO con la cuenta y las 3 más recientes. `--arreglar` borra los dos archivos. Si no se puede leer, es AVISO sin arreglo.
+  - **Para el verificador:**
+    - Un payload que no es JSON también llega al `except` de `correr()`, así que ahora deja rastro. Por eso cambió la aserción de `writer_stop.tests.py::test_otros_eventos_y_basura_callan`.
+    - El mensaje de una excepción puede llevar hasta 200 caracteres de la entrada, como el texto de un `int()`. Queda solo en `.claude/estado/`, que la instancia ignora.
+    - Si dos fallas llegan durante la reescritura del tope, se puede perder una. Está anotado en `Doc/diseno.md`.
+  - **Suites:** `comun` 63/63, `verificar_capa` 134/134, `revisar_turno` 34/34, `writer_guard` 125/125, `guard_comandos` 83/83, `writer_stop` 61/61, `doctor` 230/230, `capacidades` 37/37, y las otras 44 suites más el shim (97/97) en verde.
+  - **Diferencial contra `0b44438`:**
+    - En el doctor, la única línea nueva es `hooks-fallas OK`.
+    - En los guards, 15 payloads por `guard_comandos` y `writer_guard` dieron el mismo código, stdout y stderr en los 30 casos.
+  - **Risk: item 2 (guards).** Toca el camino de error de los guards. Los veredictos no cambian (diferencial y pruebas por guard), y lo revisa el verificador independiente de la feature.
+  - **Scratch del writer:** `%TEMP%\tmp.Mz99acoG1o`. Va a la limpieza del autor.
+- **L8** (2026-11-24) La integración.
+  - T3 entró sin conflictos en `fd94d72`.
+  - T2 entró en `ffce153`, con conflictos en `doctor.py`, `doctor.tests.py`, `skills/doctor/SKILL.md`, `Doc/diseno.md` y `Doc/uso.md`. Se resolvieron conservando los dos ítems nuevos en este orden: `perfil`, `hooks-de-repos`, `hooks-fallas`.
+  - Antes del merge, en la punta: `doctor` 235/235, `ticket` 69/69, `config_loader` 116/116 y `verificar_capa` 134/134. El pre-commit del merge corrió todas las suites y pasó, y ese fue el chequeo de costura.
+  - **T4 (S4, diseño A)** lo hace un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153`. Decisiones de diseño del orquestador para ese writer:
+    - **La clave `plantillas`.** Es una clave opcional de `workspace.config.json` con la versión del plugin a la que se sincronizaron las plantillas, y la escribe el bootstrap. Una instancia sin la clave es «sin versión anotada»: la versión se infiere de las copias sin tocar.
+    - **La tabla de huellas.** `plugin/plantillas/huellas.json` guarda la huella de cada plantilla copiada en cada versión publicada, más la del árbol actual bajo la versión de `plugin.json`. La genera `tools/huellas.py` desde las etiquetas `odd-ws--v*`.
+      - El pre-push de `tools/entrega.py` comprueba que esté al día en un push a `main` o a una etiqueta, igual que el chequeo de la página de la R14 (S7).
+      - No hay una prueba que trabe los commits intermedios.
+    - **El `CLAUDE.md` raíz.** Antes de calcular su huella se des-renderiza: los valores de `{{nombre}}` y `{{tickets}}` de la instancia vuelven a sus marcadores.
+      - Si la des-renderización falla, la copia cuenta como editada. Es el lado seguro: nunca reemplaza algo que el usuario tocó.
+      - El perfil controles usa `CLAUDE.controles.md`.
+    - **El ítem `plantillas` del doctor.**
+      - OK si la versión anotada es la actual, o si ninguna plantilla cambió desde la anotada.
+      - AVISO si cambió alguna. Lista cada copia como «sin tocar, se reemplaza» o «editada, fusiónala a mano» (con las versiones para leer `Doc/actualizar.md`).
+      - `--arreglar plantillas` reemplaza las copias sin tocar y anota la versión actual. El `cómo:` dice que las editadas se fusionan antes de correrlo.
+    - **El inicio de sesión.** Después de un salto de versión (I75), nombra las plantillas que cambiaron y manda a `/odd-ws:doctor`.
+- **L9** (2026-11-25) T4, el writer C. Cubrió S4 con el diseño de L8 y estas decisiones propias, que se aceptan:
+  - **`{{tickets}}` se renderiza del lado de la plantilla.** La palabra «tickets» aparece también en el texto, así que no se puede revertir en la copia. `{{nombre}}` sale de la primera línea de la copia. Si no calza, la copia cuenta como editada.
+  - **Las copias se comparan contra la plantilla actual, calculada en vivo.** Una tabla atrasada entre versiones nunca traba nada. Una versión etiquetada conserva la huella de su etiqueta, y el árbol actual va solo bajo una versión de `plugin.json` que todavía no tiene etiqueta.
+  - **La tabla.** `tools/huellas.py` lee las etiquetas con `git tag --merged` y `git cat-file --batch`. La tabla trae 102 huellas, de la `0.2.0` a la `0.13.3`, y regenerarla da los mismos bytes.
+  - **Sin la clave.** La versión se infiere de forma conservadora, como la más vieja que comparten las copias sin tocar, y el ítem sale en AVISO. Con la clave y todo ya al día, sale en AVISO «falta anotar la versión», y el arreglo solo la anota.
+  - **El arreglo.** `--arreglar` cambia solo la línea de la clave en `workspace.config.json` y conserva el BOM, el CRLF y la sangría. Un symlink cuenta como editado, y una copia que falta se salta.
+  - **Las pruebas del hook.** `RepoConHook` en `entrega.tests.py` ahora copia también `huellas.py` y `plugin/scripts`. Esa suite pasó de 1m45s a 2m03s.
+  - **Suites.** `plantillas_instancia` 6/6, `doctor` 241/241, `config_loader` 117/117, `bootstrap` 211/211, `verificar_capa` 136/136, `tools/huellas` 3/3, `tools/entrega` 43/43, y las 54 suites más el shim en verde.
+  - **Diferencial contra `ffce153`.** Solo cambian la fila nueva `plantillas` y la línea nueva del inicio de sesión después de un salto.
+  - **Risk.**
+    - Item 3: el bootstrap escribe una clave nueva, y el doctor escribe `workspace.config.json` con `--arreglar`.
+    - Item 5: el pre-push de la entrega gana un chequeo que bloquea.
+
+    Los dos van al verificador de T5.
+  - **Para T5.** Después de subir a la `0.14.0`, correr `python tools/huellas.py` y commitear la tabla, o el pre-push bloquea.
+  - **Scratch del writer.** El guard no deja borrarlo, así que va a la limpieza del autor:
+    - `%TEMP%\tmp.EdC1ixQMTE`
+    - `%TEMP%\tmp.lw2gH4w7ZZ`
+    - `%TEMP%\pi_respaldo.py`
+    - `%TEMP%\suite-actual.log`
+- **L10** (2026-11-25) T5, la versión.
+  - T4 entró sin conflictos en `649cd7f`. Su pre-commit corrió sobre ese mismo árbol.
+  - La versión `0.14.0` quedó en:
+    - los dos `plugin.json` y el `package.json`;
+    - la «Versión actual» y el comando de gentle-shell del README;
+    - `Doc/actualizar.md:28` y `Doc/uso.md:66`.
+  - `Doc/actualizar.md` suma «En la `0.14.0`»: la frase del `/compact` en el `CLAUDE.md` (I89), la prueba de las reglas sin bytecode (I88) y la clave `"plantillas"`, que la anota el doctor.
+  - El CHANGELOG suma la sección `0.14.0`.
+  - `tools/huellas.py` regeneró la tabla: 107 huellas de 25 versiones, de la `0.2.0` a la `0.14.0`.
+  - En el roadmap, R15 queda «lista, sin publicar», y sus seis ideas quedan «lista (`0.14.0`, sin publicar)».
+  - La página (`gh-pages`) se actualiza al publicar, igual que en la R14, porque es otra rama.
+  - Falta el verificador independiente de toda la feature (Risk items 2, 3 y 5) y, después, el ok del autor y su auditor para publicar.

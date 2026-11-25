@@ -2,6 +2,36 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.14.0
+
+**Lo que pasaba en silencio ahora se ve: un hook que falló, los hooks de un repo que no corren desde la instancia y las plantillas que quedaron viejas después de actualizar.**
+
+### Lo que cambia para ti
+
+- **Cuando un hook falla por dentro, ya no pasa callado.** Sigue dejando pasar lo que le tocaba revisar, como antes, pero la falla queda anotada. La sesión siguiente te la muestra una vez, y `/odd-ws:doctor` la lista en el ítem `hooks-fallas` hasta que la vacíes con `--arreglar hooks-fallas`.
+- **El doctor y `/odd-ws:abrir` avisan cuando un repo de tu config trae hooks propios** en su `.claude/settings.json` o `.claude/settings.local.json`. Esos hooks, como un guard o un formateador, corren solo si la sesión arranca en el repo, no desde la instancia. Es el ítem `hooks-de-repos`, y solo aparece si tu instancia usa Claude Code.
+- **Las extensiones sin capa a propósito ya no avisan para siempre.** Imágenes, recursos o archivos de build se reconocen una vez en la clave `"sin_capa"` de `workspace.config.json`. El `cómo:` del aviso te da la línea exacta, para que saques las que sí son código.
+- **El doctor te dice qué plantillas de tu instancia quedaron viejas.** El ítem `plantillas` compara tu `CLAUDE.md`, la plantilla de los tickets, el `pre-commit` y la prueba de tus reglas con las de cada versión publicada. `--arreglar plantillas` reemplaza las que no tocaste y te deja la lista de las que tienes que fusionar a mano. La primera sesión después de actualizar ya te nombra las que cambiaron.
+- **Dos arreglos en las plantillas.** El `CLAUDE.md` de la instancia ya no se contradice sobre lo que vuelve después de un `/compact`. Correr a mano la prueba de tus reglas ya no deja `__pycache__`.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión cambia dos plantillas, y el doctor te dice cuáles tienes que copiar.
+
+### Detalle técnico
+
+- **La falla de un hook (I2):**
+  - `odd_ws/fallas.py` anota en `.claude/estado/fallas-de-hooks.jsonl` cada excepción que se tragaban `correr()` de los cinco hooks y `comun.correr_hook`. Guarda el hook, el evento, la fecha y el tipo y mensaje del error, este cortado a 200 caracteres, nunca el payload.
+  - El registro tiene un tope de 20 entradas. Ningún guard cambia su veredicto.
+  - `verificar_capa._session_start` muestra las nuevas una sola vez.
+- **Los hooks de un repo (I36):** `config_loader.hooks_de_los_repos` lo usan el doctor y `ticket.py --cobertura`. Cuenta un objeto `hooks` no vacío.
+- **`sin_capa` (I87):**
+  - Es una clave opcional validada como las demás.
+  - Las extensiones que lista pasan a las esperadas en el doctor, en `--cobertura` y en el triaje.
+  - `Cobertura` suma su `ayuda`, para que el doctor y `ticket.py` digan lo mismo.
+- **Las plantillas viejas (I85):**
+  - La clave `"plantillas"` la escribe el bootstrap.
+  - `plugin/plantillas/huellas.json` guarda la huella de cada plantilla copiada en cada versión publicada. La genera `tools/huellas.py` desde las etiquetas, y el pre-push de `tools/entrega.py` exige que esté al día en un push a `main` o a una etiqueta.
+  - El `CLAUDE.md` raíz se compara con el nombre del proyecto devuelto a su marcador. Si eso no calza, la copia cuenta como editada y nunca se reemplaza.
+- **Los defectos (I88, I89):** `verificar.tests.py` y `pre-commit.tests.py` ponen `sys.dont_write_bytecode`, y la línea 14 del `CLAUDE.md` de la instancia ya no contradice al párrafo del ticket activo.
+
 ## 0.13.3
 
 **El agente ya no puede forzar un push de ninguna forma, y cada bloqueo muestra el comando que frenó. La instalación se ve de un vistazo, con la versión puesta.**

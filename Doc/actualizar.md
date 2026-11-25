@@ -25,7 +25,7 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 Instalado por git, Pi fija la etiqueta de la versión, y `pi update` no la mueve. Para pasar a la versión actual, vuelve a instalar con su etiqueta:
 
 ```text
-gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.13.3
+gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.14.0
 ```
 
 Usa `gentle-shell --link install …` si trabajas con el home de `~/.pi/agent`. Reinstalar reemplaza la entrada y pone el clon en la etiqueta nueva. Si lo instalaste desde un clon tuyo, actualiza el clon y corre `/reload` en gentle-shell.
@@ -78,6 +78,12 @@ En la `0.12.0`:
 
 - **La prueba de las reglas de cada capa**, `.claude/reglas/verificar_<capa>.tests.py`: cópiala encima desde `plugin/plantillas/reglas/verificar.tests.py`. Comprueba los `sembrado` de las reglas que bloquean (ver [calibrar las reglas que bloquean](#después-de-actualizar-calibrar-las-reglas-que-bloquean)).
 - **`CLAUDE.controles.md`** es nueva, y la usa solo una instancia creada con el perfil `controles`: en una instancia que ya existe no hay nada que copiar.
+
+En la `0.14.0`:
+
+- **El `CLAUDE.md` de la raíz**: en «Cómo se carga el contexto», la frase sobre abrir la raíz. Ahora dice que tras `/compact` el `CLAUDE.md` de un ticket no vuelve entero, y que del ticket activo vuelve un resumen. Antes se contradecía con el párrafo del ticket activo.
+- **La prueba de las reglas de cada capa**: cópiala encima desde `plugin/plantillas/reglas/verificar.tests.py`. Ahora apaga el bytecode, así que correrla a mano ya no deja `.claude/reglas/__pycache__/`.
+- **La clave `"plantillas"`**: no la escribas a mano. La anota `--arreglar plantillas` cuando ya no queda ninguna copia por fusionar.
 
 ## Después de actualizar: regenerar los writers
 
