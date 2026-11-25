@@ -214,3 +214,23 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - **RED y GREEN.** La prueba nueva cubre `> NUL`, `> nul`, `2> NUL`, `> NUL:` y `> /dev/null` en Bash, y `> NUL` y `2> nul` en PowerShell. Pide que cada uno pase con `(0, "", b"")` sin anotar ninguna falla. RED: anotaban `ValueError: path is on mount '\\.\nul', start on mount 'c:'`. GREEN: `writer_guard.tests.py` en 126/126.
     - **Risk: ítem 2.** Toca un guard. El veredicto de estos comandos no cambia, porque ya pasaban por fallar abierto; lo recomprueba el auditor.
   - **La auditoría** la hace una sesión aparte, de a una versión. Sus hallazgos y su corrección se anotan acá.
+- **L13** (2026-11-25) La auditoría de publicación, sobre `f915b0b`: **PUBLICABLE CON NOTAS**, sin bloqueantes causados por la versión.
+  - **La A1 era un bypass, no solo ruido.** Ya estaba en la base.
+    - Con `2>nul`, todo `decidir` se caía y el guard dejaba pasar.
+    - Con un writer, `git commit -m x 2>nul`, `git push 2>NUL` y `git -C <repo> reset --hard 2>nul` salían con 0 en Bash y en PowerShell.
+    - `guard_comandos` no tenía el problema.
+  - **El primer arreglo** (`be2bfeb`, en L12) miraba el último tramo `nul`. El auditor barrió los destinos en Windows 11:
+    - se caían `NUL`, `nul:`, `x\nul` y, en Bash, `\\.\nul`;
+    - `CON`, `PRN`, `AUX`, `COM1` y `nul.txt` no se caen en Windows 11, pero en Windows Server, que corre el CI y se comporta como Windows 10, `GetFullPathNameW` también los vuelve `\\.\…`.
+  - **El arreglo final.** `_es_dispositivo` sigue aceptando `NULOS`, y en Windows también toda ruta cuya `abspath` empieza con `\\.\`, que es justo el caso que hacía caer el `relpath`. Así cubre Windows 10 y 11 sin listar nombres. Se usa en los mismos tres lugares.
+  - **La prueba del bypass:** con un writer, `git commit -m x` con `2>nul`, `2>NUL`, `>nul 2>&1` y `2> NUL:`, y `git push 2>NUL`, en Bash y en PowerShell, bloquean sin anotar fallas.
+    - En la base dio RED en 10 de 12.
+    - Con el arreglo, `writer_guard.tests.py` da 127/127, también con un `GIT_INDEX_FILE` ajeno.
+    - Las pruebas usan solo formas de `NUL`, que son dispositivo en los dos Windows, como sugirió el auditor.
+  - **`config_loader.clasificar`** sigue lanzando si `_dentro` y `relpath` no coinciden. El auditor no encontró otro camino que le llegue con un dispositivo. Queda como seguimiento (ítem 3), por ser una función compartida.
+  - **W1, en el mismo lote.** El CHANGELOG, `Doc/actualizar.md` y `Doc/uso.md` decían que la primera sesión después de actualizar nombra las copias que cambiaron. Eso pasa solo si el plugin vive en una carpeta con su versión; en Pi instalado por git, avisa el doctor. Ahora lo dicen.
+  - **Seguimientos:**
+    - W2: el doctor nombra la 0.12.0 en una instancia de la 0.13.3 sin clave.
+    - W3: rutas locales en los documentos de `odd/tasks/`.
+    - A3 a A8, con la nota del auditor sobre la A7: un `try` alrededor de `aviso_de_inicio` es barato.
+  - **Risk: ítem 2.** Toca un guard. La recomprobación de la A1 y la W1 la hace el auditor.

@@ -455,6 +455,20 @@ def test_la_redireccion_al_dispositivo_nulo_pasa_sin_anotar_una_falla():
     comprobar(fallos)
 
 
+def test_un_writer_no_se_salta_el_guard_redirigiendo_al_dispositivo_nulo():
+    fallos = []
+    with instancia_temporal() as raiz:
+        for herramienta in ("Bash", "PowerShell"):
+            for comando in ("git commit -m x", "git commit -m x 2>nul", "git commit -m x 2>NUL", "git commit -m x >nul 2>&1",
+                            "git push 2>NUL", "git commit -m x 2> NUL:"):
+                e = dict(evento_bash(comando), cwd=str(raiz), tool_name=herramienta)
+                esperar(fallos, correr(e, raiz)[0] == 2, "%s en %s bloquea" % (comando, herramienta))
+        ruta = raiz / convencion.ESTADO / "fallas-de-hooks.jsonl"
+        crudo = ruta.read_bytes() if ruta.exists() else b""
+        esperar(fallos, crudo == b"", "no anota ninguna falla: %r" % crudo)
+    comprobar(fallos)
+
+
 AJENOS = ("Explore", "revisor-sql", "general-purpose", "", None, 7, ["writer-sql"], "writer-", "writer-SQL", "Writer-sql",
           "odd-ws:writer-sql", "xwriter-sql", "writer-sql ", "writer-sql:x", "writer--x", "writer-_x")
 WRITERS = ("writer-sql", "writer-web", "writer-movil", "writer-otra", "writer-a1-b2", "writer-9")
