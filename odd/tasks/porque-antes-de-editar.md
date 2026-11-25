@@ -66,8 +66,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1 | El blame antes de editar | un explorador y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `bfd7115` |
-| T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 (motivo: el respaldo de contexto del orquestador) | hecha (L5) | |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
+| T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 (motivo: el respaldo de contexto del orquestador) | hecha (L5) | `e49fdbc` |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L6); verificador pendiente; sin publicar | |
 
 ## Log
 
@@ -150,3 +150,13 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El ejemplo de regla de la referencia** se calibró en una instancia de prueba: `EJ-07 puede bloquear`.
   - **Risk: ninguno** de los ítems 1 a 6. El script es nuevo y de solo lectura, y en `cerrar` cambia el texto y se mueve un párrafo.
   - **Scratch del writer:** `%TEMP%\tmp.ziox3RJBtD` y la copia de mutaciones en el scratchpad de la sesión. Van a la limpieza del autor.
+- **L6** (2026-11-25) T3, la versión, inline.
+  - La `0.16.0` quedó en:
+    - los dos `plugin.json` y el `package.json`;
+    - el README;
+    - `Doc/actualizar.md:28` y `Doc/uso.md:66`.
+  - El CHANGELOG suma su sección, con la clave `porque_al_editar`.
+  - Esta versión no cambia ninguna plantilla de la instancia: `git diff 44fffdf..HEAD -- plugin/plantillas` sale vacío.
+  - `tools/huellas.py` dio 107 huellas, hasta la `0.16.0`. Como en la R16, al publicar hay que regenerar la tabla después de etiquetar las versiones anteriores.
+  - En el roadmap, R18 queda «lista, sin publicar», con I90 e I91 «lista (`0.16.0`, sin publicar)».
+  - Falta el verificador independiente (Risk items 2 y 3, por I90) y, después, el ok del autor y su auditor.

@@ -2,6 +2,31 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.16.0
+
+**El porqué antes de editar: el agente ve por qué existen las líneas que toca, y lo que un ticket quita no vuelve sin que alguien lo decida.**
+
+### Lo que cambia para ti
+
+- **Después de editar, el agente ve el porqué de las líneas que reemplazó.** Lee la fecha y una línea del commit que las escribió, sacadas del `git blame`, sin modelo. Así puede reconsiderar la edición antes de seguir. Si el blame falla, lo dice; nunca lo da por limpio.
+- **Antes de editar, si la edición toca una desviación conocida de la instancia, te pregunta.** En Codex, y en Pi sin pantalla, la frena.
+- **Lo que un ticket quita vuelve como regla.** Al cerrar, si el ticket borró un archivo o sacó una dependencia de su manifiesto, `/odd-ws:cerrar` te pregunta si puede volver. Si no puede, te propone la regla que lo frena, con la línea que lo volvería a agregar como caso sembrado.
+- **Lo ajustas con `"porque_al_editar"`** en `workspace.config.json`: `"todo"` (por defecto), `"indice"` (solo la pregunta de las desviaciones) o `"apagado"`.
+- Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla de la instancia.
+
+### Detalle técnico
+
+- **El porqué (I90):**
+  - `odd_ws/porque.py` reúne el blame y la ubicación por contenido.
+  - El evento `Herramienta` suma `reemplazos`, el texto que se reemplaza, que llenan los tres hosts.
+  - En el `PreToolUse`, `verificar_capa` pregunta solo ante una desviación, y no corre git si el archivo no tiene ninguna.
+  - En el `PostToolUse`, suma el contexto del blame en `HEAD`, con su propio plazo de 1,5 s y el entorno limpio.
+  - El sub-chequeo va aislado, así que una falla suya nunca borra el bloqueo del primer toque.
+- **Lo que se quita (I91):**
+  - `quitado.py`, de solo lectura, lista los archivos borrados (con `--find-renames`) y las dependencias que salieron de `package.json`, `requirements*.txt`, `pyproject.toml`, `go.mod`, `*.csproj`, `build.gradle(.kts)` y `Cargo.toml`.
+  - `cerrar` lo corre en su triaje.
+  - La foto de la entrega pasó a `references/entrega.md`.
+
 ## 0.15.0
 
 **Revisar gasta menos: lo determinista se encuentra antes de lanzar a los revisores, sus reportes ya no llenan tu contexto, lo que ya se aprobó como desviación no se vuelve a plantear y lo que se guarda sale con los secretos tapados.**
