@@ -17,6 +17,7 @@ from odd_ws import enlaces
 from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws import paquetes
+from odd_ws import plantillas_instancia
 from odd_ws import raiz_del_plugin
 from odd_ws.capacidades import INICIO, POST, PRE
 from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git,
@@ -637,9 +638,10 @@ def _session_start(evento, config):
                     except OSError:
                         pass
     aviso = raiz_del_plugin.seguir_al_vigente(config["raiz"])
+    plantillas = plantillas_instancia.aviso_de_inicio(config["raiz"], raiz_del_plugin.vigente()) if aviso else None
     anotadas = fallas.aviso_de_inicio(config["raiz"])
     ticket = _ticket_activo(evento, config)
-    partes = [texto for texto in (aviso, anotadas, ticket.texto if ticket else None) if texto]
+    partes = [texto for texto in (aviso, plantillas, anotadas, ticket.texto if ticket else None) if texto]
     return Contexto("\n\n".join(partes)) if partes else Permitir()
 
 

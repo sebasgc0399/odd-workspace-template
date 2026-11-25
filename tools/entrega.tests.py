@@ -562,6 +562,38 @@ def test_con_el_readme_los_docs_y_la_pagina_al_dia_la_entrega_pasa_en_main_y_en_
         asegurar(e.correr([a_main(sha), a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]), 0, "entrega limpia\n")
 
 
+HUELLAS = AQUI / "huellas.py"
+TABLA_DE_HUELLAS = "plugin/plantillas/huellas.json"
+
+
+def generar_huellas(e):
+    resultado = subprocess.run([sys.executable, str(HUELLAS)], cwd=e.obra, env=e.env, capture_output=True)
+    assert resultado.returncode == 0, resultado
+    return (e.obra / TABLA_DE_HUELLAS).read_text(encoding="utf-8")
+
+
+def entrega_con(e, version, archivos):
+    sha = e.commit({PLUGIN_JSON: plugin_json(version), "CHANGELOG.md": notas_de(version), **CON_WORKFLOW, **archivos, **docs_al_dia(version)})
+    e.etiquetar(version)
+    e.pagina(pagina_de(version))
+    return sha
+
+
+def test_la_tabla_de_huellas_desfasada_o_que_falta_bloquea_en_main_y_en_la_etiqueta_y_al_dia_pasa():
+    with Escenario() as e:
+        e.entrega_inicial()
+        plantillas = {"plugin/plantillas/CLAUDE.md": "# {{nombre}}\n`{{tickets}}/`\n", "plugin/plantillas/pre-commit": "#!/bin/sh\n"}
+        sha = entrega_con(e, "0.2.0", plantillas)
+        for lineas in ([a_main(sha)], [a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]):
+            asegurar(e.correr(lineas), 1, "", "ENTREGA BLOQUEADA", f"{TABLA_DE_HUELLAS} en {sha[:7]} no está al día", "python tools/huellas.py")
+        (e.obra / PLUGIN_JSON).write_text(plugin_json("0.3.0"), encoding="utf-8")
+        tabla = generar_huellas(e)
+        sha = entrega_con(e, "0.3.0", {TABLA_DE_HUELLAS: tabla})
+        asegurar(e.correr([a_main(sha), a_etiqueta("0.3.0", e.git_salida("rev-parse", "odd-ws--v0.3.0"))]), 0, "entrega limpia\n")
+        sha = entrega_con(e, "0.4.0", {"plugin/plantillas/pre-commit": "#!/bin/sh\necho 4\n"})
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", f"{TABLA_DE_HUELLAS} en {sha[:7]} no está al día")
+
+
 def test_con_la_pagina_y_el_readme_desfasados_una_etiqueta_ajena_a_su_version_sigue_frenando_con_su_mensaje():
     with Escenario() as e:
         e.entrega_inicial("0.3.0")
@@ -612,6 +644,9 @@ class RepoConHook:
         shutil.copy(BARRIDO, e.obra / "tools" / "barrido.py")
         shutil.copy(SCRIPT, e.obra / "tools" / "entrega.py")
         shutil.copy(NOTAS, e.obra / "tools" / "notas.py")
+        shutil.copy(AQUI / "huellas.py", e.obra / "tools" / "huellas.py")
+        shutil.copytree(AQUI.parent / "plugin" / "scripts", e.obra / "plugin" / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.tests.py"))
         shutil.copytree(HOOKS, e.obra / ".githooks")
         e.git("config", "core.hooksPath", ".githooks")
 

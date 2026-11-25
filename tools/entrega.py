@@ -6,6 +6,9 @@ import re
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True
+
+import huellas
 import notas
 
 CEROS = "0" * 40
@@ -346,6 +349,28 @@ def desfases_de_la_entrega(raiz, sha, pagina):
     return "\n".join(lineas)
 
 
+def tabla_desfasada(raiz, sha):
+    try:
+        esperada = huellas.generar(raiz, sha)
+    except huellas.NoSePuede as error:
+        raise NoSePuedeVerificar(str(error))
+    if not existe_en(raiz, sha, huellas.TABLA):
+        if not any(esperada.values()):
+            return None
+        escrita = None
+    else:
+        try:
+            escrita = json.loads(leer(raiz, sha, huellas.TABLA).decode("utf-8-sig"))
+        except ValueError:
+            escrita = None
+    if escrita == esperada:
+        return None
+    return (
+        f"{huellas.TABLA} en {sha[:7]} no está al día con las etiquetas {PATRON_ETIQUETA} y las plantillas de {huellas.CARPETA}: "
+        "el doctor de una instancia no reconocería sus copias. Corre «python tools/huellas.py» después de subir la versión y commitea la tabla"
+    )
+
+
 def revisar(entrada):
     raiz = None
     revisadas = 0
@@ -379,7 +404,7 @@ def revisar(entrada):
     pagina = la_pagina(raiz)
     avisos = [SIN_PAGINA] if pagina is None else []
     for commit in dict.fromkeys(commits):
-        problema = desfases_de_la_entrega(raiz, commit, pagina)
+        problema = desfases_de_la_entrega(raiz, commit, pagina) or tabla_desfasada(raiz, commit)
         if problema:
             return revisadas, problema, avisos
     return revisadas, None, avisos

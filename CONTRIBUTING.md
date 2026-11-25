@@ -17,7 +17,7 @@ Necesitas Python 3.12 o más, porque las suites lo piden, y Node 22.18 o más (e
 |---|---|
 | `.githooks/pre-commit` | La autoprueba del barrido, el barrido de lo stageado, el chequeo de marcadores de conflicto, todas las suites `*.tests.py` y las `*.test.ts` del shim de Pi. En Windows tarda unos 20 minutos, y un pre-commit corriendo a la vez que otro puede hacer fallar las pruebas de latencia |
 | `.githooks/commit-msg` | El barrido del mensaje del commit |
-| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión, sus notas en `CHANGELOG.md` y que el README y la página digan esa versión y los mismos requisitos |
+| `.githooks/pre-push` | El barrido de todo lo que se empuja (contenido, rutas y mensajes) y después el chequeo de la entrega (`tools/entrega.py`): la etiqueta de la versión, sus notas en `CHANGELOG.md`, que el README y la página digan esa versión y los mismos requisitos, y que la tabla de huellas de las plantillas esté al día |
 
 Los tres corren Python con el primero que arranca de `python3`, `python` y `py` (`.githooks/python.sh`); si no arranca ninguno, frenan con el motivo.
 
@@ -36,6 +36,7 @@ node --test plugin/shim/*.test.ts
 ## Una entrega
 
 1. Sube `version` en `plugin/.claude-plugin/plugin.json`, en `plugin/.codex-plugin/plugin.json` y en el `package.json` de la raíz (las tres tienen que coincidir: lo exige un test), escribe sus notas en una sección `## <versión>` de `CHANGELOG.md` y commitea las dos cosas juntas.
+   - En el mismo commit, después de subir la versión, corre `python3 tools/huellas.py`: reescribe `plugin/plantillas/huellas.json` con la huella de cada plantilla que el bootstrap copia a la instancia, en cada etiqueta publicada y en la versión nueva. El doctor de una instancia la usa para saber qué copias quedaron viejas.
 2. En el mismo commit, sube la «Versión actual» del README y la versión de los comandos de instalación: cada `odd-ws--v` del README, de `Doc/uso.md` y de `Doc/actualizar.md` lleva el número de la versión nueva.
 3. Commitea la página de la versión en la rama `gh-pages` **antes de empujar `main`**: su «Versión actual», el pie, el comando de instalación y la tabla de requisitos, que tiene que ser igual a la de «Instalación» en el README.
 4. Etiqueta con `claude plugin tag ./plugin --dry-run` y después sin `--dry-run`. Crea `odd-ws--v<versión>` y exige el árbol limpio.
@@ -45,7 +46,7 @@ node --test plugin/shim/*.test.ts
    git push origin <sha>:refs/heads/main refs/tags/odd-ws--v<versión>
    ```
 
-   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`. También frena cualquier etiqueta `odd-ws--v*` empujada cuyo commit no tenga sus notas en `CHANGELOG.md`, y cualquier push a `main` o a una etiqueta cuyo README o página no cumplan los pasos 2 y 3 con la versión de su `plugin.json`. La página la lee de tu rama local `gh-pages` o, si no la tienes, de `origin/gh-pages`; sin ninguna de las dos, avisa y deja pasar.
+   El pre-push frena un push a `main` que cambie `plugin/` si el commit no lleva la etiqueta de la versión de su `plugin.json`. También frena cualquier etiqueta `odd-ws--v*` empujada cuyo commit no tenga sus notas en `CHANGELOG.md`, cualquier push a `main` o a una etiqueta cuyo README o página no cumplan los pasos 2 y 3 con la versión de su `plugin.json`, y uno cuya tabla de huellas no sea la que sale de `tools/huellas.py` (el paso 1). La página la lee de tu rama local `gh-pages` o, si no la tienes, de `origin/gh-pages`; sin ninguna de las dos, avisa y deja pasar.
 6. Empuja la página después:
 
    ```text
@@ -82,8 +83,8 @@ La sección `## <versión>` es lo que lee la comunidad en el release, así que v
 | `plugin/hooks/` | Los hooks del plugin en cada CLI: `hooks.json` (Claude Code), `hooks.codex.json` y `hooks.pi.json` |
 | `plugin/shim/` | El shim de Pi en TypeScript (`pi.ts` y `nucleo.ts`), que lleva los eventos de Pi a los hooks de Python, con sus `*.test.ts` |
 | `plugin/scripts/` | Los scripts de las skills y los hooks, cada uno con su `*.tests.py`. `odd_ws/` es la biblioteca que importan los hooks y las reglas de la instancia |
-| `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md` (o `CLAUDE.controles.md` con el perfil `controles`), `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json` |
-| `tools/` | `barrido.py` (el barrido de confidencialidad), `entrega.py` (el chequeo de la entrega) y `notas.py` (saca del CHANGELOG las notas de una versión). Son del repo, no viajan con el plugin |
+| `plugin/plantillas/` | Lo que el bootstrap copia a la instancia: `CLAUDE.md` (o `CLAUDE.controles.md` con el perfil `controles`), `ticket.md`, `capa.md`, `criterios.md`, `revisor.md`, `revisor-diseno.md`, `writer.md`, `reglas/`, `pre-commit` y `bootstrap.ejemplo.json`, más `huellas.json`, la tabla de huellas que genera `tools/huellas.py` |
+| `tools/` | `barrido.py` (el barrido de confidencialidad), `entrega.py` (el chequeo de la entrega), `notas.py` (saca del CHANGELOG las notas de una versión) y `huellas.py` (escribe `plugin/plantillas/huellas.json`, la huella de cada plantilla copiada en cada versión). Son del repo, no viajan con el plugin |
 | `.githooks/` | Los hooks de git del repo |
 | `.github/workflows/release.yml` | Publica el release de cada etiqueta `odd-ws--v*` |
 | `CHANGELOG.md` | Las notas de cada versión, una sección `## <versión>` por entrega |

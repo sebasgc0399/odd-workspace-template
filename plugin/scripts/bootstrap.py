@@ -10,6 +10,7 @@ from pathlib import Path
 
 import config_loader
 from odd_ws import capas as convencion
+from odd_ws import plantillas_instancia
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, entorno_git
 
 VERSION_DE_SPEC = 1
@@ -140,6 +141,7 @@ def _cargar_en_temporal(contenidos, prefijo):
             config_loader.hooks_apagados(copia)
             config_loader.perfil(copia)
             config_loader.sin_capa(copia)
+            config_loader.plantillas(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 
@@ -194,11 +196,15 @@ def _objeto_existente(ruta):
     return datos if isinstance(datos, dict) else None
 
 
+def _sin_plantillas(config):
+    return {clave: valor for clave, valor in config.items() if clave != config_loader.CLAVE_PLANTILLAS}
+
+
 def _coincidir_con_lo_existente(spec, raiz):
     if raiz is None:
         return
     config = _objeto_existente(Path(raiz) / config_loader.NOMBRE)
-    if config is not None and _canonico(config) != _canonico(spec["config"]):
+    if config is not None and _canonico(_sin_plantillas(config)) != _canonico(_sin_plantillas(spec["config"])):
         raise SpecInvalida(
             f"la config de la spec no es la de {raiz}/{config_loader.NOMBRE}, que ya existe: el bootstrap no la reescribe, "
             "así que la spec tiene que traerla tal cual (o cámbiala a mano antes)")
@@ -234,9 +240,16 @@ def validar_spec(spec, raiz=None):
     _validar_config(spec, raiz)
 
 
+def _config_con_plantillas(config):
+    version, _ = plantillas_instancia.version_del_plugin(RAIZ_DEL_PLUGIN)
+    if version is None:
+        return config
+    return {**config, config_loader.CLAVE_PLANTILLAS: version}
+
+
 def _generar_config(spec):
     return [
-        (config_loader.NOMBRE, serializar(spec["config"])),
+        (config_loader.NOMBRE, serializar(_config_con_plantillas(spec["config"]))),
         (config_loader.NOMBRE_LOCAL, serializar({**spec.get("local", {}), "plugin_root": str(RAIZ_DEL_PLUGIN)})),
         (convencion.GITIGNORE, "".join(linea + "\n" for linea in LINEAS_DE_GITIGNORE)),
     ]

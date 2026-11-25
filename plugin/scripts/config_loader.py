@@ -33,6 +33,8 @@ NOTA_ESPERADOS = "un cambio en ellos lleva /odd-ws:revisar a modo completo"
 NOTA_ESPERADOS_CONTROLES = "ninguna regla de capa los chequea"
 ID_COBERTURA = "capas-cobertura"
 CLAVE_SIN_CAPA = "sin_capa"
+CLAVE_PLANTILLAS = "plantillas"
+VERSION_DEL_PLUGIN_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 SUMAR = f"Si son del mismo lenguaje que una capa (por ejemplo, .mjs o .js en una capa ts), súmalos a sus extensions en {NOMBRE}"
 SUMAR_A_UNA_CAPA = SUMAR + "; si no, el aviso queda."
 CAUSA_COBERTURA = "Un cambio en esos archivos lleva el triaje de /odd-ws:revisar a modo completo, porque no puede clasificarlos."
@@ -364,6 +366,22 @@ def sin_capa(raiz):
     config = _leer_objeto(Path(raiz) / NOMBRE)
     _version(config)
     return sin_capa_de(config)
+
+
+def plantillas_de(config):
+    if CLAVE_PLANTILLAS not in config:
+        return None
+    valor = config[CLAVE_PLANTILLAS]
+    if not isinstance(valor, str) or VERSION_DEL_PLUGIN_RE.fullmatch(valor) is None:
+        raise ConfigRota(f'{CLAVE_PLANTILLAS} debe ser la versión del plugin con que se copiaron las plantillas de la instancia '
+                         f'(X.Y.Z, por ejemplo "0.14.0"), no {valor!r}')
+    return valor
+
+
+def plantillas(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return plantillas_de(config)
 
 
 def perfil_de(config):

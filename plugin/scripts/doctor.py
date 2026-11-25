@@ -17,6 +17,7 @@ from odd_ws import capas as convencion
 from odd_ws import fallas
 from odd_ws import hosts as registro_de_hosts
 from odd_ws import paquetes
+from odd_ws import plantillas_instancia
 from odd_ws import raiz_del_plugin
 from odd_ws.comun import COMANDO_RUTAS_DE_HOOKS, decidir_hooks, host_de
 
@@ -98,6 +99,12 @@ AYUDA_FALLAS = ("Un hook que falla deja pasar lo que le tocaba revisar, así que
                 "Si la misma falla se repite, repórtala con el hook, el evento y el error. Cuando ya las viste, --arreglar vacía el registro.")
 AYUDA_FALLAS_ILEGIBLE = "Bórralo a mano: el próximo hook que falle lo vuelve a crear."
 ULTIMAS_FALLAS = 3
+AYUDA_PLANTILLAS = (f"Fusiona a mano las editadas ANTES de correr --arreglar {plantillas_instancia.ID}: reemplaza las copias sin tocar con "
+                    f'la plantilla del plugin y anota su versión en "{config_loader.CLAVE_PLANTILLAS}" de {config_loader.NOMBRE}. Qué '
+                    f"cambió en cada versión está en {plantillas_instancia.DONDE_LEER}, en el repo del plugin («Después de actualizar: las "
+                    "plantillas de la instancia»). Después, commitea las copias.")
+AYUDA_PLANTILLAS_ANOTAR = (f'--arreglar {plantillas_instancia.ID} anota la versión del plugin en "{config_loader.CLAVE_PLANTILLAS}" de '
+                           f"{config_loader.NOMBRE}: no toca ninguna copia.")
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agrega "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -310,7 +317,8 @@ def chequear_config(raiz):
         return resultado("config", FALTA, str(error), None, AYUDA_RUTAS)
     for validar, ayuda in ((config_loader.prefijo_de_tickets, AYUDA_TICKETS), (config_loader.pide_aprobar_commits, AYUDA_CLAVE),
                            (config_loader.repos_propios, AYUDA_CLAVE), (config_loader.hooks_apagados, AYUDA_CLAVE),
-                           (config_loader.perfil, AYUDA_CLAVE), (config_loader.sin_capa, AYUDA_CLAVE)):
+                           (config_loader.perfil, AYUDA_CLAVE), (config_loader.sin_capa, AYUDA_CLAVE),
+                           (config_loader.plantillas, AYUDA_CLAVE)):
         try:
             validar(raiz)
         except config_loader.ConfigRota as error:
@@ -371,6 +379,42 @@ def chequear_fallas_de_hooks(ctx):
         return fallas.vaciar(raiz)
 
     return [resultado(id, AVISO, detalle, None, AYUDA_FALLAS, arreglo)]
+
+
+def _base_de_las_plantillas(revision):
+    if revision.anotada is not None:
+        return f"anotadas en la {revision.anotada}"
+    de_donde = (f"por las copias sin tocar, la {revision.inferida}" if revision.inferida is not None
+                else "ninguna copia coincide con una versión publicada")
+    return f"sin versión anotada en {config_loader.NOMBRE} ({de_donde})"
+
+
+def chequear_plantillas(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id = plantillas_instancia.ID
+    revision = plantillas_instancia.revisar(raiz, ctx.plugin)
+    if revision.rota:
+        return [resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")]
+    if revision.error:
+        return [resultado(id, AVISO, revision.error, None, revision.ayuda)]
+    actual = revision.actual
+    if plantillas_instancia.al_dia(revision):
+        if revision.anotada == actual:
+            return [resultado(id, OK, f"las plantillas copiadas están anotadas en la {actual}, la del plugin")]
+        return [resultado(id, OK, f"anotadas en la {revision.anotada}: ninguna plantilla copiada cambió hasta la {actual}, la del plugin")]
+
+    def arreglo():
+        return plantillas_instancia.reemplazar(raiz, ctx.plugin)
+
+    detalle = f"{_base_de_las_plantillas(revision)} y el plugin es la {actual}"
+    if not revision.pendientes:
+        return [resultado(id, AVISO, f"{detalle}; las copias ya están al día: falta anotar la versión", None, AYUDA_PLANTILLAS_ANOTAR, arreglo)]
+    cambiaron = ", ".join(f"{r.ruta} ({plantillas_instancia.QUE_HACER[r.estado]})" for r in revision.pendientes)
+    desde = f"después de la {revision.base}" if revision.base is not None else "todas las versiones"
+    detalle = f"{detalle}; cambiaron: {cambiaron}; lee en {plantillas_instancia.DONDE_LEER} lo de {desde} hasta la {actual}"
+    return [resultado(id, AVISO, detalle, None, AYUDA_PLANTILLAS, arreglo)]
 
 
 def chequear_perfil(ctx):
@@ -847,6 +891,7 @@ def diagnosticar(ctx):
         *chequear_perfil(ctx),
         *chequear_hooks_de_repos(ctx),
         *chequear_fallas_de_hooks(ctx),
+        *chequear_plantillas(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),
