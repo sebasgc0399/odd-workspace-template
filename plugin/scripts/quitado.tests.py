@@ -303,8 +303,98 @@ MANIFIESTOS = {
 }
 
 
-def _probar_manifiesto(clave):
-    base, actual, esperadas = MANIFIESTOS[clave]
+PACKAGE_PARECIDO_BASE = """{
+  "name": "app",
+  "scripts": {
+    "dependencies": "npm ls --all",
+    "lodash": "node scripts/lodash.js"
+  },
+  "overrides": {
+    "react": "17.0.2"
+  },
+  "dependencies": {
+    "lodash-es": "^4.17.21",
+    "lodash": "^4.17.21",
+    "react": "^17.0.2"
+  }
+}
+"""
+PACKAGE_PARECIDO_ACTUAL = PACKAGE_PARECIDO_BASE.replace('    "lodash": "^4.17.21",\n', "").replace(',\n    "react": "^17.0.2"', "")
+
+PYPROJECT_PARECIDO_BASE = """[project]
+name = "pytest-timer"
+description = 'a rich client'
+dependencies = [
+    "colorama",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest-cov",
+    "pytest",
+]
+"""
+PYPROJECT_PARECIDO_ACTUAL = """[project]
+name = "pytest-timer"
+description = 'a rich client'
+dependencies = ["colorama"]
+"""
+
+CSPROJ_PARECIDO_BASE = """<Project Sdk="Microsoft.NET.Sdk">
+  <!-- <PackageReference Include="Dapper" Version="1.0.0" /> -->
+  <ItemGroup>
+    <PackageReference Include="Dapper.Contrib" Version="2.0.0" />
+    <PackageReference Include="Dapper" Version="2.0.0" />
+  </ItemGroup>
+</Project>
+"""
+CSPROJ_PARECIDO_ACTUAL = CSPROJ_PARECIDO_BASE.replace('    <PackageReference Include="Dapper" Version="2.0.0" />\n', "")
+
+CARGO_PARECIDO_BASE = """[package]
+name = "app"
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+serde_json = "1"
+serde = { version = "1", optional = true }
+anyhow.workspace = true
+"""
+CARGO_PARECIDO_ACTUAL = """[package]
+name = "app"
+
+[dependencies]
+serde_json = "1"
+"""
+
+PARECIDOS = {
+    "package": ({"package.json": PACKAGE_PARECIDO_BASE}, {"package.json": PACKAGE_PARECIDO_ACTUAL},
+                [("package.json", "lodash", '"lodash": "^4.17.21",'), ("package.json", "react", '"react": "^17.0.2"')]),
+    "requirements": ({"requirements.txt": "pytest-timer==1.0\n# pytest va en dev\npytest==8.0\n"}, {"requirements.txt": "pytest-timer==1.0\n"},
+                     [("requirements.txt", "pytest", "pytest==8.0")]),
+    "pyproject": ({"pyproject.toml": PYPROJECT_PARECIDO_BASE}, {"pyproject.toml": PYPROJECT_PARECIDO_ACTUAL},
+                  [("pyproject.toml", "pytest", '"pytest",'), ("pyproject.toml", "pytest-cov", '"pytest-cov",'),
+                   ("pyproject.toml", "rich", '"rich",')]),
+    "go": ({"go.mod": "module example.com/app\n\nrequire (\n\tgithub.com/pkg/errors/v2 v2.0.0\n\t// github.com/pkg/errors v0.8.0\n"
+                      "\tgithub.com/pkg/errors v0.9.1\n)\n\nreplace github.com/pkg/errors => ../errors\n"},
+           {"go.mod": "module example.com/app\n\nrequire (\n\tgithub.com/pkg/errors/v2 v2.0.0\n)\n"},
+           [("go.mod", "github.com/pkg/errors", "github.com/pkg/errors v0.9.1")]),
+    "csproj": ({"Api.csproj": CSPROJ_PARECIDO_BASE}, {"Api.csproj": CSPROJ_PARECIDO_ACTUAL},
+               [("Api.csproj", "Dapper", '<PackageReference Include="Dapper" Version="2.0.0" />')]),
+    "gradle": ({"build.gradle": "dependencies {\n    // implementation 'com.squareup.retrofit2:retrofit:2.8.0'\n"
+                                "    implementation 'com.squareup.retrofit2:retrofit-mock:2.9.0'\n"
+                                "    implementation 'com.squareup.retrofit2:retrofit:2.9.0'\n}\n"},
+               {"build.gradle": "dependencies {\n    implementation 'com.squareup.retrofit2:retrofit-mock:2.9.0'\n}\n"},
+               [("build.gradle", "com.squareup.retrofit2:retrofit", "implementation 'com.squareup.retrofit2:retrofit:2.9.0'")]),
+    "cargo": ({"Cargo.toml": CARGO_PARECIDO_BASE}, {"Cargo.toml": CARGO_PARECIDO_ACTUAL},
+              [("Cargo.toml", "anyhow", "anyhow.workspace = true"), ("Cargo.toml", "serde", 'serde = { version = "1", optional = true }')]),
+}
+
+
+def _probar_manifiesto(clave, casos=MANIFIESTOS):
+    base, actual, esperadas = casos[clave]
     with temporal() as raiz:
         repo, _ = repo_con_base(raiz, base)
         commitear(raiz, repo, actual)
@@ -347,6 +437,34 @@ def test_build_gradle_kts_lista_la_dependencia_que_salio():
 
 def test_cargo_toml_lista_lo_que_salio_de_dependencies_y_dev_dependencies():
     _probar_manifiesto("cargo")
+
+
+def test_package_json_la_linea_es_la_de_su_seccion_aunque_el_nombre_aparezca_antes_en_scripts_u_overrides():
+    _probar_manifiesto("package", PARECIDOS)
+
+
+def test_requirements_la_linea_es_la_del_nombre_exacto_y_no_la_de_uno_parecido():
+    _probar_manifiesto("requirements", PARECIDOS)
+
+
+def test_pyproject_la_linea_es_la_del_arreglo_de_dependencias_y_no_la_del_nombre_o_la_descripcion():
+    _probar_manifiesto("pyproject", PARECIDOS)
+
+
+def test_go_mod_la_linea_es_la_del_require_y_no_la_de_un_comentario_un_replace_o_una_v2():
+    _probar_manifiesto("go", PARECIDOS)
+
+
+def test_csproj_la_linea_es_la_del_packagereference_y_no_la_de_un_comentario_o_uno_parecido():
+    _probar_manifiesto("csproj", PARECIDOS)
+
+
+def test_build_gradle_la_linea_es_la_de_la_declaracion_y_no_la_de_un_comentario_o_un_artefacto_parecido():
+    _probar_manifiesto("gradle", PARECIDOS)
+
+
+def test_cargo_toml_la_linea_es_la_de_su_tabla_y_no_la_de_features():
+    _probar_manifiesto("cargo", PARECIDOS)
 
 
 def test_una_subida_de_version_o_un_cambio_de_seccion_no_es_una_baja():

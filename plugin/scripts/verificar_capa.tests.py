@@ -2629,14 +2629,14 @@ def test_porque_despues_de_editar_trae_fecha_hash_y_primera_linea_del_cuerpo_sin
         assert texto is not None, texto
         lineas = texto.split("\n")
         assert "src/ventas.sql" in lineas[0], lineas
-        assert lineas[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas.", "2026-04-01"),
+        assert lineas[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas. Segunda linea del cuerpo.", "2026-04-01"),
                               w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15")], lineas
-        for afuera in ("Co-Authored-By", "Signed-off-by", "Segunda", "solo trailers", "redondeo\n"):
+        for afuera in ("Co-Authored-By", "Signed-off-by", "solo trailers", "redondeo\n"):
             assert afuera not in texto, (afuera, texto)
         texto = contexto(w.correr(editar(w.ventas, "linea 02"))[1])
         assert texto.split("\n")[1:] == [w.linea("A", "La base que copia el SP de la central.", "2026-01-10")], texto
         texto = contexto(w.correr(evento(w.ventas, "Write"))[1])
-        assert texto.split("\n")[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas.", "2026-04-01"),
+        assert texto.split("\n")[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas. Segunda linea del cuerpo.", "2026-04-01"),
                                          w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15")], texto
 
 
@@ -2756,6 +2756,99 @@ def test_porque_en_pi_la_pausa_pregunta_con_pantalla_y_sin_ella_bloquea_con_el_t
         codigo, salida, _ = M.correr(pi_evento("tool_result", "edit", entrada, w.raiz), raiz=w.raiz, plazo=25, host="pi")
         datos = json.loads(salida)
         assert datos["accion"] == "contexto" and "2026-02-15" in datos["texto"], datos
+
+
+SP_CON_DOS_CATCH = """CREATE PROCEDURE ventas.registrar_venta
+AS
+BEGIN
+    BEGIN TRY
+        EXEC ventas.encolar_envio @Id
+    END TRY
+    BEGIN CATCH
+    END CATCH
+
+    BEGIN TRY
+        UPDATE dbo.Venta SET Estado = 2 WHERE Id = @Id
+    END TRY
+    BEGIN CATCH
+    END CATCH
+END
+"""
+PRIMER_CATCH = "        EXEC ventas.encolar_envio @Id\n    END TRY\n    BEGIN CATCH\n    END CATCH"
+SEGUNDO_CATCH = "        UPDATE dbo.Venta SET Estado = 2 WHERE Id = @Id\n    END TRY\n    BEGIN CATCH\n    END CATCH"
+
+
+def parche_del_catch(ruta, catch):
+    lineas = catch.split("\n")
+    return parche_codex("*** Update File: %s" % ruta, "@@", *(" " + linea for linea in lineas[:-1]), "+        THROW;", " " + lineas[-1])
+
+
+def test_porque_la_pausa_mira_solo_la_copia_de_la_desviacion_y_no_las_iguales():
+    with git_aislado(), Porque() as w:
+        sp = escribir(w.db, "src/sp.sql", SP_CON_DOS_CATCH)
+        hash_ = commitear_con_fecha(w.db, "sp\n\nEl encolado a SAP no aborta la venta.\n", "2026-06-01T10:00:00+00:00")
+        w.desviacion(6, 8, ruta="src/sp.sql", hash_=hash_[:7])
+        for arriba, hoy in ((0, "6-8"), (2, "8-10")):
+            escribir(w.db, "src/sp.sql", "-- arriba\n" * arriba + SP_CON_DOS_CATCH)
+            assert w.correr(editar(sp, SEGUNDO_CATCH, nombre="PreToolUse")) == (0, "", b""), (arriba, "Claude Code: la otra copia no pausa")
+            otra = M.correr(codex(parche_del_catch(sp, SEGUNDO_CATCH)), raiz=w.raiz, plazo=25, host="codex")
+            assert otra == (0, "", b""), (arriba, "Codex: la otra copia no bloquea", otra)
+            motivo = preguntado(w.correr(editar(sp, PRIMER_CATCH, nombre="PreToolUse")))
+            assert motivo is not None and "hoy en las líneas %s (" % hoy in motivo, (arriba, motivo)
+            motivo = negado_en_codex(M.correr(codex(parche_del_catch(sp, PRIMER_CATCH)), raiz=w.raiz, plazo=25, host="codex"))
+            assert motivo is not None and "hoy en las líneas %s (" % hoy in motivo, (arriba, motivo)
+
+
+def test_porque_la_pausa_de_una_desviacion_de_una_linea_no_alcanza_a_sus_copias():
+    lineas = ["-- linea %02d" % n for n in range(1, 36)]
+    lineas[19:21] = ["    SELECT 1", "END"]
+    lineas[29:31] = ["    SELECT 2", "END"]
+    with Porque() as w:
+        sp = escribir(w.db, "src/dos.sql", "\n".join(lineas) + "\n")
+        hash_ = commitear_con_fecha(w.db, "dos\n\nEl primer END cierra el SP viejo.\n", "2026-06-01T10:00:00+00:00")
+        w.desviacion(21, 21, ruta="src/dos.sql", hash_=hash_[:7])
+        assert w.correr(editar(sp, "    SELECT 2\nEND", nombre="PreToolUse")) == (0, "", b""), "el END de la línea 31 no es la desviación"
+        motivo = preguntado(w.correr(editar(sp, "    SELECT 1\nEND", nombre="PreToolUse")))
+        assert motivo is not None and "hoy en las líneas 21-21 (" in motivo, motivo
+
+
+def test_porque_el_blame_ignora_los_espacios_y_no_busca_copias_entre_archivos():
+    real, llamadas = subprocess.run, []
+
+    def anotado(args, *a, **k):
+        if "blame" in args:
+            llamadas.append(list(args))
+        return real(args, *a, **k)
+
+    with Porque() as w:
+        with subprocess_falso(anotado):
+            texto = contexto(w.correr(editar(w.ventas, "redondeo 05"))[1])
+        assert texto is not None and len(llamadas) == 1, (texto, llamadas)
+        blame = llamadas[0][llamadas[0].index("blame"):]
+        assert "-w" in blame and not any(a.startswith("-C") or a.startswith("-M") for a in blame), blame
+
+
+def test_porque_el_porque_es_el_primer_parrafo_o_su_primera_vineta_en_una_linea_y_sin_los_trailers_conocidos():
+    palabras = ["pa%03d" % n for n in range(50)]
+    largo = "\n".join(" ".join(palabras[n:n + 10]) for n in range(0, 50, 10))
+    commits = (
+        ("uno", "envuelto\n\n- Después de editar, el hook muestra la fecha y una línea del cuerpo de\n  cada commit que escribió esas líneas.\n"
+                "- La segunda viñeta no entra.\n\nCo-Authored-By: Y <y@y>\n",
+         "Después de editar, el hook muestra la fecha y una línea del cuerpo de cada commit que escribió esas líneas."),
+        ("dos", "motivo\n\nMotivo: la DIAN rechaza X\n", "Motivo: la DIAN rechaza X"),
+        ("tres", "largo\n\n" + largo + "\n\nEl segundo párrafo no entra.\n\nreviewed-by: Z <z@z>\nSigned-off-by: Q <q@q>\n",
+         " ".join(palabras[:33]) + "…"),
+        ("cuatro", "mezcla\n\nNota: va así por la DIAN\nco-authored-by: Y <y@y>\n", "Nota: va así por la DIAN"),
+    )
+    with Porque() as w:
+        archivo, hashes = w.db / "src" / "motivo.sql", []
+        for n, (_, mensaje, _) in enumerate(commits, 1):
+            escribir(w.db, "src/motivo.sql", "".join(linea + "\n" for linea, _, _ in commits[:n]))
+            hashes.append(commitear_con_fecha(w.db, mensaje, "2026-06-0%dT10:00:00+00:00" % n))
+        for n, ((viejo, _, porque), hash_) in enumerate(zip(commits, hashes), 1):
+            texto = contexto(w.correr(editar(archivo, viejo))[1])
+            assert texto is not None and texto.split("\n")[1:] == ["2026-06-0%d %s: %s" % (n, hash_[:7], porque)], (viejo, texto)
+            assert "no entra" not in texto and "-by" not in texto.lower(), texto
 
 
 def main():

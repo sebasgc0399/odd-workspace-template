@@ -22,6 +22,12 @@ GRADLE_RE = re.compile(r"\s*" + CONFIGURACION_GRADLE + r"\s*\(?\s*(?:(?:platform
                        r"(?:[\"']([^\"'\s:]+:[^\"'\s:]+)(?::[^\"']*)?[\"']|([A-Za-z_]\w*(?:\.\w+)+))")
 GRADLE_MAPA_RE = re.compile(r"\s*" + CONFIGURACION_GRADLE + r"\s*\(?\s*group\s*[:=]\s*[\"']([^\"']+)[\"']\s*,"
                             r"\s*name\s*[:=]\s*[\"']([^\"']+)[\"']")
+COMENTARIO_XML_RE = re.compile(r"<!--.*?-->", re.S)
+PIEZA_TOML = r"""(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')"""
+CLAVE_TOML = r"%s(?:\s*\.\s*%s)*" % (PIEZA_TOML, PIEZA_TOML)
+ASIGNACION_TOML_RE = re.compile(r"\s*(%s)\s*=" % CLAVE_TOML)
+ENCABEZADO_TOML_RE = re.compile(r"\s*(\[\[?)\s*(%s)\s*\]\]?\s*(?:#.*)?$" % CLAVE_TOML)
+PIEZA_TOML_RE = re.compile(r"""[A-Za-z0-9_-]+|"((?:[^"\\]|\\.)*)"|'([^']*)'""")
 SECCIONES_DE_PACKAGE = ("dependencies", "devDependencies")
 SECCIONES_DE_CARGO = ("dependencies", "dev-dependencies")
 VACIO = ("el diff desde la base está vacío: si el ticket ya se mergeó, el merge-base es su propia punta; "
@@ -68,12 +74,76 @@ def cambia_de_verdad(top, base, estado, ruta):
     return bool(_git_ok(top, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", base, "--", ruta).stdout.strip())
 
 
-def _linea(lineas, patron, desde=0):
-    for inicio in (desde, 0):
-        for linea in lineas[inicio:]:
-            if patron.search(linea):
-                return linea.strip()
-    return None
+def _claves_de_cada_seccion_json(texto):
+    secciones, pila, clave, numero, i = {}, [], None, 0, 0
+    while i < len(texto):
+        c = texto[i]
+        if c == '"':
+            fin = i + 1
+            while texto[fin] != '"':
+                fin += 2 if texto[fin] == "\\" else 1
+            despues = fin + 1
+            while despues < len(texto) and texto[despues] in " \t\r\n":
+                despues += 1
+            if despues < len(texto) and texto[despues] == ":":
+                clave = json.loads(texto[i:fin + 1])
+                if len(pila) == 2 and pila[0] == ("{", None) and pila[1][0] == "{":
+                    secciones.setdefault(pila[1][1], {})[clave] = numero
+            i = fin + 1
+            continue
+        if c == "\n":
+            numero += 1
+        elif c in "{[":
+            pila.append((c, clave))
+            clave = None
+        elif c in "}]":
+            pila.pop()
+        elif c == ",":
+            clave = None
+        i += 1
+    return secciones
+
+
+def _piezas_toml(clave):
+    return tuple(next((citada for citada in m.groups() if citada is not None), m.group(0)) for m in PIEZA_TOML_RE.finditer(clave))
+
+
+def _cadenas_toml(valor):
+    cadenas, codigo, i = [], [], 0
+    while i < len(valor) and valor[i] != "#":
+        c = valor[i]
+        if c in "\"'":
+            fin = i + 1
+            while fin < len(valor) and valor[fin] != c:
+                fin += 2 if c == '"' and valor[fin] == "\\" else 1
+            cadenas.append(valor[i + 1:fin])
+            i = fin + 1
+            continue
+        codigo.append(c)
+        i += 1
+    return cadenas, "".join(codigo)
+
+
+def _lineas_toml(texto):
+    tabla, clave, abiertos = (), (), 0
+    for numero, linea in enumerate(texto.split("\n")):
+        valor = linea
+        if abiertos <= 0:
+            abiertos, clave = 0, ()
+            encabezado = ENCABEZADO_TOML_RE.match(linea)
+            if encabezado:
+                tabla = _piezas_toml(encabezado.group(2)) if encabezado.group(1) == "[" else None
+                if tabla is not None:
+                    yield numero, tabla, []
+                continue
+            asignacion = ASIGNACION_TOML_RE.match(linea)
+            if asignacion is None:
+                continue
+            clave, valor = _piezas_toml(asignacion.group(1)), linea[asignacion.end():]
+        cadenas, codigo = _cadenas_toml(valor)
+        abiertos += codigo.count("[") + codigo.count("{") - codigo.count("]") - codigo.count("}")
+        if tabla is not None:
+            yield numero, tabla + clave, cadenas
 
 
 def _toml(texto):
@@ -106,14 +176,14 @@ def de_package_json(texto):
         raise NoSePuedeLeer(str(exc))
     if not isinstance(datos, dict):
         raise NoSePuedeLeer("no es un objeto JSON")
-    lineas, salida = texto.splitlines(), {}
+    lineas, ubicadas, salida = texto.split("\n"), _claves_de_cada_seccion_json(texto), {}
     for seccion in SECCIONES_DE_PACKAGE:
         valor = datos.get(seccion)
         if not isinstance(valor, dict):
             continue
-        desde = next((i for i, l in enumerate(lineas) if re.search(r'"%s"\s*:' % re.escape(seccion), l)), 0)
         for nombre in valor:
-            salida.setdefault(nombre, (nombre, _linea(lineas, re.compile(r'"%s"\s*:' % re.escape(nombre)), desde)))
+            numero = ubicadas.get(seccion, {}).get(nombre)
+            salida.setdefault(nombre, (nombre, None if numero is None else lineas[numero].strip()))
     return salida
 
 
@@ -135,11 +205,17 @@ def de_pyproject(texto):
     if isinstance(opcionales, dict):
         for grupo in opcionales.values():
             requisitos += grupo if isinstance(grupo, list) else []
-    lineas, salida = texto.splitlines(), {}
+    lineas, ubicadas, salida = texto.split("\n"), {}, {}
+    for numero, ruta, cadenas in _lineas_toml(texto):
+        if ruta == ("project", "dependencies") or ruta[:2] == ("project", "optional-dependencies"):
+            for cadena in cadenas:
+                nombre = _requisito(cadena)
+                if nombre:
+                    ubicadas.setdefault(_pep503(nombre), lineas[numero].strip())
     for requisito in requisitos:
         nombre = _requisito(requisito) if isinstance(requisito, str) else None
         if nombre:
-            salida.setdefault(_pep503(nombre), (nombre, _linea(lineas, re.compile(re.escape(requisito.strip())))))
+            salida.setdefault(_pep503(nombre), (nombre, ubicadas.get(_pep503(nombre))))
     return salida
 
 
@@ -161,9 +237,10 @@ def de_go_mod(texto):
 
 
 def de_csproj(texto):
-    lineas, salida = texto.splitlines(), {}
-    for m in PACKAGE_REFERENCE_RE.finditer(texto):
-        numero = texto.count("\n", 0, m.start(1))
+    sin_comentarios = COMENTARIO_XML_RE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), texto)
+    lineas, salida = texto.split("\n"), {}
+    for m in PACKAGE_REFERENCE_RE.finditer(sin_comentarios):
+        numero = sin_comentarios.count("\n", 0, m.start(1))
         salida.setdefault(m.group(1).lower(), (m.group(1), lineas[numero].strip()))
     return salida
 
@@ -182,15 +259,16 @@ def de_gradle(texto):
 
 
 def de_cargo(texto):
-    datos, lineas, salida = _toml(texto), texto.splitlines(), {}
+    datos, lineas, ubicadas, salida = _toml(texto), texto.split("\n"), {}, {}
+    for numero, ruta, _ in _lineas_toml(texto):
+        if len(ruta) >= 2 and ruta[0] in SECCIONES_DE_CARGO:
+            ubicadas.setdefault(ruta[:2], lineas[numero].strip())
     for seccion in SECCIONES_DE_CARGO:
         tabla = datos.get(seccion)
         if not isinstance(tabla, dict):
             continue
         for nombre in tabla:
-            e = re.escape(nombre)
-            patron = re.compile(r'^\s*(?:"%s"|%s)\s*=|^\s*\[%s\.%s\]' % (e, e, re.escape(seccion), e))
-            salida.setdefault(nombre, (nombre, _linea(lineas, patron)))
+            salida.setdefault(nombre, (nombre, ubicadas.get((seccion, nombre))))
     return salida
 
 

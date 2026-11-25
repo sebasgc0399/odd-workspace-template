@@ -81,13 +81,33 @@ def test_los_rangos_se_tocan_se_unen_y_tienen_tope():
 def test_la_primera_linea_del_cuerpo_salta_el_asunto_y_los_trailers():
     porque = m().primera_linea_del_cuerpo
     assert porque("asunto\n") is None and porque("") is None and porque(None) is None
-    assert porque("asunto\n\nel porqué\notra\n\nCo-Authored-By: X <x@x>\nSigned-off-by: Y <y@y>\n") == "el porqué"
+    assert porque("asunto\n\nel porqué\notra\n\nCo-Authored-By: X <x@x>\nSigned-off-by: Y <y@y>\n") == "el porqué otra"
     assert porque("asunto\n\nCo-Authored-By: X <x@x>\n") is None, "un cuerpo de solo trailers no es un porqué"
     assert porque("asunto\nsigue el asunto\n\n  el   porqué  \n") == "el porqué"
     assert porque("asunto\n\nNota: va así por la DIAN\n\nmás texto\n") == "Nota: va así por la DIAN", "un trailer solo cuenta al final"
     assert porque("asunto\r\n\r\nen CRLF\r\n") == "en CRLF"
     largo = porque("asunto\n\n" + "x" * 300 + "\n")
     assert len(largo) == m().LARGO_DEL_PORQUE and largo.endswith("…"), largo
+
+
+def test_el_porque_es_el_primer_parrafo_en_una_linea_o_su_primera_vineta():
+    porque = m().primera_linea_del_cuerpo
+    assert porque("asunto\n\nla línea envuelta sigue\nen la de abajo\n\notro párrafo\n") == "la línea envuelta sigue en la de abajo"
+    assert porque("asunto\n\n- la primera viñeta sigue\n  en la de abajo\n- la segunda no\n") == "la primera viñeta sigue en la de abajo"
+    assert porque("asunto\n\n* con asterisco\n* otra\n") == "con asterisco"
+    palabras = " ".join("pa%03d" % n for n in range(50))
+    assert porque("asunto\n\n" + palabras + "\n") == " ".join("pa%03d" % n for n in range(33)) + "…", "corta en un borde de palabra"
+
+
+def test_solo_los_trailers_conocidos_del_ultimo_parrafo_salen_del_porque():
+    porque = m().primera_linea_del_cuerpo
+    assert porque("asunto\n\nMotivo: la DIAN rechaza X\n") == "Motivo: la DIAN rechaza X", "una clave desconocida es cuerpo"
+    assert porque("asunto\n\nMotivo: la DIAN\nco-authored-by: Y <y@y>\nCHANGE-ID: I12\n") == "Motivo: la DIAN", "sin mayúsculas"
+    for clave in ("Co-Authored-By", "Signed-off-by", "Reviewed-by", "Acked-by", "Tested-by", "Reported-by", "Suggested-by", "Helped-by", "Cc",
+                  "Change-Id"):
+        assert porque("asunto\n\n%s: X <x@x>\n" % clave) is None, clave
+    assert porque("asunto\n\nSigned-off-by: X <x@x>\n\nel porqué\n") == "Signed-off-by: X <x@x>", "solo en el último párrafo"
+    assert porque("asunto\n\nel porqué\n\nCo-Authored-By: X\n  <x@x>\n") == "el porqué", "con su línea de continuación"
 
 
 def test_la_fecha_es_la_del_autor_en_su_zona():

@@ -13,7 +13,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - **Antes de editar, en el `PreToolUse` de `Edit|Write`, solo la pausa.** Si el rango a reemplazar se superpone con una desviación conocida (`desviaciones.csv`, ubicada por contenido desde `git show <hash>:<ruta>`), el hook devuelve `Preguntar` con la desviación, su porqué y su fecha.
       - Claude Code pregunta. En Pi pregunta si hay interfaz y bloquea si no. En Codex bloquea.
       - Si el archivo no tiene desviaciones, este paso no corre ningún git.
-    - **Después de editar, en el `PostToolUse` de `Edit|Write`, el porqué como contexto.** Se ubica el texto reemplazado en la versión de `HEAD` del archivo, se corre `git blame` de ese rango en `HEAD`, y entran como contexto hasta 2 líneas `<fecha> <hash corto>: <primera línea del cuerpo>`, sin trailers.
+    - **Después de editar, en el `PostToolUse` de `Edit|Write`, el porqué como contexto.** Se ubica el texto reemplazado en la versión de `HEAD` del archivo, se corre `git blame -w` (sin `-C`, por L8) de ese rango en `HEAD`, y entran como contexto hasta 2 líneas `<fecha> <hash corto>: <primer párrafo del cuerpo en una línea>`, sin los trailers conocidos (L8).
       - El agente lo lee justo después de la edición y puede reconsiderarla. Es lo que align hace en los hosts que no tienen contexto antes de editar.
       - El contexto va en el post porque ningún host puede mostrar un `Contexto` en el pre: los tres declaran solo `Bloquear` y `Preguntar`.
     - **El evento.** `Herramienta` (`odd_ws/eventos.py`) suma el texto que se reemplaza:
@@ -67,7 +67,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1 | El blame antes de editar | un explorador y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `bfd7115` |
 | T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 (motivo: el respaldo de contexto del orquestador) | hecha (L5) | `e49fdbc` |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L6); verificador pendiente; sin publicar | |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L6); verificador: B1 y B2 corregidos y recomprobados (L7, L8); sin publicar | `1419e9e`, y la corrección de L8 |
 
 ## Log
 
@@ -160,3 +160,56 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - `tools/huellas.py` dio 107 huellas, hasta la `0.16.0`. Como en la R16, al publicar hay que regenerar la tabla después de etiquetar las versiones anteriores.
   - En el roadmap, R18 queda «lista, sin publicar», con I90 e I91 «lista (`0.16.0`, sin publicar)».
   - Falta el verificador independiente (Risk items 2 y 3, por I90) y, después, el ok del autor y su auditor.
+- **L7** (2026-11-25) El verificador independiente, sobre `1419e9e` contra `0b7255f`.
+  - **S3: PASS.**
+  - **S1 y S2: FAIL, por un bloqueante cada uno.** El resto pasa:
+    - con `"apagado"`, 41 payloads reales de los tres hosts dan una salida idéntica a la base;
+    - el pre no corre git si el archivo no tiene desviaciones;
+    - no se pierde ningún bloqueo del primer toque ni ningún hallazgo de capa;
+    - cada pieza nueva va aislada;
+    - la pausa se ve bien en los tres hosts y falla abierta;
+    - `quitado.py` es de solo lectura, ignora los renombres y los cambios de versión, y cubre los 7 manifiestos;
+    - suites: 60 de Python (2.845 pruebas) y el shim en verde, también con un `GIT_INDEX_FILE` ajeno.
+  - **B1 (S1).** Una desviación pausa la edición de cualquier copia idéntica de sus líneas. Con dos bloques `BEGIN CATCH … END CATCH` iguales en un SP, editar el que no es desviación igual pregunta, y en Codex se bloquea.
+  - **B2 (S2).** `quitado.py` busca la línea que declaraba una dependencia como subcadena en todo el archivo. Para `pytest` toma `name = "pytest-timer"`, y esa línea terminaría como el sembrado de la regla.
+  - **Advertencias que entran en el mismo lote de corrección,** porque pesan en el uso real:
+    - `git blame -C` tarda unas diez veces más que `-w` solo. En un repo de 2,6k commits, un `Write` de 400 líneas siempre se pasa del plazo de 1,5 s.
+    - El porqué toma el primer renglón físico del cuerpo, que en un commit con las líneas envueltas queda cortado a mitad de frase.
+    - Un cuerpo de una línea como `Motivo: …` se descarta como trailer.
+  - **Advertencias que quedan para el autor y su auditor:**
+    - En Codex, y en Pi sin pantalla, el primer toque combinado con la pausa dice que el reintento pasa, pero el reintento también se bloquea.
+    - Un `porque_al_editar` inválido corre como `"todo"`, a propósito, y el doctor lo marca en FALTA.
+    - `quitado` no ve `[tool.poetry.dependencies]`, y en Go toma un cambio de versión mayor de la ruta como una dependencia quitada.
+    - Un `move` con edición en Codex calla en el post.
+    - El texto de Pi al rechazar la pausa (L4).
+  - **La latencia:**
+    - El pre de un `Edit` sin desviaciones pasa de unos 0,30 s a unos 0,32 s.
+    - El post pasa de 0,29 s a unos 0,72 s.
+    - El blame en el proceso tarda de 0,2 a 0,8 s en odd-ws.
+  - **La corrección** va en un solo lote, con un writer. Después se recomprueban solo B1 y B2.
+  - **Scratch del verificador:** `%TEMP%\tmp.BOwGqKrCKf`. Va a la limpieza del autor.
+- **L8** (2026-11-25) La corrección, un solo lote con un writer, y la recomprobación de B1 y B2.
+  - **B1.** `porque.rango_de_la_desviacion` cuenta una sola copia de las líneas: la que sigue en `<ini>-<fin>` y, si se movió, la más cercana. Editar otra copia idéntica no pausa.
+  - **B2.** `quitado.py` busca la línea que declaraba la dependencia por su nombre normalizado y entero, dentro de la sección que declara las dependencias de cada manifiesto, nunca como subcadena. En un `.csproj`, una referencia comentada ya no cuenta.
+  - **Las advertencias del mismo lote:**
+    - el blame va sin `-C`, con el porqué y las cifras en `Doc/diseno.md`;
+    - el porqué es el primer párrafo del cuerpo en una línea, o su primera viñeta, cortado en una palabra pasados 200 caracteres;
+    - solo salen los 10 trailers conocidos del último párrafo, así que `Motivo: …` se muestra.
+  - **RED antes de cada arreglo, y GREEN.** Suites del writer, también con un `GIT_INDEX_FILE` ajeno:
+    - `porque.tests.py` 11/11;
+    - `verificar_capa.tests.py` 150/150;
+    - `quitado.tests.py` 28/28;
+    - `registro.tests.py` 7/7.
+  - **La diferencial del verificador** (42 payloads por 3 casos del CSV):
+    - con `"apagado"`, la salida es idéntica byte a byte;
+    - en el modo por defecto, solo cambia lo esperado.
+    - Un `Write` de 400 líneas en el post baja de 1,0 s a 0,74 s.
+  - **La recomprobación**, en el orquestador, solo de B1 y B2 y con los casos del verificador:
+    - **B1: PASS.** Editar el segundo `BEGIN CATCH` idéntico no pausa (salida vacía en Claude Code y en Codex). Como control, editar la desviación real sigue pausando, con «hoy en las líneas 6-8»: `ask` en Claude Code y `deny` en Codex.
+    - **B2: PASS.** En el caso `r6_pyproject`, la punta daba `name = "pytest-timer"` y ahora da `"pytest",`.
+  - **Límites que quedan para el autor y su auditor:**
+    - el recorrido de TOML no sigue los strings `"""` de varias líneas;
+    - en gradle, un comentario `/* … */` sigue contando como declaración, como antes.
+  - **Risk: ítem 2.** La pausa del guard de edición dispara en menos casos.
+  - **Scratch del writer:** `%TEMP%\tmp.fRaj0LvP1h`. Va a la limpieza del autor.
+  - **R18 queda lista, sin publicar.** Falta el ok del autor y su auditor.

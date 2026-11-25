@@ -30,7 +30,10 @@ DESVIACION = "- %s, anotada el %s, hoy en las líneas %d-%d (%s): %s. Porqué: %
 CIERRE_DE_LA_PAUSA = "Confirma la edición solo si cambiar esas líneas es a propósito; si no, deja la desviación como está."
 ENCABEZADO_DEL_BLAME = re.compile(r"([0-9a-f]{40}) \d+ \d+(?: \d+)?")
 ZONA = re.compile(r"([+-])(\d\d)(\d\d)")
-TRAILER = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*:\s")
+TRAILERS_CONOCIDOS = ("Co-Authored-By", "Signed-off-by", "Reviewed-by", "Acked-by", "Tested-by", "Reported-by", "Suggested-by", "Helped-by",
+                      "Cc", "Change-Id")
+TRAILER = re.compile(r"(?:%s):(?:\s|$)" % "|".join(re.escape(clave) for clave in TRAILERS_CONOCIDOS), re.IGNORECASE)
+VINETA = re.compile(r"\s*[-*]\s+")
 EPOCA = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
 
@@ -100,6 +103,14 @@ def rangos_de_las_lineas(texto, buscadas):
             if actuales[i] == buscadas[0] and actuales[i:i + largo] == buscadas]
 
 
+def rango_de_la_desviacion(texto, buscadas, ini):
+    rangos = rangos_de_las_lineas(texto, buscadas)
+    if not rangos:
+        return None
+    original = ini + next(n for n, linea in enumerate(buscadas) if linea.strip())
+    return min(rangos, key=lambda rango: (abs(rango[0] - original), rango[0]))
+
+
 def se_tocan(uno, otro):
     return uno[0] <= otro[1] and otro[0] <= uno[1]
 
@@ -130,7 +141,10 @@ def _una_linea(texto):
 
 
 def _recortar(texto):
-    return texto if len(texto) <= LARGO_DEL_PORQUE else texto[:LARGO_DEL_PORQUE - 1] + "…"
+    if len(texto) <= LARGO_DEL_PORQUE:
+        return texto
+    espacio = texto.rfind(" ", 0, LARGO_DEL_PORQUE)
+    return (texto[:espacio] if espacio > 0 else texto[:LARGO_DEL_PORQUE - 1]) + "…"
 
 
 def desviaciones_del_archivo(raiz, repo, rel):
@@ -172,11 +186,9 @@ def pausa(raiz, repo, arbol, ruta, fragmentos, limite):
         return None
     halladas, vistas = [], {}
     for fila in filas:
-        buscadas = _lineas_de_la_desviacion(arbol, fila, limite, vistas)
-        for rango in rangos_de_las_lineas(texto, buscadas or []):
-            if any(se_tocan(rango, tocado) for tocado in tocados):
-                halladas.append((fila, rango))
-                break
+        rango = rango_de_la_desviacion(texto, _lineas_de_la_desviacion(arbol, fila, limite, vistas) or [], fila["ini"])
+        if rango is not None and any(se_tocan(rango, tocado) for tocado in tocados):
+            halladas.append((fila, rango))
     return texto_de_la_pausa(rel, halladas) if halladas else None
 
 
@@ -217,15 +229,29 @@ def _parrafos(mensaje):
     return parrafos
 
 
-def _son_trailers(parrafo):
-    return TRAILER.match(parrafo[0]) is not None and all(TRAILER.match(linea) or linea[:1] in (" ", "\t") for linea in parrafo)
+def _sin_trailers(parrafo):
+    salida, en_trailer = [], False
+    for linea in parrafo:
+        en_trailer = TRAILER.match(linea) is not None or (en_trailer and linea[:1] in (" ", "\t"))
+        if not en_trailer:
+            salida.append(linea)
+    return salida
+
+
+def _primera_vineta(parrafo):
+    vineta = VINETA.match(parrafo[0])
+    if vineta is None:
+        return parrafo
+    siguiente = next((n for n in range(1, len(parrafo)) if VINETA.match(parrafo[n])), len(parrafo))
+    return [parrafo[0][vineta.end():]] + parrafo[1:siguiente]
 
 
 def primera_linea_del_cuerpo(mensaje):
     cuerpo = _parrafos(mensaje or "")[1:]
-    if cuerpo and _son_trailers(cuerpo[-1]):
-        cuerpo = cuerpo[:-1]
-    return _recortar(_una_linea(cuerpo[0][0])) if cuerpo else None
+    if cuerpo:
+        cuerpo[-1] = _sin_trailers(cuerpo[-1])
+    cuerpo = [parrafo for parrafo in cuerpo if parrafo]
+    return _recortar(_una_linea(" ".join(_primera_vineta(cuerpo[0])))) if cuerpo else None
 
 
 def _mensaje(objeto):
@@ -253,7 +279,7 @@ def _mensajes(arbol, limite, hashes):
 
 
 def _blame(arbol, rel, rangos, limite):
-    argumentos = ["blame", "-w", "-C", "--porcelain"]
+    argumentos = ["blame", "-w", "--porcelain"]
     for ini, fin in rangos:
         argumentos += ["-L", "%d,%d" % (ini, fin)]
     r = _git(arbol, limite, *argumentos, "HEAD", "--", rel)
