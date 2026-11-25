@@ -224,14 +224,19 @@ def es_hallazgo(h):
     return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
 
 
-def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False, contra=None):
+def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False, contra=None, errores=None):
     global _LIMITE
     previo = _LIMITE
     _LIMITE = limite
     try:
-        return _verificar_archivo(ruta, config, aislar_la_capa, contra)
+        return _verificar_archivo(ruta, config, aislar_la_capa, contra, errores)
     finally:
         _LIMITE = previo
+
+
+def _anotar(errores, motivo):
+    if errores is not None:
+        errores.append(motivo)
 
 
 def _sin_tiempo():
@@ -255,18 +260,22 @@ def _hallazgos_de_la_capa(archivo_modulo, capa, ctx):
     return modulo, _validos(modulo.verificar(ctx), es_hallazgo)
 
 
-def _hallazgos_del_paquete(paquete, ctx, raiz):
+def _hallazgos_del_paquete(paquete, ctx, raiz, errores=None):
     archivo_modulo = os.path.join(raiz, paquetes.carpeta(paquete.nombre), paquetes.MODULO)
     modulo = None
     try:
         modulo = cargar_por_ruta(archivo_modulo, "verificar_capa_paquete_%s" % paquete.nombre.replace("-", "_"))
-        hallazgos = _validos(modulo.verificar(ctx), lambda h: es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"])) or []
-    except (Exception, SystemExit):
+        hallazgos = _validos(modulo.verificar(ctx), lambda h: es_hallazgo(h) and paquetes.id_del_paquete(paquete.prefijo, h["id"]))
+        if hallazgos is None:
+            _anotar(errores, "el paquete %s devolvió un hallazgo mal formado" % paquete.nombre)
+            hallazgos = []
+    except (Exception, SystemExit) as exc:
+        _anotar(errores, "el paquete %s falló (%s: %s)" % (paquete.nombre, type(exc).__name__, exc))
         hallazgos = []
     return calibracion.fuente_del_paquete(paquete, modulo), hallazgos
 
 
-def _verificar_archivo(ruta, config, aislar_la_capa, contra):
+def _verificar_archivo(ruta, config, aislar_la_capa, contra, errores=None):
     info = config_loader.clasificar(ruta, config)
     if info is None:
         return None
@@ -278,10 +287,13 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra):
         return None
     ctx = armar_ctx(ruta, capa, origen, config, contra)
     if ctx is None:
+        _anotar(errores, "no se pudo armar su diff (más de %d bytes, fuera de un repo git o git falló)" % TOPE_BYTES)
         return None
+    mal_formado = "%s devolvió un hallazgo mal formado" % convencion.chequeo(capa)
     if not de_paquetes:
         modulo, hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
         if hallazgos is None:
+            _anotar(errores, mal_formado)
             return None
         grupos = [(calibracion.fuente_del_modulo(capa, modulo, archivo_modulo), hallazgos)]
     else:
@@ -290,14 +302,18 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra):
         if propio:
             try:
                 modulo, hallazgos = _hallazgos_de_la_capa(archivo_modulo, capa, ctx)
-            except (Exception, SystemExit):
+            except (Exception, SystemExit) as exc:
                 if not aislar_la_capa:
                     raise
+                _anotar(errores, "%s falló (%s: %s)" % (convencion.chequeo(capa), type(exc).__name__, exc))
+            if hallazgos is None:
+                _anotar(errores, mal_formado)
         grupos = [(calibracion.fuente_del_modulo(capa, modulo, archivo_modulo), hallazgos or [])]
         for paquete in de_paquetes:
             if _sin_tiempo():
+                _anotar(errores, "se acabó el tiempo antes del paquete %s" % paquete.nombre)
                 break
-            grupos.append(_hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"]))
+            grupos.append(_hallazgos_del_paquete(paquete, copy.deepcopy(intacto), config["raiz"], errores))
     hallazgos = calibracion.aplicar(grupos, config["raiz"], config["repos"], config["layers"])
     return ctx["relativa"], filtrar_preexistentes(hallazgos, ctx["hunks"])
 

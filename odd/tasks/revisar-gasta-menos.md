@@ -53,7 +53,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S2 | El reporte fuera del contexto | inline (unos 100 líneas, y el único lugar de agente lo ocupaba el verificador de R15) | hecha (L3) | (con T0) |
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
-| T3 | S1 | Los chequeos antes de los revisores | por definir | pendiente | |
+| T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5) | |
 | T4 | S3 | Las desviaciones conocidas | por definir | pendiente | |
 | T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
 
@@ -108,3 +108,37 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
   - **Para T3 y T4:** el núcleo de `skills/revisar/SKILL.md` pesa 17.381 bytes contra un tope de 17.408 (`NUCLEO_MAXIMO` en `recibo.tests.py`). Lo nuevo va a las referencias, o hay que liberar espacio en el núcleo.
   - **Risk: item 3.** Cambian los archivos guardados y el texto del recibo cuando hay un secreto. Lo revisa el verificador.
   - **Scratch del writer:** `%TEMP%\tapar-diferencial-2siIec`. Va a la limpieza del autor.
+- **L5** (2026-11-25) T3, un writer, después de integrar la corrección de R15 (`7e180d8`). Cubrió S1.
+  - **`triaje.json` suma la clave `chequeos`** con:
+    - `archivos`;
+    - `hallazgos` (repo, ruta, capa, id, modo, severidad, línea, mensaje, texto);
+    - `marcadores`;
+    - `sin_chequear` (con su motivo);
+    - `corregir_antes_de_lanzar`.
+  - **El texto del triaje suma una última línea.** Si todo está limpio dice «sin hallazgos ni marcadores de conflicto». Si no, «corregir antes de lanzar», con un renglón por cada cosa.
+  - **El skill:** lanzar sin corregir pide un sí aparte, y el detalle está en la referencia nueva `references/chequeos.md`. `prompt.md` suma el bloque «ya detectado por los chequeos del triaje, no lo reemitas», y `rechequeo.md` dice que el rechequeo vuelve a correr los chequeos.
+  - **`marcadores_contra(raiz, base)`** compara la base contra el árbol de trabajo, también lo no trackeado. El CLI de lo stageado corre los mismos comandos que antes.
+  - **Decisiones del writer que se aceptan:**
+    - Los archivos del taller se miden contra el árbol vacío, así que se comparan con su par o con el archivo entero.
+    - El triaje llama a `verificar_archivo` sin `aislar_la_capa`, así que un módulo de capa que revienta sale como «no se pudo chequear», y eso también pide corregir antes de lanzar.
+    - `verificar_archivo` suma el parámetro opcional `errores`. Sin él se comporta igual que antes.
+    - Los marcadores se buscan en todos los archivos del diff, incluidos los docs.
+    - El chequeo de marcadores no escribe `.git/index` (`--no-optional-locks -c diff.autoRefreshIndex=false`).
+    - Con `--no-index`, un `error:` o un `fatal:` en stderr cuenta como falla.
+    - Lo que se lanzó sin corregir entra a la consolidación bajo un título propio.
+  - **El núcleo de `SKILL.md`** bajó de 17.381 a 17.337 bytes, contra un tope de 17.408 que no se tocó. Se sacaron dos frases que ya estaban en las referencias.
+  - **Suites:** `triaje` 110/110, `marcadores` 22/22, `verificar_capa` 136/136, `recibo` 116/116 (con la prueba del tamaño del núcleo), `revisar_turno` 34/34, `registro` 7/7, `rescatar` 68/68, `tapar` 9/9.
+  - **Diferencial contra `7e180d8`:**
+    - En el triaje (texto y `--json`), el código y stderr son iguales. stdout cambia solo por la línea nueva y la clave `chequeos`.
+    - El CLI de marcadores stageados da lo mismo que antes.
+  - **El costo:** unas 4 o 5 llamadas a git por cada archivo con capa, más una por cada archivo no trackeado.
+  - **Risk: item 3.** `triaje.json` gana una clave que leen `recibo` y `rescatar`, y el flujo de `revisar` gana un sí. Lo revisa el verificador.
+  - **Scratch del writer:** varias carpetas `%TEMP%\r16-t3-*`, `%TEMP%\tmp.PXohDLO8kO`, `%TEMP%\triaje-plantilla-ng2lfqcr` y `%TEMP%\triaje-test-4b3wy2qv`. Van a la limpieza del autor.
+- **L6** (2026-11-25) El primer commit de T3 lo frenó el pre-commit: «suite en rojo: plugin/scripts/triaje.tests.py». A mano daba 110/110.
+  - **La causa:** durante un commit, git le exporta `GIT_INDEX_FILE` a los hooks, y `marcadores.git` no limpia el entorno. Eso es a propósito, porque el CLI de lo stageado necesita el índice del commit. Pero `marcadores_contra` mira otros repos y heredaba ese índice ajeno. Con él, el marcador de un archivo trackeado desaparecía en silencio y el triaje decía «limpio».
+  - **El arreglo, inline:**
+    - `git`, `_chequeo_del_diff`, `marcadores_nuevos`, `sin_trackear` y `marcadores_contra` aceptan un `entorno` opcional.
+    - El triaje les pasa `recibo._entorno()`, el mismo entorno limpio que usa para el resto de su git.
+    - Sin `entorno`, todo se comporta igual que antes, también el CLI de lo stageado.
+  - **RED:** `test_chequeos_los_marcadores_no_dependen_del_indice_de_git_del_entorno`, con un `GIT_INDEX_FILE` ajeno en el entorno.
+  - **GREEN, con el índice ajeno puesto:** `triaje` 111/111 y `marcadores` 22/22.

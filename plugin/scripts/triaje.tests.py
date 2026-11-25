@@ -782,7 +782,8 @@ def test_sin_archivos_sin_capa_el_texto_y_el_json_salen_como_antes():
         assert "capas-cobertura" not in salida and "cómo:" not in salida, salida
         codigo, salida, error = correr(args + ["--json"])
         datos = json.loads(salida)
-        assert list(datos) == ["raiz", "origin_head", "repos", "taller", "senales", "modo", "motivos", "sin_capa", "no_detectable"], list(datos)
+        assert list(datos) == ["raiz", "origin_head", "repos", "taller", "senales", "modo", "motivos", "sin_capa", "no_detectable",
+                               "chequeos"], list(datos)
         assert datos["sin_capa"] is None
 
 
@@ -1436,6 +1437,198 @@ def test_un_repo_anidado_sin_trackear_no_impide_la_bajada_con_un_recibo_de_archi
         codigo, salida, error = bajar_con_el_triaje_real(w, ticket, "2026-11-20", [w.web], [w.web / "appsettings.json"])
         assert codigo == 0 and "bajado de completo a rapido" in salida, (codigo, salida, error)
         assert "vio cambios que el recibo no cubre" in error and "vendor/lib/" in error, error
+
+
+# ---------------------------------------------------------------- chequeos (I47)
+
+CHEQUEO_MALO = '''import types
+REGLAS = (types.SimpleNamespace(id="T-02", sembrado="x = MALO;"),)
+def verificar(ctx):
+    return [{"id": "T-02", "modo": "bloqueo", "severidad": "CRITICAL", "linea": n, "fragmento": "MALO",
+             "mensaje": "MALO no va"} for n, t in ctx["agregadas"] if "MALO" in t]
+'''
+CONFLICTO = "antes\n%s HEAD\nlo nuestro\n%s\nlo de ellos\n%s otra\ndespues\n" % ("<" * 7, "=" * 7, ">" * 7)
+TEXTO_MALO = "[T-02 CRITICAL] linea %d en «MALO»: MALO no va"
+LIMPIO = "chequeos: sin hallazgos ni marcadores de conflicto (%d archivo(s) con chequeos de capa)"
+
+
+def con_chequeo(w, capa, fuente=CHEQUEO_MALO, calibrar=True):
+    escribir(w.raiz, {".claude/reglas/verificar_%s.py" % capa: fuente})
+    if not calibrar:
+        return
+    import reglas
+    corpus = w.base / "corpus-vacio"
+    corpus.mkdir(exist_ok=True)
+    salida, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(error):
+        codigo = reglas.main(["--calibrar", capa, str(corpus), "--guardar", "--raiz", str(w.raiz)])
+    assert codigo == 0, (codigo, salida.getvalue(), error.getvalue())
+
+
+def poner_paquete(w, nombre, prefijo, fuente, capa):
+    from odd_ws import paquetes
+    carpeta = ".claude/reglas/paquetes/%s/" % nombre
+    escribir(w.raiz, {carpeta + "verificar.py": fuente, carpeta + "no-negociables.md": "",
+                      carpeta + "odd-ws-paquete.json": json.dumps({"formato": 1, "nombre": nombre, "prefijo": prefijo,
+                                                                   "odd_ws_api": 1, "descripcion": "de prueba"})})
+    lock = {"version": 1, "paquetes": {nombre: {"capa": capa, "prefijo": prefijo, "fuente": "https://example.com/%s.git" % nombre,
+                                                "etiqueta": "v1.0.0", "commit": "a" * 40,
+                                                "huella": paquetes.huella(w.raiz / carpeta)}}}
+    escribir(w.raiz, {".claude/reglas/paquetes.json": json.dumps(lock)})
+
+
+def triado(w, repos=None, taller=()):
+    argv = ["--raiz", str(w.raiz)]
+    for repo in (repos if repos is not None else [w.db]):
+        argv += ["--repo", str(repo)]
+    for archivo in taller:
+        argv += ["--taller", str(archivo)]
+    codigo, salida, error = correr(argv + ["--json"])
+    assert codigo == 0 and error == "", (codigo, error)
+    datos = json.loads(salida)
+    codigo, texto, error = correr(argv)
+    assert codigo == 0 and error == "", (codigo, error)
+    return datos, texto
+
+
+def en_el_repo(datos, ruta, i=0):
+    return "%s/%s" % (Path(datos["repos"][i]["ruta"]).as_posix(), ruta)
+
+
+def test_chequeos_una_regla_calibrada_rota_en_una_linea_cambiada_sale_en_chequeos_sin_cambiar_lo_demas():
+    with Mundo() as w:
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 1 -- MALO")})
+        sin_chequeo, texto_sin_chequeo = triado(w)
+        con_chequeo(w, "sql")
+        datos, texto = triado(w)
+        ch = datos["chequeos"]
+        assert ch["hallazgos"] == [{"repo": datos["repos"][0]["ruta"], "ruta": SQL_ALFA, "capa": "sql", "id": "T-02",
+                                    "modo": "bloqueo", "severidad": "CRITICAL", "linea": 6, "mensaje": "MALO no va",
+                                    "texto": TEXTO_MALO % 6}], ch
+        assert ch["marcadores"] == [] and ch["sin_chequear"] == [] and ch["archivos"] == 1 and ch["corregir_antes_de_lanzar"] is True, ch
+        assert "chequeos: 1 hallazgo(s) de capa: corregir antes de lanzar" in texto.splitlines(), texto
+        assert "  %s [sql] %s" % (en_el_repo(datos, SQL_ALFA), TEXTO_MALO % 6) in texto.splitlines(), texto
+        assert {k: v for k, v in datos.items() if k != "chequeos"} == {k: v for k, v in sin_chequeo.items() if k != "chequeos"}
+        assert texto.split("\nchequeos: ")[0] == texto_sin_chequeo.split("\nchequeos: ")[0], "los chequeos solo suman"
+
+
+def test_chequeos_una_violacion_que_ya_estaba_en_la_base_no_sale():
+    with Mundo() as w:
+        con_chequeo(w, "sql")
+        viejo = ALFA.replace("SELECT 1", "SELECT 1 -- MALO")
+        commitear(w.db, {SQL_ALFA: viejo})
+        publicar(w.db)
+        escribir(w.db, {SQL_ALFA: viejo.replace("VARCHAR(50)", "VARCHAR(80)")})
+        datos, texto = triado(w)
+        ch = datos["chequeos"]
+        assert ch["hallazgos"] == [] and ch["archivos"] == 1 and ch["corregir_antes_de_lanzar"] is False, ch
+        assert texto.splitlines()[-1] == LIMPIO % 1, texto
+        escribir(w.db, {SQL_ALFA: viejo.replace("VARCHAR(50)", "VARCHAR(80) -- MALO")})
+        ch = triado(w)[0]["chequeos"]
+        assert [(h["ruta"], h["linea"]) for h in ch["hallazgos"]] == [(SQL_ALFA, 3)], "control positivo: solo la línea nueva: %s" % ch
+
+
+def test_chequeos_un_archivo_sin_capa_no_se_chequea():
+    with Mundo() as w:
+        con_chequeo(w, "web")
+        escribir(w.web, {"Data/Nuevo.cs": "class Nuevo { } // MALO\n", "scripts/malo.js": "// MALO\n"})
+        datos, _ = triado(w, repos=[w.web])
+        ch = datos["chequeos"]
+        assert [h["ruta"] for h in ch["hallazgos"]] == ["Data/Nuevo.cs"] and ch["archivos"] == 1 and ch["sin_chequear"] == [], ch
+        assert datos["sin_capa"]["archivos"] == ["scripts/malo.js"], datos["sin_capa"]
+
+
+def test_chequeos_un_marcador_de_conflicto_en_un_archivo_modificado_sin_trackear_o_del_taller_se_encuentra():
+    with Mundo() as w:
+        escribir(w.db, {"README.md": CONFLICTO, "src/ventas/Nuevo.sql": CONFLICTO, "src/ventas/Medio.sql": "<" * 7 + " solo\n"})
+        datos, texto = triado(w)
+        ch = datos["chequeos"]
+        repo = datos["repos"][0]["ruta"]
+        assert [(m["repo"], m["ruta"], m["linea"], m["texto"]) for m in ch["marcadores"]] == [
+            (repo, "README.md", 2, "<" * 7 + " HEAD"), (repo, "README.md", 6, ">" * 7 + " otra"),
+            (repo, "src/ventas/Nuevo.sql", 2, "<" * 7 + " HEAD"), (repo, "src/ventas/Nuevo.sql", 6, ">" * 7 + " otra")], ch
+        assert ch["corregir_antes_de_lanzar"] is True and ch["hallazgos"] == [] and ch["sin_chequear"] == [], ch
+        assert "chequeos: 2 archivo(s) con marcadores de conflicto: corregir antes de lanzar" in texto.splitlines(), texto
+        assert "  %s:2: marcador de conflicto «%s HEAD»" % (en_el_repo(datos, "README.md"), "<" * 7) in texto.splitlines(), texto
+        ruta = w.taller("esq.Proc_Alfa.sql", CONFLICTO)
+        ch = triado(w, repos=[], taller=[ruta])[0]["chequeos"]
+        assert [(m["repo"], m["ruta"], m["linea"]) for m in ch["marcadores"]] == [(None, ruta.as_posix(), 2), (None, ruta.as_posix(), 6)], ch
+
+
+def test_chequeos_los_marcadores_no_dependen_del_indice_de_git_del_entorno():
+    with Mundo() as w:
+        escribir(w.db, {"README.md": CONFLICTO})
+        previo = os.environ.get("GIT_INDEX_FILE")
+        os.environ["GIT_INDEX_FILE"] = os.path.join(tempfile.gettempdir(), "odd-ws-indice-ajeno-que-no-existe")
+        try:
+            datos = triado(w)[0]
+        finally:
+            if previo is None:
+                os.environ.pop("GIT_INDEX_FILE", None)
+            else:
+                os.environ["GIT_INDEX_FILE"] = previo
+        assert [(m["ruta"], m["linea"]) for m in datos["chequeos"]["marcadores"]] == [("README.md", 2), ("README.md", 6)], datos["chequeos"]
+
+
+def test_chequeos_proponen_corregir_antes_de_lanzar_solo_si_algo_falla():
+    with Mundo() as w:
+        con_chequeo(w, "sql")
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3")})
+        datos, texto = triado(w)
+        assert datos["chequeos"] == {"archivos": 1, "hallazgos": [], "marcadores": [], "sin_chequear": [],
+                                     "corregir_antes_de_lanzar": False}, datos["chequeos"]
+        assert texto.splitlines()[-1] == LIMPIO % 1 and "corregir antes de lanzar" not in texto, texto
+        escribir(w.db, {SQL_BETA: BETA + "-- MALO\n"})
+        datos, texto = triado(w)
+        assert datos["chequeos"]["corregir_antes_de_lanzar"] is True and "corregir antes de lanzar" in texto, texto
+        escribir(w.db, {SQL_BETA: BETA, "src/ventas/Otro.sql": CONFLICTO})
+        datos, texto = triado(w)
+        assert datos["chequeos"]["corregir_antes_de_lanzar"] is True and "corregir antes de lanzar" in texto, texto
+
+
+def test_chequeos_un_chequeo_que_falla_sale_como_no_se_pudo_chequear_y_nunca_como_limpio():
+    casos = [
+        ("el módulo lanza", "def verificar(ctx):\n    raise RuntimeError('boom')\n", None, "RuntimeError: boom"),
+        ("el módulo devuelve un hallazgo mal formado", "def verificar(ctx):\n    return [{'id': 'X'}]\n", None, "mal formado"),
+        ("un paquete lanza", None, "def verificar(ctx):\n    raise RuntimeError('boom del paquete')\n", "boom del paquete"),
+        ("el archivo pasa del tope", CHEQUEO_MALO, None, "no se pudo armar su diff"),
+    ]
+    for nombre, modulo, paquete, motivo in casos:
+        with Mundo() as w:
+            if modulo is not None:
+                con_chequeo(w, "sql", modulo, calibrar=False)
+            if paquete is not None:
+                poner_paquete(w, "roto", "ROT", paquete, "sql")
+            escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 3 -- MALO")})
+            previo = M.verificar_capa.TOPE_BYTES
+            if motivo == "no se pudo armar su diff":
+                M.verificar_capa.TOPE_BYTES = 10
+            try:
+                datos, texto = triado(w)
+            finally:
+                M.verificar_capa.TOPE_BYTES = previo
+            ch = datos["chequeos"]
+            assert [(s["repo"], s["ruta"], s["capa"]) for s in ch["sin_chequear"]] == [(datos["repos"][0]["ruta"], SQL_ALFA, "sql")], (nombre, ch)
+            assert motivo in ch["sin_chequear"][0]["motivo"], (nombre, ch["sin_chequear"])
+            assert ch["hallazgos"] == [] and ch["archivos"] == 0 and ch["corregir_antes_de_lanzar"] is True, (nombre, ch)
+            assert "chequeos: 1 sin chequear: corregir antes de lanzar" in texto.splitlines(), (nombre, texto)
+            assert "  %s [sql]: no se pudo chequear: %s" % (en_el_repo(datos, SQL_ALFA), ch["sin_chequear"][0]["motivo"]) in texto.splitlines(), (nombre, texto)
+            assert "chequeos: sin hallazgos" not in texto, (nombre, texto)
+
+
+def test_chequeos_el_taller_se_mide_contra_su_contraparte_aunque_este_commiteado_en_la_instancia():
+    with Mundo() as w:
+        instancia_versionada(w)
+        con_chequeo(w, "sql")
+        viejo = ALFA.replace("@Id INT,", "@Id INT, -- MALO viejo")
+        commitear(w.db, {SQL_ALFA: viejo})
+        publicar(w.db)
+        ruta = w.taller("esq.Proc_Alfa.sql", viejo.replace("SELECT 1", "SELECT 1 -- MALO"))
+        commitear(w.raiz, {})
+        datos, texto = triado(w, repos=[], taller=[ruta])
+        ch = datos["chequeos"]
+        assert [(h["repo"], h["ruta"], h["linea"]) for h in ch["hallazgos"]] == [(None, ruta.as_posix(), 6)], ch
+        assert "  %s [sql] %s" % (ruta.as_posix(), TEXTO_MALO % 6) in texto.splitlines(), texto
 
 
 PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]

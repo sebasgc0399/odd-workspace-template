@@ -49,7 +49,7 @@ En los comandos, `<S>` es `${CLAUDE_PLUGIN_ROOT}/scripts` y `<ticket>` es la car
 3. **Pregunta si el cambio va a un líder antes del commit**, que el triaje no lo puede detectar: si va, el modo es `completo` aunque todo haya salido en negativo.
 4. Los archivos «fuera de la unidad» (generados sin trackear, como `__pycache__/` o `*.pyc`) no entran a la revisión ni al recibo: díselo al usuario en una línea, porque puede borrarlos o ignorarlos. Muestra la lista «el triaje NO detecta» y aplica tu criterio (consumidores fuera de los repos declarados, la forma de un resultado que consume otra capa, constantes compartidas).
 5. **Anuncia, antes de lanzar nada,** el modo y las señales que lo decidieron (o «va a un líder»), las capas tocadas, de la columna `[capa]` (un archivo `sin capa` lo lee el de diseño, y se avisa), y el costo en corridas, sin inventar cifras: `0` son 0; `rapido`, `1 + <capas tocadas>`; `completo`, `3 + <capas tocadas>`. Salvo en modo `0`, cita tal cual la línea de `python3 "<S>/rescatar.py" --ultimo-costo "<ticket>"`, sin multiplicarla ni ajustarla a este diff; si sale con 1, anuncia solo las corridas.
-6. **Espera el sí explícito del usuario:** sin él no se lanza ni se escribe nada, salvo en modo `0` (sección 5) o en un rechequeo aprobado con su lote de corrección.
+6. **Espera el sí explícito del usuario:** sin él no se lanza ni se escribe nada, salvo en modo `0` (sección 5) o en un rechequeo aprobado con su lote de corrección. Si el triaje termina con «corregir antes de lanzar», propón corregir primero; lanzar sin corregir pide un sí aparte: lee `references/chequeos.md`.
 
 **La bajada**, de `completo` a `rapido`, la pide el usuario con su motivo, y su pedido es el sí de `rapido`; nunca si el cambio va a un líder (si no lo respondió, pregúntaselo antes). Si el modo es `completo` y no va a un líder, lee «La bajada» en `references/recibo.md` antes de anunciar: cuándo cabe ofrecerla, en una línea y sin recomendarla.
 
@@ -67,7 +67,7 @@ La primera línea cubre los archivos trackeados (commiteados o no); la segunda v
 
 ## 4. Las corridas
 
-Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**; en Pi (gentle-shell), antes de lanzar, lee «Pi» en `references/hosts.md`. Si un agente no existe, no lo reemplaces con otro: el usuario completa la instancia con `/odd-ws:bootstrap` y, si el agente es nuevo en esta sesión, la reabre.
+Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**; en Pi (gentle-shell), antes de lanzar, lee «Pi» en `references/hosts.md`.
 
 Son las del costo anunciado: `revisor-diseno` ×1 en `rapido` y ×3 en `completo`, más `revisor-<capa>` ×1 por cada capa tocada.
 
@@ -89,7 +89,7 @@ Cuando terminan todas las corridas:
 python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<agentId> --corrida … --costo
 ```
 
-`--sesion` es `~/.claude/projects/<proyecto>/<sesión>/subagents` (si no la encuentras, Glob `~/.claude/projects/*/*/subagents/agent-<agentId>.jsonl`). **En Pi**, antes de rescatar, lee «Pi» en `references/hosts.md`:
+`--sesion` es `~/.claude/projects/<proyecto>/<sesión>/subagents` (si no la encuentras, lee `references/rescate.md`). **En Pi**, antes de rescatar, lee «Pi» en `references/hosts.md`:
 
 ```bash
 python3 "<S>/rescatar.py" --host pi --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<task_id> --corrida … --costo

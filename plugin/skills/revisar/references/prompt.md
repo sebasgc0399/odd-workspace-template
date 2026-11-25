@@ -19,6 +19,9 @@ Entrada:
 Ya decidido en el ticket (## Decisiones), no lo vuelvas a plantear como hallazgo; si un CRITICAL lo contradice, repórtalo y nombra la decisión:
 - <una línea por decisión, copiada de ## Decisiones, o «ninguna»>
 
+Ya detectado por los chequeos del triaje, no lo reemitas:
+- <una línea por hallazgo o marcador de `chequeos` en triaje.json, con su ruta:línea, su regla y su mensaje, o «ninguno»>
+
 Entrega el reporte con tu contrato. En cada hallazgo, justo después de la severidad, cita el ID de la regla de la matriz que rompe, o `sin ID` si no viene de una regla con ID:
 [SEVERIDAD] <ID de la regla | sin ID> ruta:línea — qué viola — cómo debe quedar
 
@@ -28,6 +31,7 @@ VEREDICTO: <n> CRITICAL, <n> WARNING, <n> SUGGESTION
 
 - **El reporte va en el último bloque de texto y la devolución es una línea (I35).** Cada reporte, de 14k a 27k caracteres, entraba entero al contexto del orquestador. Ahora el orquestador recibe solo el `VEREDICTO:`, y `rescatar.py` lee el reporte del texto que el revisor escribió justo antes de devolverlo. Si el revisor devuelve solo el veredicto, sin el reporte antes, el rescate falla en voz alta y no escribe nada. Para leer los hallazgos, el orquestador abre el `<nombre>.md` rescatado. La regla va en el prompt y no en las plantillas, por la misma razón que el ID de la regla.
 - **Las decisiones van copiadas en el prompt**, no solo en el `CLAUDE.md` del ticket: en un ticket real, tres corridas de un `completo` pidieron quitar algo que el usuario ya había aprobado.
+- **Lo ya detectado por los chequeos (I47)** también va copiado: los hallazgos de las reglas de capa y los marcadores de conflicto que el triaje encontró y que el usuario eligió no corregir antes de lanzar (`references/chequeos.md`). Lo determinista ya está encontrado, y un revisor que lo reemite gasta tokens en repetirlo. Si los chequeos salieron limpios o ya se corrigieron, la lista dice «ninguno».
 - **El ID de la regla también va en el prompt**, y no en las plantillas de los revisores: un cambio de plantilla no llega a los revisores ya generados. `revisor-diseno` solo ve los IDs de `criterios`, así que `sin ID` es una respuesta normal. Nunca pongas un ID de ejemplo en el prompt: el revisor lo copiaría.
 - **En un rechequeo**, el prompt suma los hallazgos de la ronda anterior (sección 9) y no lleva orden barajado.
 - Si el agente no existe (por ejemplo, `revisor-diseno` en una instancia que se generó antes de que el plugin lo trajera), no lo reemplaces con otro: dile al usuario que complete la instancia con `/odd-ws:bootstrap`, y que si el agente es nuevo en esta sesión hace falta reabrirla.

@@ -1,9 +1,15 @@
+import sys
+
+sys.dont_write_bytecode = True
+
+import contextlib
+import importlib.util
 import os
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
+import time
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -21,6 +27,25 @@ def _quitar(func, ruta, _exc):
         func(ruta)
     except Exception:
         pass
+
+
+def _modulo():
+    spec = importlib.util.spec_from_file_location("marcadores_en_prueba", CLI)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+@contextlib.contextmanager
+def _entorno(env):
+    previo = dict(os.environ)
+    os.environ.clear()
+    os.environ.update(env)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(previo)
 
 
 class Repo:
@@ -70,6 +95,20 @@ class Repo:
     def revisar(self, env=None):
         r = subprocess.run([sys.executable, str(CLI)], cwd=self.raiz, capture_output=True, env=env or self.env, timeout=120)
         return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace")
+
+    def contra(self, base, sin_trackear=None):
+        modulo = _modulo()
+        with _entorno(self.env):
+            return [(m.ruta, m.numero, m.linea) for m in modulo.marcadores_contra(str(self.raiz), base, sin_trackear)]
+
+    def error_contra(self, base, sin_trackear=None):
+        modulo = _modulo()
+        with _entorno(self.env):
+            try:
+                modulo.marcadores_contra(str(self.raiz), base, sin_trackear)
+            except modulo.GitNoRespondio as error:
+                return str(error)
+        return None
 
     def __exit__(self, *_):
         shutil.rmtree(self.base, onexc=_quitar)
@@ -230,6 +269,77 @@ def test_un_commit_a_revisa_el_indice_temporal_que_arma_git():
         errores = r.stderr.decode("utf-8", "replace")
         assert r.returncode != 0 and "a.md:2:" in errores, (r.returncode, errores)
         assert repo.git("rev-list", "--count", "HEAD").strip() == "1"
+
+
+def _lados(ruta, *numeros):
+    return [(ruta, numero, f"{APERTURA} HEAD" if numero == 2 else f"{CIERRE} otra") for numero in numeros]
+
+
+def test_contra_la_base_ve_lo_commiteado_lo_modificado_sin_stagear_y_lo_sin_trackear():
+    with Repo() as repo:
+        repo.stagear("viejo.md", CONFLICTO)
+        repo.stagear("a.md", "limpio\n")
+        repo.commitear("base")
+        base = repo.git("rev-parse", "HEAD").strip()
+        repo.stagear("commiteado.md", CONFLICTO)
+        repo.commitear("despues de la base")
+        repo.escribir("a.md", CONFLICTO)
+        repo.escribir("viejo.md", CONFLICTO + "una linea nueva\n")
+        repo.escribir("nuevo/b.md", CONFLICTO)
+        repo.escribir("solo-apertura.md", f"{APERTURA} HEAD\nlo nuestro\n")
+        esperados = _lados("a.md", 2, 6) + _lados("commiteado.md", 2, 6)
+        assert repo.contra(base) == esperados + _lados("nuevo/b.md", 2, 6), repo.contra(base)
+        assert repo.contra(base, []) == esperados, "sin_trackear=[] deja afuera lo sin trackear"
+        assert repo.contra(base, ["nuevo/b.md"]) == esperados + _lados("nuevo/b.md", 2, 6)
+
+
+def test_contra_la_base_lo_sin_trackear_respeta_conflict_marker_size_y_se_salta_los_binarios():
+    with Repo() as repo:
+        repo.stagear(".gitattributes", "ejemplos/*.md conflict-marker-size=32\n")
+        repo.commitear("base")
+        base = repo.git("rev-parse", "HEAD").strip()
+        repo.escribir("ejemplos/conflicto.md", CONFLICTO)
+        repo.escribir("datos.bin", CONFLICTO.encode("utf-8") + b"\0\x01\x02\n")
+        repo.escribir("titulo.md", f"Titulo\n{SEPARADOR}\n")
+        assert repo.contra(base) == [], repo.contra(base)
+        repo.escribir("ejemplos/largo.md", CONFLICTO.replace(APERTURA, "<" * 32).replace(CIERRE, ">" * 32))
+        assert [ruta for ruta, _, _ in repo.contra(base)] == ["ejemplos/largo.md", "ejemplos/largo.md"], repo.contra(base)
+
+
+def test_contra_la_base_no_toca_el_indice_aunque_haya_un_archivo_solo_con_stat_sucio():
+    with Repo() as repo:
+        repo.stagear("a.md", "limpio\n")
+        repo.stagear("b.md", "otro\n")
+        repo.commitear("base")
+        repo.git("update-index", "--refresh")
+        time.sleep(1.2)
+        os.utime(repo.raiz / "b.md", None)
+        repo.escribir("a.md", CONFLICTO)
+        indice = repo.raiz / ".git" / "index"
+        antes = indice.read_bytes()
+        assert repo.contra("HEAD") == _lados("a.md", 2, 6), "control positivo"
+        assert indice.read_bytes() == antes, "el .git/index cambió"
+
+
+def test_contra_la_base_si_git_falla_no_devuelve_una_lista_vacia():
+    with Repo() as repo:
+        repo.stagear("a.md", "limpio\n")
+        repo.commitear("base")
+        assert "git diff %s --check" % ("0" * 40) in (repo.error_contra("0" * 40) or ""), "una base que no existe"
+        assert "no-existe.md" in (repo.error_contra("HEAD", ["no-existe.md"]) or ""), "un sin trackear que no existe"
+
+
+def test_lo_stageado_sigue_sin_mirar_lo_sin_trackear_que_si_ve_el_triaje():
+    with Repo() as repo:
+        repo.stagear("a.md", "limpio\n")
+        repo.commitear("base")
+        repo.escribir("nuevo.md", CONFLICTO)
+        repo.escribir("a.md", CONFLICTO)
+        assert repo.revisar() == (0, "", "")
+        assert repo.contra("HEAD") == _lados("a.md", 2, 6) + _lados("nuevo.md", 2, 6), "control positivo"
+        repo.stagear("nuevo.md", CONFLICTO)
+        codigo, _, errores = repo.revisar()
+        assert codigo == 1 and "nuevo.md:2:" in errores and "a.md:" not in errores, errores
 
 
 def test_el_cli_rechaza_argumentos():

@@ -14,6 +14,7 @@ import config_loader
 import recibo
 import verificar_capa
 from odd_ws import capas as convencion
+from odd_ws import marcadores
 from odd_ws import tsql
 from odd_ws.comun import cargar_por_ruta, lineas, raiz_de_instancia
 
@@ -26,6 +27,9 @@ EXT_GENERADA = (".pyc", ".pyo")
 SENALES = recibo.SENALES
 LENGUAJES = {".sql": tsql}
 COTA = "solo en los repos declarados en workspace.config.json"
+ARBOL_VACIO = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+CORREGIR_ANTES = "corregir antes de lanzar"
+CHEQUEOS_LIMPIOS = "chequeos: sin hallazgos ni marcadores de conflicto (%d archivo(s) con chequeos de capa)"
 CAMPOS_MARCADOR = ("id", "patron", "ejemplo", "fuente", "ancla", "descripcion")
 SIN_HALLAZGOS = {
     "efecto": "sin marcadores de efecto en el archivo entero (base y actual)",
@@ -416,6 +420,62 @@ def evaluar_consumidores(cambios, clones, cota):
     return nivel, detalle
 
 
+# ---------------------------------------------------------------- chequeos (I47)
+
+def _ruta_del_chequeo(repo, c):
+    return c["ruta"] if repo is not None else Path(c["abs"]).as_posix()
+
+
+def _chequear_la_capa(c, contra, config):
+    errores = []
+    try:
+        resultado = verificar_capa.verificar_archivo(c["abs"], config, contra=contra, errores=errores)
+    except (Exception, SystemExit) as exc:
+        return None, ["el chequeo falló (%s: %s)" % (type(exc).__name__, exc)]
+    return resultado, errores
+
+
+def _marcadores_del_repo(r):
+    nuevos = [c["ruta"] for c in r["cambios"] if c["estado"] == "?" and os.path.isfile(c["abs"])]
+    del_diff = {c["ruta"] for c in r["cambios"]}
+    return [m for m in marcadores.marcadores_contra(r["ruta"], r["base"], nuevos, recibo._entorno()) if m.ruta in del_diff]
+
+
+def chequear(recolectados, del_taller, config):
+    chequeos = {"archivos": 0, "hallazgos": [], "marcadores": [], "sin_chequear": []}
+    unidades = [(r["ruta"], r["base"], c) for r in recolectados for c in r["cambios"]] + [(None, None, c) for c in del_taller]
+    for repo, base, c in unidades:
+        if not c["capa"] or recibo.es_doc(c["ruta"]) or not os.path.isfile(c["abs"]):
+            continue
+        ruta = _ruta_del_chequeo(repo, c)
+        resultado, errores = _chequear_la_capa(c, ARBOL_VACIO if c["origen"] == "taller" else base, config)
+        if errores:
+            chequeos["sin_chequear"].append({"repo": repo, "ruta": ruta, "capa": c["capa"], "motivo": "; ".join(errores)})
+        elif resultado is not None:
+            chequeos["archivos"] += 1
+        for h in resultado[1] if resultado is not None else []:
+            chequeos["hallazgos"].append({"repo": repo, "ruta": ruta, "capa": c["capa"], "id": h["id"], "modo": h.get("modo"),
+                                          "severidad": h.get("severidad") or "", "linea": h.get("linea"), "mensaje": h["mensaje"],
+                                          "texto": verificar_capa._formatear(h)})
+    for r in recolectados:
+        _sumar_marcadores(chequeos, r["ruta"], None, lambda: _marcadores_del_repo(r))
+    for c in del_taller:
+        _sumar_marcadores(chequeos, None, _ruta_del_chequeo(None, c),
+                          lambda: marcadores.marcadores_nuevos(os.path.dirname(c["abs"]), [os.path.basename(c["abs"])],
+                                                               recibo._entorno()))
+    chequeos["corregir_antes_de_lanzar"] = bool(chequeos["hallazgos"] or chequeos["marcadores"] or chequeos["sin_chequear"])
+    return chequeos
+
+
+def _sumar_marcadores(chequeos, repo, ruta, buscar):
+    try:
+        encontrados = buscar()
+    except (marcadores.GitNoRespondio, OSError) as exc:
+        chequeos["sin_chequear"].append({"repo": repo, "ruta": ruta, "capa": None, "motivo": "marcadores de conflicto: %s" % exc})
+        return
+    chequeos["marcadores"] += [{"repo": repo, "ruta": ruta or m.ruta, "linea": m.numero, "texto": m.linea} for m in encontrados]
+
+
 # ---------------------------------------------------------------- análisis
 
 def _cargar_config(raiz):
@@ -472,7 +532,7 @@ def analizar(repos, taller=(), raiz=None, clones=None, ticket=None):
         "taller": [{"ruta": Path(c["abs"]).as_posix(), "capa": c["capa"], "origen": c["origen"], "contraparte": c["contraparte"]}
                    for c in del_taller],
         "senales": senales, "modo": modo, "motivos": motivos, "sin_capa": _sin_capa(activos, reconocidas),
-        "no_detectable": no_detectable,
+        "no_detectable": no_detectable, "chequeos": chequear(recolectados, del_taller, config),
     }
 
 
@@ -596,7 +656,27 @@ def formatear(r):
         salida += ["      " + d for d in s["detalle"]]
     salida.append("el triaje NO detecta (queda para el criterio de quien revisa):")
     salida += ["  - " + n for n in r["no_detectable"]]
+    salida += _lineas_de_los_chequeos(r["chequeos"])
     return "\n".join(salida)
+
+
+def _absoluta(entrada):
+    return entrada["ruta"] if entrada["repo"] is None else "%s/%s" % (Path(entrada["repo"]).as_posix(), entrada["ruta"])
+
+
+def _lineas_de_los_chequeos(chequeos):
+    if not chequeos["corregir_antes_de_lanzar"]:
+        return [CHEQUEOS_LIMPIOS % chequeos["archivos"]]
+    con_marcadores = {(m["repo"], m["ruta"]) for m in chequeos["marcadores"]}
+    cuentas = [(len(chequeos["hallazgos"]), "%d hallazgo(s) de capa"), (len(con_marcadores), "%d archivo(s) con marcadores de conflicto"),
+               (len(chequeos["sin_chequear"]), "%d sin chequear")]
+    salida = ["chequeos: %s: %s" % (", ".join(texto % n for n, texto in cuentas if n), CORREGIR_ANTES)]
+    salida += ["  %s [%s] %s" % (_absoluta(h), h["capa"], h["texto"]) for h in chequeos["hallazgos"]]
+    salida += ["  %s:%d: marcador de conflicto «%s»" % (_absoluta(m), m["linea"], m["texto"]) for m in chequeos["marcadores"]]
+    for s in chequeos["sin_chequear"]:
+        donde = s["repo"] if s["ruta"] is None else _absoluta(s)
+        salida.append("  %s%s: no se pudo chequear: %s" % (Path(donde).as_posix(), " [%s]" % s["capa"] if s["capa"] else "", s["motivo"]))
+    return salida
 
 
 def _parser():
