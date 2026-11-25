@@ -14,6 +14,7 @@ import config_loader
 from odd_ws import calibracion
 from odd_ws import capas as convencion
 from odd_ws import enlaces
+from odd_ws import entregas
 from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws import paquetes
@@ -684,6 +685,15 @@ def _ticket_activo(evento, config):
                     "su CLAUDE.md solo; este es su resumen, de %s:\n\n%s" % (relativa, destino, resumen))
 
 
+def _entregas_pendientes(evento, config):
+    if evento.origen not in ORIGENES_DEL_AVISO:
+        return None
+    try:
+        return entregas.aviso_de_inicio(config, porque.hasta(_restante(entregas.PLAZO_DEL_INICIO)))
+    except Exception:
+        return None
+
+
 def _session_start(evento, config):
     sesion = evento.sesion
     if evento.origen in ("compact", "clear") and id_valido(sesion):
@@ -698,8 +708,9 @@ def _session_start(evento, config):
     aviso = raiz_del_plugin.seguir_al_vigente(config["raiz"])
     plantillas = plantillas_instancia.aviso_de_inicio(config["raiz"], raiz_del_plugin.vigente()) if aviso else None
     anotadas = fallas.aviso_de_inicio(config["raiz"])
+    pendientes = _entregas_pendientes(evento, config)
     ticket = _ticket_activo(evento, config)
-    partes = [texto for texto in (aviso, plantillas, anotadas, ticket.texto if ticket else None) if texto]
+    partes = [texto for texto in (aviso, plantillas, anotadas, pendientes, ticket.texto if ticket else None) if texto]
     return Contexto("\n\n".join(partes)) if partes else Permitir()
 
 

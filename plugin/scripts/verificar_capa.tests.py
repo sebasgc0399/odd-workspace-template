@@ -1708,6 +1708,144 @@ def test_sin_plazo_los_enlaces_dejan_de_revisarse_y_el_resumen_sale():
         assert texto.endswith(CIERRE_DEL_TICKET + enlaces_a_depurar("- no existe: a -> falta-a.md")), texto[-500:]
 
 
+ENCABEZADO_DE_ENTREGAS = "odd-ws: hay trabajo de los tickets que todavía no llegó a origin (mirado con las refs locales, sin fetch):\n"
+CIERRE_DE_ENTREGAS = ("\nCuéntaselo al usuario. Si ya llegó por otro camino o no va a subirse, con su sí corre "
+                      "`entregas.py --confirmar <ticket>`: ese ticket calla hasta que cambien sus ramas o sus archivos.")
+T7_SIN_EMPUJAR = "- T-7-algo: en web, la rama feat/T-7 nunca se empujó."
+
+
+def entregas_pendientes(*lineas):
+    return ENCABEZADO_DE_ENTREGAS + "\n".join(lineas) + CIERRE_DE_ENTREGAS
+
+
+def con_origin(repo):
+    escribir(repo, "base.txt", "base\n")
+    commitear(repo, "base")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def ticket_con_rama(raiz, nombre, worktree_y_rama):
+    escribir(raiz, "tickets/%s/CLAUDE.md" % nombre, "# %s\n\n## Objetivo\n\nhacer algo concreto\n\n## Contexto técnico\n\n"
+             "- Worktree y rama: %s\n" % (nombre, worktree_y_rama))
+
+
+def confirmar_entrega(raiz, ticket):
+    import entregas
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return entregas.main(["--raiz", str(raiz), "--confirmar", ticket])
+
+
+def test_inicio_avisa_de_cada_ticket_con_la_entrega_pendiente_en_startup_resume_y_fork():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        git(w.web, "branch", "feat/T-7")
+        ticket_con_rama(w.raiz, "T-7-algo", "árbol principal, rama `feat/T-7`")
+        for source in ("startup", "resume", "fork"):
+            codigo, out, err = w.correr(inicio(source))
+            assert codigo == 0 and err == b"", (source, codigo, err)
+            assert aviso_de(out) == entregas_pendientes(T7_SIN_EMPUJAR), (source, aviso_de(out))
+        with SinSubprocess() as guardia:
+            for source in ("compact", "clear", None, "otro"):
+                assert w.correr(inicio(source)) == (0, "", b""), source
+        assert not guardia.llamadas, "en compact y clear no corre git"
+
+
+def test_inicio_sin_entregas_pendientes_calla_del_todo_y_con_el_ticket_activo_inyecta_lo_mismo_que_antes():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        git(w.web, "branch", "feat/T-7")
+        carpeta = w.base / "wt" / "web-T-7"
+        git(w.web, "worktree", "add", "-q", str(carpeta), "feat/T-7")
+        git(w.web, "update-ref", "refs/remotes/origin/feat/T-7", "refs/heads/feat/T-7")
+        ticket_con_rama(w.raiz, "T-7-algo", "`%s`, rama `feat/T-7`" % carpeta)
+        for source in ("startup", "resume", "fork"):
+            assert w.correr(inicio(source)) == (0, "", b""), source
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        assert texto == "%s# T-7-algo\n\n## Objetivo\n\nhacer algo concreto\n\n%s" % (ENCABEZADO_DEL_RESUMEN, CIERRE_DEL_TICKET), texto
+        escribir(carpeta, "nuevo.txt", "x\n")
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        assert texto.startswith(entregas_pendientes("- T-7-algo: en web, la rama feat/T-7 tiene cambios sin commitear.") + "\n\n"
+                                + ENCABEZADO_DEL_RESUMEN), texto
+
+
+def test_inicio_un_ticket_confirmado_calla_hasta_que_cambia_su_huella():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        git(w.web, "branch", "feat/T-7")
+        ticket_con_rama(w.raiz, "T-7-algo", "`feat/T-7`")
+        git(w.web, "branch", "feat/T-8")
+        ticket_con_rama(w.raiz, "T-8-otro", "`feat/T-8`")
+        t8 = "- T-8-otro: en web, la rama feat/T-8 nunca se empujó."
+        assert aviso_de(w.correr(inicio("startup"))[1]) == entregas_pendientes(T7_SIN_EMPUJAR, t8)
+        assert confirmar_entrega(w.raiz, "T-7-algo") == 0
+        assert aviso_de(w.correr(inicio("startup"))[1]) == entregas_pendientes(t8)
+        assert confirmar_entrega(w.raiz, "T-8-otro") == 0
+        assert w.correr(inicio("startup")) == (0, "", b""), "todo confirmado calla"
+        git(w.web, "checkout", "-q", "feat/T-7")
+        escribir(w.web, "base.txt", "otro\n")
+        commitear(w.web, "nuevo")
+        assert aviso_de(w.correr(inicio("startup"))[1]) == entregas_pendientes(T7_SIN_EMPUJAR), "la rama cambió"
+
+
+def test_inicio_el_aviso_de_entregas_va_despues_de_las_fallas_anotadas_y_antes_del_ticket_activo():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        git(w.web, "branch", "feat/T-7")
+        ticket_con_rama(w.raiz, "T-7-algo", "`feat/T-7`")
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        M.fallas.anotar("guard_comandos", {"hook_event_name": "PreToolUse"}, RuntimeError("rota"), str(w.raiz))
+        texto = aviso_de(w.correr(inicio_en("startup", w.raiz))[1])
+        fallas, entregas, ticket = texto.split("\n\n", 2)
+        assert "desde el último aviso hubo 1 falla" in fallas, fallas
+        assert entregas == entregas_pendientes(T7_SIN_EMPUJAR), entregas
+        assert ticket.startswith(ENCABEZADO_DEL_RESUMEN) and ticket.endswith(CIERRE_DEL_TICKET), ticket
+
+
+def test_inicio_con_mas_de_20_tickets_revisa_los_20_primeros_y_dice_en_una_linea_cuantos_quedaron():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        for n in range(1, 23):
+            git(w.web, "branch", "feat/T-%d" % n)
+            ticket_con_rama(w.raiz, "T-%02d-x" % n, "`feat/T-%d`" % n)
+        texto = aviso_de(w.correr(inicio("startup"))[1])
+        lineas = ["- T-%02d-x: en web, la rama feat/T-%d nunca se empujó." % (n, n) for n in range(1, 21)]
+        quedaron = ("\nodd-ws: quedaron 2 tickets sin revisar (el inicio revisa hasta 20), así que no cuentan como limpios: "
+                    "`entregas.py` los revisa todos.")
+        assert texto == entregas_pendientes(*lineas) + quedaron, texto
+
+
+def test_inicio_sin_plazo_lo_dice_en_una_linea_solo_si_habia_algo_que_chequear():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        ticket_con_rama(w.raiz, "T-7-algo", "árbol principal")
+        assert w.correr(inicio("startup"), plazo=-1) == (0, "", b""), "nada que chequear"
+        ticket_con_rama(w.raiz, "T-8-otro", "`feat/T-8`")
+        texto = aviso_de(w.correr(inicio("startup"), plazo=-1)[1])
+        assert texto == ("odd-ws: quedó 1 ticket sin revisar (no alcanzó el tiempo), así que no cuenta como limpio: "
+                         "`entregas.py` los revisa todos."), texto
+
+
+def test_inicio_una_falla_del_aviso_de_entregas_no_calla_el_resto_del_inicio():
+    with git_aislado(), Toque() as w:
+        con_origin(w.web)
+        git(w.web, "branch", "feat/T-7")
+        ticket_con_rama(w.raiz, "T-7-algo", "`feat/T-7`")
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        original = M.entregas.aviso_de_inicio
+
+        def rota(*_a, **_k):
+            raise RuntimeError("rota")
+
+        M.entregas.aviso_de_inicio = rota
+        try:
+            codigo, out, err = w.correr(inicio_en("startup", w.raiz))
+        finally:
+            M.entregas.aviso_de_inicio = original
+        assert codigo == 0 and err == b"", (codigo, err)
+        assert aviso_de(out) == "%s# T-7-algo\n\n## Objetivo\n\nhacer algo concreto\n\n%s" % (ENCABEZADO_DEL_RESUMEN, CIERRE_DEL_TICKET)
+
+
 def test_inicio_con_la_config_rota_en_compact_clear_u_otro_origen_sigue_callando():
     with Mundo() as w:
         escribir(w.raiz, "workspace.config.json", "{rota")

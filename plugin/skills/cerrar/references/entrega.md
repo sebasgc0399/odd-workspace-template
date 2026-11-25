@@ -29,3 +29,17 @@ El cierre gradúa cuando el conocimiento está verificado, no cuando el código 
 3. **En el `CLAUDE.md` del ticket:** `Estado` pasa a `listo`, la `Nota de estado` se vacía o dice lo que quede, y una entrada nueva de la bitácora trae la foto nueva de la entrega y lo que cambió desde el cierre.
 4. **Commitea en la raíz de la instancia**, con `git add` por ruta, sin preguntar salvo `"ask_before_commit": true`, y sin push: `git commit -m "chore(<id>): entrega"`.
 5. **Sácale la marca de ticket activo** (`ticket.py --desactivar <id>`) y, en un repo propio, desarma el worktree como en el paso 7.
+
+## El aviso de lo que quedó sin subir
+
+Mientras un ticket activo tenga la entrega pendiente (cambios sin commitear en la carpeta de su rama, commits que no están en `origin/<rama>` o una rama que nunca se empujó), cada sesión arranca con una línea que lo dice. Solo mira las refs locales, así que no reemplaza la comprobación de arriba. La misma lista sale con:
+
+```bash
+python3 "<S>/entregas.py"
+```
+
+Si la entrega llegó por otro camino (otro remoto, un merge hecho a mano) o no va a subirse, y el usuario lo confirma, anota la huella del ticket y el aviso calla hasta que cambien sus ramas o sus archivos:
+
+```bash
+python3 "<S>/entregas.py" --confirmar <id>
+```

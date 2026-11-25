@@ -214,6 +214,7 @@ Lo que deja en la instancia está en [Qué genera el bootstrap](#qué-genera-el-
 - **Al final** hace el commit de cierre (`chore(<id>): cierre e hidratación`) sin volver a preguntar, porque tu sí a la propuesta ya lo cubría. Con `"ask_before_commit": true` en la config, te pide un segundo sí antes del commit. Nunca hace push.
 - **El worktree.** En un repo marcado como tuyo, lo desarma él si está limpio y su rama ya está en `origin`; si no, te dice qué falta. En un repo del equipo, te da los comandos para que lo desarmes tú.
 - **La entrega después del cierre.** Si cerraste antes de entregar, cuando la entrega queda hecha no se vuelve a cerrar: pasa el ticket a `listo`, anota la entrega en la bitácora, commitea (`chore(<id>): entrega`) y quita la marca de ticket activo. Si la entrega cambió código después de la revisión, ese cambio pasa antes por `/odd-ws:revisar`.
+- **Lo que quedó sin subir vuelve solo.** Mientras un ticket activo tenga cambios sin commitear, commits sin empujar o una rama que nunca se empujó, cada sesión arranca diciéndolo, en una línea por ticket, y calla cuando no hay nada. `entregas.py` da la misma lista, y si la entrega llegó por otro camino, `entregas.py --confirmar <ticket>` lo calla hasta que sus ramas o sus archivos cambien (ver [Lo que quedó sin subir](hooks.md#lo-que-quedó-sin-subir)).
 - **Las memorias sin triar.** Cierra con una línea: «N memorias sin triar: `/odd-ws:cerrar memorias`». No las tría ni frena el cierre.
 
 #### El modo `memorias`

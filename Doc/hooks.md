@@ -11,7 +11,7 @@ Comando: «git push --force origin main»
 
 | Cuándo | Qué hace |
 |---|---|
-| Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Avisa una vez de los hooks que fallaron desde el último aviso (ver [Si un hook falla](#si-un-hook-falla)). Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
+| Al abrir o retomar una sesión | Valida la config de la instancia y avisa si está rota. Avisa una vez de los hooks que fallaron desde el último aviso (ver [Si un hook falla](#si-un-hook-falla)). Avisa de cada ticket con trabajo que todavía no llegó a `origin` (ver [Lo que quedó sin subir](#lo-que-quedó-sin-subir)). Tras `/compact` o `/clear`, reinicia las marcas de primer toque. |
 | Al empezar el turno | `revisar_turno.py` saca una foto de los archivos de capa que ya están modificados, para saber después qué cambió durante el turno. Corre solo en el agente principal: un subagente no saca foto. |
 | Al leer por primera vez un archivo de una capa | Inyecta sus no-negociables como contexto. |
 | Antes de editar un archivo de una capa | Si los no-negociables no se cargaron, bloquea la primera edición y los inyecta. El reintento pasa. |
@@ -82,6 +82,22 @@ Un hook que arranca pero falla por dentro, con un error que no esperaba, no fren
 - **El doctor la muestra** en el ítem `hooks-fallas`, en AVISO, con las tres más recientes, hasta que vacíes el registro con `--arreglar hooks-fallas`.
 
 Lo que el hook ya resuelve por su cuenta no se anota: una regla de capa que se cae en el fin del turno, una etapa de la compuerta del writer (esa queda en el estado del writer) o una foto que no se pudo guardar.
+
+## Lo que quedó sin subir
+
+Al abrir o retomar una sesión, el agente recibe una línea por cada ticket activo con la entrega pendiente, para que te lo cuente. Por ejemplo:
+
+```text
+odd-ws: hay trabajo de los tickets que todavía no llegó a origin (mirado con las refs locales, sin fetch):
+- T-7-lector: en web, la rama feat/T-7 tiene cambios sin commitear y 2 commits sin empujar; en db, la rama feat/T-7 nunca se empujó.
+```
+
+- **Qué cuenta.** Por cada repo de «Worktree y rama» del ticket: un cambio sin commitear en la carpeta que tiene esa rama, un commit que no está en `origin/<rama>` o una rama sin `origin/<rama>`, porque nunca se empujó. Los tickets archivados (más hondos que `tickets/<id>-<slug>/`) no cuentan.
+- **Qué ramas tiene un ticket.** Las que nombra entre comillas invertidas en «Worktree y rama», o en sus viñetas: una ruta absoluta a la carpeta de un repo da la rama que esa carpeta tiene en `HEAD`, y cualquier otro fragmento cuenta en cada repo que tenga una rama con ese nombre. Un ticket sin nada de eso no tiene nada que chequear.
+- **Solo refs locales, sin `fetch`:** es rápido y funciona sin red, y por eso compara contra lo que tu clon sabe de `origin`, que puede estar atrasado.
+- **Sin nada pendiente, calla del todo.** Revisa hasta 20 tickets dentro del plazo del hook. Si no alcanza, lo dice en una línea y no lo cuenta como limpio.
+- **La lista completa** sale con `entregas.py`, sin tope: sale con 0 si no hay nada pendiente y con 1 si hay algo.
+- **Si ya llegó por otro camino** (otro remoto, un merge hecho a mano) o no va a subirse, `entregas.py --confirmar <ticket>` anota una huella del ticket en `.claude/estado/entregas.json`: las cabezas de sus ramas y de sus `origin`, y el contenido de sus archivos sin commitear. Ese ticket calla hasta que algo de eso cambie, y entonces vuelve a avisar.
 
 ## Apagar un hook
 
