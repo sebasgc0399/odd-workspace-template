@@ -54,8 +54,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T1 | S2 | El reporte fuera del contexto | inline (unos 100 líneas, y el único lugar de agente lo ocupaba el verificador de R15) | hecha (L3) | (con T0) |
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
 | T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5, L6) | `a70cd94` |
-| T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | |
-| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
+| T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `b37a860` |
+| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador pendiente; sin publicar | |
 
 El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el skill `revisar` lo tocan las cuatro. Va de a una unidad, sin writers en paralelo (L1).
 
@@ -165,3 +165,11 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
   - **Diferencial del doctor contra `a70cd94`:** la única fila nueva es `desviaciones OK sin desviaciones anotadas`.
   - **Risk: item 3.** El prompt de los revisores gana un bloque, el doctor un ítem, y cambian los núcleos de `revisar` y `cerrar`.
   - **Scratch del writer:** `%TEMP%\r16-t4-Futrpt`. Va a la limpieza del autor.
+- **L8** (2026-11-25) T5, la versión, inline.
+  - La `0.15.0` quedó en los dos `plugin.json`, el `package.json`, el README, `Doc/actualizar.md:28` y `Doc/uso.md:66`. El CHANGELOG suma su sección.
+  - En el roadmap, R16 queda «lista, sin publicar», y sus cuatro ideas quedan «lista (`0.15.0`, sin publicar)».
+  - Esta versión no cambia ninguna plantilla de la instancia: `git diff f915b0b..HEAD -- plugin/plantillas` sale vacío. Por eso `Doc/actualizar.md` no suma una entrada.
+  - **La tabla de huellas.** `tools/huellas.py` dio 107 huellas, de la `0.2.0` a la `0.15.0`. Como la `0.14.0` todavía no tiene etiqueta, el árbol actual queda bajo la `0.15.0` y la `0.14.0` no aparece.
+    - **Al publicar:** después de etiquetar la `0.14.0`, hay que regenerar la tabla en esta rama antes de empujar la `0.15.0`. El pre-push lo exige.
+    - Una instancia que anotó «0.14.0» necesita esa entrada para saber que nada cambió desde ahí.
+  - Falta el verificador independiente de toda la feature (Risk item 3), y después el ok del autor y su auditor.
