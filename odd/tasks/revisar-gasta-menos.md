@@ -53,8 +53,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S2 | El reporte fuera del contexto | inline (unos 100 líneas, y el único lugar de agente lo ocupaba el verificador de R15) | hecha (L3) | (con T0) |
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
-| T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5) | |
-| T4 | S3 | Las desviaciones conocidas | por definir | pendiente | |
+| T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5, L6) | `a70cd94` |
+| T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | |
 | T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
 
 El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el skill `revisar` lo tocan las cuatro. Va de a una unidad, sin writers en paralelo (L1).
@@ -142,3 +142,26 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
     - Sin `entorno`, todo se comporta igual que antes, también el CLI de lo stageado.
   - **RED:** `test_chequeos_los_marcadores_no_dependen_del_indice_de_git_del_entorno`, con un `GIT_INDEX_FILE` ajeno en el entorno.
   - **GREEN, con el índice ajeno puesto:** `triaje` 111/111 y `marcadores` 22/22.
+- **L7** (2026-11-25) T4, un writer. Cubrió S3.
+  - **El cargador `odd_ws/desviaciones.py`** devuelve `(filas, problemas)`.
+    - Sin archivo no lee la config. Con archivo y la config rota lanza `ConfigRota`, y el doctor da NO APLICA, como los demás ítems.
+    - Cada fila mal formada es un problema, con su línea y todos sus defectos juntos.
+    - `ubicacion` de repo exige `@hash` y se valida con `RE_RANGO` y `parsear_origen`. La ruta de la instancia rechaza `@`, `:`, `\`, espacios, una `/` inicial y `..`.
+  - **El CLI `desviaciones.py`** imprime las filas válidas para el prompt (o `ninguna`). Sale con 1 si hay problemas, que van a stderr, y con 2 si hay un error de uso.
+  - **El doctor** suma el ítem `desviaciones`, después de `plantillas`. Sale OK con la cuenta y AVISO, sin arreglo, con los problemas.
+  - **`revisar`:**
+    - `prompt.md` suma el bloque de desviaciones al lado del de las decisiones del ticket.
+    - El núcleo suma una línea en la consolidación: lo que reabre una desviación sin ser CRITICAL va aparte.
+    - Para pagar esos bytes se sacó del paso 4 el porqué del ID de ejemplo, que ya está en `prompt.md`. El núcleo baja de 17.337 a 17.312 bytes, con un tope de 17.408.
+  - **`cerrar`:**
+    - Suma una fila en el triaje del paso 2, una viñeta en el paso 5 y el archivo en la regla de destinos.
+    - El detalle y un script para agregar filas van en la referencia nueva `references/desviaciones.md`. El paso 5 no la nombra por archivo, para que la prueba de IDs de `memorias.tests.py` no lea su `RUTA`.
+    - El núcleo de `cerrar` sube de 12.943 a 13.297 bytes, con un tope de 13.312: quedan 15.
+  - **Para el auditor:** el cargador usa tres funciones privadas de `config_loader` (`_leer_objeto`, `_version`, `_banderas`), porque `config_loader.py` estaba fuera de lo que el writer podía tocar. Lo limpio sería una función pública que lea las claves de los repos.
+  - **Suites:**
+    - `desviaciones` (módulo) 13/13, `desviaciones` (CLI) 5/5, `doctor` 244/244, `recibo` 116/116 (con el tamaño del núcleo), `registro` 7/7, `matriz` 60/60;
+    - `memorias`, `rescatar`, `tapar`, `bootstrap`, `bootstrap_agentes`, `bootstrap_e2e`, `plantilla_writer`, `capas`, `tools/entrega` y `tools/huellas` en verde;
+    - con un `GIT_INDEX_FILE` ajeno, las tres suites tocadas también en verde.
+  - **Diferencial del doctor contra `a70cd94`:** la única fila nueva es `desviaciones OK sin desviaciones anotadas`.
+  - **Risk: item 3.** El prompt de los revisores gana un bloque, el doctor un ítem, y cambian los núcleos de `revisar` y `cerrar`.
+  - **Scratch del writer:** `%TEMP%\r16-t4-Futrpt`. Va a la limpieza del autor.

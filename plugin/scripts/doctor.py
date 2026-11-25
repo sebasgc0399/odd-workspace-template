@@ -14,6 +14,7 @@ import config_loader
 import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
+from odd_ws import desviaciones
 from odd_ws import fallas
 from odd_ws import hosts as registro_de_hosts
 from odd_ws import paquetes
@@ -105,6 +106,10 @@ AYUDA_PLANTILLAS = (f"Fusiona a mano las editadas ANTES de correr --arreglar {pl
                     "plantillas de la instancia»). Después, commitea las copias.")
 AYUDA_PLANTILLAS_ANOTAR = (f'--arreglar {plantillas_instancia.ID} anota la versión del plugin en "{config_loader.CLAVE_PLANTILLAS}" de '
                            f"{config_loader.NOMBRE}: no toca ninguna copia.")
+AYUDA_DESVIACIONES = (f"Corrige esas filas en {desviaciones.ARCHIVO} (es tu archivo: el doctor no lo toca). El encabezado es "
+                      f"{','.join(desviaciones.ENCABEZADO)}; ubicacion es <repo>:<ruta>@<hash>:<ini>-<fin>, con un repo de "
+                      f"{config_loader.NOMBRE}, o la <ruta> de un archivo de la instancia; fecha, AAAA-MM-DD, y cada id va una sola "
+                      "vez. Mientras tanto, /odd-ws:revisar les pasa a los revisores solo las filas sanas.")
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agrega "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -415,6 +420,25 @@ def chequear_plantillas(ctx):
     desde = f"después de la {revision.base}" if revision.base is not None else "todas las versiones"
     detalle = f"{detalle}; cambiaron: {cambiaron}; lee en {plantillas_instancia.DONDE_LEER} lo de {desde} hasta la {actual}"
     return [resultado(id, AVISO, detalle, None, AYUDA_PLANTILLAS, arreglo)]
+
+
+def chequear_desviaciones(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    id = desviaciones.ID
+    try:
+        filas, problemas = desviaciones.cargar(raiz)
+    except config_loader.ConfigRota:
+        return [resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")]
+    if problemas:
+        cuantos = "1 problema" if len(problemas) == 1 else f"{len(problemas)} problemas"
+        lista = "; ".join(f"línea {n}: {mensaje}" for n, mensaje in problemas)
+        return [resultado(id, AVISO, f"{cuantos} en {desviaciones.ARCHIVO}: {lista}", None, AYUDA_DESVIACIONES)]
+    if not (raiz / desviaciones.ARCHIVO).exists():
+        return [resultado(id, OK, "sin desviaciones anotadas")]
+    cuantas = "1 desviación anotada" if len(filas) == 1 else f"{len(filas)} desviaciones anotadas"
+    return [resultado(id, OK, f"{cuantas} en {desviaciones.ARCHIVO}")]
 
 
 def chequear_perfil(ctx):
@@ -892,6 +916,7 @@ def diagnosticar(ctx):
         *chequear_hooks_de_repos(ctx),
         *chequear_fallas_de_hooks(ctx),
         *chequear_plantillas(ctx),
+        *chequear_desviaciones(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),

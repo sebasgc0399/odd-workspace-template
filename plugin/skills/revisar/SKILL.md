@@ -71,7 +71,7 @@ Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el *
 
 Son las del costo anunciado: `revisor-diseno` ×1 en `rapido` y ×3 en `completo`, más `revisor-<capa>` ×1 por cada capa tocada.
 
-**El prompt** de cada corrida sale de la plantilla de `references/prompt.md`, con el orden de lectura de cada corrida de diseño: léela antes de lanzar. Lleva copiadas las decisiones del ticket y pide el ID de la regla, pero nunca un ID de ejemplo, porque el revisor lo copiaría.
+**El prompt** de cada corrida sale de la plantilla de `references/prompt.md`, con el orden de lectura de cada corrida de diseño: léela antes de lanzar. Lleva copiadas las decisiones del ticket y pide el ID de la regla, pero nunca un ID de ejemplo.
 
 Anota la tabla `nombre de corrida → agentId` (en Pi, `task_id`), con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). **No leas reportes parciales:** espera a que terminen todas.
 
@@ -113,7 +113,7 @@ La hace el orquestador, en prosa, con los reportes de `corridas/`, en `consolida
 - **En `rapido` y en todo rechequeo**, cada hallazgo va una vez, con su ubicación y su regla.
 - **En `completo`**, los de diseño van con su frecuencia entre las tres corridas (3/3, 2/3, 1/3), unidos por ubicación y regla (con ID, la regla es su ID), y los de 1/3, marcados **«a confirmar»**. Hay varianza, y varias corridas no suman aciertos: protegen de la corrida mala y muestran los **conflictos**, la misma pieza con veredictos opuestos («quitar» contra «consumido»), que van en **«Decide el líder o revisa a mano»**, con la evidencia de cada lado y **sin votar**, porque la decisión es de dominio.
 - La severidad de diseño y la de capa van separadas: cada hallazgo, con la de su revisor, sin promediar. Lo que diseño derivó a una capa y lo que esa capa devolvió va aparte, y lo que nadie toma se marca **«sin dueño»** y se lo lleva el usuario.
-- No son hallazgos, y van aparte: las preguntas para el líder, lo que ya estaba antes del cambio, los límites que declaró cada revisor y lo que reabre una decisión del ticket sin ser `CRITICAL` (con la decisión que contradice, y fuera del lote de corrección). Un `CRITICAL` que la contradice sí es un hallazgo, y nombra la decisión.
+- No son hallazgos, y van aparte: las preguntas para el líder, lo que ya estaba antes del cambio, los límites que declaró cada revisor y lo que reabre una decisión del ticket o una desviación conocida sin ser `CRITICAL` (con la que contradice, y fuera del lote de corrección). Un `CRITICAL` que la contradice sí es un hallazgo, y la nombra.
 
 ## 8. Presentar y dejar el recibo
 

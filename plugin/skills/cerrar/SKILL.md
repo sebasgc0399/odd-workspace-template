@@ -15,7 +15,7 @@ Ritual de cierre de un ticket: que lo aprendido no quede atrapado en su carpeta.
 ## Reglas duras
 
 1. **Nada se escribe antes del sí** a la propuesta del paso 4. Mostrar primero, escribir después.
-2. **Se gradúa solo a lo que ya existe:** los docs de `knowledge.docs`, el `CLAUDE.md` raíz, la matriz (`.claude/reglas/matriz.csv`) y `.claude/reglas/evidencia.md`. No crees destinos nuevos por tu cuenta. Engram, si esta sesión lo tiene, es opcional: guarda lo relevante, pero nunca reemplaza a ninguno de los destinos de arriba.
+2. **Se gradúa solo a lo que ya existe:** los docs de `knowledge.docs`, el `CLAUDE.md` raíz, la matriz (`.claude/reglas/matriz.csv`), `.claude/reglas/evidencia.md` y `.claude/reglas/desviaciones.csv` (se crea con la primera). No crees destinos nuevos por tu cuenta. Engram, si esta sesión lo tiene, es opcional: guarda lo relevante, pero nunca reemplaza a ninguno de los destinos de arriba.
 3. **Los repos del equipo son de solo lectura** para esta skill: ni `git add` ni `git commit` ahí. El único commit es el de la raíz de la instancia (paso 9).
 4. **`Estado` y `Conocimiento` son dos relojes distintos.** Esta skill mueve el de `Conocimiento`; `Estado` solo cambia si la entrega cambió de verdad.
 5. **Un bug posterior no desgradúa nada:** si demuestra que un doc decía algo falso, se corrige el doc.
@@ -38,6 +38,7 @@ Por cada decisión, gotcha, hallazgo y candidato del ticket, decide a dónde va:
 | Metodología o convención de trabajo | El `CLAUDE.md` raíz, en su sección. Se mantiene corto (lo mide `conocimiento.py`): si crece, el detalle va a un doc y la raíz solo lo indexa. |
 | **Criterio de revisión** o convención de una capa | Una **fila de la matriz**, más la regla escrita en su destino (paso 5). |
 | Una medición (cuánto tarda, cuánto pesa, cuántos consumidores) | Una **fila de la matriz** con `destino` `evidencia`, y su ID una sola vez en `.claude/reglas/evidencia.md`, con su fuente (paso 5). |
+| Código que parece un error y es a propósito, con su porqué verificado | Una **desviación conocida**: una fila de `.claude/reglas/desviaciones.csv`. Antes de proponerla, lee `references/desviaciones.md`. |
 | Un pendiente que este ticket resolvió | Se cierra con su evidencia donde viva ese pendiente. |
 
 **Cada aprendizaje se clasifica además como de dominio o de motor.** De dominio es lo del proyecto; **de motor**, lo que habla del propio plugin `odd-ws` (un script, una skill o la plantilla), que no se gradúa a ningún destino de la instancia: se anota en la última entrada de la bitácora como `→ motor: <hallazgo>`, sin buzón, y queda para quien mantiene el plugin.
@@ -66,6 +67,7 @@ Escribe lo aprobado en su destino, uno por uno:
 
 - **Un doc de dominio o el `CLAUDE.md` raíz:** edita la sección que corresponde. Si el doc es nuevo, tiene que quedar enlazado desde el índice. Si cambia una cifra o un dato que ya vivía en otro doc, busca sus copias antes de seguir.
 - **Una fila de la matriz**, con el script que la agrega con su ID, su regla en su destino, su evidencia en `.claude/reglas/evidencia.md` y, si bloquea, su calibración: todo como dice `references/matriz.md`. Una regla sin evidencia no entra a la matriz.
+- **Una desviación conocida:** su fila, con el script de la reference del paso 2.
 
 **Después de cada fila nueva, la matriz tiene que dar 0 fallas** para su capa:
 

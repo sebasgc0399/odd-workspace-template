@@ -976,7 +976,7 @@ def test_leer_version():
 
 
 NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
-          "plantillas")
+          "plantillas", "desviaciones")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1033,7 +1033,7 @@ PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de
 RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
 DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
 DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
-                   "plantillas", "writer-sql",
+                   "plantillas", "desviaciones", "writer-sql",
                    "paquetes", "agentes-skills", "agentes-hooks"]
 
 
@@ -1526,6 +1526,57 @@ def test_plantillas_sin_poder_leer_avisa_sin_arreglo_y_con_la_config_rota_no_apl
         assert r["plantillas"].estado == "NO APLICA" and r["config"].estado == "FALTA" and "plantillas" in r["config"].detalle, r
     with Escenario() as e:
         assert "plantillas" not in por_id(Falso(e.base)), "fuera de una instancia no sale"
+
+
+DESVIACIONES = ".claude/reglas/desviaciones.csv"
+ENCABEZADO_DESVIACIONES = "id,ubicacion,resumen,porque,fecha\n"
+
+
+def test_desviaciones_es_ok_sin_el_archivo_y_con_el_archivo_cuenta_las_anotadas():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        assert por_id(ctx)["desviaciones"] == d().resultado("desviaciones", "OK", "sin desviaciones anotadas")
+        poner(raiz, DESVIACIONES, ENCABEZADO_DESVIACIONES + "a,docs/a.md,Parece un error,Es a propósito,2026-11-25\n")
+        assert por_id(ctx)["desviaciones"] == d().resultado("desviaciones", "OK", "1 desviación anotada en %s" % DESVIACIONES)
+        poner(raiz, DESVIACIONES, ENCABEZADO_DESVIACIONES + "a,docs/a.md,r,p,2026-11-25\nb,docs/b.md,r,p,2026-11-25\n")
+        assert por_id(ctx)["desviaciones"] == d().resultado("desviaciones", "OK", "2 desviaciones anotadas en %s" % DESVIACIONES)
+        poner(raiz, DESVIACIONES, ENCABEZADO_DESVIACIONES)
+        assert por_id(ctx)["desviaciones"] == d().resultado("desviaciones", "OK", "0 desviaciones anotadas en %s" % DESVIACIONES)
+    with Escenario() as e:
+        assert "desviaciones" not in por_id(Falso(e.base)), "fuera de una instancia no sale"
+
+
+def test_desviaciones_mal_formadas_es_aviso_sin_arreglo_con_cada_problema_y_su_linea():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        poner(raiz, DESVIACIONES, ENCABEZADO_DESVIACIONES + "a,docs/a.md,r,p,2026-11-25\n" + "b,db:a.sql@abc1234:1-2,r,p,2026-11-25\n"
+              + "a,docs/c.md,r,p,ayer\n")
+        r = por_id(ctx)["desviaciones"]
+        assert r.estado == "AVISO" and r.comando is None and r.arreglo is None and r.ayuda, r
+        assert r.detalle == ("2 problemas en %s: línea 3: el repo 'db' no está en workspace.config.json (no declara repos); "
+                             "línea 4: id 'a' repetido (ya en la línea 2); fecha 'ayer' no es AAAA-MM-DD" % DESVIACIONES), r.detalle
+        assert "id,ubicacion,resumen,porque,fecha" in r.ayuda and "<repo>:<ruta>@<hash>:<ini>-<fin>" in r.ayuda, r.ayuda
+        lineas = correr([], ctx)[1].splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("desviaciones "))
+        assert lineas[i].split()[:2] == ["desviaciones", "AVISO"] and "arreglo:" not in lineas[i + 1] and "cómo:" in lineas[i + 1], lineas[i:i + 2]
+        codigo, salida = correr(["--arreglar", "desviaciones"], ctx)
+        assert codigo == 2 and "no tiene arreglo automático" in salida, salida
+        poner(raiz, DESVIACIONES, "id,ubicacion\n")
+        r = por_id(ctx)["desviaciones"]
+        assert r.estado == "AVISO" and r.detalle == "1 problema en %s: línea 1: el encabezado no es id,ubicacion,resumen,porque,fecha" % (
+            DESVIACIONES), r.detalle
+
+
+def test_desviaciones_con_la_config_rota_no_aplica_y_lo_dice_el_item_config():
+    with Escenario() as e:
+        raiz = e.instancia()
+        poner(raiz, DESVIACIONES, ENCABEZADO_DESVIACIONES)
+        poner(raiz, "workspace.config.json", json.dumps({"schema_version": 1, "repos": ["db"], "layers": {}}))
+        r = por_id(Falso(e.base, cwd=raiz))
+        assert r["desviaciones"] == d().resultado("desviaciones", "NO APLICA", "la config está rota: lo dice el ítem config"), r["desviaciones"]
+        assert r["config"].estado == "FALTA", r["config"]
 
 
 def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config():
