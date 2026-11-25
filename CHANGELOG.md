@@ -21,6 +21,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - `odd_ws/fallas.py` anota en `.claude/estado/fallas-de-hooks.jsonl` cada excepción que se tragaban `correr()` de los cinco hooks y `comun.correr_hook`. Guarda el hook, el evento, la fecha y el tipo y mensaje del error, este cortado a 200 caracteres, nunca el payload.
   - El registro tiene un tope de 20 entradas. Ningún guard cambia su veredicto.
   - `verificar_capa._session_start` muestra las nuevas una sola vez.
+  - En Windows, `writer_guard` reconoce `NUL` como el dispositivo nulo también cuando la ruta lo trae con carpeta (`C:/x/NUL`). Así, un `> NUL` en Bash o en PowerShell ya no lanza un error interno que se anotaba como falla en cada comando.
 - **Los hooks de un repo (I36):** `config_loader.hooks_de_los_repos` lo usan el doctor y `ticket.py --cobertura`. Cuenta un objeto `hooks` no vacío.
 - **`sin_capa` (I87):**
   - Es una clave opcional validada como las demás.

@@ -59,7 +59,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | hecha (L7) | `b0e7093`, integrada en `ffce153` |
 | T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | hecha (L6) | `b9f00f6`, integrada en `fd94d72` |
 | T4 | S4 | Las plantillas viejas | delegada: un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153` (motivo: el respaldo de contexto del orquestador) | hecha (L9) | `4b39845`, integrada en `649cd7f` |
-| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); sin publicar, espera al autor y su auditor | `9412353` y la corrección |
+| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); `main` integrado y la A1 arreglada (L12); en auditoría, con el ok del autor para publicar | `9412353` y la corrección |
 
 ## Log
 
@@ -202,3 +202,15 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - **A7.** `aviso_de_inicio` de las plantillas no está dentro de un `try` en `_session_start`. Si lanzara, se perderían el aviso de versión y el resumen del ticket. El verificador no encontró un disparador realista.
     - **A8.** La redacción de una instancia sin copias, y el tope de 20 en la cuenta del inicio.
   - **El scratch del verificador va a la limpieza del autor:** `%TEMP%\tmp.hgPegvIkB7`.
+- **L12** (2026-11-25) Antes de publicar: el merge de `main`, la decisión de la A1 y la auditoría.
+  - **El autor:**
+    - dejó la R19 en pausa y pidió auditar las tres versiones listas: «Dejalo que termine su T1, vale hagamos esos 4 pasos y si hagamoslo de la siguiente manera, acabo de crear una sesion nueva para que hables con el le das el prompt para que el sea el auditor mejor que este separado con su contexto y trabajando en conjunto»;
+    - decidió la A1: «Arréglala ahora en la 0.14.0»;
+    - autorizó publicar: «Por tiene tienes el OK, para publicar las versiones cuando ya lo esten».
+  - **El merge de `main`** (`907f430`) trae solo el roadmap, con I93 a I97. El choque de la tabla se resolvió con las filas de esta rama más las cinco nuevas, y la fecha y la cuenta de ideas de `main`. Contra `f915b0b`, el diff es igual al que trae `main`.
+  - **La A1, arreglada.**
+    - **La causa.** `rutas.ubicar` vuelve absoluto el `NUL` relativo (`C:/<cwd>/NUL`), así que ya no calza con `NULOS`. `realpath` lo lleva a `\\.\nul`, y `config_loader.clasificar` termina en un `relpath` entre montajes distintos, que lanza `ValueError`.
+    - **El arreglo.** `_es_nulo` acepta `NULOS` como antes y, solo en Windows, una ruta cuyo último tramo es `nul` o `nul:`. En Windows, `<carpeta>/NUL` es el dispositivo nulo y no puede existir como archivo. En Linux y macOS, `NUL` sigue siendo un archivo común y el guard lo sigue mirando. Se usa en los tres lugares que miraban `NULOS`.
+    - **RED y GREEN.** La prueba nueva cubre `> NUL`, `> nul`, `2> NUL`, `> NUL:` y `> /dev/null` en Bash, y `> NUL` y `2> nul` en PowerShell. Pide que cada uno pase con `(0, "", b"")` sin anotar ninguna falla. RED: anotaban `ValueError: path is on mount '\\.\nul', start on mount 'c:'`. GREEN: `writer_guard.tests.py` en 126/126.
+    - **Risk: ítem 2.** Toca un guard. El veredicto de estos comandos no cambia, porque ya pasaban por fallar abierto; lo recomprueba el auditor.
+  - **La auditoría** la hace una sesión aparte, de a una versión. Sus hallazgos y su corrección se anotan acá.

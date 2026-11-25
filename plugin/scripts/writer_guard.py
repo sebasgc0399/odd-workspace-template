@@ -32,6 +32,7 @@ MAX_FOTO = 8 * 1024 * 1024
 PROFUNDIDAD_MAX = 6
 MAX_SUBS = 50
 NULOS = ("/dev/null", "nul", "nul:")
+NULOS_DE_WINDOWS = ("nul", "nul:")
 
 GIT_ESCRIBE = {
     "add", "commit", "push", "checkout", "switch", "stash", "restore", "reset", "rebase", "merge",
@@ -495,9 +496,15 @@ def _resolver(ruta, cwd, logica=False):
     return rutas.resolver(ruta, cwd, _variable, logica)
 
 
+def _es_nulo(r):
+    if r.lower() in NULOS:
+        return True
+    return rutas.PLATAFORMA == "win32" and posixpath.basename(r.rstrip("/")).lower() in NULOS_DE_WINDOWS
+
+
 def _ruta_recogida(ruta, cwd):
     r = _normalizar(ruta)
-    if r.lower() in NULOS:
+    if _es_nulo(r):
         return None
     if _es_relativa(r) and cwd:
         r = _normalizar(cwd) + "/" + r
@@ -636,7 +643,7 @@ def _decidir(ruta, cwd):
         return False
     if isinstance(cwd, _CwdAmbiguo) and _resolver(ruta, None) is None:
         if cwd.carpetas is None:
-            return ruta.strip().lower() not in NULOS
+            return not _es_nulo(_normalizar(ruta.strip()))
         return any(_decidir(ruta, carpeta) for carpeta in cwd.carpetas)
     lecturas = _lecturas(ruta)
     return lecturas is None or any(_decidir_lectura(lectura, cwd) for lectura in lecturas)
@@ -648,7 +655,7 @@ def _decidir_lectura(ruta, cwd):
         carpeta = _ubicar(prefijo, cwd) if prefijo else None
         return carpeta is not None and _ZONAS.carpeta(carpeta)
     r = _ubicar(expandida, cwd)
-    if r is None or r.lower() in NULOS:
+    if r is None or _es_nulo(r):
         return False
     if _ZONAS.archivo(r):
         return True

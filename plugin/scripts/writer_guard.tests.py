@@ -441,6 +441,20 @@ def test_una_falla_interna_deja_pasar_como_antes_y_queda_anotada_sin_el_comando(
     comprobar(fallos)
 
 
+def test_la_redireccion_al_dispositivo_nulo_pasa_sin_anotar_una_falla():
+    fallos = []
+    casos = [(c, "Bash") for c in ("echo x > NUL", "echo x > nul", "echo x 2> NUL", "echo x > NUL:", "echo x > /dev/null")]
+    casos += [(c, "PowerShell") for c in ("Get-Process > NUL", "Get-Process 2> nul")]
+    for comando, herramienta in casos:
+        with instancia_temporal() as raiz:
+            resultado = correr(dict(evento_bash(comando), cwd=str(raiz), tool_name=herramienta), raiz)
+            ruta = raiz / convencion.ESTADO / "fallas-de-hooks.jsonl"
+            crudo = ruta.read_bytes() if ruta.exists() else b""
+            esperar(fallos, resultado == (0, "", b""), "%s en %s pasa: %r" % (comando, herramienta, resultado))
+            esperar(fallos, crudo == b"", "%s en %s no anota ninguna falla: %r" % (comando, herramienta, crudo))
+    comprobar(fallos)
+
+
 AJENOS = ("Explore", "revisor-sql", "general-purpose", "", None, 7, ["writer-sql"], "writer-", "writer-SQL", "Writer-sql",
           "odd-ws:writer-sql", "xwriter-sql", "writer-sql ", "writer-sql:x", "writer--x", "writer-_x")
 WRITERS = ("writer-sql", "writer-web", "writer-movil", "writer-otra", "writer-a1-b2", "writer-9")
