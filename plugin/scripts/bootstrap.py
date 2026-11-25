@@ -142,6 +142,7 @@ def _cargar_en_temporal(contenidos, prefijo):
             config_loader.perfil(copia)
             config_loader.sin_capa(copia)
             config_loader.plantillas(copia)
+            config_loader.porque_al_editar(copia)
         except config_loader.ConfigRota as error:
             raise SpecInvalida(f"{prefijo}: {error}")
 

@@ -92,9 +92,9 @@ def transcript(base, usos, nombre="agent-1.jsonl"):
 def test_pre_tool_use_de_cada_herramienta():
     casos = [
         (pre("Edit", {"file_path": "/w/a.txt", "old_string": "a", "new_string": "b"}),
-         herramienta(tipo="edicion", herramienta="Edit", rutas=("/w/a.txt",))),
+         herramienta(tipo="edicion", herramienta="Edit", rutas=("/w/a.txt",), reemplazos=(("/w/a.txt", "a"),))),
         (pre("Write", {"file_path": "/w/b.txt", "content": "z"}),
-         herramienta(tipo="edicion", herramienta="Write", rutas=("/w/b.txt",))),
+         herramienta(tipo="edicion", herramienta="Write", rutas=("/w/b.txt",), reemplazos=(("/w/b.txt", None),))),
         (pre("MultiEdit", {"file_path": "/w/m.txt", "edits": []}),
          herramienta(tipo="edicion", herramienta="MultiEdit", rutas=("/w/m.txt",))),
         (pre("Read", {"file_path": "/w/c.txt"}), herramienta(tipo="lectura", herramienta="Read", rutas=("/w/c.txt",))),
@@ -106,6 +106,21 @@ def test_pre_tool_use_de_cada_herramienta():
     for payload, esperado in casos:
         leido = m().leer(payload)
         assert leido == esperado, (payload["tool_name"], leido)
+
+
+def test_edit_trae_su_old_string_y_write_el_archivo_entero_como_lo_que_se_reemplaza():
+    for leer in (pre, post):
+        edit = m().leer(leer("Edit", {"file_path": "/w/a.txt", "old_string": "viejo\r\nsigue", "new_string": "x", "replace_all": True}))
+        assert edit.reemplazos == (("/w/a.txt", "viejo\r\nsigue"),), edit
+        assert m().leer(leer("Write", {"file_path": "/w/a.txt", "content": "x"})).reemplazos == (("/w/a.txt", None),)
+    for entrada in ({"file_path": "/w/a.txt"}, {"file_path": "/w/a.txt", "old_string": ""}, {"file_path": "/w/a.txt", "old_string": 3},
+                    {"old_string": "x"}, {"file_path": "", "old_string": "x"}):
+        assert m().leer(pre("Edit", entrada)).reemplazos == (), entrada
+    assert m().leer(pre("Write", {"content": "x"})).reemplazos == ()
+    multi = {"file_path": "/w/m.txt", "edits": [{"old_string": "a", "new_string": "b"}], "old_string": "a"}
+    assert m().leer(pre("MultiEdit", multi)).reemplazos == (), "MultiEdit sigue afuera"
+    for nombre in ("Read", "Bash", "Grep"):
+        assert m().leer(pre(nombre, {"file_path": "/w/a.txt", "old_string": "a", "command": "ls"})).reemplazos == (), nombre
 
 
 def test_post_tool_use_cambia_solo_la_fase():

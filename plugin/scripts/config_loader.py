@@ -23,6 +23,9 @@ CLAVE_DE_HOOKS_APAGADOS = "disabled_hooks"
 PERFILES = ("completo", "controles")
 COMPLETO, CONTROLES = PERFILES
 CLAVE_DE_PERFIL = "profile"
+CLAVE_DEL_PORQUE = "porque_al_editar"
+MODOS_DEL_PORQUE = ("todo", "indice", "apagado")
+PORQUE_TODO, PORQUE_INDICE, PORQUE_APAGADO = MODOS_DEL_PORQUE
 CLAVE_DE_TICKETS = "tickets"
 PREFIJO_DE_TICKETS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 EXTENSIONES_DE_DOCS = (".md", ".txt", ".rst")
@@ -50,6 +53,7 @@ AYUDA_HOOKS_DE_REPOS = ("Esos hooks corren solo si la sesión arranca en el repo
 
 Estado = namedtuple("Estado", "tipo raiz config razon")
 Cobertura = namedtuple("Cobertura", "aviso detalle ayuda")
+Dueno = namedtuple("Dueno", "repo arbol")
 
 
 class ConfigRota(Exception):
@@ -408,6 +412,30 @@ def es_controles(raiz):
         return False
 
 
+def porque_al_editar_de(config):
+    if CLAVE_DEL_PORQUE not in config:
+        return PORQUE_TODO
+    valor = config[CLAVE_DEL_PORQUE]
+    if not isinstance(valor, str) or valor not in MODOS_DEL_PORQUE:
+        raise ConfigRota(f"{CLAVE_DEL_PORQUE} {valor!r} no es válido ({' | '.join(MODOS_DEL_PORQUE)})")
+    return valor
+
+
+def porque_al_editar(raiz):
+    config = _leer_objeto(Path(raiz) / NOMBRE)
+    _version(config)
+    return porque_al_editar_de(config)
+
+
+def modo_del_porque(raiz):
+    if raiz is None:
+        return PORQUE_TODO
+    try:
+        return porque_al_editar(raiz)
+    except ConfigRota:
+        return PORQUE_TODO
+
+
 def tickets_de(config):
     if CLAVE_DE_TICKETS not in config:
         return None
@@ -504,15 +532,27 @@ def _relativa(archivo, carpeta):
     return Path(os.path.relpath(archivo, carpeta)).as_posix()
 
 
+def _dueno(archivo, config):
+    for clave, repo in config["repos"].items():
+        arboles = [(canonica(r), r) for r in [repo["path"], *repo.get("worktrees", [])]]
+        arboles = [par for par in arboles if _dentro(archivo, par[0])]
+        if arboles:
+            canonico, arbol = max(arboles, key=lambda par: len(par[0]))
+            return clave, canonico, arbol
+    return None
+
+
+def repo_de(ruta, config):
+    dueno = _dueno(canonica(ruta), config)
+    return None if dueno is None else Dueno(dueno[0], dueno[2])
+
+
 def clasificar(ruta, config):
     archivo = canonica(ruta)
     extension = os.path.splitext(archivo)[1].lower()
-    for clave, repo in config["repos"].items():
-        arboles = [canonica(r) for r in [repo["path"], *repo.get("worktrees", [])]]
-        arboles = [r for r in arboles if _dentro(archivo, r)]
-        if not arboles:
-            continue
-        arbol = max(arboles, key=len)
+    dueno = _dueno(archivo, config)
+    if dueno is not None:
+        clave, arbol, _ = dueno
         relativa = _relativa(archivo, arbol)
         for nombre, capa in config["layers"].items():
             if clave in (capa.get("repos") or []) and _reclama(capa, extension):

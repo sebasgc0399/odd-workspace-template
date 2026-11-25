@@ -3864,6 +3864,21 @@ def test_config_con_profile_invalido_es_falta_y_valido_es_ok():
                                       and "workspace.config.json" in r.ayuda and r.comando is None and r.arreglo is None), (valor, r)
 
 
+def test_config_con_porque_al_editar_invalido_es_falta_y_valido_es_ok():
+    for valor, estado in (("off", "FALTA"), ("Todo", "FALTA"), (3, "FALTA"), (["todo"], "FALTA"), ("todo", "OK"), ("indice", "OK"),
+                          ("apagado", "OK")):
+        with Escenario() as e:
+            raiz = e.instancia()
+            ruta = raiz / "workspace.config.json"
+            config = json.loads(ruta.read_text(encoding="utf-8"))
+            config["porque_al_editar"] = valor
+            ruta.write_text(json.dumps(config), encoding="utf-8")
+            r = por_id(Falso(e.base, cwd=raiz))["config"]
+            assert r.estado == estado, (valor, r)
+            assert estado == "OK" or (r.detalle.startswith("porque_al_editar") and "todo | indice | apagado" in r.detalle
+                                      and "workspace.config.json" in r.ayuda and r.comando is None and r.arreglo is None), (valor, r)
+
+
 def test_en_controles_writers_es_un_solo_no_aplica_que_no_propone_crear_writers():
     with Escenario() as e:
         raiz = e.instancia(json.dumps({"plugin_root": str(e.base / "plugin-instalado")}), capas=("sql", "web", "C_Sharp"))

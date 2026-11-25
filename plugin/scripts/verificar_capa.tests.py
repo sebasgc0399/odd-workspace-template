@@ -2498,6 +2498,266 @@ def test_las_fallas_anotadas_tienen_tope_y_quedan_las_ultimas():
         assert [a["mensaje"] for a in fallas_anotadas(w.raiz)] == ["falla %d" % n for n in range(5, fallas.TOPE + 5)]
 
 
+PORQUE_DE_LA_DIAN = "La DIAN rechaza tres decimales, así que se redondea"
+
+
+def commitear_con_fecha(repo, mensaje, fecha):
+    git(repo, "add", "-A")
+    entorno = dict(_entorno_sin_git(), GIT_AUTHOR_DATE=fecha, GIT_COMMITTER_DATE=fecha)
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false",
+                        "commit", "-q", "-F", "-"], cwd=str(repo), input=mensaje.encode("utf-8"), capture_output=True, env=entorno)
+    if r.returncode != 0:
+        raise RuntimeError("git commit fallo: %s" % r.stderr)
+    return git(repo, "rev-parse", "HEAD")
+
+
+class Porque(Mundo):
+    def __init__(self, modo=None):
+        super().__init__(db={"src/base.sql": "x\n"})
+        self.modo = modo
+
+    def __enter__(self):
+        super().__enter__()
+        if self.modo is not None:
+            ruta = self.raiz / "workspace.config.json"
+            config = json.loads(ruta.read_text(encoding="utf-8"))
+            config["porque_al_editar"] = self.modo
+            escribir(self.raiz, "workspace.config.json", json.dumps(config))
+        self.ventas = self.db / "src" / "ventas.sql"
+        self.hashes = {}
+        lineas = ["linea %02d" % n for n in range(1, 21)]
+        self.hashes["A"] = self.version(lineas, "base de ventas\n\nLa base que copia el SP de la central.\n", "2026-01-10T10:00:00+00:00")
+        lineas[4:6] = ["redondeo 05", "redondeo 06"]
+        self.hashes["B"] = self.version(lineas, "redondeo\n\nSe redondea a dos decimales porque la DIAN rechaza tres.\n\n"
+                                                "Co-Authored-By: Otra <otra@x>\n", "2026-02-15T10:00:00+00:00")
+        lineas[9] = "trailers 10"
+        self.hashes["C"] = self.version(lineas, "solo trailers\n\nCo-Authored-By: Y <y@y>\nSigned-off-by: Z <z@z>\n",
+                                        "2026-03-20T10:00:00+00:00")
+        lineas[11] = "tope 12"
+        self.hashes["D"] = self.version(lineas, "tope\n\nEl tope de 400 lo fija la norma de ventas.\nSegunda linea del cuerpo.\n",
+                                        "2026-04-01T23:30:00-05:00")
+        lineas[15] = "sin cuerpo 16"
+        self.hashes["E"] = self.version(lineas, "solo el asunto\n", "2026-05-01T10:00:00+00:00")
+        self.lineas = lineas
+        return self
+
+    def version(self, lineas, mensaje, fecha):
+        escribir(self.db, "src/ventas.sql", "\n".join(lineas) + "\n")
+        return commitear_con_fecha(self.db, mensaje, fecha)
+
+    def desviacion(self, ini, fin, ruta="src/ventas.sql", hash_=None):
+        hash_ = hash_ or self.hashes["B"][:7]
+        fila = 'D-01,db:%s@%s:%d-%d,Redondeo a dos decimales,"%s",2026-02-15\n' % (ruta, hash_, ini, fin, PORQUE_DE_LA_DIAN)
+        escribir(self.raiz, ".claude/reglas/desviaciones.csv", "id,ubicacion,resumen,porque,fecha\n" + fila)
+
+    def linea(self, letra, cuerpo, fecha):
+        return "%s %s: %s" % (fecha, self.hashes[letra][:7], cuerpo)
+
+
+def editar(ruta, viejo, nombre="PostToolUse", **extra):
+    e = evento(ruta, "Edit", nombre=nombre, **extra)
+    e["tool_input"] = dict(e["tool_input"], old_string=viejo, new_string="NUEVO")
+    return e
+
+
+def preguntado(salida):
+    codigo, out, err = salida
+    if codigo != 0 or err != b"" or not out:
+        return None
+    decision = json.loads(out).get("hookSpecificOutput") or {}
+    if (decision.get("hookEventName"), decision.get("permissionDecision")) != ("PreToolUse", "ask"):
+        return None
+    return decision.get("permissionDecisionReason")
+
+
+@contextlib.contextmanager
+def que_falle(modulo, nombre):
+    original = getattr(modulo, nombre)
+
+    def falla(*_args, **_kwargs):
+        raise RuntimeError("el porqué se rompió")
+
+    setattr(modulo, nombre, falla)
+    try:
+        yield
+    finally:
+        setattr(modulo, nombre, original)
+
+
+def test_porque_la_pausa_pregunta_si_la_edicion_toca_una_desviacion_y_calla_si_no():
+    with Porque() as w:
+        w.desviacion(5, 6)
+        motivo = preguntado(w.correr(editar(w.ventas, "linea 04\nredondeo 05\n", nombre="PreToolUse")))
+        assert motivo is not None, motivo
+        for pedazo in ("D-01", PORQUE_DE_LA_DIAN, "2026-02-15", "Redondeo a dos decimales", "src/ventas.sql", "5-6"):
+            assert pedazo in motivo, (pedazo, motivo)
+        assert w.correr(editar(w.ventas, "linea 08\nlinea 09", nombre="PreToolUse")) == (0, "", b""), "no toca la desviación"
+        assert w.correr(editar(w.ventas, "no está en el archivo", nombre="PreToolUse")) == (0, "", b"")
+        assert preguntado(w.correr(evento(w.ventas, "Write", nombre="PreToolUse"))) is not None, "un Write pisa el archivo entero"
+        actual = w.ventas.read_text(encoding="utf-8")
+        escribir(w.db, "src/ventas.sql", "nueva 1\nnueva 2\n" + actual)
+        motivo = preguntado(w.correr(editar(w.ventas, "redondeo 06", nombre="PreToolUse")))
+        assert motivo is not None and "7-8" in motivo, "la desviación se ubica por contenido, no por número de línea: %s" % motivo
+        escribir(w.db, "src/ventas.sql", actual.replace("redondeo 05\nredondeo 06\n", "cinco\nseis\n"))
+        assert w.correr(editar(w.ventas, "linea 04\ncinco", nombre="PreToolUse")) == (0, "", b""), "la desviación ya no está"
+        w.desviacion(3, 4, hash_=w.hashes["A"][:7])
+        multi = dict(editar(w.ventas, "linea 04", nombre="PreToolUse"), tool_name="MultiEdit")
+        assert preguntado(w.correr(dict(multi, tool_name="Edit"))) is not None, "control: con Edit pregunta"
+        assert w.correr(multi) == (0, "", b""), "MultiEdit sigue afuera"
+
+
+def test_porque_sin_desviaciones_del_archivo_el_pre_no_corre_git():
+    with Porque() as w:
+        with SinSubprocess() as guardia:
+            for e in (editar(w.ventas, "redondeo 05", nombre="PreToolUse"), evento(w.ventas, "Write", nombre="PreToolUse")):
+                assert w.correr(e) == (0, "", b""), "sin desviaciones.csv"
+            w.desviacion(5, 6, ruta="src/otro.sql")
+            for e in (editar(w.ventas, "redondeo 05", nombre="PreToolUse"), evento(w.ventas, "Write", nombre="PreToolUse")):
+                assert w.correr(e) == (0, "", b""), "con desviaciones de otro archivo"
+            w.desviacion(5, 6)
+            fuera = escribir(w.raiz, "notas/ventas.sql", "redondeo 05\n")
+            assert w.correr(editar(fuera, "redondeo 05", nombre="PreToolUse")) == (0, "", b""), "un archivo fuera de los repos"
+            assert w.correr(evento(w.db / "src" / "nuevo.sql", "Write", nombre="PreToolUse")) == (0, "", b""), "un archivo nuevo"
+        assert not guardia.llamadas, guardia.llamadas
+
+
+def test_porque_despues_de_editar_trae_fecha_hash_y_primera_linea_del_cuerpo_sin_trailers_y_hasta_dos():
+    with Porque() as w:
+        viejo = "\n".join(w.lineas[3:13])
+        escribir(w.db, "src/ventas.sql", w.ventas.read_text(encoding="utf-8").replace(viejo, "NUEVO"))
+        texto = contexto(w.correr(editar(w.ventas, viejo))[1])
+        assert texto is not None, texto
+        lineas = texto.split("\n")
+        assert "src/ventas.sql" in lineas[0], lineas
+        assert lineas[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas.", "2026-04-01"),
+                              w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15")], lineas
+        for afuera in ("Co-Authored-By", "Signed-off-by", "Segunda", "solo trailers", "redondeo\n"):
+            assert afuera not in texto, (afuera, texto)
+        texto = contexto(w.correr(editar(w.ventas, "linea 02"))[1])
+        assert texto.split("\n")[1:] == [w.linea("A", "La base que copia el SP de la central.", "2026-01-10")], texto
+        texto = contexto(w.correr(evento(w.ventas, "Write"))[1])
+        assert texto.split("\n")[1:] == [w.linea("D", "El tope de 400 lo fija la norma de ventas.", "2026-04-01"),
+                                         w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15")], texto
+
+
+def test_porque_un_commit_sin_cuerpo_o_con_solo_trailers_calla():
+    with Porque() as w:
+        for viejo in ("trailers 10", "sin cuerpo 16", "esto no está en HEAD"):
+            assert w.correr(editar(w.ventas, viejo)) == (0, "", b""), viejo
+
+
+def test_porque_un_timeout_o_un_error_de_git_dice_que_no_se_pudo_chequear():
+    real = subprocess.run
+
+    def lento(args, *a, **k):
+        if "blame" in args:
+            raise subprocess.TimeoutExpired(args, 1.5)
+        return real(args, *a, **k)
+
+    def roto(args, *a, **k):
+        if "blame" in args:
+            return subprocess.CompletedProcess(args, 128, b"", b"fatal: roto")
+        return real(args, *a, **k)
+
+    def sin_git(*_a, **_k):
+        raise FileNotFoundError("git")
+
+    with Porque() as w:
+        for falso in (lento, roto, sin_git):
+            with subprocess_falso(falso):
+                texto = contexto(w.correr(editar(w.ventas, "redondeo 05"))[1])
+            assert texto is not None and "no se pudo chequear el porqué de estas líneas" in texto, (falso.__name__, texto)
+        texto = contexto(w.correr(editar(w.ventas, "redondeo 05"), plazo=0.000001)[1])
+        assert texto is not None and "no se pudo chequear el porqué de estas líneas" in texto, "sin plazo: %s" % texto
+
+
+def test_porque_un_archivo_sin_trackear_no_tiene_historia_y_uno_nuevo_calla():
+    with Porque() as w:
+        suelto = escribir(w.db, "src/suelto.sql", "uno\ndos\n")
+        texto = contexto(w.correr(editar(suelto, "uno"))[1])
+        assert texto is not None and "sin historia" in texto and "src/suelto.sql" in texto, texto
+        assert "no se pudo chequear" not in texto, texto
+        assert w.correr(evento(suelto, "Write")) == (0, "", b""), "un Write que crea el archivo calla"
+        assert w.correr(evento(w.db / "src" / "no-existe.sql", "Write")) == (0, "", b"")
+        assert w.correr(editar(w.db / "src" / "no-existe.sql", "uno")) == (0, "", b"")
+    with Mundo() as w:
+        sin_commits = escribir(w.db, "src/a.sql", "uno\n")
+        assert "sin historia" in contexto(w.correr(editar(sin_commits, "uno"))[1]), "un repo sin commits tampoco tiene historia"
+
+
+def test_porque_al_editar_prende_la_pausa_y_el_contexto_por_separado():
+    for modo, pausa, con_contexto in ((None, True, True), ("todo", True, True), ("indice", True, False), ("apagado", False, False),
+                                      ("off", True, True)):
+        with Porque(modo) as w:
+            w.desviacion(5, 6)
+            pre = w.correr(editar(w.ventas, "redondeo 05", nombre="PreToolUse"))
+            assert (preguntado(pre) is not None) == pausa and (pausa or pre == (0, "", b"")), (modo, pre)
+            post = w.correr(editar(w.ventas, "redondeo 05"))
+            assert (contexto(post[1]) is not None) == con_contexto and (con_contexto or post == (0, "", b"")), (modo, post)
+            if modo == "apagado":
+                with SinSubprocess() as guardia:
+                    w.correr(editar(w.ventas, "redondeo 05", nombre="PreToolUse"))
+                    w.correr(editar(w.ventas, "redondeo 05"))
+                assert not guardia.llamadas, guardia.llamadas
+
+
+def test_porque_una_falla_del_subchequeo_no_borra_el_primer_toque_ni_los_hallazgos():
+    with Toque() as w:
+        escribir(w.db, "src/Proc_X.sql", "a\n")
+        esperado = w.correr(editar(w.sql, "a", nombre="PreToolUse", session_id="s1"))
+        assert esperado[0] == 2 and b"primer toque (capa-sql)" in esperado[2], esperado
+        with que_falle(M.porque, "pausa"):
+            assert w.correr(editar(w.sql, "a", nombre="PreToolUse", session_id="s2")) == esperado
+    with Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
+        esperado = w.correr(evento(ruta))
+        assert esperado[0] == 2 and "sin historia".encode("utf-8") not in esperado[2], esperado
+        with que_falle(M.porque, "contexto"):
+            assert w.correr(editar(ruta, "int a;")) == esperado
+        codigo, _, err = w.correr(editar(ruta, "int a;"))
+        assert codigo == 2 and err.startswith(esperado[2].rstrip(b"\n")) and b"sin historia" in err, err
+
+
+def test_porque_en_codex_la_pausa_bloquea_con_el_texto_de_una_edicion_y_el_contexto_llega_en_post():
+    from odd_ws.hosts import codex as adaptador
+    with git_aislado(), Porque() as w:
+        w.desviacion(5, 6)
+        texto = parche_codex("*** Update File: %s" % w.ventas, "@@", " linea 04", "-redondeo 05", "+cinco")
+        motivo = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
+        assert motivo is not None and "D-01" in motivo and PORQUE_DE_LA_DIAN in motivo, motivo
+        assert motivo.endswith(adaptador.SIN_CONFIRMACION_DE_EDICION) and "comando" not in motivo, motivo
+        lejos = parche_codex("*** Update File: %s" % w.ventas, "@@", "-linea 08", "+ocho")
+        assert M.correr(codex(lejos), raiz=w.raiz, plazo=25, host="codex") == (0, "", b"")
+        salida = M.correr(codex(texto, nombre="PostToolUse"), raiz=w.raiz, plazo=25, host="codex")
+        texto_post = (_json_de_codex(salida) or {}).get("hookSpecificOutput", {}).get("additionalContext")
+        assert texto_post is not None and w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15") in texto_post, salida
+
+
+def pi_evento(tipo, herramienta, entrada, cwd, pantalla=False):
+    return {"type": tipo, "toolName": herramienta, "input": entrada, "ctx": {"cwd": str(cwd), "sessionId": "s1", "hasUI": pantalla,
+                                                                              "mode": "tui"},
+            "oddWs": {"agent": None, "agentId": None, "lastAssistantMessage": "", "continued": False}}
+
+
+def test_porque_en_pi_la_pausa_pregunta_con_pantalla_y_sin_ella_bloquea_con_el_texto_de_una_edicion():
+    from odd_ws.hosts import pi as adaptador
+    with git_aislado(), Porque() as w:
+        w.desviacion(5, 6)
+        entrada = {"path": str(w.ventas), "edits": [{"oldText": "redondeo 05", "newText": "cinco"}]}
+        for pantalla, accion in ((True, "preguntar"), (False, "bloquear")):
+            codigo, salida, error = M.correr(pi_evento("tool_call", "edit", entrada, w.raiz, pantalla), raiz=w.raiz, plazo=25, host="pi")
+            datos = json.loads(salida)
+            assert (codigo, error, datos["accion"]) == (0, b"", accion) and PORQUE_DE_LA_DIAN in datos["texto"], (pantalla, salida)
+            assert pantalla or datos["texto"].endswith(adaptador.SIN_PANTALLA_DE_EDICION), datos
+        sin_texto = {"path": str(w.ventas), "edits": [{"newText": "cinco"}]}
+        assert M.correr(pi_evento("tool_call", "edit", sin_texto, w.raiz), raiz=w.raiz, plazo=25, host="pi") == (0, "", b"")
+        codigo, salida, _ = M.correr(pi_evento("tool_result", "edit", entrada, w.raiz), raiz=w.raiz, plazo=25, host="pi")
+        datos = json.loads(salida)
+        assert datos["accion"] == "contexto" and "2026-02-15" in datos["texto"], datos
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

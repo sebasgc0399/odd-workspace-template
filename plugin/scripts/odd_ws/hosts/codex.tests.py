@@ -16,6 +16,8 @@ CWD = os.path.abspath(os.path.join(os.sep, "w"))
 OTRA = os.path.abspath(os.path.join(os.sep, "otra", "x.sql"))
 SIN_CONFIRMACION = ("Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, "
                     "pídele al usuario que lo corra él.")
+SIN_CONFIRMACION_DE_EDICION = ("Codex no puede pedir confirmación desde un hook, así que esta edición queda bloqueada: si hace falta, "
+                               "pídele al usuario que la haga él.")
 
 
 def m():
@@ -110,8 +112,26 @@ def test_apply_patch_es_edicion_con_las_rutas_de_cada_marca():
                    " x", "-y", "+z")
     leido = m().leer(de_parche(texto, agent_type="writer-x", agent_id="a1"))
     assert leido == herramienta(tipo="edicion", herramienta="apply_patch", agente="writer-x", id_agente="a1", rutas=(
-        en("src", "nuevo.py"), en("src", "viejo.py"), en("docs", "borrar.md"), en("src", "mover.py"), en("src", "movido.py"))), leido
+        en("src", "nuevo.py"), en("src", "viejo.py"), en("docs", "borrar.md"), en("src", "mover.py"), en("src", "movido.py")),
+        reemplazos=((en("src", "viejo.py"), "a"), (en("src", "mover.py"), "x\ny"))), leido
     assert leido.comando is None and leido.dialecto is None, "el parche no es un comando de shell"
+
+
+def test_cada_hunk_trae_lo_que_reemplaza_con_sus_lineas_quitadas_y_de_contexto():
+    texto = parche("*** Update File: src/a.py", "@@ def f():", " uno", "-dos", "+DOS", "", " tres", "@@", "-cuatro", "+CUATRO",
+                   "*** End of File", "*** Update File: src/b.py", " solo", "+agregada", "*** Add File: src/c.py", "+nueva",
+                   "*** Update File: src/d.py", "@@", "+solo agregada", "*** Delete File: src/e.py",
+                   "*** Update File: %s" % OTRA, "*** Move to: src/f.py", "@@", "-vieja", "+nueva")
+    esperados = ((en("src", "a.py"), "uno\ndos\n\ntres"), (en("src", "a.py"), "cuatro"), (en("src", "b.py"), "solo"), (OTRA, "vieja"))
+    for leer in (pre, post):
+        leido = m().leer(leer("apply_patch", {"command": texto}))
+        assert leido.reemplazos == esperados, leido.reemplazos
+        assert set(ruta for ruta, _ in leido.reemplazos) <= set(leido.rutas), leido
+    assert m().leer(de_parche(texto.replace("\n", "\r\n"))).reemplazos == esperados, "tolera CRLF"
+    assert m().leer(de_parche(parche("*** Update File: c.txt", "-x"), cwd=None)).reemplazos == (("c.txt", "x"),)
+    for sin in ("", "no es un parche", parche("*** Add File: a.py", "+x"), parche("*** Delete File: a.py")):
+        assert m().leer(de_parche(sin)).reemplazos == (), sin
+    assert m().leer(pre("Bash", {"command": parche("*** Update File: a.py", "-x")})).reemplazos == ()
 
 
 def test_las_rutas_absolutas_se_respetan_y_las_relativas_van_contra_el_cwd():
@@ -289,6 +309,15 @@ def test_responder_en_pre_bloquea_por_json_y_degrada_preguntar_a_bloquear():
     assert m().responder(e, E.Seguir("falta")) == SILENCIO
     parche_ = m().leer(de_parche(parche("*** Add File: a.py", "+x")))
     assert m().responder(parche_, E.Bloquear("primer toque")) == negado("primer toque")
+
+
+def test_preguntar_por_una_edicion_se_degrada_a_bloquear_con_el_texto_de_una_edicion():
+    E = ev()
+    for leido in (m().leer(de_parche(parche("*** Update File: a.py", "-x", "+y"))),
+                  ev().Herramienta(fase="pre", tipo="edicion", herramienta="apply_patch", rutas=(en("a.py"),))):
+        assert m().responder(leido, E.Preguntar("toca una desviación")) == negado("toca una desviación\n" + SIN_CONFIRMACION_DE_EDICION)
+    assert "comando" not in SIN_CONFIRMACION_DE_EDICION and "edición" in SIN_CONFIRMACION_DE_EDICION
+    assert m().responder(m().leer(pre("Bash", {"command": "ls"})), E.Preguntar("x")) == negado("x\n" + SIN_CONFIRMACION)
 
 
 def test_responder_en_post_bloquea_por_json():

@@ -28,11 +28,23 @@ def test_vocabularios_cerrados():
 def test_herramienta_lleva_sus_campos_con_nombre():
     e = herramienta(rutas=("/w/a.txt", "/w/b.txt"), agente="writer-x", id_agente="a1")
     assert [c.name for c in dataclasses.fields(e)] == ["fase", "tipo", "herramienta", "rutas", "comando", "dialecto",
-                                                       "agente", "id_agente", "sesion", "cwd"]
+                                                       "agente", "id_agente", "sesion", "cwd", "reemplazos"]
     assert e.rutas == ("/w/a.txt", "/w/b.txt") and e.agente == "writer-x" and e.id_agente == "a1"
     minima = m().Herramienta(fase="post", tipo="otra")
     assert (minima.herramienta, minima.rutas, minima.comando, minima.dialecto, minima.agente, minima.id_agente,
-            minima.sesion, minima.cwd) == (None, (), None, None, None, None, None, None)
+            minima.sesion, minima.cwd, minima.reemplazos) == (None, (), None, None, None, None, None, None, ())
+
+
+def test_reemplazos_son_pares_de_ruta_y_texto_o_none_para_el_archivo_entero():
+    pares = (("/w/a.txt", "viejo\ntexto"), ("/w/a.txt", "otro"), ("/w/b.txt", None))
+    assert herramienta(tipo="edicion", rutas=("/w/a.txt", "/w/b.txt"), reemplazos=pares).reemplazos == pares
+    for malo in ([("/w/a.txt", "x")], (("/w/a.txt",),), (("/w/a.txt", "x", "y"),), (("", "x"),), ((None, "x"),),
+                 (("/w/a.txt", 3),), (["/w/a.txt", "x"],), "/w/a.txt", None):
+        try:
+            herramienta(reemplazos=malo)
+        except ValueError:
+            continue
+        raise AssertionError("acepto %r" % (malo,))
 
 
 def test_herramienta_rechaza_lo_que_no_esta_en_el_vocabulario():

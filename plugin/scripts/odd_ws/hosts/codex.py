@@ -92,11 +92,14 @@ HERRAMIENTAS = ("**Herramientas de este agente:** %s. Son los nombres de Claude 
 SKILLS = "**Skills de este agente:** %s. Las rutas son desde la raíz de la instancia."
 SIN_CONFIRMACION = ("Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, "
                     "pídele al usuario que lo corra él.")
+SIN_CONFIRMACION_DE_EDICION = ("Codex no puede pedir confirmación desde un hook, así que esta edición queda bloqueada: si hace falta, "
+                               "pídele al usuario que la haga él.")
 FASES = {"PreToolUse": "pre", "PostToolUse": "post"}
 NOMBRES = {fase: nombre for nombre, fase in FASES.items()}
 PARCHE = "apply_patch"
 SHELL = "Bash"
 MARCAS = (("*** Add File: ", False), ("*** Update File: ", True), ("*** Delete File: ", False), ("*** Move to: ", True))
+ACTUALIZAR, MOVER = MARCAS[1][0], MARCAS[3][0]
 FIN_DE_ARCHIVO = "*** End of File"
 SISTEMA = os.name
 ID_AGENTES = "codex-agentes"
@@ -151,14 +154,44 @@ def _en_el_parche(texto):
     return rutas
 
 
+def _resuelta(ruta, cwd):
+    if not os.path.isabs(ruta) and isinstance(cwd, str) and cwd:
+        return os.path.normpath(os.path.join(cwd, ruta))
+    return ruta
+
+
 def rutas_del_parche(texto, cwd):
     rutas = []
     for ruta in _en_el_parche(texto):
-        if not os.path.isabs(ruta) and isinstance(cwd, str) and cwd:
-            ruta = os.path.normpath(os.path.join(cwd, ruta))
+        ruta = _resuelta(ruta, cwd)
         if ruta not in rutas:
             rutas.append(ruta)
     return tuple(rutas)
+
+
+def _hunks_del_parche(texto):
+    hunks, ruta, actual = [], None, None
+    for linea in texto.split("\n"):
+        linea = linea.rstrip("\r")
+        if linea.startswith("***") or ruta is None:
+            marca = linea.strip()
+            if marca == FIN_DE_ARCHIVO or marca.startswith(MOVER):
+                continue
+            ruta = marca[len(ACTUALIZAR):] if marca.startswith(ACTUALIZAR) and len(marca) > len(ACTUALIZAR) else None
+            actual = None
+            continue
+        if linea.startswith("@@") or actual is None:
+            actual = []
+            hunks.append((ruta, actual))
+            if linea.startswith("@@"):
+                continue
+        if not linea or linea[0] in " -":
+            actual.append(linea[1:])
+    return [(ruta, "\n".join(lineas)) for ruta, lineas in hunks if any(linea.strip() for linea in lineas)]
+
+
+def reemplazos_del_parche(texto, cwd):
+    return tuple((_resuelta(ruta, cwd), viejo) for ruta, viejo in _hunks_del_parche(texto))
 
 
 def _herramienta(payload, fase):
@@ -168,9 +201,11 @@ def _herramienta(payload, fase):
     entrada = entrada if isinstance(entrada, dict) else {}
     comando = entrada.get("command")
     comando = comando if isinstance(comando, str) else None
-    tipo, rutas, dialecto = "otra", (), None
+    tipo, rutas, dialecto, reemplazos = "otra", (), None, ()
     if nombre == PARCHE:
-        tipo, rutas, comando = "edicion", rutas_del_parche(comando or "", payload.get("cwd")), None
+        texto = comando or ""
+        tipo, rutas, comando = "edicion", rutas_del_parche(texto, payload.get("cwd")), None
+        reemplazos = reemplazos_del_parche(texto, payload.get("cwd"))
     elif nombre == SHELL:
         tipo, dialecto = "shell", _dialecto()
     else:
@@ -178,7 +213,7 @@ def _herramienta(payload, fase):
     return Herramienta(
         fase=fase, tipo=tipo, herramienta=nombre, rutas=rutas, comando=comando, dialecto=dialecto,
         agente=payload.get("agent_type"), id_agente=payload.get("agent_id"),
-        sesion=payload.get("session_id"), cwd=payload.get("cwd"),
+        sesion=payload.get("session_id"), cwd=payload.get("cwd"), reemplazos=reemplazos,
     )
 
 
@@ -226,7 +261,7 @@ def _bloqueo(fase, motivo):
 def responder(evento, decision):
     if isinstance(evento, Herramienta):
         if isinstance(decision, Preguntar) and evento.fase == "pre":
-            decision = Bloquear(decision.motivo + "\n" + SIN_CONFIRMACION)
+            decision = Bloquear(decision.motivo + "\n" + (SIN_CONFIRMACION_DE_EDICION if evento.tipo == "edicion" else SIN_CONFIRMACION))
         if isinstance(decision, Bloquear):
             return _bloqueo(evento.fase, decision.motivo)
         if isinstance(decision, Contexto) and evento.fase == "post":

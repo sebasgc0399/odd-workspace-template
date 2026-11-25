@@ -101,13 +101,22 @@ def _herramienta(payload, fase):
     entrada = payload.get("tool_input")
     entrada = entrada if isinstance(entrada, dict) else {}
     ruta, comando = entrada.get("file_path"), entrada.get("command")
+    rutas = (ruta,) if isinstance(ruta, str) and ruta else ()
     return Herramienta(
-        fase=fase, tipo=TIPOS.get(nombre, "otra"), herramienta=nombre,
-        rutas=(ruta,) if isinstance(ruta, str) and ruta else (),
+        fase=fase, tipo=TIPOS.get(nombre, "otra"), herramienta=nombre, rutas=rutas,
         comando=comando if isinstance(comando, str) else None, dialecto=DIALECTOS.get(nombre),
         agente=payload.get("agent_type"), id_agente=payload.get("agent_id"),
-        sesion=payload.get("session_id"), cwd=payload.get("cwd"),
+        sesion=payload.get("session_id"), cwd=payload.get("cwd"), reemplazos=_reemplazos(nombre, entrada, rutas),
     )
+
+
+def _reemplazos(nombre, entrada, rutas):
+    if not rutas:
+        return ()
+    if nombre == "Write":
+        return ((rutas[0], None),)
+    viejo = entrada.get("old_string")
+    return ((rutas[0], viejo),) if nombre == "Edit" and isinstance(viejo, str) and viejo else ()
 
 
 def leer(payload, pre_por_defecto=False):

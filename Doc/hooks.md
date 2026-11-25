@@ -15,7 +15,8 @@ Comando: «git push --force origin main»
 | Al empezar el turno | `revisar_turno.py` saca una foto de los archivos de capa que ya están modificados, para saber después qué cambió durante el turno. Corre solo en el agente principal: un subagente no saca foto. |
 | Al leer por primera vez un archivo de una capa | Inyecta sus no-negociables como contexto. |
 | Antes de editar un archivo de una capa | Si los no-negociables no se cargaron, bloquea la primera edición y los inyecta. El reintento pasa. |
-| Después de editar | Corre las reglas de la capa (`.claude/reglas/verificar_<capa>.py`) y las de sus paquetes: un `bloqueo` de una regla calibrada frena, y lo demás llega como contexto. Un `bloqueo` de una regla sin calibrar, con la calibración vieja o con una disputa abierta, llega como aviso, con el motivo y lo que hay que hacer (ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla)). |
+| Antes de editar un archivo de un repo | Si la edición toca las líneas de una desviación conocida, pregunta antes de seguir, con la desviación, su porqué y su fecha (ver [El porqué antes de editar](#el-porqué-antes-de-editar)). |
+| Después de editar | Corre las reglas de la capa (`.claude/reglas/verificar_<capa>.py`) y las de sus paquetes: un `bloqueo` de una regla calibrada frena, y lo demás llega como contexto. Un `bloqueo` de una regla sin calibrar, con la calibración vieja o con una disputa abierta, llega como aviso, con el motivo y lo que hay que hacer (ver [Cuándo bloquea una regla](capas-y-reglas.md#cuándo-bloquea-una-regla)). En un archivo de un repo, suma como contexto el porqué de las líneas reemplazadas, sacado de `git blame`. |
 | Antes de un comando de shell | `guard_comandos.py` bloquea todo push forzado (también con `--force-with-lease`, `--force-if-includes`, `--mirror` o un refspec `+`), `reset --hard`, `clean -f`, borrados recursivos fuera del scratch y el parche de Codex aplicado por la shell (`--codex-run-as-apply-patch`), que escribe archivos sin pasar por los chequeos de capa. Fuera de un writer, bloquea también una escritura por shell que deja contenido nuevo en un archivo de capa, y manda a la herramienta de edición para que corran el primer toque y las reglas. En un repo con `agent_readonly: true`, pregunta antes de cualquier git que no sea de lectura. |
 | Dentro de un `writer-<capa>` | `writer_guard.py` bloquea el git de escritura y las escrituras por shell sobre los repos y el taller de la capa, y guarda una foto de cada archivo en su primer toque. |
 | Al terminar un `writer-<capa>` | `writer_stop.py` compara las líneas reales contra la foto, corre los chequeos de la capa y exige el bloque `## Resultado`. Bloquea una sola vez; un chequeo de capa frena solo si su regla está calibrada. |
@@ -26,6 +27,45 @@ Las reglas que corren después de editar son las de tu instancia: ver [Capas y r
 ## Qué frenan y qué no
 
 Los guards frenan los errores y los atajos del agente, también cuando escribe el comando dentro de un shell (`bash -c '…'`, `powershell -Command "…"`, `iex '…'`) o llama a git por su ruta completa. No frenan a un agente que intenta esquivarlos a propósito, por ejemplo partiendo una palabra con comillas (`gi''t`). Para eso está el sandbox del sistema, no un hook. La lista de formas conocidas que quedan fuera está en [`Doc/diseno.md`](diseno.md#guard-de-comandos-guard_comandospy-l48-l49-l52-l53).
+
+## El porqué antes de editar
+
+Cuando el agente reemplaza líneas de un archivo de un repo de la config, `verificar_capa` le muestra por qué están así, sacado de la historia de git y sin modelo. Corre con `Edit` y `Write` (no con `MultiEdit`), tenga el archivo capa o no.
+
+- **Antes de editar, una pausa solo para las desviaciones conocidas.** Si lo que se reemplaza se superpone con las líneas de una fila de `.claude/reglas/desviaciones.csv` (el código que parece un error y es a propósito, que gradúa `/odd-ws:cerrar`), el hook pregunta antes de seguir, con la desviación, su porqué y su fecha. Las líneas se buscan por contenido, así que la pausa sigue a la desviación aunque se haya movido; si ya no están en el archivo, no pausa. Sin desviaciones de ese archivo, la pausa no corre git.
+- **Después de editar, el porqué como contexto.** El hook busca en `HEAD` el texto que se reemplazó, corre `git blame` de esas líneas y le pasa al agente hasta dos commits, del más nuevo al más viejo, en una línea cada uno: la fecha, el hash corto y la primera línea del cuerpo del commit, sin los trailers como `Co-Authored-By:`. Por ejemplo:
+
+  ```text
+  porqué de lo que reemplazaste en src/ventas.sql (git blame en HEAD, de lo más nuevo a lo más viejo; si un porqué choca con tu cambio, reconsidéralo):
+  2026-02-15 3f2a9c1: Se redondea a dos decimales porque la DIAN rechaza tres.
+  ```
+
+  El agente lo lee justo después de editar y puede reconsiderar el cambio.
+  - **Calla** si ningún commit de esas líneas tiene cuerpo, si el texto todavía no tiene commit o si el archivo es nuevo.
+  - **«sin historia»** sale al editar un archivo que existe pero no está en `HEAD`, como uno sin trackear. Un `Write` que pisa un archivo sin trackear calla, porque después de escribir no se distingue de uno nuevo.
+  - **«no se pudo chequear el porqué de estas líneas»** sale si git falla o tarda más de 1,5 s, nunca como silencio. Ese plazo es aparte y no alarga el del hook.
+- **Una falla de este chequeo no cambia lo demás:** el bloqueo del primer toque y los hallazgos de la capa salen igual.
+- **El blame no ve el código borrado:** lo que ya no está en el archivo no tiene líneas que mirar.
+
+### La clave `porque_al_editar`
+
+En `workspace.config.json`, opcional:
+
+```json
+"porque_al_editar": "indice"
+```
+
+- **`"todo"`**, por defecto: la pausa y el contexto.
+- **`"indice"`**: solo la pausa de las desviaciones.
+- **`"apagado"`**: ni la pausa ni el contexto.
+
+Un valor que no sea uno de los tres lo rechaza el bootstrap, el doctor lo marca como FALTA en el ítem `config`, y mientras tanto el hook se comporta como con `"todo"`.
+
+### En cada CLI
+
+- **Claude Code** pregunta. Lo reemplazado es el `old_string` de un `Edit`, o el archivo entero en un `Write`.
+- **Codex** no puede preguntar desde un hook, así que la pausa bloquea, con la línea «Codex no puede pedir confirmación desde un hook, así que esta edición queda bloqueada: si hace falta, pídele al usuario que la haga él.» Lo reemplazado son las líneas quitadas y de contexto de cada hunk del parche; un archivo que se agrega o se borra no trae nada.
+- **Pi** pregunta si la sesión tiene pantalla, y si no, bloquea con la línea «Esta sesión de Pi no tiene pantalla para pedir confirmación, así que esta edición queda bloqueada: si hace falta, pídele al usuario que la haga él.» Lo reemplazado es el `oldText` de cada edición de `edits`, o el archivo entero en un `write`. Un `edit` sin `oldText` no trae nada que mirar: ni pausa ni contexto.
 
 ## Si Python no arranca
 
@@ -60,7 +100,7 @@ Un plugin no puede quitar un hook en un solo proyecto, así que se apaga desde l
 
 ## En Codex
 
-- **Lo que en Claude Code pregunta, en Codex se bloquea,** porque Codex no puede pedir confirmación desde un hook. El motivo llega con una línea más: «Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, pídele al usuario que lo corra él.»
+- **Lo que en Claude Code pregunta, en Codex se bloquea,** porque Codex no puede pedir confirmación desde un hook. El motivo llega con una línea más: «Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, pídele al usuario que lo corra él.» En una edición, como la pausa de una desviación conocida, la línea habla de la edición (ver [En cada CLI](#en-cada-cli)).
 - **Codex no tiene herramienta de lectura,** así que el hook de la primera lectura no corre ahí: los no-negociables llegan con el bloqueo de la primera edición.
 - **Cada hook necesita tu confianza** en `/hooks`. Sin ella, Codex no lo corre.
 - **En la prueba de humo,** el bloqueo del force push llegó así: «Command blocked by PreToolUse hook: guard-comandos bloqueó el comando…».

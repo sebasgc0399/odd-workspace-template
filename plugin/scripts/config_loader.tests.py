@@ -755,6 +755,27 @@ def test_una_extension_sin_capa_no_se_clasifica():
         assert m().clasificar(i.repo / "notas.txt", cargada) is None
 
 
+def test_repo_de_dice_el_repo_y_su_arbol_aunque_el_archivo_no_tenga_capa():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        for ruta in (i.repo / "notas.txt", i.repo / "sp" / "Uno.sql", i.repo / "build.gradle"):
+            dueno = m().repo_de(ruta, cargada)
+            assert dueno is not None and dueno.repo == "db" and mismo(dueno.arbol, i.repo), (ruta, dueno)
+        for ruta in (i.ticket / "SQL" / "dos.sql", i.base / "otro" / "tres.sql", i.raiz / "CLAUDE.md"):
+            assert m().repo_de(ruta, cargada) is None, ruta
+
+
+def test_repo_de_un_worktree_es_su_repo_con_el_arbol_del_worktree():
+    with Instancia() as i:
+        repo_con_commit(i.repo)
+        arbol = i.base / "worktrees" / "db--rama"
+        _git(i.repo, "worktree", "add", "-q", "-b", "rama", str(arbol))
+        cargada = m().cargar(i.raiz)
+        dueno = m().repo_de(arbol / "sp" / "notas.txt", cargada)
+        assert dueno is not None and dueno.repo == "db" and mismo(dueno.arbol, arbol), dueno
+        assert mismo(m().repo_de(i.repo / "notas.txt", cargada).arbol, i.repo)
+
+
 def test_clasifica_con_la_letra_del_disco_en_otra_caja():
     if not EN_WINDOWS:
         return
@@ -1286,6 +1307,41 @@ def test_profile_invalido_es_rota_y_no_es_controles():
             else:
                 raise AssertionError(f"perfil() debe lanzar ConfigRota para {malo!r}")
             assert m().es_controles(i.raiz) is False, malo
+
+
+def test_porque_al_editar_sin_la_clave_es_todo_y_cada_valor_valido_sale_tal_cual():
+    assert (m().CLAVE_DEL_PORQUE, m().MODOS_DEL_PORQUE) == ("porque_al_editar", ("todo", "indice", "apagado"))
+    assert m().porque_al_editar_de({}) == "todo"
+    with Instancia() as i:
+        assert m().porque_al_editar(i.raiz) == "todo" and m().modo_del_porque(i.raiz) == "todo"
+    for valor in ("todo", "indice", "apagado"):
+        assert m().porque_al_editar_de({"porque_al_editar": valor}) == valor
+        with Instancia(config=con_clave("porque_al_editar", valor)) as i:
+            assert m().porque_al_editar(i.raiz) == valor and m().modo_del_porque(i.raiz) == valor, valor
+            cargada = m().cargar(i.raiz)
+            assert "porque_al_editar" not in cargada, cargada
+
+
+def test_porque_al_editar_invalido_es_rota_y_el_hook_lo_lee_como_todo():
+    for malo in ("Todo", "off", "índice", " todo", "", None, 1, True, ["todo"], {"todo": True}):
+        try:
+            m().porque_al_editar_de({"porque_al_editar": malo})
+        except m().ConfigRota as error:
+            assert str(error).startswith("porque_al_editar") and "todo | indice | apagado" in str(error), (malo, str(error))
+        else:
+            raise AssertionError(f"porque_al_editar_de() debe lanzar ConfigRota para {malo!r}")
+        with Instancia(config=con_clave("porque_al_editar", malo)) as i:
+            assert m().estado(i.raiz).tipo == "ok", malo
+            try:
+                m().porque_al_editar(i.raiz)
+            except m().ConfigRota:
+                pass
+            else:
+                raise AssertionError(f"porque_al_editar() debe lanzar ConfigRota para {malo!r}")
+            assert m().modo_del_porque(i.raiz) == "todo", malo
+    with Instancia(config='{"schema_version": 1, "porque_al_editar": "apagado"') as i:
+        assert m().modo_del_porque(i.raiz) == "todo"
+    assert m().modo_del_porque(None) == "todo"
 
 
 def test_cargar_ignora_profile_y_es_controles_lee_solo_la_clave_y_la_version():

@@ -2380,6 +2380,21 @@ def test_profile_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_ta
             assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"]), valor
 
 
+def test_porque_al_editar_invalido_rechaza_la_spec_sin_escribir_nada_y_el_valido_viaja_tal_cual():
+    with Escenario() as e:
+        for valor in ("off", "Todo", "", None, 1, ["todo"], {"todo": True}):
+            spec = e.spec()
+            spec["config"]["porque_al_editar"] = valor
+            rechazada(e, spec, "porque_al_editar")
+        for valor in ("todo", "indice", "apagado"):
+            spec = e.spec()
+            spec["config"]["porque_al_editar"] = valor
+            raiz = e.base / ("instancia-porque-" + valor)
+            codigo, salida, errores = correr(["--spec", str(e.archivo_spec(spec)), "--raiz", str(raiz)])
+            assert codigo == 0 and errores == "", (valor, codigo, errores)
+            assert (raiz / "workspace.config.json").read_bytes() == config_esperada(spec["config"]), valor
+
+
 SKILL_BOOTSTRAP = AQUI.parent / "skills" / "bootstrap" / "SKILL.md"
 
 

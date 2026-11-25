@@ -23,6 +23,8 @@ EN_WINDOWS = "C:\\Proyecto"
 EN_POSIX = "/home/u/mi_repo"
 SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que este comando queda bloqueado: si hace "
                 "falta, pídele al usuario que lo corra él.")
+SIN_PANTALLA_DE_EDICION = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que esta edición queda bloqueada: si "
+                           "hace falta, pídele al usuario que la haga él.")
 CONFIG_MINIMA = {"schema_version": 1, "repos": {}, "layers": {"doc": {"extensions": [".x"]}}}
 AGENTES = ("writer-sql", "revisor-sql", "revisor-diseno")
 HERRAMIENTAS_DE_PI = {"read", "bash", "powershell", "edit", "write", "grep", "find", "ls"}
@@ -238,11 +240,27 @@ def con_identidad(nombre, descripcion, identidad):
 
 
 def test_edit_y_write_son_edicion_con_su_ruta_contra_el_cwd():
-    for nombre, entrada in (("edit", {"path": "src/a.sql", "edits": [{"oldText": "a", "newText": "b"}]}),
-                            ("write", {"path": "src/a.sql", "content": "x"})):
+    for nombre, entrada, reemplazos in (("edit", {"path": "src/a.sql", "edits": [{"oldText": "a", "newText": "b"}]}, "a"),
+                                        ("write", {"path": "src/a.sql", "content": "x"}, None)):
         salida, leido = atendido(llamada(nombre, entrada))
         assert salida == SILENCIO, (nombre, salida)
-        assert leido == herramienta(tipo="edicion", herramienta=nombre, rutas=(en("src", "a.sql"),)), leido
+        assert leido == herramienta(tipo="edicion", herramienta=nombre, rutas=(en("src", "a.sql"),),
+                                    reemplazos=((en("src", "a.sql"), reemplazos),)), leido
+
+
+def test_edit_trae_el_oldtext_de_cada_edicion_y_sin_el_campo_no_trae_nada():
+    ruta = en("src", "a.sql")
+    edits = [{"oldText": "uno\ndos", "newText": "x"}, {"oldText": "tres", "newText": "y"}]
+    for leer in (llamada, resultado):
+        assert visto(leer("edit", {"path": "src/a.sql", "edits": edits}, ctx=ctx())).reemplazos == ((ruta, "uno\ndos"), (ruta, "tres"))
+        assert visto(leer("edit", {"path": "src/a.sql", "oldText": "viejo", "newText": "n"}, ctx=ctx())).reemplazos == ((ruta, "viejo"),)
+        assert visto(leer("write", {"path": "src/a.sql", "content": "x"}, ctx=ctx())).reemplazos == ((ruta, None),)
+    for entrada in ({"path": "src/a.sql"}, {"path": "src/a.sql", "edits": []}, {"path": "src/a.sql", "edits": "x"},
+                    {"path": "src/a.sql", "edits": [{"newText": "b"}, {"oldText": ""}, {"oldText": 3}, "x"]},
+                    {"path": "src/a.sql", "oldText": ""}, {"edits": [{"oldText": "a"}]}):
+        assert visto(llamada("edit", entrada, ctx=ctx())).reemplazos == (), entrada
+    for nombre in ("read", "bash", "grep"):
+        assert visto(llamada(nombre, {"path": "src/a.sql", "edits": edits, "command": "ls"}, ctx=ctx())).reemplazos == (), nombre
 
 
 def test_la_ruta_se_resuelve_como_la_resuelve_pi():
@@ -363,7 +381,7 @@ def test_tool_call_es_pre_y_tool_result_es_post():
     assert visto(resultado("bash", {"command": "ls"}, isError=True)) == herramienta(
         fase="post", tipo="shell", herramienta="bash", comando="ls", dialecto="posix")
     assert visto(resultado("write", {"path": "a.sql", "content": "x"})) == herramienta(
-        fase="post", tipo="edicion", herramienta="write", rutas=(en("a.sql"),))
+        fase="post", tipo="edicion", herramienta="write", rutas=(en("a.sql"),), reemplazos=((en("a.sql"), None),))
 
 
 def test_entradas_malformadas_quedan_vacias():
@@ -498,7 +516,11 @@ def test_sin_pantalla_preguntar_se_degrada_a_bloquear_con_el_pedido_al_usuario()
     assert atendido(sin_clave, E.Preguntar("¿correr git commit?"))[0] == degradado
     for raro in (None, "tui", [True]):
         assert atendido(llamada("bash", {"command": "ls"}, ctx=raro), E.Preguntar("¿correr git commit?"))[0] == degradado, raro
-    assert atendido(llamada("edit", {"path": "a.sql"}), E.Preguntar("x"))[0] == accion("bloquear", "x\n" + SIN_PANTALLA)
+    for nombre in ("edit", "write"):
+        assert atendido(llamada(nombre, {"path": "a.sql"}), E.Preguntar("x"))[0] == accion("bloquear", "x\n" + SIN_PANTALLA_DE_EDICION)
+        con_pantalla = llamada(nombre, {"path": "a.sql"}, ctx=ctx(hasUI=True))
+        assert atendido(con_pantalla, E.Preguntar("x"))[0] == accion("preguntar", "x"), nombre
+    assert "comando" not in SIN_PANTALLA_DE_EDICION and "edición" in SIN_PANTALLA_DE_EDICION
 
 
 def test_contexto_en_post_y_al_iniciar_y_seguir_al_cerrar_un_subagente():

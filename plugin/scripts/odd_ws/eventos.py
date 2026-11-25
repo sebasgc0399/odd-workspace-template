@@ -19,6 +19,7 @@ class Herramienta:
     id_agente: object = None
     sesion: object = None
     cwd: object = None
+    reemplazos: tuple = ()
 
     def __post_init__(self):
         if self.fase not in FASES:
@@ -29,6 +30,13 @@ class Herramienta:
             raise ValueError("dialecto desconocido: %r" % (self.dialecto,))
         if not isinstance(self.rutas, tuple):
             raise ValueError("rutas tiene que ser una tupla, no %r" % (self.rutas,))
+        if not isinstance(self.reemplazos, tuple) or not all(_reemplazo_valido(par) for par in self.reemplazos):
+            raise ValueError("reemplazos tiene que ser una tupla de pares (ruta, texto o None), no %r" % (self.reemplazos,))
+
+
+def _reemplazo_valido(par):
+    return (isinstance(par, tuple) and len(par) == 2 and isinstance(par[0], str) and par[0] != ""
+            and (par[1] is None or isinstance(par[1], str)))
 
 
 @dataclass(frozen=True)

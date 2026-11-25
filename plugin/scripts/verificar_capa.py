@@ -18,13 +18,14 @@ from odd_ws import fallas
 from odd_ws import hosts
 from odd_ws import paquetes
 from odd_ws import plantillas_instancia
+from odd_ws import porque
 from odd_ws import raiz_del_plugin
 from odd_ws.capacidades import INICIO, POST, PRE
-from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, cargar_por_ruta, correr_hook, decodificar, entorno_git,
-                          host_de, id_valido, lineas, plazo_de, por_ruta, raiz_de_instancia)
-from odd_ws.eventos import Bloquear, Contexto, Herramienta, InicioSesion, Permitir
+from odd_ws.comun import (HOST_POR_DEFECTO, PLAZO_POR_DEFECTO, SILENCIO, _aislada, cargar_por_ruta, combinar, correr_hook, decodificar,
+                          entorno_git, host_de, id_valido, lineas, plazo_de, por_ruta, raiz_de_instancia)
+from odd_ws.eventos import Bloquear, Contexto, Herramienta, InicioSesion, Permitir, Preguntar
 
-EMITE = {PRE: (Bloquear,), POST: (Bloquear, Contexto), INICIO: (Contexto,)}
+EMITE = {PRE: (Bloquear, Preguntar), POST: (Bloquear, Contexto), INICIO: (Contexto,)}
 TIMEOUT_GIT = 5
 TOPE_BYTES = 2000000
 DIAS_PODA = 7
@@ -332,7 +333,44 @@ def _verificar_ruta(evento, config):
 def _post_tool_use(evento, config):
     if not _edicion_verificable(evento) or not evento.rutas:
         return Permitir()
-    return por_ruta(evento, lambda una: _verificar_ruta(una, config))
+    return por_ruta(evento, lambda una: _despues_de_editar_una(una, config))
+
+
+def _despues_de_editar_una(evento, config):
+    return combinar([_verificar_ruta(evento, config), _aislada(lambda una: _porque_de_una(una, config), evento)])
+
+
+def _lo_reemplazado(evento, config, modos):
+    if not evento.rutas:
+        return None
+    ruta = evento.rutas[0]
+    fragmentos = [texto for donde, texto in evento.reemplazos if donde == ruta]
+    if not fragmentos or config_loader.modo_del_porque(config["raiz"]) not in modos:
+        return None
+    dueno = config_loader.repo_de(ruta, config)
+    return None if dueno is None else (dueno, ruta, fragmentos)
+
+
+def _hasta():
+    return porque.hasta(_restante(porque.PLAZO))
+
+
+def _porque_de_una(evento, config):
+    editado = _lo_reemplazado(evento, config, (config_loader.PORQUE_TODO,))
+    if editado is None:
+        return Permitir()
+    dueno, ruta, fragmentos = editado
+    texto = porque.contexto(dueno.arbol, ruta, fragmentos, _hasta())
+    return Contexto(texto) if texto else Permitir()
+
+
+def _pausa_de_una(evento, config):
+    editado = _lo_reemplazado(evento, config, (config_loader.PORQUE_TODO, config_loader.PORQUE_INDICE))
+    if editado is None:
+        return Permitir()
+    dueno, ruta, fragmentos = editado
+    motivo = porque.pausa(config["raiz"], dueno.repo, dueno.arbol, ruta, fragmentos, _hasta())
+    return Preguntar(motivo) if motivo else Permitir()
 
 
 def _bloque_de_la_capa(capa, raiz):
@@ -505,7 +543,11 @@ def _primer_read_de_una(evento, config):
 def _pre_tool_use(evento, config):
     if not _edicion_verificable(evento):
         return Permitir()
-    return por_ruta(evento, lambda una: _primer_toque_de_una(una, config))
+    return por_ruta(evento, lambda una: _antes_de_editar_una(una, config))
+
+
+def _antes_de_editar_una(evento, config):
+    return combinar([_primer_toque_de_una(evento, config), _aislada(lambda una: _pausa_de_una(una, config), evento)])
 
 
 def _primer_toque_de_una(evento, config):

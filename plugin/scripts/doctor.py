@@ -323,7 +323,7 @@ def chequear_config(raiz):
     for validar, ayuda in ((config_loader.prefijo_de_tickets, AYUDA_TICKETS), (config_loader.pide_aprobar_commits, AYUDA_CLAVE),
                            (config_loader.repos_propios, AYUDA_CLAVE), (config_loader.hooks_apagados, AYUDA_CLAVE),
                            (config_loader.perfil, AYUDA_CLAVE), (config_loader.sin_capa, AYUDA_CLAVE),
-                           (config_loader.plantillas, AYUDA_CLAVE)):
+                           (config_loader.plantillas, AYUDA_CLAVE), (config_loader.porque_al_editar, AYUDA_CLAVE)):
         try:
             validar(raiz)
         except config_loader.ConfigRota as error:

@@ -142,6 +142,8 @@ MEMORIAS = (NO_DISPONIBLE, "la memoria en archivos de Claude Code no aplica en P
                            "fuente que queda es engram, si está")
 SIN_PANTALLA = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que este comando queda bloqueado: si hace "
                 "falta, pídele al usuario que lo corra él.")
+SIN_PANTALLA_DE_EDICION = ("Esta sesión de Pi no tiene pantalla para pedir confirmación, así que esta edición queda bloqueada: si "
+                           "hace falta, pídele al usuario que la haga él.")
 VERSION_MINIMA = (1, 5, 0)
 VERSION_DE_LA_COMPUERTA = (0, 87, 0)
 SIN_AGENT_BEFORE_SETTLE = ("no existe agent_before_settle (CHANGELOG de Pi, 0.87.0: «Added actionable `turn_end` and "
@@ -336,12 +338,26 @@ def _herramienta(payload, fase):
     tipo = TIPOS.get(nombre, "otra")
     ruta, comando = entrada.get("path"), entrada.get("command")
     con_ruta = tipo in ("edicion", "lectura") and isinstance(ruta, str) and ruta
+    rutas = (resolver(ruta, contexto.get("cwd")),) if con_ruta else ()
     return Herramienta(
-        fase=fase, tipo=tipo, herramienta=nombre, rutas=(resolver(ruta, contexto.get("cwd")),) if con_ruta else (),
+        fase=fase, tipo=tipo, herramienta=nombre, rutas=rutas,
         comando=comando if tipo == "shell" and isinstance(comando, str) else None, dialecto=DIALECTOS.get(nombre),
         agente=identidad.get("agent"), id_agente=identidad.get("agentId"),
-        sesion=contexto.get("sessionId"), cwd=contexto.get("cwd"),
+        sesion=contexto.get("sessionId"), cwd=contexto.get("cwd"), reemplazos=_reemplazos(nombre, entrada, rutas),
     )
+
+
+def _reemplazos(nombre, entrada, rutas):
+    if not rutas:
+        return ()
+    if nombre == "write":
+        return ((rutas[0], None),)
+    if nombre != "edit":
+        return ()
+    ediciones = entrada.get("edits")
+    viejos = [edicion.get("oldText") for edicion in ediciones if isinstance(edicion, dict)] if isinstance(ediciones, list) else []
+    viejos.append(entrada.get("oldText"))
+    return tuple((rutas[0], viejo) for viejo in viejos if isinstance(viejo, str) and viejo)
 
 
 def leer(payload, pre_por_defecto=False):
@@ -392,7 +408,7 @@ def responder(evento, decision, pantalla=False):
         if isinstance(decision, Preguntar) and evento.fase == "pre":
             if pantalla:
                 return _accion("preguntar", decision.motivo)
-            decision = Bloquear(decision.motivo + "\n" + SIN_PANTALLA)
+            decision = Bloquear(decision.motivo + "\n" + (SIN_PANTALLA_DE_EDICION if evento.tipo == "edicion" else SIN_PANTALLA))
         if isinstance(decision, Bloquear):
             return _accion("bloquear", decision.motivo)
         if isinstance(decision, Contexto) and evento.fase == "post":
