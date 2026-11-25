@@ -59,7 +59,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | hecha (L7) | `b0e7093`, integrada en `ffce153` |
 | T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | hecha (L6) | `b9f00f6`, integrada en `fd94d72` |
 | T4 | S4 | Las plantillas viejas | delegada: un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153` (motivo: el respaldo de contexto del orquestador) | hecha (L9) | `4b39845`, integrada en `649cd7f` |
-| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); `main` integrado y la A1 arreglada (L12); en auditoría, con el ok del autor para publicar | `9412353` y la corrección |
+| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); `main` integrado y la A1 arreglada (L12); auditada y publicada como `0.14.0` (L13, L14) | `9412353` y la corrección |
 
 ## Log
 
@@ -234,3 +234,16 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - W3: rutas locales en los documentos de `odd/tasks/`.
     - A3 a A8, con la nota del auditor sobre la A7: un `try` alrededor de `aviso_de_inicio` es barato.
   - **Risk: ítem 2.** Toca un guard. La recomprobación de la A1 y la W1 la hace el auditor.
+- **L14** (2026-11-25) La recomprobación y la publicación.
+  - **El auditor recomprobó `5ad9149`:**
+    - A1 PASS:
+      - 28 destinos de `git commit -m x 2><destino>` bloquean en Bash y en PowerShell sin anotar fallas;
+      - los comandos inocentes con `nul` pasan sin anotar;
+      - el diferencial de `guard_comandos` contra `f915b0b` (758 corridas) solo cambia una falsa alarma: `echo x > x\nul` desde un repo protegido ya no pregunta.
+    - W1 PASS.
+    - Veredicto: **PUBLICABLE CON NOTAS.**
+  - **El CI** de la rama dio verde en Windows, Ubuntu y macOS (run `45696650498`).
+  - **Publicada como `0.14.0`:**
+    - `main` avanzó de `5c3de25` a `5ad9149`, con la etiqueta `odd-ws--v0.14.0`;
+    - `release.yml` creó el release;
+    - la página dice la `0.14.0` desde `8cb1a37`.

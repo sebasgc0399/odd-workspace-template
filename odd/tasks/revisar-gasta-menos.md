@@ -55,7 +55,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
 | T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5, L6) | `a70cd94` |
 | T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `b37a860` |
-| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador hecho y sus dos bloqueantes corregidos (L9); auditoría: B1 y B2 corregidos (L10), a recomprobar; con el ok del autor para publicar | `44fffdf` y la corrección |
+| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador hecho y sus dos bloqueantes corregidos (L9); auditoría: B1 y B2 corregidos (L10) y recomprobados; publicada como `0.15.0` (L11) | `44fffdf` y la corrección |
 
 El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el skill `revisar` lo tocan las cuatro. Va de a una unidad, sin writers en paralelo (L1).
 
@@ -225,3 +225,22 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
     - Las advertencias 4 a 7.
   - **Risk: ítem 3.** `rescatar` acepta más formas de veredicto, y los `chequeos` de `triaje.json` salen tapados. La recomprobación de B1 y B2 la hace el auditor.
   - **Scratch del writer:** `%TEMP%\r16-correccion-NQ1G4q`. Va a la limpieza del autor.
+- **L11** (2026-11-25) La recomprobación y la publicación.
+  - **El auditor recomprobó `16196a7`:**
+    - B1 PASS: con un `ghp_` y un `AKIA` falsos en la línea que cita una regla, el JSON y el texto del triaje salen con `<GITHUB_TOKEN>` y `<AWS_ACCESS_KEY_ID>`, y los hallazgos conservan su regla, su línea y su mensaje.
+    - B2 PASS: 11 variantes; la negrita, los backticks, `Veredicto:`, el veredicto partido en dos líneas y la línea de solo cuentas toman el reporte previo, y los dos casos de guarda siguen siendo reporte.
+    - W2, W3 y W4 PASS.
+    - Las suites con un `GIT_INDEX_FILE` ajeno dieron verde: 61, que son 58 de Python y 3 del shim.
+    - Veredicto: **PUBLICABLE CON NOTAS.**
+  - **Las notas, como seguimientos:**
+    - las formas de veredicto que todavía pasan como reporte (`Veredicto final:`, un emoji delante, `Verdict:`), que van en la R22;
+    - la W1 de Codex;
+    - las cifras del costo, que se midieron con la CPU compartida.
+  - **Las ramas:**
+    - `8db8d99` integró la `0.14.0` publicada, y el auditor confirmó que trae solo eso.
+    - `e7682c6` suma a `huellas.json` las 5 huellas de la `0.14.0`. `huellas.py` cuenta las etiquetas alcanzables desde `HEAD`, así que regenerar durante un merge `--no-commit` no las veía.
+  - **El CI** dio verde en los 3 sistemas (run `45714391632`).
+  - **Publicada como `0.15.0`:**
+    - `main` avanzó de `5ad9149` a `e7682c6`, con la etiqueta `odd-ws--v0.15.0`;
+    - `release.yml` creó el release;
+    - la página dice la `0.15.0` desde `9ae30f7`.
