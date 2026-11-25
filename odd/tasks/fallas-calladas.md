@@ -59,7 +59,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | hecha (L7) | `b0e7093`, integrada en `ffce153` |
 | T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | hecha (L6) | `b9f00f6`, integrada en `fd94d72` |
 | T4 | S4 | Las plantillas viejas | delegada: un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153` (motivo: el respaldo de contexto del orquestador) | hecha (L9) | `4b39845`, integrada en `649cd7f` |
-| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador pendiente; sin publicar | |
+| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); sin publicar, espera al autor y su auditor | `9412353` y la corrección |
 
 ## Log
 
@@ -178,3 +178,27 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - En el roadmap, R15 queda «lista, sin publicar», y sus seis ideas quedan «lista (`0.14.0`, sin publicar)».
   - La página (`gh-pages`) se actualiza al publicar, igual que en la R14, porque es otra rama.
   - Falta el verificador independiente de toda la feature (Risk items 2, 3 y 5) y, después, el ok del autor y su auditor para publicar.
+- **L11** (2026-11-25) El verificador independiente, sobre `9412353` contra `0b44438`.
+  - **S1 a S6: PASS.**
+    - Los 370 casos de `guard_comandos` y 332 payloads de `writer_guard` dieron, corriendo el hook real en la base y en la punta, el mismo código, stdout y stderr: 0 diferencias.
+    - Las excepciones forzadas en los cinco hooks dieron `(0, b'', b'')` en las dos versiones, y anotar nunca lanzó.
+    - `--arreglar plantillas` sobre una instancia de la base la dejó byte a byte igual a un bootstrap nuevo.
+    - Ningún consumidor de los contratos que cambiaron se rompe.
+    - `tabla_desfasada` solo bloquea una tabla de verdad atrasada.
+    - Suites: las 54 de Python y el shim (97/97) en verde.
+  - **S7: FAIL por un bloqueante, B1, solo de docs.**
+    - El CHANGELOG decía que `--arreglar plantillas` «te deja la lista de las que tienes que fusionar a mano», y `Doc/actualizar.md`, que la clave se anota «cuando ya no queda ninguna copia por fusionar».
+    - El código hace lo que aprobó el autor con el diseño A: reemplaza las copias sin tocar y anota la versión. Por eso hay que fusionar antes.
+  - **La corrección, un solo lote:**
+    - B1: los dos textos dicen ahora que se fusiona primero y se arregla después.
+    - A2: `Doc/hooks.md` ya no dice que nunca se anota el comando, porque el mensaje del error puede traer un pedazo de la entrada.
+    - La recomprobación de B1, inline: el CHANGELOG, `Doc/actualizar.md`, `Doc/uso.md`, el SKILL del doctor y `Doc/diseno.md` dicen lo mismo que el código.
+  - **Advertencias que quedan para el autor y su auditor** (seguimientos, no arreglados en este lote):
+    - **A1 (ya estaba en la base, ahora se ve).** `writer_guard` lanza un `ValueError` interno con `echo x > NUL`, tanto en Bash como en PowerShell, y falla abierto igual que en la base. Desde esta versión cada comando así anota una falla, y la sesión siguiente avisa. En Windows eso es ruido. Arreglarlo toca un guard (item 2), así que se deja para que lo decida el autor antes de publicar.
+    - **A3.** Un `CLAUDE.md` sin tocar sale como «editada» si el nombre del proyecto aparece también en el texto de la plantilla (por ejemplo «Claude» o «repos»), porque `plantillas_instancia.py:127` reemplaza todas las apariciones. Se equivoca hacia el lado seguro.
+    - **A4.** Con `sin_capa` inválido (`config` en FALTA), `--arreglar plantillas` igual reescribe las plantillas y la config, y deja la clave inválida.
+    - **A5.** El bootstrap pisa en silencio un `config.plantillas` explícito del spec.
+    - **A6.** El pre-push compara contra las etiquetas locales: un clon sin alguna etiqueta queda bloqueado, y correr ahí `huellas.py` borraría entradas.
+    - **A7.** `aviso_de_inicio` de las plantillas no está dentro de un `try` en `_session_start`. Si lanzara, se perderían el aviso de versión y el resumen del ticket. El verificador no encontró un disparador realista.
+    - **A8.** La redacción de una instancia sin copias, y el tope de 20 en la cuenta del inicio.
+  - **El scratch del verificador va a la limpieza del autor:** `%TEMP%\tmp.hgPegvIkB7`.

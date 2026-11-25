@@ -83,7 +83,7 @@ En la `0.14.0`:
 
 - **El `CLAUDE.md` de la raíz**: en «Cómo se carga el contexto», la frase sobre abrir la raíz. Ahora dice que tras `/compact` el `CLAUDE.md` de un ticket no vuelve entero, y que del ticket activo vuelve un resumen. Antes se contradecía con el párrafo del ticket activo.
 - **La prueba de las reglas de cada capa**: cópiala encima desde `plugin/plantillas/reglas/verificar.tests.py`. Ahora apaga el bytecode, así que correrla a mano ya no deja `.claude/reglas/__pycache__/`.
-- **La clave `"plantillas"`**: no la escribas a mano. La anota `--arreglar plantillas` cuando ya no queda ninguna copia por fusionar.
+- **La clave `"plantillas"`**: no la escribas a mano. La anota `--arreglar plantillas`, que corres después de fusionar las copias editadas: el arreglo no sabe si ya las fusionaste, y desde ahí el ítem sale OK.
 
 ## Después de actualizar: regenerar los writers
 

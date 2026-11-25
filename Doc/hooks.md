@@ -37,7 +37,7 @@ En Claude Code, los hooks los lanza `python3`; en Windows, los de Codex y Pi los
 
 Un hook que arranca pero falla por dentro, con un error que no esperaba, no frena nada: deja pasar lo que le tocaba revisar, como siempre. Lo que cambia es que la falla deja rastro:
 
-- **Queda anotada** en `.claude/estado/fallas-de-hooks.jsonl`, en la raíz de la instancia: el hook, el evento, la fecha, y el tipo y el mensaje del error, recortado a 200 caracteres. Nunca se anota el comando, el archivo ni el resto del evento. Se guardan las últimas 20.
+- **Queda anotada** en `.claude/estado/fallas-de-hooks.jsonl`, en la raíz de la instancia: el hook, el evento, la fecha, y el tipo y el mensaje del error, recortado a 200 caracteres. No se anota el payload del evento, aunque el mensaje del error sí puede traer un pedazo de la entrada, como una ruta o el destino de una redirección, recortado a esos 200 caracteres. Se guardan las últimas 20.
 - **La sesión siguiente la muestra una vez.** Al abrir, retomar, compactar o limpiar la sesión, el agente recibe las fallas que todavía no vio, para que te las cuente.
 - **El doctor la muestra** en el ítem `hooks-fallas`, en AVISO, con las tres más recientes, hasta que vacíes el registro con `--arreglar hooks-fallas`.
 
