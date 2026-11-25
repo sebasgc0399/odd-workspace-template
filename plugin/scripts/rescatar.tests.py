@@ -189,6 +189,60 @@ def test_rescatar_solo_el_veredicto_falla_en_voz_alta_y_no_escribe():
         assert codigo == 1 and "FAIL c1: el revisor devolvio solo el veredicto" in out and not dest.exists(), (codigo, out, err)
 
 
+FORMAS_DEL_VEREDICTO = (VEREDICTO, "**VEREDICTO:** 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                        "`VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION`", "Veredicto: 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                        "0 CRITICAL, 1 WARNING, 0 SUGGESTION", "**VEREDICTO:**\n0 CRITICAL, 1 WARNING, 0 SUGGESTION")
+
+
+def test_rescatar_reconoce_el_veredicto_en_negrita_entre_comillas_en_minusculas_o_por_sus_cuentas():
+    reporte = "## Hallazgos\n[WARNING] sin ID a.sql:3 — x — y"
+    for forma in FORMAS_DEL_VEREDICTO:
+        with Temporal() as base:
+            sub = base / "subagents"
+            r = m().extraer_corrida(agente(sub, "abc", [
+                usuario("p"), asistente({"type": "text", "text": reporte}, uso("SubagentHandback", {"message": forma}))]))
+            assert (r["reporte"], r["origen"], r["veredicto"]) == (reporte, "texto_previo", forma), (forma, r)
+            r = m().extraer_corrida(agente(sub, "def", [
+                usuario("p"), asistente(uso("Read", {"file_path": "x"})), asistente(uso("SubagentHandback", {"message": forma}))]))
+            assert (r["reporte"], r["origen"]) == (None, "solo_veredicto"), (forma, r)
+            codigo, out, err = cli("--sesion", sub, "--destino", base / "corridas", "--corrida", "c1=abc")
+            assert codigo == 0 and (base / "corridas" / "c1.md").read_text(encoding="utf-8") == reporte, (forma, codigo, out, err)
+            codigo, out, err = cli("--sesion", sub, "--destino", base / "solo", "--corrida", "c2=def")
+            assert codigo == 1 and "FAIL c2: el revisor devolvio solo el veredicto" in out, (forma, codigo, out, err)
+            assert not (base / "solo").exists(), forma
+
+
+def test_pi_reconoce_el_veredicto_en_negrita_entre_comillas_en_minusculas_o_por_sus_cuentas():
+    reporte = "## Hallazgos\nninguno"
+    for forma in FORMAS_DEL_VEREDICTO:
+        con_reporte = tarea_pi(resultado=forma, items=hilo_pi() + [{"kind": "text", "text": reporte}, {"kind": "text", "text": forma}])
+        r = m()._corrida_de_tarea(con_reporte["task"], con_reporte["thread"])
+        assert (r["reporte"], r["origen"], r["veredicto"]) == (reporte, "texto_previo", forma), (forma, r)
+        solo = tarea_pi(id_="t2", resultado=forma)
+        r = m()._corrida_de_tarea(solo["task"], solo["thread"])
+        assert (r["reporte"], r["origen"]) == (None, "solo_veredicto"), (forma, r)
+        with Temporal() as base:
+            guardar_tarea(base / "agente", con_reporte)
+            guardar_tarea(base / "agente", solo)
+            codigo, out, err = cli_pi(base, "--destino", base / "corridas", "--corrida", "c1=t1")
+            assert codigo == 0 and (base / "corridas" / "c1.md").read_text(encoding="utf-8") == reporte, (forma, codigo, out, err)
+            codigo, out, err = cli_pi(base, "--destino", base / "solo", "--corrida", "c2=t2")
+            assert codigo == 1 and "FAIL c2: el revisor devolvio solo el veredicto" in out, (forma, codigo, out, err)
+            assert not (base / "solo").exists(), forma
+
+
+def test_una_devolucion_que_no_es_solo_el_veredicto_sigue_siendo_el_reporte():
+    for devolucion in (VEREDICTO + "\n## Hallazgos\n[WARNING] sin ID a.sql:3", "**Veredicto:** 1 WARNING\n## Hallazgos\n- a.sql:3",
+                       "El veredicto: revisa a.sql antes del commit", "Sin hallazgos."):
+        with Temporal() as base:
+            r = m().extraer_corrida(agente(base, "a", [
+                usuario("p"), asistente({"type": "text", "text": "previo"}, uso("SubagentHandback", {"message": devolucion}))]))
+        assert (r["reporte"], r["origen"], r["veredicto"]) == (devolucion, "handback", None), (devolucion, r)
+        datos = tarea_pi(resultado=devolucion, items=hilo_pi() + [{"kind": "text", "text": "previo"}])
+        r = m()._corrida_de_tarea(datos["task"], datos["thread"])
+        assert (r["reporte"], r["origen"], r["veredicto"]) == (devolucion, "resultado", None), (devolucion, r)
+
+
 GITHUB = "gh" + "p_" + ("aB3dE5fG7h" * 4)[:36]
 AWS = "AK" + "IA" + "Z7Q4X2W9R5T8Y3U6"
 

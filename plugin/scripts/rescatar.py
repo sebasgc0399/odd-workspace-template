@@ -32,7 +32,9 @@ SIN_MEDIR = "sin medir"
 MAX_SALIDA = 2000
 CODIGO_DE_SALIDA_RE = re.compile(r"Exit code (-?[0-9]+)")
 CLAVES_REPORTE = ("message", "result", "report")
-VEREDICTO = "VEREDICTO:"
+MARCAS_DE_MARKDOWN_RE = re.compile(r"[*_`]")
+VEREDICTO_RE = re.compile(r"[\s#>-]*veredicto\s*:", re.IGNORECASE)
+SOLO_EL_VEREDICTO_RE = re.compile(r"(?:veredicto\s*:\s*)?\d+ critical, \d+ warning, \d+ suggestion\.?", re.IGNORECASE)
 MODOS = ("0", "rapido", "completo")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 COSTO = "costo.json"
@@ -56,7 +58,12 @@ def texto_usuario(obj):
 
 
 def es_veredicto(texto):
-    return isinstance(texto, str) and texto.strip().startswith(VEREDICTO) and "\n" not in texto.strip()
+    if not isinstance(texto, str):
+        return False
+    limpio = MARCAS_DE_MARKDOWN_RE.sub("", texto.strip())
+    if "\n" not in limpio and VEREDICTO_RE.match(limpio):
+        return True
+    return bool(SOLO_EL_VEREDICTO_RE.fullmatch(" ".join(limpio.split())))
 
 
 def _reporte_de(entrada):

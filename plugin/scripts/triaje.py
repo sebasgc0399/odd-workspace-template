@@ -15,6 +15,7 @@ import recibo
 import verificar_capa
 from odd_ws import capas as convencion
 from odd_ws import marcadores
+from odd_ws import secretos
 from odd_ws import tsql
 from odd_ws.comun import cargar_por_ruta, lineas, raiz_de_instancia
 
@@ -464,7 +465,7 @@ def chequear(recolectados, del_taller, config):
                           lambda: marcadores.marcadores_nuevos(os.path.dirname(c["abs"]), [os.path.basename(c["abs"])],
                                                                recibo._entorno()))
     chequeos["corregir_antes_de_lanzar"] = bool(chequeos["hallazgos"] or chequeos["marcadores"] or chequeos["sin_chequear"])
-    return chequeos
+    return secretos.tapar_valores(chequeos)[0]
 
 
 def _sumar_marcadores(chequeos, repo, ruta, buscar):

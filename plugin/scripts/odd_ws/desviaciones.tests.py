@@ -75,7 +75,7 @@ def test_sin_el_archivo_no_hay_filas_ni_problemas_y_no_lee_la_config():
 
 def test_las_filas_validas_de_las_dos_formas_de_ubicacion_salen_con_su_linea_y_sus_partes():
     texto = (ENCABEZADO
-             + "catch-silencioso,%s,El CATCH no relanza el error,Lo pide el contrato con el POS,2026-11-25\n" % REPO
+             + "catch-silencioso,%s,El CATCH no relanza el error,Lo pide el contrato con el cliente,2026-11-25\n" % REPO
              + "\n"
              + 'typo-congelado,docs/glosario.md,"Dice ""Reponse"", con el error",Otro sistema consume ese nombre,2026-01-02\n')
     filas, problemas = cargar(texto)
@@ -84,7 +84,7 @@ def test_las_filas_validas_de_las_dos_formas_de_ubicacion_salen_con_su_linea_y_s
     primera, segunda = filas
     assert {k: primera[k] for k in ("id", "ubicacion", "resumen", "porque", "fecha")} == {
         "id": "catch-silencioso", "ubicacion": REPO, "resumen": "El CATCH no relanza el error",
-        "porque": "Lo pide el contrato con el POS", "fecha": "2026-11-25"}, primera
+        "porque": "Lo pide el contrato con el cliente", "fecha": "2026-11-25"}, primera
     assert (primera["repo"], primera["ruta"], primera["hash"], primera["ini"], primera["fin"]) == ("db", "src/ventas.sql", HASH, 10, 14), primera
     assert (segunda["repo"], segunda["ruta"], segunda["hash"], segunda["ini"], segunda["fin"]) == (None, "docs/glosario.md", None, None, None)
     assert segunda["resumen"] == 'Dice "Reponse", con el error', segunda

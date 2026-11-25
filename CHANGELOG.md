@@ -36,7 +36,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **El triaje corre los chequeos de cada capa sobre el diff antes de lanzar a los revisores.** También busca marcadores de conflicto, incluso en lo que no trackeaste. Si algo falla, te propone corregirlo antes de gastar tokens, y lanzar igual pide un sí aparte. Lo que decidas no corregir entra al prompt de los revisores como «ya detectado», para que no lo repitan.
 - **Los reportes de los revisores ya no entran enteros a tu contexto.** Cada revisor deja su reporte en su último bloque de texto y devuelve una sola línea, `VEREDICTO: <n> CRITICAL, <n> WARNING, <n> SUGGESTION`. `rescatar.py` guarda el reporte entero, y si un revisor devuelve solo el veredicto, el rescate falla en voz alta.
 - **Las desviaciones conocidas de toda la instancia.** El código que parece un error y es a propósito se anota una vez en `.claude/reglas/desviaciones.csv`, con su porqué, y `revisar` no lo vuelve a plantear en ningún ticket. `/odd-ws:cerrar` te ofrece graduar ahí una desviación aprobada, y el doctor avisa si una fila está mal formada.
-- **Los secretos se tapan antes de guardar.** Un token o una clave con formato conocido (AWS, GitHub, Slack, Google, OpenAI, Anthropic, Stripe o una clave privada) queda como un marcador como `<GITHUB_TOKEN>` en los reportes rescatados, en el recibo y en los diffs y la consolidación de cada ronda. Los revisores siguen viendo el código crudo.
+- **Los secretos se tapan antes de guardar.** Un token o una clave con formato conocido (AWS, GitHub, Slack, Google, OpenAI, Anthropic, Stripe o una clave privada) queda como un marcador como `<GITHUB_TOKEN>` en los reportes rescatados, en el recibo, en los hallazgos de los chequeos del triaje y en los diffs y la consolidación de cada ronda. Los revisores siguen viendo el código crudo.
 - Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla de la instancia.
 
 ### Detalle técnico
@@ -46,9 +46,10 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - El resultado va a la clave `chequeos` de `triaje.json` y a la última línea del texto.
   - Un chequeo que falla por dentro sale como «no se pudo chequear», nunca como limpio.
   - El git de los marcadores corre con el entorno limpio, así que no depende del índice de un hook.
-- **El veredicto (I35):** la regla va en `references/prompt.md`. `rescatar.extraer_corrida` toma el texto del mismo mensaje antes del `SubagentHandback`; en Pi, el texto del hilo después de la última herramienta. Una devolución sin `VEREDICTO:` sigue siendo el reporte, como antes.
+  - El triaje tarda unos 250 ms más por archivo con capa: con 50 archivos, pasó de 17,9 s a 30,2 s en Windows.
+- **El veredicto (I35):** la regla va en `references/prompt.md`. `rescatar.extraer_corrida` toma el texto del mismo mensaje antes del `SubagentHandback`; en Pi, el texto del hilo después de la última herramienta. El veredicto se reconoce también en negrita, entre comillas invertidas, con otras mayúsculas o solo por sus cuentas. Una devolución que no es solo el veredicto sigue siendo el reporte, como antes.
 - **Las desviaciones (I92):** `odd_ws/desviaciones.py` valida cada fila, y `ubicacion` reusa el formato `ruta@hash:ini-fin` de la matriz. `desviaciones.py` las imprime para el prompt, y el doctor suma el ítem `desviaciones`.
-- **Los secretos (I86):** `odd_ws/secretos.py` usa solo patrones concretos, ninguno genérico de `etiqueta:valor`. Lo aplican `rescatar._guardar` y `recibo._guardar`, y `tapar.py` antes del `--check` de cada ronda. El recibo sigue valiendo, porque hashea el `git diff` vivo.
+- **Los secretos (I86):** `odd_ws/secretos.py` usa solo patrones concretos, ninguno genérico de `etiqueta:valor`. Lo aplican `rescatar._guardar`, `recibo._guardar` y `triaje.chequear`, y `tapar.py` antes del `--check` de cada ronda. El recibo sigue valiendo, porque hashea el `git diff` vivo.
 
 ## 0.14.0
 
@@ -59,7 +60,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **Cuando un hook falla por dentro, ya no pasa callado.** Sigue dejando pasar lo que le tocaba revisar, como antes, pero la falla queda anotada. La sesión siguiente te la muestra una vez, y `/odd-ws:doctor` la lista en el ítem `hooks-fallas` hasta que la vacíes con `--arreglar hooks-fallas`.
 - **El doctor y `/odd-ws:abrir` avisan cuando un repo de tu config trae hooks propios** en su `.claude/settings.json` o `.claude/settings.local.json`. Esos hooks, como un guard o un formateador, corren solo si la sesión arranca en el repo, no desde la instancia. Es el ítem `hooks-de-repos`, y solo aparece si tu instancia usa Claude Code.
 - **Las extensiones sin capa a propósito ya no avisan para siempre.** Imágenes, recursos o archivos de build se reconocen una vez en la clave `"sin_capa"` de `workspace.config.json`. El `cómo:` del aviso te da la línea exacta, para que saques las que sí son código.
-- **El doctor te dice qué plantillas de tu instancia quedaron viejas.** El ítem `plantillas` compara tu `CLAUDE.md`, la plantilla de los tickets, el `pre-commit` y la prueba de tus reglas con las de cada versión publicada. El aviso te dice cuáles no tocaste y cuáles editaste. Fusiona a mano las editadas y después corre `--arreglar plantillas`: reemplaza las que no tocaste y anota la versión, y desde ahí el ítem sale OK, así que no lo corras antes de fusionar. La primera sesión después de actualizar ya te nombra las que cambiaron.
+- **El doctor te dice qué plantillas de tu instancia quedaron viejas.** El ítem `plantillas` compara tu `CLAUDE.md`, la plantilla de los tickets, el `pre-commit` y la prueba de tus reglas con las de cada versión publicada. El aviso te dice cuáles no tocaste y cuáles editaste. Fusiona a mano las editadas y después corre `--arreglar plantillas`: reemplaza las que no tocaste y anota la versión, y desde ahí el ítem sale OK, así que no lo corras antes de fusionar. Si el plugin vive en una carpeta con su versión, como el caché de Claude Code o de Codex, la primera sesión después de actualizar ya te nombra las que cambiaron; si no, como en Pi instalado por git, te lo dice el doctor.
 - **Dos arreglos en las plantillas.** El `CLAUDE.md` de la instancia ya no se contradice sobre lo que vuelve después de un `/compact`. Correr a mano la prueba de tus reglas ya no deja `__pycache__`.
 - Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión cambia dos plantillas, y el doctor te dice cuáles tienes que copiar.
 
@@ -69,6 +70,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - `odd_ws/fallas.py` anota en `.claude/estado/fallas-de-hooks.jsonl` cada excepción que se tragaban `correr()` de los cinco hooks y `comun.correr_hook`. Guarda el hook, el evento, la fecha y el tipo y mensaje del error, este cortado a 200 caracteres, nunca el payload.
   - El registro tiene un tope de 20 entradas. Ningún guard cambia su veredicto.
   - `verificar_capa._session_start` muestra las nuevas una sola vez.
+  - En Windows, `writer_guard` toma como dispositivo, y no como archivo, toda ruta que Windows resuelve a `\\.\…`, como `NUL` con o sin carpeta (`C:/x/NUL`). Antes, un `2>nul` lanzaba un error interno y el guard fallaba abierto, así que un writer podía saltárselo con `git commit -m x 2>nul`. Ahora ese comando bloquea, y un `> NUL` ya no anota una falla.
 - **Los hooks de un repo (I36):** `config_loader.hooks_de_los_repos` lo usan el doctor y `ticket.py --cobertura`. Cuenta un objeto `hooks` no vacío.
 - **`sin_capa` (I87):**
   - Es una clave opcional validada como las demás.
