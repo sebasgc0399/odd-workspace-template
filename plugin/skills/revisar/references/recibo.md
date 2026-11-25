@@ -52,8 +52,8 @@ python3 "<S>/tapar.py" "<ticket>/revision/<fecha>-<modo>/entrada/*.diff" "<ticke
 - Tapa solo formatos concretos: claves de AWS, tokens de GitHub, Slack, Google, OpenAI, Anthropic y Stripe, y bloques de clave privada. No busca «etiqueta: valor»: en una prueba real solo dio falsos positivos (`dark:`, `sm:`, `mailto:`).
 - El comodín va entre comillas, porque `tapar.py` lo expande él mismo, también en PowerShell y en cmd.
 - Se tapa después del rescate y nunca antes de lanzar: los revisores ven los diffs crudos, porque un secreto en el código es un hallazgo `CRITICAL`. Los reportes de `corridas/` ya salen tapados del rescate, y el recibo tapa su texto libre (`--verificacion`, `--derivado` y `--bajada`).
-- No invalida el recibo, que guarda la huella del diff de los repos y no la de `entrada/`; `triaje.json` no se toca.
-- Sale con 0; con 2, sin escribir nada, si un archivo no existe, es una carpeta, el comodín no encuentra nada o un archivo no se puede leer. Muestra el mensaje y no digas «listo».
+- No invalida el recibo, que guarda la huella del diff de los repos y no la de `entrada/`; `triaje.json` no se toca, y sus `chequeos` ya salen tapados del triaje.
+- Sale con 0; con 2, sin escribir nada, si un archivo no existe, es una carpeta, el comodín no encuentra nada o un archivo no se puede leer. Si falla la escritura de un archivo, sale con 2: los anteriores ya quedaron tapados y el que falló puede quedar a medias. Muestra el mensaje y no digas «listo».
 
 ## `--check`
 
@@ -80,4 +80,4 @@ python3 "<S>/tapar.py" "<ticket>/revision/<fecha>-<modo>/entrada/*.diff" "<ticke
 | `triaje.py` | propone el modo con las señales del diff | 0 ok · 2 error de uso o de entorno |
 | `rescatar.py` | reporte, prompt, lecturas y costo de cada corrida desde el `.jsonl` del subagente o, con `--host pi`, desde la tarea que guarda gentle-shell; `--costo` escribe el `costo.json` de la revisión y `--ultimo-costo` imprime el último costo medido | 0 ok · 1 corrida sin reporte, o ningún costo medido con `--ultimo-costo` · 2 error |
 | `recibo.py` | `--write` escribe el recibo, con `--previo` el de un rechequeo, que hereda lo que no cambió, y con `--bajada` la bajada de un escalón que pidió el usuario; `--check` lo compara con el diff actual y con lo que entraría al commit; `--sellar` anota el commit que guarda lo revisado | 0 escrito, vale o sellado · 1 el diff cambió, el índice no es lo revisado, el recibo ya existe con otro diff, no se puede sellar o el rechequeo no puede heredar · 2 error de uso o de entorno |
-| `tapar.py` | tapa en el lugar los secretos de `entrada/*.diff` y `consolidado.md` antes del `--check` | 0 ok · 2 error de uso o de lectura, sin escribir nada |
+| `tapar.py` | tapa en el lugar los secretos de `entrada/*.diff` y `consolidado.md` antes del `--check` | 0 ok · 2 error de uso o de lectura, sin escribir nada, o de escritura, con los archivos anteriores ya tapados |

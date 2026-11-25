@@ -11,7 +11,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **El triaje corre los chequeos de cada capa sobre el diff antes de lanzar a los revisores.** También busca marcadores de conflicto, incluso en lo que no trackeaste. Si algo falla, te propone corregirlo antes de gastar tokens, y lanzar igual pide un sí aparte. Lo que decidas no corregir entra al prompt de los revisores como «ya detectado», para que no lo repitan.
 - **Los reportes de los revisores ya no entran enteros a tu contexto.** Cada revisor deja su reporte en su último bloque de texto y devuelve una sola línea, `VEREDICTO: <n> CRITICAL, <n> WARNING, <n> SUGGESTION`. `rescatar.py` guarda el reporte entero, y si un revisor devuelve solo el veredicto, el rescate falla en voz alta.
 - **Las desviaciones conocidas de toda la instancia.** El código que parece un error y es a propósito se anota una vez en `.claude/reglas/desviaciones.csv`, con su porqué, y `revisar` no lo vuelve a plantear en ningún ticket. `/odd-ws:cerrar` te ofrece graduar ahí una desviación aprobada, y el doctor avisa si una fila está mal formada.
-- **Los secretos se tapan antes de guardar.** Un token o una clave con formato conocido (AWS, GitHub, Slack, Google, OpenAI, Anthropic, Stripe o una clave privada) queda como un marcador como `<GITHUB_TOKEN>` en los reportes rescatados, en el recibo y en los diffs y la consolidación de cada ronda. Los revisores siguen viendo el código crudo.
+- **Los secretos se tapan antes de guardar.** Un token o una clave con formato conocido (AWS, GitHub, Slack, Google, OpenAI, Anthropic, Stripe o una clave privada) queda como un marcador como `<GITHUB_TOKEN>` en los reportes rescatados, en el recibo, en los hallazgos de los chequeos del triaje y en los diffs y la consolidación de cada ronda. Los revisores siguen viendo el código crudo.
 - Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla de la instancia.
 
 ### Detalle técnico
@@ -21,9 +21,10 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - El resultado va a la clave `chequeos` de `triaje.json` y a la última línea del texto.
   - Un chequeo que falla por dentro sale como «no se pudo chequear», nunca como limpio.
   - El git de los marcadores corre con el entorno limpio, así que no depende del índice de un hook.
-- **El veredicto (I35):** la regla va en `references/prompt.md`. `rescatar.extraer_corrida` toma el texto del mismo mensaje antes del `SubagentHandback`; en Pi, el texto del hilo después de la última herramienta. Una devolución sin `VEREDICTO:` sigue siendo el reporte, como antes.
+  - El triaje tarda unos 250 ms más por archivo con capa: con 50 archivos, pasó de 17,9 s a 30,2 s en Windows.
+- **El veredicto (I35):** la regla va en `references/prompt.md`. `rescatar.extraer_corrida` toma el texto del mismo mensaje antes del `SubagentHandback`; en Pi, el texto del hilo después de la última herramienta. El veredicto se reconoce también en negrita, entre comillas invertidas, con otras mayúsculas o solo por sus cuentas. Una devolución que no es solo el veredicto sigue siendo el reporte, como antes.
 - **Las desviaciones (I92):** `odd_ws/desviaciones.py` valida cada fila, y `ubicacion` reusa el formato `ruta@hash:ini-fin` de la matriz. `desviaciones.py` las imprime para el prompt, y el doctor suma el ítem `desviaciones`.
-- **Los secretos (I86):** `odd_ws/secretos.py` usa solo patrones concretos, ninguno genérico de `etiqueta:valor`. Lo aplican `rescatar._guardar` y `recibo._guardar`, y `tapar.py` antes del `--check` de cada ronda. El recibo sigue valiendo, porque hashea el `git diff` vivo.
+- **Los secretos (I86):** `odd_ws/secretos.py` usa solo patrones concretos, ninguno genérico de `etiqueta:valor`. Lo aplican `rescatar._guardar`, `recibo._guardar` y `triaje.chequear`, y `tapar.py` antes del `--check` de cada ronda. El recibo sigue valiendo, porque hashea el `git diff` vivo.
 
 ## 0.14.0
 
