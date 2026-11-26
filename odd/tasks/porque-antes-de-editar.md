@@ -233,4 +233,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - El move con edición en Codex.
     - El texto de Pi al rechazar.
     - Los límites de L8.
-  - **Las ramas:** se integraron la 0.14.0 publicada y la corrección de la 0.15.0 (`f261bd2`), sin choques.
+  - **Las ramas:**
+    - `f261bd2` integró la 0.14.0 publicada y la corrección de la 0.15.0, sin choques.
+    - `2a9f9b3` integró las huellas de la 0.14.0. El choque de `huellas.json` se resolvió regenerándolo.
+    - El auditor confirmó que los dos merges traen solo lo de la 0.14.0, la 0.15.0 y `main`.
+  - **El nit del costo:** el auditor señaló que «unos 200 ms» se queda corto en un repo con mucha historia; L7 midió 0,29 s → 0,72 s en el de odd-ws. El CHANGELOG y `Doc/hooks.md` dicen ahora «de 0,2 a 0,4 s».

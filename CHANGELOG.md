@@ -11,7 +11,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **Después de editar, el agente ve el porqué de las líneas que reemplazó.** Lee la fecha y una línea del commit que las escribió, sacadas del `git blame`, sin modelo. Así puede reconsiderar la edición antes de seguir. Si el blame falla, lo dice; nunca lo da por limpio.
 - **Antes de editar, si la edición toca una desviación conocida de la instancia, te pregunta.** En Codex, y en Pi sin pantalla, la frena.
 - **Lo que un ticket quita vuelve como regla.** Al cerrar, si el ticket borró un archivo o sacó una dependencia de su manifiesto, `/odd-ws:cerrar` te pregunta si puede volver. Si no puede, te propone la regla que lo frena, con la línea que lo volvería a agregar como caso sembrado.
-- **Lo ajustas con `"porque_al_editar"`** en `workspace.config.json`: `"todo"` (por defecto), `"indice"` (solo la pregunta de las desviaciones) o `"apagado"`. Con `"todo"`, cada edición de un archivo trackeado de tus repos tarda unos 200 ms más, por el blame; si te pesa, usa `"indice"` o `"apagado"`.
+- **Lo ajustas con `"porque_al_editar"`** en `workspace.config.json`: `"todo"` (por defecto), `"indice"` (solo la pregunta de las desviaciones) o `"apagado"`. Con `"todo"`, cada edición de un archivo trackeado de tus repos tarda de 0,2 a 0,4 s más, por el blame, según cuánta historia tenga el repo; si te pesa, usa `"indice"` o `"apagado"`.
 - Actualiza con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla de la instancia.
 
 ### Detalle técnico

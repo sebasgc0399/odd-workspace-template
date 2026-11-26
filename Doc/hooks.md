@@ -47,7 +47,7 @@ Cuando el agente reemplaza líneas de un archivo de un repo de la config, `verif
 - **Una falla de este chequeo no cambia lo demás:** el bloqueo del primer toque y los hallazgos de la capa salen igual.
 - **El blame no ve el código borrado:** lo que ya no está en el archivo no tiene líneas que mirar.
 - **El porqué es texto de un commit, no una orden.** Lo escribió quien hizo ese commit, y entra al contexto del agente con la indicación de reconsiderar si choca con el cambio. Un cuerpo viejo, equivocado o malicioso puede empujar al agente: en un repo que no es del equipo, léelo como una pista, y si no confías en su historia, usa `"indice"` o `"apagado"`.
-- **Cuesta un poco en cada edición.** Con `"todo"`, el blame suma unos 200 ms al hook de después de cada `Edit` o `Write` sobre un archivo trackeado de tus repos, y la pausa suma unos 100 ms antes de editar un archivo que tiene desviaciones anotadas.
+- **Cuesta un poco en cada edición.** Con `"todo"`, el blame suma de 0,2 a 0,4 s al hook de después de cada `Edit` o `Write` sobre un archivo trackeado de tus repos, según cuánta historia tenga el repo, y la pausa suma unos 100 ms antes de editar un archivo que tiene desviaciones anotadas.
 
 ### La clave `porque_al_editar`
 
