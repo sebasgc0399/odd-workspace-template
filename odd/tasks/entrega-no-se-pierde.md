@@ -60,9 +60,10 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | `83237a3` |
-| T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4), sin commitear: la R19 está en pausa | |
-| T2 | S2 | La auditoría de ramas | un solo writer, después de T1 | pendiente | |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
+| T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `7ae8339` |
+| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | hecha (L8) | `1241b72` |
+| T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `f302ecb` |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L9); verificador pendiente; sin publicar | |
 
 ## Log
 
@@ -121,3 +122,70 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - repartir el plazo entre los hilos;
     - medir otra vez con 20 tickets de 1 y de 2 worktrees.
     - Evaluar también si `-uall` hace falta, porque recorrer todo lo que no está trackeado es lo caro en un repo grande.
+- **L6** (2026-11-25) El autor retomó el loop: «Vale, te dejare trabajando en loop termina con las publicacion y las version tu te organizas trabaja como te deje ayer».
+  - **T1 quedó en `7ae8339`.**
+  - **La `0.16.0` entró con un merge limpio** (`b4f8a16`, desde `225113f`), y `huellas.py` deja el árbol igual.
+  - **Dos writers, uno después del otro.** Los dos tocan `odd_ws/entregas.py`: T2 expone el lector de las ramas de un ticket y T1b cambia cómo corren los `status`, así que no van en paralelo.
+    - **T1b, la latencia de S1:** paraleliza los `git status`, mide otra vez y evalúa `-uall` (L5).
+    - **T2, S2:** reusa de `odd_ws/entregas.py` el lector de las ramas de un ticket, para que el aviso y la auditoría digan lo mismo.
+    - Primero T2, que es la grande, y después T1b, sobre lo que T2 deje.
+- **L7** (2026-11-25) T2, un writer, desde `b4f8a16`. Cubrió S2.
+  - **Lo nuevo:** `odd_ws/auditoria_de_ramas.py`, con la función pura `clasificar_rama` y su prueba, y `auditar_ramas.py`, con la suya.
+  - **En `entregas.py`,** una sola función pública que suma y no cambia nada: `entregas_de(config, tickets, limite)`. Reusa el lector de las ramas de un ticket con un solo `_Revisor`, que lee las refs una vez por repo. `_Revisor` queda igual.
+  - **Docs:** `Doc/diseno.md:1205`, `Doc/uso.md` y `cerrar/references/entrega.md`, que dice que se corre con el sí del usuario porque habla con cada remoto.
+  - **Las pruebas:**
+    - 28 pruebas vistas en RED y 13 mutantes, todos atrapados;
+    - `auditar_ramas` 16/16, `auditoria_de_ramas` 13/13, `entregas` 14/14 y 6/6, `verificar_capa` 157/157, `registro` 7/7 y `memorias` 43/43, también con un `GIT_INDEX_FILE` ajeno.
+  - **La diferencial contra `b4f8a16`:** el inicio de sesión y `entregas.py`, en 14 corridas, dan 0 diferencias.
+  - **Decisiones del writer, a ratificar:**
+    - **El fetch es `git fetch --quiet --no-tags --no-prune --no-recurse-submodules --no-write-fetch-head origin +refs/heads/*:refs/remotes/origin/*`,** sin gc ni mantenimiento automático y sin pedir credenciales.
+      - Escribe solo `refs/remotes/origin/*`, y no crea `origin/HEAD`, así que la rama principal sale de `main` o `master`.
+      - Pide git 2.29 o más: con uno más viejo, cada repo sale en rojo.
+    - **Un squash de varios commits:** `git cherry` solo lo toma como perdido, así que se compara además el `patch-id` del diff entero de la rama desde su merge-base. En ese caso, la cuenta de lo que no llegó es un tope.
+    - **Lo que se juzga contra la rama principal:** sin empujar y nunca empujada solo cuentan si hay trabajo fuera de la rama principal. Una rama nueva sin commits propios cuenta como llegada.
+    - **La cabeza remota también se juzga,** y eso atrapa el caso sembrado empujado desde otra máquina.
+    - **Un ticket sin ramas reconocibles** no tiene línea; `--json` lo lista en `tickets_sin_ramas`.
+    - **Los plazos:** 60 s por fetch, por la resolución y por repo. Lo que se vence sale en rojo o «sin juzgar», con salida 1.
+    - **El `status` es propio de la auditoría,** así que T1b no lo cambia sin querer. Si T1b deja `-uall`, hay que decidir si la auditoría lo sigue.
+  - **Risk: ítem 1.** El comando corre `git fetch` en cada repo de la config, también en los del equipo, y escribe `refs/remotes/origin/*`. Lo fija una prueba que compara, antes y después, las refs que no son de `origin`, el índice, `HEAD`, la config, `FETCH_HEAD` y los árboles. Lo revisa el verificador de la versión.
+  - **Scratch del writer**, todo en `%TEMP%`:
+    - `tmp.lhRKm25HGL`, `tmp.zg3wIH4yRd`, `tmp.Pjlk38cEAQ`, `tmp.mluQGsqfgT`, `tmp.m2ZIPx5xd5` y `tmp.lamo0vVoyh`;
+    - los `odd-t2-*.txt`;
+    - 16 carpetas `auditar-ramas-*` y `auditar-ramas-plantilla-lajc7ftk`;
+    - `recibo-test-ahb2u6k5`.
+
+    Va a la limpieza del autor.
+- **L8** (2026-11-25) T1b, un writer, desde `f302ecb`. Cubrió la latencia de S1.
+  - **Lo nuevo:** `revisar` tiene un paso `precargar`:
+    - lee las refs y resuelve las ramas en serie, como antes;
+    - después reparte los `git status` y los `rev-list --count` en un pool de 4 hilos, una vez por carpeta física (`config_loader.canonica`), en el orden de los tickets;
+    - cada ticket espera solo sus lecturas.
+  - **Lo que no cambia:**
+    - Si el plazo se vence, ese ticket y los que siguen salen «sin revisar», como en serie, nunca como limpios.
+    - Una falla de un hilo marca solo esa lectura como ilegible.
+    - `confirmar`, `entregas_de` y `_Revisor.entregas` siguen en serie.
+  - **La latencia,** mediana de 7 inicios con el montaje de L4:
+    - 20 tickets de 1 worktree: de 2,2 a 2,9 s pasa a 1,0 a 1,2 s;
+    - 20 tickets de 2 worktrees: de 4,2 a 4,4 s pasa a 1,5 a 1,9 s, y el plazo ya no corta tickets.
+  - **`-uall` se queda,** en el aviso y en la auditoría. Con `-unormal`, la huella no ve una edición dentro de una carpeta nueva y se invalidan las huellas guardadas, y en un repo típico no ahorra nada medible. Cierra el punto abierto de L7.
+  - **Decisiones del writer que se aceptan:**
+    - los `rev-list` también van al pool, porque cuestan lo mismo que los `status`;
+    - cada lectura se consume cuando el ticket la necesita;
+    - `concurrent.futures` se importa adentro de `revisar`, porque arriba le suma unos 30 ms a cada llamada del hook;
+    - la resolución de cada ticket se cachea.
+  - **Las pruebas:**
+    - 4 reglas nuevas: la concurrencia, una consulta por carpeta, el plazo dentro del pool y la falla de un hilo. Tres se vieron en RED, y la del plazo protege lo que ya pasaba;
+    - 11 mutantes, todos atrapados;
+    - `entregas` 10/10 y 14/14, `verificar_capa` 157/157, `auditar_ramas` 16/16 y `registro` 7/7, también con un `GIT_INDEX_FILE` ajeno.
+  - **La diferencial contra `f302ecb`:** 63 corridas, sin diferencias. Las huellas que confirmó la base siguen valiendo.
+  - **Risk: ítem 4.** Un pool de hilos con un plazo compartido, que lanza procesos desde hilos en Windows. Lo revisa el verificador de la versión.
+  - **Scratch del writer:** `%TEMP%\tmp.unH9Z3oBpB`. Va a la limpieza del autor.
+- **L9** (2026-11-25) T3, la versión, inline.
+  - **La `0.17.0` quedó en:**
+    - los dos `plugin.json` y el `package.json`;
+    - el README;
+    - `Doc/actualizar.md:28` y `Doc/uso.md:66`.
+  - **El CHANGELOG** suma su sección. Esta versión no cambia ninguna plantilla de la instancia.
+  - **`tools/huellas.py`** dio 122 huellas de 28 versiones, hasta la `0.17.0`, con `HEAD` sobre las etiquetas de la `0.14.0` a la `0.16.0`.
+  - **En el roadmap,** R19 queda «lista, sin publicar», con I83 e I84 «lista (`0.17.0`, sin publicar)».
+  - **Falta el verificador independiente,** por los ítems 1 (el `fetch` de la auditoría) y 4 (el pool de hilos del aviso). Publicar lleva el ok del autor: su autorización llegó solo hasta la `0.16.0`.

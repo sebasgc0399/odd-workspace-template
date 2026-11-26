@@ -2,6 +2,43 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.17.0
+
+**Que la entrega no se pierda: lo que quedó sin subir vuelve solo al arrancar la sesión, y antes de publicar un comando muestra qué ramas no llegaron.**
+
+### Lo que cambia para ti
+
+- **Al arrancar la sesión, te avisa de cada ticket con la entrega pendiente.** Te avisa por:
+  - un cambio sin commitear en la carpeta de su rama;
+  - un commit que no está en `origin`;
+  - una rama que nunca se empujó.
+
+  Mira solo las refs locales, sin red, y si no hay nada pendiente no dice nada. Corre al iniciar, reanudar o bifurcar la sesión, no en cada `compact`.
+- **Cuando confirmas que llegó, calla.** `entregas.py --confirmar <ticket>` anota una huella del estado del ticket, y si después algo cambia, vuelve a avisar. Sin argumentos, el mismo comando lista lo pendiente.
+- **Antes de publicar, una auditoría de ramas.** `auditar_ramas.py` hace `fetch` en cada repo de tu config y lista las ramas de los tickets que tienen algo pendiente:
+  - cambios sin commitear;
+  - commits sin empujar;
+  - trabajo que no llegó a la rama principal. Eso incluye un push a una rama cuyo PR ya se mergeó, que sale bien pero nunca llega.
+
+  Solo escribe las refs de `origin`. Si el `fetch` de un repo falla, ese repo sale en rojo, en vez de juzgarse con datos viejos. Como habla con cada remoto, `/odd-ws:cerrar` te pide el sí antes de correrlo.
+- **Cómo actualizar:** con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla de la instancia.
+
+### Detalle técnico
+
+- **El aviso (I83):**
+  - **Lo usan el hook y el CLI:** `odd_ws/entregas.py`, con un límite de tiempo. En el inicio de sesión es el menor entre 4 s y lo que le queda al hook.
+  - **De dónde salen las ramas de un ticket:** de su línea «Worktree y rama». Un fragmento entre backticks que es una carpeta de un repo da la rama que esa carpeta tiene en `HEAD`, y cualquier otro fragmento es una rama candidata en cada repo de la config.
+  - **Qué tickets cuenta:** solo los activos (los hijos directos de `tickets/`), con un tope de 20.
+  - **Cómo corre:** los `git status` y los `rev-list` van en paralelo, en 4 hilos y una vez por carpeta. Con 20 tickets de 2 worktrees, el inicio pasó de 4,4 s a 1,9 s.
+  - **La huella:** un sha256 de las cabezas de cada rama y de `origin`, del `git status -uall` de su carpeta y del contenido de los archivos que ese status nombra, en `.claude/estado/entregas.json`.
+- **La auditoría (I84):**
+  - **El fetch:** `auditar_ramas.py` corre `git fetch --no-tags --no-prune origin +refs/heads/*:refs/remotes/origin/*`, con el entorno limpio, sin pedir credenciales y con un plazo por repo. Pide git 2.29 o más.
+  - **Qué cuenta como llegado:** compara con `git cherry` y con el `patch-id` del diff entero de la rama, para no confundir un squash con trabajo perdido.
+  - **Cómo clasifica:** con una función pura, `clasificar_rama`.
+  - **Las opciones:** por defecto audita los tickets activos, y con `--archivados`, también los archivados. Tiene `--json`.
+  - **Las salidas:** 0 si todo llegó, 1 si hay algo pendiente o un repo en rojo, y 2 por un error de uso.
+  - **Lo que comparte con el aviso:** el lector de las ramas de un ticket, `entregas.entregas_de`, así que los dos dicen lo mismo.
+
 ## 0.16.0
 
 **El porqué antes de editar: el agente ve por qué existen las líneas que toca, y lo que un ticket quita no vuelve sin que alguien lo decida.**
