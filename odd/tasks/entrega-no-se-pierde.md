@@ -60,8 +60,9 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | `83237a3` |
-| T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4), sin commitear: la R19 está en pausa | |
-| T2 | S2 | La auditoría de ramas | un solo writer, después de T1 | pendiente | |
+| T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `7ae8339` |
+| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | pendiente | |
+| T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | este commit |
 | T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -121,3 +122,36 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - repartir el plazo entre los hilos;
     - medir otra vez con 20 tickets de 1 y de 2 worktrees.
     - Evaluar también si `-uall` hace falta, porque recorrer todo lo que no está trackeado es lo caro en un repo grande.
+- **L6** (2026-11-25) El autor retomó el loop: «Vale, te dejare trabajando en loop termina con las publicacion y las version tu te organizas trabaja como te deje ayer».
+  - **T1 quedó en `7ae8339`.**
+  - **La `0.16.0` entró con un merge limpio** (`b4f8a16`, desde `225113f`), y `huellas.py` deja el árbol igual.
+  - **Dos writers, uno después del otro.** Los dos tocan `odd_ws/entregas.py`: T2 expone el lector de las ramas de un ticket y T1b cambia cómo corren los `status`, así que no van en paralelo.
+    - **T1b, la latencia de S1:** paraleliza los `git status`, mide otra vez y evalúa `-uall` (L5).
+    - **T2, S2:** reusa de `odd_ws/entregas.py` el lector de las ramas de un ticket, para que el aviso y la auditoría digan lo mismo.
+    - Primero T2, que es la grande, y después T1b, sobre lo que T2 deje.
+- **L7** (2026-11-25) T2, un writer, desde `b4f8a16`. Cubrió S2.
+  - **Lo nuevo:** `odd_ws/auditoria_de_ramas.py`, con la función pura `clasificar_rama` y su prueba, y `auditar_ramas.py`, con la suya.
+  - **En `entregas.py`,** una sola función pública que suma y no cambia nada: `entregas_de(config, tickets, limite)`. Reusa el lector de las ramas de un ticket con un solo `_Revisor`, que lee las refs una vez por repo. `_Revisor` queda igual.
+  - **Docs:** `Doc/diseno.md:1205`, `Doc/uso.md` y `cerrar/references/entrega.md`, que dice que se corre con el sí del usuario porque habla con cada remoto.
+  - **Las pruebas:**
+    - 28 pruebas vistas en RED y 13 mutantes, todos atrapados;
+    - `auditar_ramas` 16/16, `auditoria_de_ramas` 13/13, `entregas` 14/14 y 6/6, `verificar_capa` 157/157, `registro` 7/7 y `memorias` 43/43, también con un `GIT_INDEX_FILE` ajeno.
+  - **La diferencial contra `b4f8a16`:** el inicio de sesión y `entregas.py`, en 14 corridas, dan 0 diferencias.
+  - **Decisiones del writer, a ratificar:**
+    - **El fetch es `git fetch --quiet --no-tags --no-prune --no-recurse-submodules --no-write-fetch-head origin +refs/heads/*:refs/remotes/origin/*`,** sin gc ni mantenimiento automático y sin pedir credenciales.
+      - Escribe solo `refs/remotes/origin/*`, y no crea `origin/HEAD`, así que la rama principal sale de `main` o `master`.
+      - Pide git 2.29 o más: con uno más viejo, cada repo sale en rojo.
+    - **Un squash de varios commits:** `git cherry` solo lo toma como perdido, así que se compara además el `patch-id` del diff entero de la rama desde su merge-base. En ese caso, la cuenta de lo que no llegó es un tope.
+    - **Lo que se juzga contra la rama principal:** sin empujar y nunca empujada solo cuentan si hay trabajo fuera de la rama principal. Una rama nueva sin commits propios cuenta como llegada.
+    - **La cabeza remota también se juzga,** y eso atrapa el caso sembrado empujado desde otra máquina.
+    - **Un ticket sin ramas reconocibles** no tiene línea; `--json` lo lista en `tickets_sin_ramas`.
+    - **Los plazos:** 60 s por fetch, por la resolución y por repo. Lo que se vence sale en rojo o «sin juzgar», con salida 1.
+    - **El `status` es propio de la auditoría,** así que T1b no lo cambia sin querer. Si T1b deja `-uall`, hay que decidir si la auditoría lo sigue.
+  - **Risk: ítem 1.** El comando corre `git fetch` en cada repo de la config, también en los del equipo, y escribe `refs/remotes/origin/*`. Lo fija una prueba que compara, antes y después, las refs que no son de `origin`, el índice, `HEAD`, la config, `FETCH_HEAD` y los árboles. Lo revisa el verificador de la versión.
+  - **Scratch del writer**, todo en `%TEMP%`:
+    - `tmp.lhRKm25HGL`, `tmp.zg3wIH4yRd`, `tmp.Pjlk38cEAQ`, `tmp.mluQGsqfgT`, `tmp.m2ZIPx5xd5` y `tmp.lamo0vVoyh`;
+    - los `odd-t2-*.txt`;
+    - 16 carpetas `auditar-ramas-*` y `auditar-ramas-plantilla-lajc7ftk`;
+    - `recibo-test-ahb2u6k5`.
+
+    Va a la limpieza del autor.

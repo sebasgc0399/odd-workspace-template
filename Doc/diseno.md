@@ -1202,6 +1202,38 @@ El trabajo de un ticket que quedó sin subir vuelve solo al arrancar la sesión,
 - **`entregas.py [--confirmar TICKET] [--raiz <raíz>]`.** Sin argumentos, una línea por ticket pendiente, sin el `- `, y `nada pendiente` si no hay; sale con 0 sin nada pendiente, con 1 si lista algo o si quedaron tickets sin revisar, y con 2 por un error de uso o de entorno (una raíz que no es de una instancia, la config rota, un ticket que no existe o que nombra a varios, o una confirmación a la que no le alcanzó el tiempo, que no anota nada). Sin `--raiz`, la instancia sale de la carpeta de la sesión.
 - **En `cerrar`,** `references/entrega.md` lo nombra en «El aviso de lo que quedó sin subir», junto a la comprobación de la entrega, que sigue siendo la que vale.
 
+### La auditoría de ramas antes de publicar (`odd_ws/auditoria_de_ramas.py` y `auditar_ramas.py`, I84)
+
+Antes de publicar, un comando de solo lectura dice qué ramas de los tickets no llegaron a la rama principal. Diagnostica y no opera.
+
+- **Qué ramas.** Las que da `entregas.entregas_de(config, tickets, limite)`, un generador sobre el mismo lector del aviso de inicio (`fragmentos` y `_Revisor.entregas`), así que el aviso y la auditoría nombran las mismas ramas. Los tickets son los activos (`entregas.activos`); con `--archivados`, también los archivados (`auditoria_de_ramas.archivados`): una carpeta más honda de `tickets/` con su `CLAUDE.md`, sin `_plantilla` y sin entrar en un ticket ya hallado. Un ticket sin ramas reconocibles no da línea, y en `--json` sale en `tickets_sin_ramas`.
+- **El fetch.** Uno por repo de la config, en serie, cada uno con su plazo (`PLAZO_POR_REPO`, 60 s), con este comando:
+
+  ```
+  git -c gc.auto=0 -c maintenance.auto=false -c fetch.writeCommitGraph=false fetch --quiet --no-tags --no-prune
+      --no-recurse-submodules --no-write-fetch-head origin +refs/heads/*:refs/remotes/origin/*
+  ```
+
+  - El refspec explícito escribe solo en `refs/remotes/origin/*`, aunque el remoto tenga configurado otro.
+  - `--no-tags`, `--no-write-fetch-head` y los `-c` dejan quietos los tags, `FETCH_HEAD`, el `gc`, el mantenimiento y el `commit-graph`.
+  - `--no-prune` conserva el `origin/<rama>` de una rama que el remoto borró después del merge; sin él, saldría como «nunca se empujó».
+  - Va con `comun.entorno_git()`, `GIT_TERMINAL_PROMPT=0` y `GCM_INTERACTIVE=never`, para que una credencial no lo cuelgue.
+  - Su stderr va a un archivo temporal y no a un pipe: si vence el plazo, un hijo de git que siga vivo no deja colgada la lectura.
+- **En rojo.** Si el `fetch` falla o no termina, el repo sale en rojo con la primera línea de su error (o «no terminó a tiempo»), y sus ramas quedan sin juzgar: con refs viejas, «llegó» podría ser falso. Un repo en rojo sin ramas de tickets igual cuenta. Las refs de los demás se leen después de todos los `fetch`.
+- **La clasificación** (`clasificar_rama(datos) -> Estado(llego, faltas)`). Es una función pura sobre `Datos(sin_commitear, origen, sin_empujar, principal, cabezas)`, probada con datos sintéticos. Cada `Cabeza(cherry, squash)` lleva las líneas de `git cherry <principal> <cabeza>` y si la rama entera ya está en la principal como squash. La E/S que llena los datos vive aparte, en el mismo módulo:
+  - `sin_commitear`: el mismo `status --porcelain=v2 -z -uall` del aviso, en la carpeta que tiene la rama; `None` si falla.
+  - `sin_empujar`: de `rev-list --left-right --count origin/<rama>...<rama>`, solo si las cabezas difieren.
+  - `principal`: `origin/HEAD`, y si no hay o apunta a una rama que no está, `origin/main` u `origin/master` (`principal_de`).
+  - `cabezas`: la rama local y, si `origin/<rama>` tiene commits que la local no tiene, también esa, para que cuente un push hecho desde otra máquina.
+
+  La rama **llegó** si no tiene cambios sin commitear y cada commit de sus cabezas está en la principal: alcanzable desde ella, marcado con `-` por `git cherry` o parte de un squash. Si no, sus faltas son, en orden: `sin_commitear` o `ilegible`; `nunca_empujada` (sin `origin/<rama>`) o `sin_empujar` (con la cuenta, o sin ella si no se pudo contar); y `no_llego` con los commits que no llegaron, `sin_principal` o `sin_comparar` (un `cherry` que falla). Los commits sin empujar o una rama nunca empujada cuentan solo si hay trabajo fuera de la principal: una rama mergeada a mano en `main`, con `main` empujada, llegó aunque nunca se haya empujado, a diferencia del aviso, que sin `fetch` no puede saberlo.
+- **El squash.** `git cherry` marca con `-` el commit cuyo parche ya está en la principal, pero el squash de varios commits no coincide con ninguno. Por eso, si queda algún `+`, se compara el `patch-id --stable` del diff entero de la cabeza desde su merge-base con la principal contra el de cada commit de la principal desde ahí (`git log -p --no-merges`), con las mismas opciones de diff de los dos lados. Todo es de solo lectura: `commit-tree` daría lo mismo, pero escribe un objeto. Un diff vacío cuenta como llegado, porque la rama no cambia nada.
+- **El caso sembrado.** «Un push a una rama cuyo PR ya se mergeó sale bien, no corre CI y el commit nunca llega a la rama principal.» El commit nuevo queda con `+`, y con él el diff entero ya no coincide con el squash, así que sale «no llegó» aunque esté empujado. Después del squash de varios commits se cuentan todos los de la rama, no solo el nuevo: el número es una cota, no el exacto.
+- **La salida.** Una línea por ticket y repo: `<ticket>: en <repo>, la rama <rama> <estado>; la rama …`. Después, una línea por repo en rojo, la de los tickets que no alcanzó a revisar y el `Resumen:`. Con `--json`, un objeto con `todo_llego`, `repos` (`repo`, `rojo`, `motivo`), `ramas` (`ticket`, `repo`, `rama`, `carpeta`, `principal`, `estado` = `llego`, `pendiente` o `sin_juzgar`, `motivo` = `repo_en_rojo`, `sin_tiempo` o `null`, `faltas` con `tipo` y `commits`, y `texto`), `tickets_sin_ramas` y `tickets_sin_revisar`. Sale con 0 si todo llegó; con 1 si hay una rama pendiente o sin juzgar, un ticket sin revisar o un repo en rojo; con 2 por un error de uso o de entorno.
+- **El tiempo.** Leer las ramas de los tickets tiene su propio plazo, y lo que no alcanza sale en «Tickets sin revisar». El juicio de cada repo tiene otro, y una rama que no alcanza «queda sin juzgar, porque no alcanzó el tiempo». Nada de eso cuenta como llegado.
+- **Lo que no hace.** No corre `pull`, `merge`, `checkout`, `reset`, `gc` ni `fetch --prune`, y el `status` va sin locks opcionales. La prueba lo comprueba comparando, antes y después, las refs que no son de `origin`, el índice de cada árbol, `HEAD`, `config`, `FETCH_HEAD`, el reflog de `HEAD` y los archivos de cada árbol, y que el `fetch` sí movió `origin/main`.
+- **En `cerrar`,** `references/entrega.md` lo nombra en «Antes de publicar», para correrlo con el sí del usuario, porque habla con el remoto de cada repo.
+
 ### El porqué antes de editar (`odd_ws/porque.py`, I90)
 
 El agente ve el porqué de las líneas que reemplaza, sacado de la historia y sin modelo. Corre en `verificar_capa`, solo con `Edit` y `Write` (`MultiEdit` sigue afuera, como en X1) y solo en un archivo de un repo de la config, tenga capa o no: `config_loader.repo_de(ruta, config)` da el repo y su árbol (el worktree más profundo que lo contiene), con la misma búsqueda que usa `clasificar`.

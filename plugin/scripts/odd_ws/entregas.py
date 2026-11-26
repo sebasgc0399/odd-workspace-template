@@ -311,6 +311,12 @@ class _Revisor:
         return pendientes
 
 
+def entregas_de(config, tickets, limite):
+    revisor = _Revisor(config, limite)
+    for ticket in tickets:
+        yield ticket, revisor.entregas(fragmentos(_texto_del_ticket(config["raiz"], ticket)))
+
+
 def _con_algo_que_chequear(config):
     if not config["repos"]:
         return []

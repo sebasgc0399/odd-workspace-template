@@ -43,3 +43,11 @@ Si la entrega llegó por otro camino (otro remoto, un merge hecho a mano) o no v
 ```bash
 python3 "<S>/entregas.py" --confirmar <id>
 ```
+
+## Antes de publicar
+
+La auditoría de ramas mira lo mismo que el aviso, pero después de un `fetch` de cada repo de la config, que solo actualiza sus refs de `origin`. Por ticket y repo, dice si cada rama llegó a la rama principal (`origin/HEAD`, y si no hay, `origin/main` u `origin/master`) o qué le falta. Un squash cuenta como llegado. Un commit empujado a una rama cuyo PR ya se mergeó no cuenta, porque nunca llega a la principal. Si el `fetch` de un repo falla, ese repo sale en rojo y sus ramas quedan sin juzgar. Córrela antes de publicar, o cuando dudes de una entrega, con el sí del usuario, porque habla con el remoto de cada repo. Diagnostica y no opera: lo que encuentre se lo cuentas al usuario. Sale con 0 si todo llegó y con 1 si algo falta; `--archivados` suma los tickets archivados.
+
+```bash
+python3 "<S>/auditar_ramas.py"
+```

@@ -127,6 +127,25 @@ def test_el_tope_deja_fuera_los_tickets_que_siguen_en_orden_y_los_cuenta():
             assert m().revisar(_config(raiz), time.monotonic() - 1) == m().Revision([], 25, 0), "sin tope cuenta todos"
 
 
+def test_entregas_de_da_las_ramas_de_cada_ticket_en_su_orden_y_lee_git_recien_cuando_hace_falta():
+    with Carpeta() as raiz:
+        escribir(raiz, "tickets/T-1-a/CLAUDE.md", "- Worktree y rama: `feat/T-1`\n")
+        escribir(raiz, "tickets/archivo/T-2-b/CLAUDE.md", "- Worktree y rama: `feat/T-2`\n")
+        escribir(raiz, "tickets/T-3-c/CLAUDE.md", "- Worktree y rama: árbol principal\n")
+        tickets = ["T-1-a", "archivo/T-2-b", "T-3-c", "T-9-no-existe"]
+        with SinGit() as guardia:
+            assert list(m().entregas_de(_config(raiz, repos=()), tickets, time.monotonic() - 1)) == [(t, []) for t in tickets], \
+                "sin repos no hay ramas, y no corre git"
+            pendientes = m().entregas_de(_config(raiz), ["T-3-c", "T-1-a"], time.monotonic() - 1)
+            assert next(pendientes) == ("T-3-c", []), "un ticket sin fragmentos no lee las refs"
+            try:
+                next(pendientes)
+                raise AssertionError("sin tiempo, el ticket con una rama tenía que cortar")
+            except subprocess.TimeoutExpired:
+                pass
+        assert not guardia.llamadas
+
+
 def test_las_confirmadas_se_leen_solo_con_la_forma_que_se_escribe():
     with Carpeta() as raiz:
         ruta = raiz / ".claude" / "estado" / "entregas.json"
