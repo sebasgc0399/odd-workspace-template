@@ -25,7 +25,7 @@ Después, abre `codex` y vuelve a confiar los hooks en `/hooks`. `/odd-ws:doctor
 Instalado por git, Pi fija la etiqueta de la versión, y `pi update` no la mueve. Para pasar a la versión actual, vuelve a instalar con su etiqueta:
 
 ```text
-gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.17.0
+gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.18.0
 ```
 
 Usa `gentle-shell --link install …` si trabajas con el home de `~/.pi/agent`. Reinstalar reemplaza la entrada y pone el clon en la etiqueta nueva. Si lo instalaste desde un clon tuyo, actualiza el clon y corre `/reload` en gentle-shell.

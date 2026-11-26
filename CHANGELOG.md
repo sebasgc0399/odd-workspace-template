@@ -2,6 +2,38 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.18.0
+
+**Lo que sale de la máquina: nada secreto ni personal sale sin que lo veas, y queda escrito qué hace odd-ws con la red.**
+
+### Lo que cambia para ti
+
+- **El commit frena los archivos secretos.** No entra un `.env` (ni un `.env.*`), una clave (`*.pem`, `*.key`, `id_rsa`, `id_ed25519`) ni un `credentials*.json` stageado, salvo sus variantes de ejemplo (`.example`, `.sample`, `.template`). Te dice cada archivo y cómo sacarlo del stage.
+- **El commit frena una clave privada pegada** en cualquier archivo stageado. Si ve una ruta personal, como `C:\Users\<usuario>\`, solo te avisa.
+- **Antes de publicar un paquete de reglas, `paquetes.py revisar <carpeta>`** busca en sus archivos rutas personales, claves pegadas y una `fuente` local guardada como ruta absoluta. «Publicar un paquete» suma ese paso.
+- **`SECURITY.md`** dice:
+  - cómo reportar una vulnerabilidad en privado;
+  - el modelo de amenaza, en resumen;
+  - todo lo que odd-ws puede mandar fuera de tu máquina. Una prueba lo mantiene al día.
+- **`tapar.py` ya no deja un archivo a medio escribir:** si una escritura falla, ese archivo queda como estaba.
+- **Lo que antes fallaba callado ahora queda en el rastro de fallas:** el aviso de plantillas del inicio y el porqué de las líneas que editas. Una falla del aviso de plantillas ya no se lleva puestos los demás avisos del inicio.
+- **Code Mode de Claude Code:** las pruebas confirman que los guards siguen frenando dentro de sus scripts. La corrida real con Code Mode prendido sigue pendiente, porque solo anda en la terminal.
+- **Cómo actualizar:** con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión cambia una plantilla, el `.githooks/pre-commit`, y el doctor te dice si tienes que copiarla.
+
+### Detalle técnico
+
+- **El pre-commit (I93, I94):**
+  - La plantilla corre `pre_commit.py --raiz <instancia>`, un punto de entrada del plugin, así que los chequeos que vengan no vuelven a tocar la copia.
+  - Lee lo stageado con el entorno del hook, porque su `GIT_INDEX_FILE` es el índice del commit, y falla cerrado si git no puede leerlo.
+  - Sin nada que frenar, corre las pruebas de las reglas como antes.
+  - Los detectores `secretos.claves_privadas` y `secretos.rutas_personales` los comparten el pre-commit y `paquetes.py revisar`.
+- **El inventario de red (I97).** `tools/inventario_de_red.tests.py` lee con el AST los `.py` de `plugin/` y `tools/`, y exige que cada archivo con un verbo de red, una URL o un import de red esté en el inventario de `SECURITY.md` o en una excepción con su porqué.
+- **La escritura atómica.** `odd_ws/archivos.reemplazar` escribe a un temporal hermano y publica con `os.replace`. Sigue los enlaces y conserva los permisos. La usan `tapar.py`, `fallas` y `entregas`.
+- **Los seguimientos de la auditoría de la `0.14.0` a la `0.16.0`:**
+  - `config_loader.clasificar` ya no lanza cuando `relpath` no alcanza una ruta, como `NUL` en Windows;
+  - el aviso de plantillas del inicio va aislado;
+  - `comun._aislada` y `por_ruta` aceptan un `al_fallar`.
+
 ## 0.17.0
 
 **Que la entrega no se pierda: lo que quedó sin subir vuelve solo al arrancar la sesión, y antes de publicar un comando muestra qué ramas no llegaron.**

@@ -60,8 +60,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S2 (pre-commit) | El punto de entrada del pre-commit, los archivos secretos y las claves pegadas | un writer, en paralelo con T2 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `a1b9349` |
 | T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | hecha (L4) | `a1df267` |
-| T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 (motivo: el respaldo de contexto del orquestador) | hecha (L6) | |
-| T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
+| T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 (motivo: el respaldo de contexto del orquestador) | hecha (L6) | `9733db4` |
+| T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L7); verificador pendiente; sin publicar | |
 
 ## Log
 
@@ -184,3 +184,13 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - `revisar` no mira el resto del repo del paquete, como un README.
   - **Risk: ítem 5.** La prueba del inventario pasa a ser una compuerta del pre-commit y del CI.
   - **Scratch del writer:** `%TEMP%\tmp.5EsAOKrLE9` y la carpeta `t3\` del scratchpad de la sesión. Va a la limpieza del autor.
+- **L7** (2026-11-26) La corrección de la R19 y la versión.
+  - **La corrección de la R19** (`f10fecf`: el `fetch` de la auditoría con `--refmap=` y sin askpass) entró con un merge limpio (`020f986`). El inventario de red no cambia, porque `FETCH` sigue diciendo `fetch`.
+  - **T4, la versión, inline.**
+    - La `0.18.0` quedó en los dos `plugin.json`, el `package.json`, el README, `Doc/actualizar.md:28` y `Doc/uso.md:66`.
+    - El CHANGELOG suma su sección. Esta versión cambia una plantilla, el `pre-commit`, y `Doc/actualizar.md` ya trae su viñeta «En la `0.18.0`» (de T1).
+    - **`tools/huellas.py`** dio 122 huellas de 28 versiones, hasta la `0.18.0`.
+      - La `0.17.0` no tiene etiqueta, así que no entra a la tabla.
+      - Al publicar, primero se etiqueta la `0.17.0` y después se regenera, que es la A6 que cierra la R21.
+    - En el roadmap, R20 queda «lista, sin publicar», con I93, I94 e I97 «lista (`0.18.0`, sin publicar)».
+  - **Falta el verificador independiente,** por los ítems 2 (el pre-commit que frena y el `writer_guard` de Code Mode), 3 (`clasificar`, `_aislada` y la plantilla) y 5 (la compuerta del inventario). Publicar lleva el ok del autor.
