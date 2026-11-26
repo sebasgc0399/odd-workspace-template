@@ -34,8 +34,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S3 | El rescate en Codex y las formas de veredicto, los dos en `rescatar.py` | un writer, en paralelo con T2 (motivo: dos unidades con superficies disjuntas, de varios minutos cada una) | hecha (L4) | `103eec9` |
-| T2 | S2 | Los tres textos que engañan | un writer, en paralelo con T1 | hecha (L3) | |
-| T3 | S4 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
+| T2 | S2 | Los tres textos que engañan | un writer, en paralelo con T1 | hecha (L3) | `300140a` |
+| T3 | S4 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L5); verificador en curso | |
 
 ## Log
 
@@ -95,3 +95,12 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El orquestador integró el texto de T1 en `Doc/diseno.md`.**
   - **Risk: ítem 3.** Cambian la CLI de `rescatar.py` (un host nuevo), qué cuenta como veredicto en todos los hosts y lo que `auditar_lecturas.py` cuenta como auditado. Lo cubre el verificador de T3.
   - **Scratch del writer:** `%TEMP%\tmp.0QtEBnarWg`. Va a la limpieza del autor.
+- **L5** (2026-11-26) La versión.
+  - T1 quedó en `103eec9` y T2 en `300140a`. El commit de T2 se relanzó: un reinicio de la sesión cortó su primer pre-commit, y lo stageado quedó intacto.
+  - La `0.19.0` se publicó (`5fbcfc7`) y entró en esta rama con el merge `7a9de87`, sin conflictos. `huellas.py`, corrido después del merge, no cambió nada.
+  - **T3:**
+    - el CHANGELOG de la `0.20.0`;
+    - la versión en los dos `plugin.json`, `package.json`, el README, `Doc/uso.md` y `Doc/actualizar.md`;
+    - el roadmap da por hechas R22 e I53, y lleva las ideas hasta la I99;
+    - `huellas.py`: 137 huellas de 31 versiones. Ninguna plantilla cambió: el historial sigue con 15 textos.
+  - **Falta:** el verificador independiente sobre toda la feature, desde `5fbcfc7` (la `0.19.0` publicada), y el CI.

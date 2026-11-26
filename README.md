@@ -7,7 +7,7 @@
 
 **Funciona con** Claude Code · Codex CLI · gentle-shell (Pi)
 
-**Versión actual:** `0.19.0` ([qué cambió en cada versión](CHANGELOG.md)).
+**Versión actual:** `0.20.0` ([qué cambió en cada versión](CHANGELOG.md)).
 
 [Inicio rápido](#inicio-rápido) · [Instalación](#instalación) · [Guía de uso](Doc/uso.md) · [Página del proyecto](https://sebasgc0399.github.io/odd-workspace-template/) · [La instalación en video](https://youtu.be/-92eWjnwjtw)
 
@@ -135,7 +135,7 @@ gentle-shell es Pi con subagentes, y trabaja sobre la misma instancia: `.claude/
 
    ```text
    npm i -g gentle-pi
-   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.19.0
+   gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.20.0
    ```
 
    Desde un clon: `gentle-shell install <ruta del clon>`. La ruta es la raíz del clon, no `plugin/`, porque Pi instala un repo git entero. Con la fuente git, Pi corre `npm install`, así que necesita `npm` en el `PATH`. Si abres gentle-shell con `--link`, instala con `gentle-shell --link install <fuente>`.
