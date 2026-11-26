@@ -1049,6 +1049,118 @@ def test_verificar_archivo_recibe_el_limite_explicito_y_no_lo_deja_colgado():
         assert M._LIMITE is None
 
 
+ARBOL_VACIO = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+CONFIG_GIT_RARA = ("[diff]\n\tnoprefix = true\n\tmnemonicPrefix = true\n\tsubmodule = log\n[core]\n\tquotepath = true\n"
+                   "[diff \"mayus\"]\n\ttextconv = tr a-z A-Z <\n")
+
+
+def _con_config_rara():
+    with open(os.environ["GIT_CONFIG_GLOBAL"], "w", encoding="utf-8") as f:
+        f.write(CONFIG_GIT_RARA)
+
+
+def _contar_git():
+    lanzados, original = [], M.subprocess.run
+
+    def espia(*a, **k):
+        lanzados.append(a)
+        return original(*a, **k)
+
+    return lanzados, subprocess_falso(espia)
+
+
+def test_armar_ctx_con_lo_que_ya_sabe_el_triaje_no_lanza_git_y_arma_el_mismo_contexto():
+    with git_aislado(), Mundo() as w:
+        _con_config_rara()
+        escribir(w.web, ".gitattributes", "Core/Mayus.cs diff=mayus\n")
+        escribir(w.web, "Core/M.cs", "uno\ndos\ntres\n")
+        escribir(w.web, "Core/Mayus.cs", "uno\n")
+        commitear(w.web)
+        base = git(w.web, "rev-parse", "HEAD")
+        casos = [(escribir(w.web, "Core/M.cs", "uno\nDOS\ntres\ncuatro\n"), "Core/M.cs", False),
+                 (escribir(w.web, "Core/Mayus.cs", "uno\ndos\n"), "Core/Mayus.cs", False),
+                 (escribir(w.web, "Core/A.cs", "nuevo\n"), "Core/A.cs", True),
+                 (escribir(w.web, "Core/S.cs", "suelto\n"), "Core/S.cs", True)]
+        git(w.web, "add", "--", "Core/A.cs")
+        config, raiz = w.config(), git(w.web, "rev-parse", "--show-toplevel")
+        diffs = M.diffs_por_archivo(raiz, base)
+        assert sorted(diffs) == ["Core/M.cs", "Core/Mayus.cs"], diffs
+        for ruta, rel, es_nuevo in casos:
+            esperado = M.armar_ctx(ruta, "web", "repo", config, contra=base)
+            previo = {"raiz": raiz, "rel_git": rel, "es_nuevo": es_nuevo, "texto_diff": None if es_nuevo else diffs[rel]}
+            with SinSubprocess():
+                obtenido = M.armar_ctx(ruta, "web", "repo", config, contra=base, previo=previo)
+            assert obtenido == esperado and esperado["es_nuevo"] is es_nuevo, (rel, obtenido, esperado)
+            if rel == "Core/M.cs":
+                assert esperado["agregadas"] == [(2, "DOS"), (4, "cuatro")], esperado
+            if rel == "Core/Mayus.cs":
+                assert esperado["agregadas"] == [(2, "DOS")], "control positivo: el textconv del hook: %s" % esperado
+        w.modulo("web", STUB_MALO)
+        ruta = escribir(w.web, "Core/M.cs", "uno\nx = MALO BLOQ;\n")
+        previo = {"raiz": raiz, "rel_git": "Core/M.cs", "es_nuevo": False, "texto_diff": M.diffs_por_archivo(raiz, base)["Core/M.cs"]}
+        esperado = M.verificar_archivo(ruta, config, contra=base)
+        with SinSubprocess():
+            assert M.verificar_archivo(ruta, config, contra=base, previo=previo) == esperado
+        assert [h["linea"] for h in esperado[1]] == [2], esperado
+
+
+def test_armar_ctx_no_usa_lo_previo_de_otro_archivo_ni_en_el_taller():
+    with git_aislado(), Mundo(db={"src/ventas/Proc_A.sql": PROC}) as w:
+        config = w.config()
+        escribir(w.web, "Core/A.cs", "uno\n")
+        commitear(w.web)
+        ruta = escribir(w.web, "Core/A.cs", "uno\ndos\n")
+        falso = {"raiz": git(w.web, "rev-parse", "--show-toplevel"), "rel_git": "Core/Otro.cs", "es_nuevo": False,
+                 "texto_diff": "@@ -1 +1 @@\n+falso\n"}
+        esperado = M.armar_ctx(ruta, "web", "repo", config)
+        lanzados, espia = _contar_git()
+        with espia:
+            assert M.armar_ctx(ruta, "web", "repo", config, previo=falso) == esperado
+        assert lanzados and esperado["agregadas"] == [(2, "dos")], (lanzados, esperado)
+        taller = w.taller("esq.Proc_A.sql", PROC.replace("SELECT 1;", "SELECT 2;"))
+        falso = {"raiz": git(w.raiz, "rev-parse", "--show-toplevel"), "rel_git": "tickets/T-1-x/SQL/esq.Proc_A.sql",
+                 "es_nuevo": False, "texto_diff": "@@ -1 +1 @@\n+falso\n"}
+        esperado = M.armar_ctx(taller, "sql", "taller", config, contra=ARBOL_VACIO)
+        assert M.armar_ctx(taller, "sql", "taller", config, contra=ARBOL_VACIO, previo=falso) == esperado
+        assert esperado["es_nuevo"] is False and esperado["agregadas"] == [(4, "\tSELECT 2;")], esperado
+
+
+def test_los_diffs_por_archivo_son_los_de_cada_archivo_con_cualquier_config_de_git():
+    with git_aislado(), Mundo() as w:
+        _con_config_rara()
+        raro = "Core/con espacio b/año [v2].cs"
+        escribir(w.web, ".gitattributes", "Core/Mayus.cs diff=mayus\n")
+        for rel, texto in (("Core/Uno.cs", "uno\ndos\n"), (raro, "a\n"), ("Core/Mayus.cs", "uno\n"), ("Core/Bin.cs", b"\x00uno\x00"),
+                           ("Core/Borrado.cs", "x\n")):
+            escribir(w.web, rel, texto)
+        commitear(w.web)
+        base = git(w.web, "rev-parse", "HEAD")
+        for rel, texto in (("Core/Uno.cs", "UNO\ndos\ntres\n"), (raro, "a\nb\n"), ("Core/Mayus.cs", "uno\ndos\n"),
+                           ("Core/Bin.cs", b"\x00dos\x00"), ("Core/Nuevo.cs", "n\n"), ("Core/Suelto.cs", "s\n")):
+            escribir(w.web, rel, texto)
+        git(w.web, "add", "--", "Core/Nuevo.cs")
+        os.remove(w.web / "Core" / "Borrado.cs")
+        diffs = M.diffs_por_archivo(str(w.web), base)
+        modificados = ["Core/Bin.cs", "Core/Mayus.cs", "Core/Uno.cs", raro]
+        assert sorted(diffs) == sorted(modificados), diffs
+        for rel in modificados:
+            uno = git(w.web, "diff", "-U0", "--no-color", "--no-ext-diff", base, "--", rel)
+            assert M._hunks_del_diff(diffs[rel]) == M._hunks_del_diff(uno), (rel, diffs[rel], uno)
+        assert M._hunks_del_diff(diffs[raro])[0]["agregadas"] == [(2, "b")], diffs[raro]
+        assert "Binary files" in diffs["Core/Bin.cs"] and M._hunks_del_diff(diffs["Core/Mayus.cs"])[0]["agregadas"] == [(2, "DOS")]
+        assert M.diffs_por_archivo(str(w.web), "no-existe") is None
+
+
+def test_partir_el_diff_lee_las_rutas_con_comillas_y_rechaza_lo_que_no_entiende():
+    crudo = (b'diff --git "a/x\\"y\\t\\303\\261.cs" "b/x\\"y\\t\\303\\261.cs"\n@@ -1 +1 @@\n-a\n+b\n'
+             b"diff --git a/d b/e b/d b/e\nBinary files a/d b/e and b/d b/e differ\n")
+    partes = M.partir_el_diff(crudo)
+    assert partes == {'x"y\tñ.cs': crudo[:crudo.index(b"diff --git a/d")], "d b/e": crudo[crudo.index(b"diff --git a/d"):]}, partes
+    assert M.partir_el_diff(b"") == {}
+    for malo in (b"Submodule x 1..2:\n", b"diff --git a/x b/y\n", b'diff --git "a/x\\', b"diff --git a/x b/x\ndiff --git c/z d/z\n"):
+        assert M.partir_el_diff(malo) is None, malo
+
+
 def test_sin_tiempo_para_git_falla_abierto_sin_colgarse():
     with Mundo() as w:
         w.modulo("web", STUB_MALO)

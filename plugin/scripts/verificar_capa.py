@@ -46,6 +46,10 @@ TOPE_DE_ENLACES = 5
 TOPE_DEL_ENLACE = 120
 CERCAS = ("```", "~~~")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+OPCIONES_DEL_DIFF = ("-U0", "--no-color", "--no-ext-diff")
+DIFF_POR_REPO = ("--no-renames", "--diff-filter=M", "--submodule=short", "--src-prefix=a/", "--dst-prefix=b/")
+ENCABEZADO_DEL_DIFF = b"diff --git "
+ESCAPES_DE_GIT = {ord(c): v for c, v in zip('abtnvfr"\\', b'\a\b\t\n\v\f\r"\\')}
 NOMBRE_DE_LA_FASE = {"pre": "PreToolUse", "post": "PostToolUse"}
 
 _LIMITE = None
@@ -125,26 +129,96 @@ def _contenido(contraparte):
     return decodificar(r.stdout) if r.returncode == 0 else None
 
 
-def armar_ctx(ruta, capa, origen, config, contra=None):
+def _sin_comillas(resto):
+    salida, i = bytearray(), 1
+    while i < len(resto):
+        c = resto[i]
+        if c == 0x22:
+            return bytes(salida)
+        if c == 0x5C:
+            octal = resto[i + 1:i + 4]
+            if len(octal) == 3 and all(0x30 <= d <= 0x37 for d in octal):
+                salida.append(int(octal, 8) & 0xFF)
+                i += 4
+                continue
+            if i + 1 >= len(resto) or resto[i + 1] not in ESCAPES_DE_GIT:
+                return None
+            salida.append(ESCAPES_DE_GIT[resto[i + 1]])
+            i += 2
+            continue
+        salida.append(c)
+        i += 1
+    return None
+
+
+def _ruta_del_encabezado(resto):
+    if resto.startswith(b'"'):
+        ruta = _sin_comillas(resto)
+        return ruta[2:].decode("utf-8", errors="replace") if ruta is not None and ruta.startswith(b"a/") else None
+    n = (len(resto) - 5) // 2
+    if n < 1 or len(resto) != 2 * n + 5 or resto[:2] != b"a/" or resto[2 + n:5 + n] != b" b/" or resto[2:2 + n] != resto[5 + n:]:
+        return None
+    return resto[2:2 + n].decode("utf-8", errors="replace")
+
+
+def partir_el_diff(crudo):
+    if crudo and not crudo.startswith(ENCABEZADO_DEL_DIFF):
+        return None
+    inicios = [0] if crudo else []
+    inicios += [m.start() + 1 for m in re.finditer(b"\n" + re.escape(ENCABEZADO_DEL_DIFF), crudo)]
+    partes = {}
+    for desde, hasta in zip(inicios, inicios[1:] + [len(crudo)]):
+        bloque = crudo[desde:hasta]
+        fin = bloque.find(b"\n")
+        ruta = _ruta_del_encabezado(bloque[len(ENCABEZADO_DEL_DIFF):fin if fin >= 0 else len(bloque)])
+        if ruta is None:
+            return None
+        partes[ruta] = partes.get(ruta, b"") + bloque
+    return partes
+
+
+def diffs_por_archivo(raiz, revision, timeout=TIMEOUT_GIT):
+    try:
+        r = subprocess.run(["git", "-C", str(raiz), "diff", *OPCIONES_DEL_DIFF, *DIFF_POR_REPO, revision], capture_output=True,
+                           timeout=timeout, env=entorno_git())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    partes = partir_el_diff(r.stdout) if r.returncode == 0 else None
+    return None if partes is None else {ruta: crudo.decode("utf-8", errors="replace") for ruta, crudo in partes.items()}
+
+
+def _relativa_en_git(ruta, raiz):
+    return os.path.relpath(os.path.realpath(ruta), os.path.realpath(raiz)).replace("\\", "/")
+
+
+def armar_ctx(ruta, capa, origen, config, contra=None, previo=None):
     ruta = os.path.abspath(ruta)
     if not os.path.isfile(ruta) or os.path.getsize(ruta) > TOPE_BYTES:
         return None
-    r = _git(os.path.dirname(ruta), "rev-parse", "--show-toplevel")
-    if r.returncode != 0:
-        return None
-    raiz = r.stdout.decode("utf-8", errors="replace").strip()
-    rel_git = os.path.relpath(os.path.realpath(ruta), os.path.realpath(raiz)).replace("\\", "/")
+    taller = origen == "taller"
+    if taller or (previo is not None and _relativa_en_git(ruta, previo["raiz"]) != previo["rel_git"]):
+        previo = None
+    if previo is None:
+        r = _git(os.path.dirname(ruta), "rev-parse", "--show-toplevel")
+        if r.returncode != 0:
+            return None
+        raiz = r.stdout.decode("utf-8", errors="replace").strip()
+        rel_git = _relativa_en_git(ruta, raiz)
+    else:
+        raiz, rel_git = previo["raiz"], previo["rel_git"]
     if rel_git.startswith(".."):
         return None
     with open(ruta, "rb") as f:
         crudo = f.read()
     texto = decodificar(crudo)
-    taller = origen == "taller"
     base_cfg = config["layers"][capa].get("workshop_baseline") if taller else None
     contraparte = _contraparte(ruta, base_cfg, config) if base_cfg else None
-    sin_trackear = _git(raiz, "ls-files", "--error-unmatch", "--", rel_git).returncode != 0
     revision = contra or "HEAD"
-    es_nuevo = sin_trackear or _git(raiz, "cat-file", "-e", revision + ":" + rel_git).returncode != 0
+    if previo is None:
+        sin_trackear = _git(raiz, "ls-files", "--error-unmatch", "--", rel_git).returncode != 0
+        es_nuevo = sin_trackear or _git(raiz, "cat-file", "-e", revision + ":" + rel_git).returncode != 0
+    else:
+        es_nuevo = previo["es_nuevo"]
     base = _contenido(contraparte) if es_nuevo and contraparte else None
     if base is not None:
         es_nuevo = False
@@ -154,10 +228,14 @@ def armar_ctx(ruta, capa, origen, config, contra=None):
         agregadas = lineas(texto)
         hunks = [{"agregadas": agregadas, "quitadas": []}] if agregadas else []
     else:
-        d = _git(raiz, "diff", "-U0", "--no-color", "--no-ext-diff", revision, "--", rel_git)
-        if d.returncode != 0:
-            return None
-        hunks = _hunks_del_diff(d.stdout.decode("utf-8", errors="replace"))
+        if previo is None:
+            d = _git(raiz, "diff", *OPCIONES_DEL_DIFF, revision, "--", rel_git)
+            if d.returncode != 0:
+                return None
+            diff = d.stdout.decode("utf-8", errors="replace")
+        else:
+            diff = previo["texto_diff"]
+        hunks = _hunks_del_diff(diff)
         agregadas = [par for h in hunks for par in h["agregadas"]]
     if taller:
         relativa, relativa_repo = os.path.basename(ruta), (contraparte[2] if contraparte else None)
@@ -227,14 +305,14 @@ def es_hallazgo(h):
     return isinstance(h, dict) and bool(h.get("id")) and bool(h.get("mensaje"))
 
 
-def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False, contra=None, errores=None):
+def verificar_archivo(ruta, config, limite=None, aislar_la_capa=False, contra=None, errores=None, previo=None):
     global _LIMITE
-    previo = _LIMITE
+    anterior = _LIMITE
     _LIMITE = limite
     try:
-        return _verificar_archivo(ruta, config, aislar_la_capa, contra, errores)
+        return _verificar_archivo(ruta, config, aislar_la_capa, contra, errores, previo)
     finally:
-        _LIMITE = previo
+        _LIMITE = anterior
 
 
 def _anotar(errores, motivo):
@@ -278,7 +356,7 @@ def _hallazgos_del_paquete(paquete, ctx, raiz, errores=None):
     return calibracion.fuente_del_paquete(paquete, modulo), hallazgos
 
 
-def _verificar_archivo(ruta, config, aislar_la_capa, contra, errores=None):
+def _verificar_archivo(ruta, config, aislar_la_capa, contra, errores=None, previo=None):
     info = config_loader.clasificar(ruta, config)
     if info is None:
         return None
@@ -288,7 +366,7 @@ def _verificar_archivo(ruta, config, aislar_la_capa, contra, errores=None):
     de_paquetes = _paquetes_de(config, capa)
     if not propio and not de_paquetes:
         return None
-    ctx = armar_ctx(ruta, capa, origen, config, contra)
+    ctx = armar_ctx(ruta, capa, origen, config, contra, previo)
     if ctx is None:
         _anotar(errores, "no se pudo armar su diff (más de %d bytes, fuera de un repo git o git falló)" % TOPE_BYTES)
         return None

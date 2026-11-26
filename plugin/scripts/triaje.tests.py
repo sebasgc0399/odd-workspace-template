@@ -1,4 +1,5 @@
 import atexit
+import codecs
 import contextlib
 import importlib.util
 import io
@@ -64,8 +65,28 @@ def _quitar(func, ruta, _exc):
         pass
 
 
+AISLAMIENTO_GIT = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+
+
 def _entorno_sin_git():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_") or k in AISLAMIENTO_GIT}
+
+
+@contextlib.contextmanager
+def git_aislado(config=""):
+    carpeta = Path(tempfile.mkdtemp(prefix="triaje-git-"))
+    (carpeta / "global").write_text(config, encoding="utf-8")
+    previo = {k: os.environ.get(k) for k in AISLAMIENTO_GIT}
+    os.environ.update(GIT_CONFIG_GLOBAL=str(carpeta / "global"), GIT_CONFIG_SYSTEM=str(carpeta / "sistema"), GIT_CONFIG_NOSYSTEM="1")
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+        _borrar(carpeta)
 
 
 def git(cwd, *args):
@@ -1642,6 +1663,96 @@ def test_chequeos_el_taller_se_mide_contra_su_contraparte_aunque_este_commiteado
         ch = datos["chequeos"]
         assert [(h["repo"], h["ruta"], h["linea"]) for h in ch["hallazgos"]] == [(None, ruta.as_posix(), 6)], ch
         assert "  %s [sql] %s" % (ruta.as_posix(), TEXTO_MALO % 6) in texto.splitlines(), texto
+
+
+def test_el_triaje_lanza_los_mismos_git_con_un_archivo_de_capa_por_estado_que_con_tres():
+    cuentas = []
+    for n in (1, 3):
+        with git_aislado(), Mundo() as w:
+            con_chequeo(w, "web", calibrar=False)
+            commitear(w.web, {"Data/M%d.cs" % i: "class M%d { }\n" % i for i in range(n)})
+            publicar(w.web)
+            escribir(w.web, {"Data/M%d.cs" % i: "class M%d { } // MALO\n" % i for i in range(n)})
+            escribir(w.web, {"Data/A%d.cs" % i: "class A%d { } // MALO\n" % i for i in range(n)})
+            git(w.web, "add", "--", *("Data/A%d.cs" % i for i in range(n)))
+            escribir(w.web, {"Data/S%d.cs" % i: "class S%d { } // MALO\n" % i for i in range(n)})
+            config = M.config_loader.cargar(str(w.raiz))
+            lanzados, original = [], M.subprocess.run
+
+            def espia(args, *a, **k):
+                lanzados.append(list(args))
+                return original(args, *a, **k)
+
+            M.subprocess.run = espia
+            try:
+                r = M.recolectar_repo(str(w.web), None, config)
+                ch = M.chequear([r], [], config)
+            finally:
+                M.subprocess.run = original
+            assert ch["archivos"] == 3 * n and len(ch["hallazgos"]) == 3 * n and ch["sin_chequear"] == [], ch
+            assert sorted(c["estado"] for c in r["cambios"]) == sorted("AM?" * n), r["cambios"]
+            cuentas.append(len([a for a in lanzados if "--check" not in a and "--name-only" not in a]))
+    assert cuentas[0] == cuentas[1] <= 12, "el triaje lanza un git por archivo: %s" % cuentas
+
+
+VARIADO_BINARIO = b"\x00\x01CREATE PROCEDURE esq.Proc_Datos\x00"
+VARIADO_ANO = "src/ventas/Proc Año [v2].sql"
+VARIADO_GLOB = "src/ventas/Proc Año 2.sql"
+
+
+def mundo_variado(w):
+    instancia_versionada(w)
+    con_chequeo(w, "sql")
+    con_chequeo(w, "web")
+    taller_commiteado = w.taller("esq.Proc_Alfa.sql", ALFA)
+    base_inst = commitear(w.raiz, {}, "taller")
+    w.taller("esq.Proc_Alfa.sql", ALFA.replace("SELECT 1", "SELECT 1 -- MALO"))
+    taller_suelto = w.taller("esq.Proc_Beta.sql", BETA + "-- MALO\n")
+    commitear(w.db, {"src/ventas/Proc_Crlf.sql": GAMMA.replace("Gamma", "Crlf").replace("\n", "\r\n"), VARIADO_ANO: GAMMA.replace("Gamma", "Ano"),
+                     VARIADO_GLOB: "-- glob\n", "src/ventas/Datos.sql": VARIADO_BINARIO, "src/ventas/Proc_Conflicto.sql": "antes\ndespues\n",
+                     "src/ventas/Proc_U16.sql": codecs.BOM_UTF16_LE + GAMMA.replace("Gamma", "U16").encode("utf-16-le")})
+    publicar(w.db)
+    git(w.db, "mv", SQL_BETA, "src/ventas/Proc_BetaNuevo.sql")
+    os.remove(w.db / SQL_GAMMA)
+    escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 1 -- MALO"), "src/ventas/Proc_BetaNuevo.sql": BETA + "-- MALO\n",
+                    "src/ventas/Proc_Crlf.sql": GAMMA.replace("Gamma", "Crlf").replace("SELECT 2", "SELECT 2 -- MALO").replace("\n", "\r\n"),
+                    VARIADO_ANO: GAMMA.replace("Gamma", "Ano").replace("SELECT 2", "SELECT 2 -- MALO"), VARIADO_GLOB: "-- glob\n-- MALO\n",
+                    "src/ventas/Datos.sql": VARIADO_BINARIO + b"MALO\x00", "src/ventas/Proc_Conflicto.sql": CONFLICTO,
+                    "src/ventas/Proc_U16.sql": codecs.BOM_UTF16_LE + GAMMA.replace("Gamma", "U16").replace("SELECT 2", "SELECT 3").encode("utf-16-le"),
+                    "src/ventas/Proc_Nuevo.sql": GAMMA.replace("Gamma", "Nuevo") + "-- MALO\n", "README.md": "# db\notra\n",
+                    "src/ventas/Proc_Suelto.sql": GAMMA.replace("Gamma", "Suelto") + "-- MALO\n"})
+    git(w.db, "add", "--", "src/ventas/Proc_Nuevo.sql")
+    commitear(w.web, {".gitattributes": "Data/Mayus.cs diff=mayus\n", "Data/Mayus.cs": "class mayus { }\n"})
+    publicar(w.web)
+    escribir(w.web, {CS_SVC: "class Servicio { } // MALO\n", "Data/Mayus.cs": "class mayus { } // malo\n", "Data/Nuevo.cs": "class Nuevo { } // MALO\n"})
+    return [w.db, w.web, "%s#%s" % (w.raiz, base_inst)], [taller_suelto, taller_commiteado]
+
+
+def test_el_triaje_por_lotes_sale_igual_que_archivo_por_archivo():
+    with git_aislado("[diff \"mayus\"]\n\ttextconv = tr a-z A-Z <\n[diff]\n\tnoprefix = true\n\tsubmodule = log\n"), Mundo() as w:
+        repos, taller = mundo_variado(w)
+        por_lotes = triado(w, repos=repos, taller=taller)
+        originales = (M._diffs_del_repo, M._leer_en_lote, M._previos)
+        M._diffs_del_repo, M._leer_en_lote, M._previos = (lambda *a: None), (lambda *a: None), (lambda *a: {})
+        try:
+            por_archivo = triado(w, repos=repos, taller=taller)
+        finally:
+            M._diffs_del_repo, M._leer_en_lote, M._previos = originales
+        assert por_lotes == por_archivo, "los lotes cambian la salida"
+        datos, texto = por_lotes
+        estados = {(Path(r["ruta"]).name, a["ruta"]): a["estado"] for r in datos["repos"] for a in r["archivos"]}
+        for clave, estado in (((w.db.name, SQL_ALFA), "M"), ((w.db.name, SQL_BETA), "D"), ((w.db.name, "src/ventas/Proc_BetaNuevo.sql"), "A"),
+                              ((w.db.name, SQL_GAMMA), "D"), ((w.db.name, "src/ventas/Proc_Suelto.sql"), "?"), ((w.db.name, VARIADO_ANO), "M")):
+            assert estados.get(clave) == estado, (clave, estados)
+        hallazgos = {(Path(h["repo"]).name if h["repo"] else None, h["ruta"]) for h in datos["chequeos"]["hallazgos"]}
+        for esperado in ((w.db.name, SQL_ALFA), (w.db.name, "src/ventas/Proc_BetaNuevo.sql"), (w.db.name, "src/ventas/Proc_Crlf.sql"),
+                         (w.db.name, VARIADO_ANO), (w.db.name, "src/ventas/Proc_Nuevo.sql"), (w.db.name, "src/ventas/Proc_Suelto.sql"),
+                         (w.web.name, CS_SVC), (w.web.name, "Data/Mayus.cs"), (w.web.name, "Data/Nuevo.cs"),
+                         (None, taller[0].as_posix()), ("inst", "tickets/T-1-x/SQL/esq.Proc_Alfa.sql")):
+            assert esperado in hallazgos, (esperado, hallazgos)
+        assert {m["ruta"] for m in datos["chequeos"]["marcadores"]} == {"src/ventas/Proc_Conflicto.sql"}, datos["chequeos"]["marcadores"]
+        consumidores = detalle(datos, "consumidores")
+        assert "Proc_U16:" in consumidores and "Proc_U16: objeto nuevo" not in consumidores, "la base UTF-16 se lee: %s" % consumidores
 
 
 PRUEBAS =[(n[len("test_"):], f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]

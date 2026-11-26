@@ -771,6 +771,28 @@ Antes de elegir la revisión, el triaje calcula sobre el diff las señales de ri
   - **La clave:** `archivos` (los que pasaron el chequeo de su capa sin fallar), `hallazgos` (`repo`, `ruta`, `capa`, `id`, `modo`, `severidad`, `linea`, `mensaje` y `texto`, la línea que arma `verificar_capa`), `marcadores` (`repo`, `ruta`, `linea`, `texto`), `sin_chequear` (`repo`, `ruta`, `capa`, `motivo`) y `corregir_antes_de_lanzar`. `repo` es la ruta del repo, como en `repos`, y en el taller es `null`, con la `ruta` absoluta, como en `taller`. `chequear` la devuelve con los secretos tapados (`secretos.tapar_valores`), porque `texto` cita el fragmento que marcó la regla y `triaje.json` queda en la instancia; el texto sale de esa misma clave.
   - **«no se pudo chequear», nunca limpio:** un chequeo que lanza, un hallazgo mal formado, un paquete que falla, un archivo cuyo diff no se puede armar (más grande que el tope, fuera de git o un git que falla) o un git que falla en los marcadores van a `sin_chequear` con su motivo. Para eso `verificar_archivo` acepta `errores=<lista>`, donde anota lo que antes callaba (los paquetes que fallan o devuelven algo mal formado, el contexto que no se arma, el tiempo que se acaba); sin la lista, se comporta como antes.
   - **El texto:** sin nada, una sola línea, `chequeos: sin hallazgos ni marcadores de conflicto (<n> archivo(s) con chequeos de capa)`. Con algo, `chequeos: <cuentas>: corregir antes de lanzar`, y una línea por hallazgo, marcador y archivo sin chequear, con la ruta absoluta. Lo que hace la skill con eso está en `skills/revisar/references/chequeos.md`.
+  - **Sin un git por archivo (R21, S4).** Antes, el triaje corría por cada archivo un `diff` y un `show`, y `armar_ctx` otros cuatro procesos (`rev-parse`, `ls-files --error-unmatch`, `cat-file -e` y `diff`): con 50 archivos de una capa eran 466 procesos y 25,6 s. Ahora, por repo:
+    - las líneas de los modificados salen de un solo `git diff -U0 --no-textconv --diff-filter=M <base>`, partido por archivo con `verificar_capa.partir_el_diff`, que lee la ruta del encabezado `diff --git a/<ruta> b/<ruta>`, también entre comillas y con los escapes de git. Los prefijos van fijos (`--src-prefix=a/ --dst-prefix=b/`) y los submódulos con `--submodule=short`, para que `diff.noprefix`, `diff.srcPrefix` o `diff.submodule=log` no rompan el corte;
+    - las bases salen de un solo `git cat-file --batch`, que da los mismos bytes que `git show <base>:<ruta>`;
+    - los chequeos reciben lo que el triaje ya sabe. `verificar_archivo` y `armar_ctx` aceptan un `previo` con la raíz, la ruta relativa, si es nuevo («A» o «?») y el diff del archivo, y con él no lanzan ningún git. Con `previo=None`, que es lo que pasan los hooks, `revisar_turno` y `writer_stop`, el camino es el de siempre, byte a byte.
+  - **El diff de los chequeos es el del hook, no el del triaje.** El del triaje va con `--no-textconv`, y el de `armar_ctx`, con el `textconv` que configure el repo; con uno en el `.gitattributes`, los hunks cambian enteros. Por eso el triaje corre además un `verificar_capa.diffs_por_archivo` por repo, con las opciones de `armar_ctx` (`OPCIONES_DEL_DIFF`). Son dos diffs por repo en lugar de uno, y los hallazgos son los de antes.
+  - **Lo que sigue archivo por archivo:**
+    - el taller, dentro de un repo o con `--taller`;
+    - un archivo cuya ruta por `realpath` no es la de git;
+    - una ruta con salto de línea, retorno de carro o bytes que no son UTF-8;
+    - una ruta con `*`, `?`, `[`, `\` o un `:` al principio, porque el pathspec del diff por archivo del hook la lee como glob o como magia, y esa salida es la que se conserva;
+    - un estado que no es «M», «A» ni «?»;
+    - un objeto de la base que no es un blob;
+    - un repo donde el diff o el `cat-file` fallan o dan un encabezado que no se entiende.
+  - **Medido** con 50 archivos modificados de una capa (mediana de 3): de 25,6 s a 9,7 s, y de 466 a 169 procesos de git. Los 150 que quedan por archivo son la huella del recibo (`recibo.calcular`: `cat-file -e`, `ls-files --error-unmatch` y el diff con `--binary` de cada uno). Es el contrato de `recibo.py --check` y de la bajada, y no se tocó.
+  - **Las pruebas.** Una compara la salida por lotes con la de archivo por archivo sobre un mundo con:
+    - tres repos y el taller;
+    - un renombre, un borrado, un archivo sin trackear y uno nuevo stageado;
+    - un UTF-16, un binario y un CRLF;
+    - un nombre con espacios, eñe y corchetes, con otro archivo modificado que su glob empareja;
+    - marcadores de conflicto y un `textconv`.
+
+    Otra cuenta los procesos: son los mismos con un archivo de cada estado que con tres.
 - **Lo de la instancia**, en `.claude/reglas/senales.py` (opcional): `MARCADORES` (cada uno con `id`, `patron`, `ejemplo`, `fuente` y `ancla`, más su `descripcion`), `DINERO_NOMBRES` (palabras), `COTA` (texto) y `NO_DETECTABLE` (textos que se suman a la lista del motor). Al cargarlo, el motor valida cada marcador: `id` único, `patron` que compila, un `ejemplo` que su propio `patron` detecta y un `ancla` dentro de la línea `fuente` (`<ruta relativa a la raíz de la instancia>:<línea>`). Si un marcador no cumple, o el módulo no carga, `efecto` y `dinero` quedan inválidas y la salida dice por qué. Sin el módulo, `efecto` sale negativa con «0 marcadores en la instancia», y la salida lo declara entre lo que no detecta.
 
 ### Medir revisores (`rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, L87)

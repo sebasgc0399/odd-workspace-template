@@ -23,11 +23,11 @@ python3 "<S>/quitado.py" --repo <ruta>#<base>
 
 ## La pregunta
 
-Muestra la lista y pregunta, por cada ítem, **si puede volver**:
+Muestra la lista **numerada**, con una sola numeración para todos los repos, y pregunta **una sola vez** cuáles no pueden volver: «números, o "ninguno"». Si de alguno no lo sabe, lo dice en la misma respuesta.
 
-- **Puede volver:** no pasa nada más. Si el porqué le sirve a otro ticket, va a la bitácora.
-- **No puede volver:** pide el porqué en una línea, con las palabras del usuario. Ese porqué se anota en las Decisiones del ticket y es el origen de la fila, que `references/matriz.md` pide commiteado antes.
-- **No lo sabe:** queda como pendiente en la bitácora, sin regla.
+- **Los que no nombra pueden volver:** no pasa nada más. Si el porqué de alguno le sirve a otro ticket, va a la bitácora.
+- **Los que nombra no pueden volver:** pide el porqué solo de esos, en una línea cada uno, con las palabras del usuario. Cada porqué se anota en las Decisiones del ticket y es el origen de su fila, que `references/matriz.md` pide commiteado antes.
+- **Los que no sabe:** quedan como pendientes en la bitácora, sin regla.
 
 **Un patrón no se detecta solo:** una llamada, un estilo o una forma de código que el ticket sacó. Pregunta también si el ticket quitó alguno que no debería volver; si el usuario nombra uno, sigue como con una dependencia, con el texto del patrón en lugar de la línea.
 

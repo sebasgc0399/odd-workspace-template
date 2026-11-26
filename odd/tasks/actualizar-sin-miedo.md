@@ -58,8 +58,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
-| T1 | S1, S3 (W2, A3, A6) | El historial, `fusionar_plantillas.py` y los seguimientos que tocan las huellas y las plantillas | un writer, en paralelo con T3 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | |
-| T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | pendiente | |
+| T1 | S1, S3 (W2, A3, A6) | El historial, `fusionar_plantillas.py` y los seguimientos que tocan las huellas y las plantillas | un writer, en paralelo con T3 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `caf81df` |
+| T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | |
 | T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | pendiente | |
 | T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 
@@ -121,3 +121,25 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El orquestador integró el texto de T1 en `Doc/diseno.md`.**
   - **Risk: ítems 3 y 5.** Cambian el contrato de la entrega y los campos de `Revision`, y el pre-push frena por el historial y por las etiquetas.
   - **Scratch del writer:** `%TEMP%\t1-actualizar.P5O1Dv`. Va a la limpieza del autor.
+- **L4** (2026-11-26) T3, un writer, desde `7823093`. Lo cortó el límite de 5 horas y se lo retomó con su contexto. Cubrió S4 y S5.
+  - **S4:**
+    - `armar_ctx` y `verificar_archivo` aceptan un `previo` y, con él, no corren git. Con `None`, el hook sigue igual;
+    - el triaje hace, por repo, un `diff -U0 --no-textconv`, un `cat-file --batch` y el diff con la forma del hook (`diffs_por_archivo`), porque un `textconv` cambia los hunks;
+    - los prefijos van fijos y los submódulos con `--submodule=short`, para que la config del usuario no rompa el corte.
+    - Con 50 archivos de una capa, el triaje pasó de 25,6 s a 9,7 s, y de 466 a 169 procesos de git.
+  - **S5:** la referencia de `quitado` numera la lista y pregunta una sola vez cuáles no pueden volver («números, o "ninguno"»).
+  - **Las pruebas,** cada regla vista en RED y después GREEN, en el entorno normal y con un `GIT_INDEX_FILE` ajeno:
+    - `verificar_capa` 164/164, `triaje` 114/114, `revisar_turno` 34/34 y `recibo` 116/116;
+    - `quitado` 28/28, `memorias` 43/43 y `registro` 8/8.
+    - Dos mutantes, atrapados.
+  - **La diferencial contra `7823093`:** 52 de 52 comparaciones idénticas, entre el triaje y el hook en los tres hosts.
+  - **Decisiones del writer que se aceptan:**
+    - dos diffs por repo, por el `textconv`;
+    - el camino archivo por archivo para el taller, las rutas con comodines o con `:` al principio y los estados raros;
+    - el aislamiento de la config de git en `triaje.tests.py`.
+  - **Dos hallazgos, que el autor pidió corregir en esta versión:** «Vale, sigue con el loop, ten los en cuenta para corregir esos 2 puntos».
+    1. **La huella del recibo.** `recibo.calcular` corre 3 procesos de git por archivo, unos 150 de los 169. Se agrupa por repo sin cambiar la huella: los recibos que ya existen siguen valiendo.
+    2. **Un defecto que ya estaba en la base.** El diff y el `ls-files` por archivo de `armar_ctx` no usan `--literal-pathspecs`, así que `x/[ab].sql` mezcla los hunks de `x/a.sql`. Arreglarlo cambia la salida del hook solo para esas rutas, que es lo correcto. Con eso sobra el camino aparte para las rutas con comodines.
+  - **El orquestador integró el texto de T3 en `Doc/diseno.md`.**
+  - **Risk: ítem 3.** `armar_ctx` y `verificar_archivo` los comparten los hooks, `revisar_turno` y `writer_stop`. Con `previo=None` no cambian.
+  - **Scratch del writer:** `%TEMP%\t3-actualizar-5ytzfd`, más `triaje-plantilla-0slr59gv` y `triaje-test-i2sqwn4y`. Va a la limpieza del autor.

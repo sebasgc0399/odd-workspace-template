@@ -225,6 +225,75 @@ def _nuevo_cambio(ruta, abs_, estado, capa, origen):
             "nuevo": estado in ("A", "?"), "ilegible": False}
 
 
+def _va_en_el_lote(rel):
+    return not any(c in rel for c in ("\n", "\r", "\ufffd"))
+
+
+def _diffs_del_repo(top, base):
+    r = _git(top, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", *verificar_capa.DIFF_POR_REPO, base)
+    partes = verificar_capa.partir_el_diff(r.stdout) if r.returncode == 0 else None
+    return None if partes is None else {rel: crudo.decode("utf-8", errors="replace") for rel, crudo in partes.items()}
+
+
+def _diff_del_archivo(top, base, rel, diffs):
+    if diffs is not None and _va_en_el_lote(rel):
+        return diffs.get(rel, ""), True
+    d = _git(top, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--no-textconv", base, "--", rel)
+    return d.stdout.decode("utf-8", errors="replace"), d.returncode == 0
+
+
+def _leer_en_lote(top, objetos):
+    try:
+        r = subprocess.run(["git", *recibo.CONFIG_FIJA, "-C", top, "cat-file", "--batch"], capture_output=True,
+                           input="".join(o + "\n" for o in objetos).encode("utf-8"), timeout=recibo.TIMEOUT_GIT, env=recibo._entorno())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    salida, posicion, leidos = r.stdout, 0, {}
+    try:
+        for objeto in objetos:
+            fin = salida.index(b"\n", posicion)
+            cabecera = salida[posicion:fin].decode("utf-8", "replace").rsplit(" ", 2)
+            posicion = fin + 1
+            if len(cabecera) != 3 or not cabecera[2].isdigit():
+                leidos[objeto] = None
+                continue
+            largo = int(cabecera[2])
+            if cabecera[1] == "blob":
+                leidos[objeto] = salida[posicion:posicion + largo]
+            posicion += largo + 1
+    except ValueError:
+        return None
+    return leidos
+
+
+def _leer_las_bases(top, base, cambios):
+    objetos = ["%s:%s" % (base, c["ruta"]) for c in cambios if _va_en_el_lote(c["ruta"])]
+    leidos = (_leer_en_lote(top, objetos) if objetos else {}) or {}
+    for c in cambios:
+        objeto = "%s:%s" % (base, c["ruta"])
+        if objeto in leidos:
+            crudo = leidos[objeto]
+        else:
+            existe = _git(top, "show", objeto)
+            crudo = existe.stdout if existe.returncode == 0 else None
+        if crudo is not None:
+            c["base_texto"] = decodificar(crudo)
+
+
+def _lineas_del_cambio(c, texto_diff):
+    if c["estado"] == "M" and c["base_texto"] is not None and c["actual"] is not None:
+        if "Binary files" in texto_diff or "GIT binary patch" in texto_diff:
+            c["agregadas"], c["quitadas"] = _de_hunks(verificar_capa._hunks_contra(c["base_texto"], c["actual"]))
+        else:
+            c["agregadas"], c["quitadas"] = _de_hunks(verificar_capa._hunks_del_diff(texto_diff))
+    elif c["estado"] in ("A", "?"):
+        c["agregadas"] = lineas_de(c["actual"])
+    elif c["estado"] == "D":
+        c["quitadas"] = lineas_de(c["base_texto"])
+
+
 def recolectar_repo(ruta, base_arg, config, ticket=None):
     top = recibo.raiz_del_repo(ruta)
     base, origen, sellada_en = recibo.elegir_base(top, base_arg, ticket)
@@ -241,37 +310,27 @@ def recolectar_repo(ruta, base_arg, config, ticket=None):
                 generados.append(rel)
             else:
                 estados.setdefault(rel, "?")
-    cambios = []
+    diffs = _diffs_del_repo(top, base) if "M" in estados.values() else None
+    cambios, por_medir = [], []
     for rel in sorted(estados):
         texto_diff = None
         if estados[rel] == "M":
-            d = _git(top, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--no-textconv", base, "--", rel)
-            texto_diff = d.stdout.decode("utf-8", errors="replace")
-            if d.returncode == 0 and not texto_diff.strip():
+            texto_diff, completo = _diff_del_archivo(top, base, rel, diffs)
+            if completo and not texto_diff.strip():
                 continue
         abs_ = os.path.join(top, rel)
         c = _nuevo_cambio(rel, abs_, estados[rel], *_capa(abs_, config))
+        cambios.append(c)
         if os.path.isfile(abs_):
             c["actual"] = leer_archivo(abs_)
             c["ilegible"] = c["actual"] is None
             if c["origen"] == "taller":
                 _contra_la_linea_base(c, config, abs_)
-                cambios.append(c)
                 continue
-        if c["estado"] != "?":
-            existe = _git(top, "show", "%s:%s" % (base, rel))
-            if existe.returncode == 0:
-                c["base_texto"] = decodificar(existe.stdout)
-        if c["estado"] == "M" and c["base_texto"] is not None and c["actual"] is not None:
-            if "Binary files" in texto_diff or "GIT binary patch" in texto_diff:
-                c["agregadas"], c["quitadas"] = _de_hunks(verificar_capa._hunks_contra(c["base_texto"], c["actual"]))
-            else:
-                c["agregadas"], c["quitadas"] = _de_hunks(verificar_capa._hunks_del_diff(texto_diff))
-        elif c["estado"] in ("A", "?"):
-            c["agregadas"] = lineas_de(c["actual"])
-        elif c["estado"] == "D":
-            c["quitadas"] = lineas_de(c["base_texto"])
-        cambios.append(c)
+        por_medir.append((c, texto_diff))
+    _leer_las_bases(top, base, [c for c, _ in por_medir if c["estado"] != "?"])
+    for c, texto_diff in por_medir:
+        _lineas_del_cambio(c, texto_diff)
     return {"ruta": top, "base": base, "base_origen": origen, "base_recibo": sellada_en, "cambios": cambios,
             "generados": sorted(generados)}
 
@@ -427,13 +486,36 @@ def _ruta_del_chequeo(repo, c):
     return c["ruta"] if repo is not None else Path(c["abs"]).as_posix()
 
 
-def _chequear_la_capa(c, contra, config):
+def _chequear_la_capa(c, contra, config, previo=None):
     errores = []
     try:
-        resultado = verificar_capa.verificar_archivo(c["abs"], config, contra=contra, errores=errores)
+        resultado = verificar_capa.verificar_archivo(c["abs"], config, contra=contra, errores=errores, previo=previo)
     except (Exception, SystemExit) as exc:
         return None, ["el chequeo falló (%s: %s)" % (type(exc).__name__, exc)]
     return resultado, errores
+
+
+def _se_chequea(c):
+    return bool(c["capa"]) and not recibo.es_doc(c["ruta"]) and os.path.isfile(c["abs"])
+
+
+def _pathspec_literal(rel):
+    return not rel.startswith(":") and not any(c in rel for c in "*?[\\")
+
+
+def _previos(r, config):
+    candidatos = [c for c in r["cambios"] if _se_chequea(c) and c["origen"] != "taller" and c["estado"] in ("M", "A", "?")
+                  and _va_en_el_lote(c["ruta"]) and _pathspec_literal(c["ruta"])]
+    diffs = None
+    if any(c["estado"] == "M" for c in candidatos):
+        diffs = verificar_capa.diffs_por_archivo(r["ruta"], r["base"], recibo.TIMEOUT_GIT)
+    previos = {}
+    for c in candidatos:
+        if c["estado"] != "M":
+            previos[c["ruta"]] = {"raiz": r["ruta"], "rel_git": c["ruta"], "es_nuevo": True, "texto_diff": None}
+        elif diffs is not None:
+            previos[c["ruta"]] = {"raiz": r["ruta"], "rel_git": c["ruta"], "es_nuevo": False, "texto_diff": diffs.get(c["ruta"], "")}
+    return previos
 
 
 def _marcadores_del_repo(r):
@@ -444,12 +526,16 @@ def _marcadores_del_repo(r):
 
 def chequear(recolectados, del_taller, config):
     chequeos = {"archivos": 0, "hallazgos": [], "marcadores": [], "sin_chequear": []}
-    unidades = [(r["ruta"], r["base"], c) for r in recolectados for c in r["cambios"]] + [(None, None, c) for c in del_taller]
-    for repo, base, c in unidades:
-        if not c["capa"] or recibo.es_doc(c["ruta"]) or not os.path.isfile(c["abs"]):
+    unidades = []
+    for r in recolectados:
+        previos = _previos(r, config)
+        unidades += [(r["ruta"], r["base"], c, previos) for c in r["cambios"]]
+    unidades += [(None, None, c, {}) for c in del_taller]
+    for repo, base, c, previos in unidades:
+        if not _se_chequea(c):
             continue
         ruta = _ruta_del_chequeo(repo, c)
-        resultado, errores = _chequear_la_capa(c, ARBOL_VACIO if c["origen"] == "taller" else base, config)
+        resultado, errores = _chequear_la_capa(c, ARBOL_VACIO if c["origen"] == "taller" else base, config, previos.get(c["ruta"]))
         if errores:
             chequeos["sin_chequear"].append({"repo": repo, "ruta": ruta, "capa": c["capa"], "motivo": "; ".join(errores)})
         elif resultado is not None:
