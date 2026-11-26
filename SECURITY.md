@@ -29,7 +29,7 @@ La fuente es [`Doc/diseno.md`](Doc/diseno.md#guard-de-comandos-guard_comandospy-
 
 ## Lo que sale de tu máquina
 
-odd-ws no importa módulos de red de Python (`socket`, `http`, `requests`, `urllib.request`). Lo único que puede salir a la red son los programas que lanza, y a cada uno lo lanza un comando que corres tú. Los hooks no salen a la red: el aviso de lo que quedó sin subir mira las refs locales, sin `fetch`.
+odd-ws no importa módulos de red de Python (`socket`, `http`, `requests`, `urllib.request`). Lo único que puede salir a la red son los programas que lanza, y a cada uno lo lanza un comando que corres tú. Los hooks no lanzan nada que salga a la red: el aviso de lo que quedó sin subir mira las refs locales, sin `fetch`. Hay una salvedad, que es de git y no de odd-ws: en un clon parcial (`git clone --filter=blob:none`), cuando un hook lee la historia de un archivo (el `git blame` del porqué, el diff de los chequeos de capa), git baja de `origin` los blobs que le faltan, como en cualquier comando que los lea (ver la última fila).
 
 | Qué corre | Cuándo | Adónde va | Dónde está |
 |---|---|---|---|
@@ -40,7 +40,15 @@ odd-ws no importa módulos de red de Python (`socket`, `http`, `requests`, `urll
 | `gentle-ai review mode disable --scope clone` | `/odd-ws:doctor --arreglar rdd`, solo si lo pides | Lo que haga gentle-ai | `plugin/scripts/doctor.py` |
 | Consultas a otros CLI: `gentle-ai review mode status`, `gentle-ai telemetry status`, `gentle-ai version`, `engram version`, `jq --version`, `claude --version`, `codex --version`, `pi --version` y `gentle-shell --version` | Cada `/odd-ws:doctor` | odd-ws no les pide red; si un CLI sale a la red por su cuenta, eso es de ese CLI | `plugin/scripts/doctor.py`, `plugin/scripts/odd_ws/hosts/claude_code.py`, `plugin/scripts/odd_ws/hosts/codex.py` y `plugin/scripts/odd_ws/hosts/pi.py` |
 | `gh release create` | Solo en el CI de este repo, al empujar una etiqueta `odd-ws--v*` | GitHub | `.github/workflows/release.yml`, nunca en tu máquina |
+| La bajada de los blobs que faltan, que git hace solo en un clon parcial | Cuando un hook o un script lee la historia de un archivo (`git blame`, `git diff`, `git show`) en un repo clonado con `--filter` | El `origin` de ese repo | Git, en cualquier comando que lea un blob que falta; odd-ws no la pide. Con `GIT_NO_LAZY_FETCH=1` en el entorno, git no baja nada, y el chequeo que lo necesitaba dice «no se pudo chequear» |
 
 - **Lo que corre el agente no es de esta lista.** Un `git push` que le pides, o un `git fetch` que sugiere una skill, lo corre el agente con la herramienta de shell de tu CLI: pasa por sus permisos y por los guards, y ningún script de odd-ws lo lanza por su cuenta.
 - **Cómo se mantiene al día.** `tools/inventario_de_red.tests.py`, que corre en el pre-commit de este repo, lee con el AST de Python el código de `plugin/` y de `tools/` (sin las pruebas). Junta los textos que son un verbo de red (`fetch`, `push`, `pull`, `ls-remote`, `clone`, `marketplace`, `curl`, `wget`, `gh`), los que traen `http://` o `https://` y los imports de red. Cada archivo con uno tiene que estar en esta tabla, o en las excepciones de la prueba con su porqué: los guards, que leen esos verbos para frenarlos y no los corren. Un archivo nuevo que sale a la red sin entrar acá la pone en rojo.
-- **Lo que la prueba no ve:** un verbo dentro de un texto más largo, como `"git fetch origin"` en un solo string, y un módulo que se importa por su nombre en un texto (`importlib.import_module("socket")`). odd-ws lanza sus programas con la lista de argumentos, sin `shell=True`.
+- **Lo que la prueba no ve:**
+  - un verbo dentro de un texto más largo, como `"git fetch origin"` en un solo string, o armado por partes;
+  - un verbo de red que no está en su lista, como `git remote update`, `git submodule update --remote`, `ssh` o `npm install`;
+  - un módulo que se importa por su nombre en un texto (`importlib.import_module("socket")`), o `import urllib` seguido de `urllib.request`;
+  - una llamada nueva dentro de un archivo que ya está en la tabla, porque mira archivo por archivo;
+  - la bajada de blobs de un clon parcial, que hace git y no está en el código.
+
+  odd-ws lanza sus programas con la lista de argumentos, sin `shell=True`.

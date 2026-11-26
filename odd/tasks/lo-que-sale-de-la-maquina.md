@@ -61,7 +61,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T1 | S1, S2 (pre-commit) | El punto de entrada del pre-commit, los archivos secretos y las claves pegadas | un writer, en paralelo con T2 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `a1b9349` |
 | T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | hecha (L4) | `a1df267` |
 | T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 (motivo: el respaldo de contexto del orquestador) | hecha (L6) | `9733db4` |
-| T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L7); verificador pendiente; sin publicar | |
+| T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L7); verificador: el bloqueante de S3 corregido (L8); con el ok del autor para publicar | `7823093` y el cierre |
 
 ## Log
 
@@ -194,3 +194,41 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
       - Al publicar, primero se etiqueta la `0.17.0` y después se regenera, que es la A6 que cierra la R21.
     - En el roadmap, R20 queda «lista, sin publicar», con I93, I94 e I97 «lista (`0.18.0`, sin publicar)».
   - **Falta el verificador independiente,** por los ítems 2 (el pre-commit que frena y el `writer_guard` de Code Mode), 3 (`clasificar`, `_aislada` y la plantilla) y 5 (la compuerta del inventario). Publicar lleva el ok del autor.
+- **L8** (2026-11-26) El verificador independiente, sobre `020f986` y `7823093` contra `f10fecf`.
+  - **Veredicto:** S1, S2, S4, S5, S6 y S7 PASS. S3 FAIL por un bloqueante de documentación.
+  - **B1.** `SECURITY.md` decía «Los hooks no salen a la red». En un clon parcial (`--filter=blob:none`), el `git blame` del porqué baja de `origin` los blobs que faltan, y el inventario no lo nombraba. El comportamiento ya estaba en la base; lo nuevo era la frase falsa.
+  - **La corrección:**
+    - `SECURITY.md` dice que los hooks no lanzan nada que salga a la red, con la salvedad del clon parcial, que es de git;
+    - el inventario suma una fila para esa bajada, con `GIT_NO_LAZY_FETCH=1` como la forma de apagarla;
+    - «Lo que la prueba no ve» nombra las brechas que encontró el verificador: verbos fuera de la lista, `import urllib` seguido de `urllib.request`, una llamada nueva en un archivo que ya está en la tabla, y la bajada de git.
+  - **La recomprobación, en el orquestador:** el texto dice lo que hace el código, y `inventario_de_red` (4/4) y `registro` (7/7) dan verde.
+  - **Queda para que decida el autor:** que los hooks apaguen esa bajada con `GIT_NO_LAZY_FETCH=1`, como ya hace `afirmaciones.py`. En un clon parcial, el porqué y los chequeos dirían entonces «no se pudo chequear».
+  - **Advertencias, como seguimientos:**
+    - el inventario mira archivo por archivo;
+    - el detector de claves no ve un PEM partido en strings, ni un UTF-16 sin BOM;
+    - `tapar.py` en POSIX: un archivo en una carpeta sin escritura ya no se tapa, y `os.replace` corta los enlaces duros. Lo dice `Doc/diseno.md`;
+    - una copia de emergencia vieja del plugin con la plantilla nueva frena los commits;
+    - nombres de secretos fuera de la lista: `*.env`, `id_ecdsa`, `*.p12` y `.npmrc`.
+  - **Lo que probó y pasa:**
+    - 28 nombres en el pre-commit;
+    - los flujos `commit -a`, `commit -- <ruta>`, `-i` y `--amend`;
+    - un commit rechazado deja el repo igual;
+    - falla cerrado;
+    - las salidas son iguales a la base en los hooks de los tres hosts, en `tapar.py` y en `paquetes.py`;
+    - la actualización de la 0.17 a la 0.18;
+    - la A7 y `clasificar`;
+    - la compuerta del inventario;
+    - los compuestos de Code Mode;
+    - siete mutantes.
+    - Las suites dan 71/71, también con un `GIT_INDEX_FILE` ajeno.
+  - **Los pasos del autor, hechos:**
+    - habilitó el reporte privado de vulnerabilidades (Settings, Advanced Security);
+    - la corrida real de Code Mode pasó con `--permission-mode manual`: en un solo script, odd-ws bloqueó un `cd … && git push --force` y un `git reset --hard`, y el `git log` corrió.
+    - En el modo automático, el clasificador de Claude Code rechazó el script entero antes que los hooks.
+    - `Doc/hooks.md` lo dice.
+  - **El cierre para publicar:**
+    - la `0.17.0` ya se publicó, y su etiqueta está en esta rama;
+    - `huellas.py` dio 127 huellas de 29 versiones;
+    - el roadmap da por hechas R19 y R20.
+  - **El autor dio el ok para publicar cada versión apenas esté lista:** «La idea es ya tienes mis Ok, para empezar a publicar, para que vayamos avanzando».
+  - **Scratch del verificador:** `%TEMP%\tmp.nrzWUtSSDs`. Va a la limpieza del autor.
