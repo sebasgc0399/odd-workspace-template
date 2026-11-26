@@ -70,7 +70,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | `be1e7b7` |
 | T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | hecha (L6) | `0817737` |
 | T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | hecha (L7) | `076b46e` |
-| T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L8); verificador en curso | |
+| T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | hecha (L8, L9): el bloqueante de S6 corregido | `e2b6fec` y la corrección |
 
 ## Log
 
@@ -196,3 +196,27 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - `huellas.py`: 132 huellas de 30 versiones. Ninguna plantilla cambió, así que el historial no suma textos.
   - **El autor dio el ok para publicar cada versión apenas esté lista:** «La idea es ya tienes mis Ok, para empezar a publicar, para que vayamos avanzando».
   - **Falta:** el verificador independiente sobre toda la feature, desde `7823093`, y el CI.
+- **L9** (2026-11-26) El verificador independiente, sobre `e2b6fec` contra `fff9e8c` (la `0.18.0` publicada).
+  - **Veredicto:** S1, S2, S3, S4, S5, S7 y S8 PASS. S6 FAIL por un bloqueante de documentación.
+  - **B1.** Dos frases del «Detalle técnico» del CHANGELOG de la `0.19.0` no decían lo que hace el código:
+    - el historial guarda el `CLAUDE.md` con `{{nombre}}` sin renderizar, pero con `{{tickets}}` ya renderizado, no «sin renderizar»;
+    - el triaje corre dos diffs por repo, no uno: el suyo y el de los chequeos de capa (`diffs_por_archivo`).
+  - **La corrección y la recomprobación, en el orquestador:** las dos frases dicen ahora lo mismo que `Doc/diseno.md` (`:707` y el texto de S4) y que el código (`triaje._diffs_del_repo` y la llamada a `verificar_capa.diffs_por_archivo` en `_previos`).
+  - **Lo que probó y pasa:**
+    - la fusión limpia y con conflicto, también con `zdiff3`, sin marcadores en el archivo;
+    - el tope en el límite justo y un byte arriba;
+    - W2, A3, A4, A5 y A6 contra la base;
+    - un triaje de 134 archivos (de 127 s a 6,3 s, con la misma salida salvo S8);
+    - la huella idéntica con una config de git hostil y con `GIT_GLOB_PATHSPECS` y `GIT_ICASE_PATHSPECS`;
+    - un recibo escrito por la base vale con el código nuevo.
+    - Las suites dan verde, también con un `GIT_INDEX_FILE` ajeno.
+  - **Advertencias, como seguimientos:**
+    - A4 también da NO APLICA cuando lo que falta es solo `workspace.local.json`, y el detalle dice «la config está rota»;
+    - el `cómo:` del ítem `plantillas`, si corres el doctor sin la skill, todavía dice «Fusiona a mano» y no nombra `fusionar_plantillas.py`;
+    - `fusionar_plantillas.py` resuelve una ruta relativa contra la raíz de la instancia, no contra la carpeta actual, y en Windows falla con otra capitalización de la ruta (falla cerrado);
+    - `--escribir` quita el BOM y el CRLF de la copia: lo dice `Doc/diseno.md`, no `Doc/actualizar.md`;
+    - el mensaje de A5, «no va en la spec», confunde, porque la misma versión sí pasa;
+    - A6 cuenta las etiquetas locales que no están en HEAD;
+    - ya en la base: `tools/entrega.py` usa voseo en dos mensajes.
+  - **El CI** dio verde en los 3 sistemas sobre `e2b6fec`. Falta el de la punta con la corrección.
+  - **Scratch del verificador:** `%TEMP%\tmp.g8cATNqyN9`. Va a la limpieza del autor.
