@@ -61,8 +61,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | `83237a3` |
 | T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `7ae8339` |
-| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | pendiente | |
-| T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | este commit |
+| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | hecha (L8) | |
+| T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `f302ecb` |
 | T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -155,3 +155,28 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - `recibo-test-ahb2u6k5`.
 
     Va a la limpieza del autor.
+- **L8** (2026-11-25) T1b, un writer, desde `f302ecb`. Cubrió la latencia de S1.
+  - **Lo nuevo:** `revisar` tiene un paso `precargar`:
+    - lee las refs y resuelve las ramas en serie, como antes;
+    - después reparte los `git status` y los `rev-list --count` en un pool de 4 hilos, una vez por carpeta física (`config_loader.canonica`), en el orden de los tickets;
+    - cada ticket espera solo sus lecturas.
+  - **Lo que no cambia:**
+    - Si el plazo se vence, ese ticket y los que siguen salen «sin revisar», como en serie, nunca como limpios.
+    - Una falla de un hilo marca solo esa lectura como ilegible.
+    - `confirmar`, `entregas_de` y `_Revisor.entregas` siguen en serie.
+  - **La latencia,** mediana de 7 inicios con el montaje de L4:
+    - 20 tickets de 1 worktree: de 2,2 a 2,9 s pasa a 1,0 a 1,2 s;
+    - 20 tickets de 2 worktrees: de 4,2 a 4,4 s pasa a 1,5 a 1,9 s, y el plazo ya no corta tickets.
+  - **`-uall` se queda,** en el aviso y en la auditoría. Con `-unormal`, la huella no ve una edición dentro de una carpeta nueva y se invalidan las huellas guardadas, y en un repo típico no ahorra nada medible. Cierra el punto abierto de L7.
+  - **Decisiones del writer que se aceptan:**
+    - los `rev-list` también van al pool, porque cuestan lo mismo que los `status`;
+    - cada lectura se consume cuando el ticket la necesita;
+    - `concurrent.futures` se importa adentro de `revisar`, porque arriba le suma unos 30 ms a cada llamada del hook;
+    - la resolución de cada ticket se cachea.
+  - **Las pruebas:**
+    - 4 reglas nuevas: la concurrencia, una consulta por carpeta, el plazo dentro del pool y la falla de un hilo. Tres se vieron en RED, y la del plazo protege lo que ya pasaba;
+    - 11 mutantes, todos atrapados;
+    - `entregas` 10/10 y 14/14, `verificar_capa` 157/157, `auditar_ramas` 16/16 y `registro` 7/7, también con un `GIT_INDEX_FILE` ajeno.
+  - **La diferencial contra `f302ecb`:** 63 corridas, sin diferencias. Las huellas que confirmó la base siguen valiendo.
+  - **Risk: ítem 4.** Un pool de hilos con un plazo compartido, que lanza procesos desde hilos en Windows. Lo revisa el verificador de la versión.
+  - **Scratch del writer:** `%TEMP%\tmp.unH9Z3oBpB`. Va a la limpieza del autor.

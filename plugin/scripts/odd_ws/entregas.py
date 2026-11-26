@@ -18,6 +18,7 @@ from odd_ws.comun import entorno_git
 PLAZO_DEL_INICIO = 4
 PLAZO_DEL_CLI = 60
 TOPE_DEL_INICIO = 20
+HILOS = 4
 TOPE_BYTES = 2000000
 VERSION = 1
 CAMPO = "worktree y rama"
@@ -196,7 +197,7 @@ def _contenido(ruta):
 class _Revisor:
     def __init__(self, config, limite):
         self.config, self.limite = config, limite
-        self.refs, self.estados, self.adelante = {}, {}, {}
+        self.refs, self.estados, self.adelante, self.resueltas, self.lecturas = {}, {}, {}, {}, {}
 
     def _ruta(self, repo):
         return self.config["repos"][repo]["path"]
@@ -245,34 +246,75 @@ class _Revisor:
                     halladas[(repo, fragmento)] = Entrega(repo, fragmento, ramas[fragmento][1])
         return [halladas[clave] for clave in sorted(halladas)]
 
+    def resueltas_de(self, fragmentos_):
+        clave = tuple(fragmentos_)
+        if clave not in self.resueltas:
+            self.resueltas[clave] = self.entregas(fragmentos_)
+        return self.resueltas[clave]
+
+    def _leida(self, clave, leer, *args):
+        lectura = self.lecturas.pop(clave, None)
+        if lectura is None:
+            return leer(*args)
+        try:
+            return lectura.result()
+        except subprocess.TimeoutExpired:
+            raise
+        except Exception:
+            return None
+
+    def _leer_estado(self, carpeta):
+        r = _git(carpeta, self.limite, "status", "--porcelain=v2", "-z", "-uall")
+        return r.stdout if r.returncode == 0 else None
+
     def estado(self, carpeta):
-        if carpeta not in self.estados:
-            r = _git(carpeta, self.limite, "status", "--porcelain=v2", "-z", "-uall")
-            self.estados[carpeta] = r.stdout if r.returncode == 0 else None
-        return self.estados[carpeta]
+        clave = config_loader.canonica(carpeta)
+        if clave not in self.estados:
+            self.estados[clave] = self._leida(clave, self._leer_estado, carpeta)
+        return self.estados[clave]
+
+    def _contar(self, repo, rama):
+        r = _git(self._ruta(repo), self.limite, "rev-list", "--count", "%s%s..%s%s" % (ORIGEN, rama, RAMAS, rama))
+        texto = r.stdout.decode("ascii", errors="replace").strip()
+        return int(texto) if r.returncode == 0 and texto.isdigit() else None
 
     def sin_empujar(self, repo, rama):
         clave = (repo, rama)
         if clave not in self.adelante:
-            r = _git(self._ruta(repo), self.limite, "rev-list", "--count", "%s%s..%s%s" % (ORIGEN, rama, RAMAS, rama))
-            texto = r.stdout.decode("ascii", errors="replace").strip()
-            self.adelante[clave] = int(texto) if r.returncode == 0 and texto.isdigit() else None
+            self.adelante[clave] = self._leida(clave, self._contar, repo, rama)
         return self.adelante[clave]
 
+    def _con_carpeta(self, entrega):
+        return entrega.carpeta is not None and os.path.isdir(entrega.carpeta)
+
+    def _adelantada(self, entrega):
+        refs = self.refs_de(entrega.repo)
+        origen = refs.origen.get(entrega.rama)
+        return origen is not None and origen != refs.ramas[entrega.rama][0]
+
+    def precargar(self, pool, fragmentos_por_ticket):
+        for fragmentos_ in fragmentos_por_ticket:
+            for entrega in self.resueltas_de(fragmentos_):
+                if self._con_carpeta(entrega):
+                    clave = config_loader.canonica(entrega.carpeta)
+                    if clave not in self.estados and clave not in self.lecturas:
+                        self.lecturas[clave] = pool.submit(self._leer_estado, entrega.carpeta)
+                clave = (entrega.repo, entrega.rama)
+                if self._adelantada(entrega) and clave not in self.adelante and clave not in self.lecturas:
+                    self.lecturas[clave] = pool.submit(self._contar, entrega.repo, entrega.rama)
+
     def _estado_de(self, entrega):
-        if entrega.carpeta is None or not os.path.isdir(entrega.carpeta):
+        if not self._con_carpeta(entrega):
             return b""
         return self.estado(entrega.carpeta)
 
     def faltas(self, entrega):
-        refs = self.refs_de(entrega.repo)
-        cabeza = refs.ramas[entrega.rama][0]
-        origen = refs.origen.get(entrega.rama)
+        origen = self.refs_de(entrega.repo).origen.get(entrega.rama)
         estado = self._estado_de(entrega)
         tiene = []
         if estado:
             tiene.append(SIN_COMMITEAR)
-        if origen is not None and origen != cabeza:
+        if self._adelantada(entrega):
             adelante = self.sin_empujar(entrega.repo, entrega.rama)
             if adelante is None:
                 tiene.append(COMMITS_SIN_CONTAR)
@@ -304,7 +346,7 @@ class _Revisor:
         return hashlib.sha256(json.dumps(datos, ensure_ascii=True).encode("ascii")).hexdigest()
 
     def ticket(self, fragmentos_, confirmada):
-        entregas_ = self.entregas(fragmentos_)
+        entregas_ = self.resueltas_de(fragmentos_)
         pendientes = [(entrega, faltas) for entrega in entregas_ for faltas in [self.faltas(entrega)] if faltas]
         if not pendientes or (confirmada is not None and confirmada == self.huella(entregas_)):
             return None
@@ -330,15 +372,22 @@ def revisar(config, limite, tope=None):
     tickets = tickets[:len(tickets) - fuera]
     if not tickets:
         return Revision([], 0, fuera)
+    from concurrent.futures import ThreadPoolExecutor
+
     revisor, previas, pendientes = _Revisor(config, limite), confirmadas(config["raiz"]), []
-    for posicion, (ticket, hallados) in enumerate(tickets):
+    with ThreadPoolExecutor(max_workers=HILOS) as pool:
         try:
-            _a_tiempo(limite)
-            pendiente = revisor.ticket(hallados, previas.get(ticket))
+            revisor.precargar(pool, [hallados for _, hallados in tickets])
         except subprocess.TimeoutExpired:
-            return Revision(pendientes, len(tickets) - posicion, fuera)
-        if pendiente:
-            pendientes.append((ticket, pendiente))
+            pass
+        for posicion, (ticket, hallados) in enumerate(tickets):
+            try:
+                _a_tiempo(limite)
+                pendiente = revisor.ticket(hallados, previas.get(ticket))
+            except subprocess.TimeoutExpired:
+                return Revision(pendientes, len(tickets) - posicion, fuera)
+            if pendiente:
+                pendientes.append((ticket, pendiente))
     return Revision(pendientes, 0, fuera)
 
 

@@ -9,12 +9,15 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI.parent))
 SOBRANTES = []
+
+import config_loader
 
 
 def m():
@@ -144,6 +147,150 @@ def test_entregas_de_da_las_ramas_de_cada_ticket_en_su_orden_y_lee_git_recien_cu
             except subprocess.TimeoutExpired:
                 pass
         assert not guardia.llamadas
+
+
+CABEZA, ATRAS = "a" * 40, "b" * 40
+SUCIO = b"? nuevo.txt\0"
+RANGO = "refs/remotes/origin/%s..refs/heads/%s"
+
+
+def _clave(lectura):
+    return config_loader.canonica(str(lectura)) if isinstance(lectura, Path) else lectura
+
+
+class GitFalso:
+    def __init__(self, ramas, sucias=(), demora=0.0, lentas=(), rotas=()):
+        self.ramas, self.demora = ramas, demora
+        self.sucias = {_clave(c) for c in sucias}
+        self.lentas, self.rotas = {_clave(c) for c in lentas}, {_clave(c) for c in rotas}
+        self.llamadas, self.en_curso, self.maximo = [], 0, 0
+        self.candado = threading.Lock()
+
+    def __enter__(self):
+        self.original = m()._git
+        m()._git = self
+        return self
+
+    def __exit__(self, *_):
+        m()._git = self.original
+
+    def cuantas(self, comando):
+        return sum(1 for hecho, _ in self.llamadas if hecho == comando)
+
+    def _refs(self, repo):
+        lineas = []
+        for rama, carpeta, origen in self.ramas.get(repo, ()):
+            lineas.append("refs/heads/%s\0%s\0%s" % (rama, CABEZA, carpeta or ""))
+            if origen:
+                lineas.append("refs/remotes/origin/%s\0%s\0" % (rama, origen))
+        return subprocess.CompletedProcess(["git"], 0, "\n".join(lineas).encode("utf-8"), b"")
+
+    def __call__(self, arbol, limite, *args):
+        restante = limite - time.monotonic()
+        if restante <= 0:
+            raise subprocess.TimeoutExpired(["git", *args], 0)
+        if args[0] == "for-each-ref":
+            return self._refs(os.path.basename(str(arbol)))
+        clave = config_loader.canonica(str(arbol)) if args[0] == "status" else args[-1]
+        with self.candado:
+            self.llamadas.append((args[0], clave))
+            self.en_curso += 1
+            self.maximo = max(self.maximo, self.en_curso)
+        try:
+            if clave in self.lentas:
+                time.sleep(restante)
+                raise subprocess.TimeoutExpired(["git", *args], restante)
+            time.sleep(self.demora)
+            if clave in self.rotas:
+                raise OSError("no se pudo lanzar git")
+        finally:
+            with self.candado:
+                self.en_curso -= 1
+        salida = (SUCIO if clave in self.sucias else b"") if args[0] == "status" else b"2\n"
+        return subprocess.CompletedProcess(["git", *args], 0, salida, b"")
+
+
+def _tickets_con_worktree(raiz, cuantos):
+    carpetas = {}
+    for n in range(1, cuantos + 1):
+        carpetas[n] = raiz / "wt" / ("T-%d" % n)
+        carpetas[n].mkdir(parents=True)
+        escribir(raiz, "tickets/T-%d-x/CLAUDE.md" % n, "- Worktree y rama: `feat/T-%d`\n" % n)
+    return carpetas
+
+
+def _lineas(revision):
+    return [m().linea(ticket, pendiente) for ticket, pendiente in revision.pendientes]
+
+
+def test_los_status_y_los_rev_list_corren_en_paralelo_con_un_tope_de_hilos_y_alcanzan_un_plazo_que_en_serie_no():
+    with Carpeta() as raiz:
+        carpetas = _tickets_con_worktree(raiz, 8)
+        ramas = {"web": [("feat/T-%d" % n, str(c), CABEZA if n <= 4 else ATRAS) for n, c in carpetas.items()]}
+        with GitFalso(ramas, sucias=[carpetas[n] for n in range(1, 5)], demora=0.3) as falso:
+            revision = m().revisar(_config(raiz), time.monotonic() + 2.0)
+        esperadas = (["T-%d-x: en web, la rama feat/T-%d tiene cambios sin commitear." % (n, n) for n in range(1, 5)]
+                     + ["T-%d-x: en web, la rama feat/T-%d tiene 2 commits sin empujar." % (n, n) for n in range(5, 9)])
+        assert _lineas(revision) == esperadas and revision[1:] == (0, 0), "12 lecturas de 0,3 s en serie no caben en 2 s: %r" % (revision,)
+        assert (falso.cuantas("status"), falso.cuantas("rev-list")) == (8, 4), falso.llamadas
+        assert falso.maximo == m().HILOS == 4, "a lo sumo 4 a la vez, y las 4 a la vez: %d" % falso.maximo
+
+
+def test_cada_carpeta_se_consulta_una_sola_vez_aunque_la_nombren_varios_tickets_o_con_otra_grafia():
+    with Carpeta() as raiz:
+        carpeta = raiz / "wt" / "T-1"
+        carpeta.mkdir(parents=True)
+        otra_grafia = os.path.join(str(carpeta.parent), ".", carpeta.name) + os.sep
+        ramas = {"web": [("feat/T-1", str(carpeta), CABEZA)], "db": [("feat/T-2", otra_grafia, CABEZA)]}
+        escribir(raiz, "tickets/T-1-a/CLAUDE.md", "- Worktree y rama: `feat/T-1`\n")
+        escribir(raiz, "tickets/T-2-b/CLAUDE.md", "- Worktree y rama: `feat/T-2`\n")
+        escribir(raiz, "tickets/T-3-c/CLAUDE.md", "- Worktree y rama: `feat/T-1`\n")
+        with GitFalso(ramas, sucias=[carpeta]) as falso:
+            revision = m().revisar(_config(raiz, repos=("db", "web")), time.monotonic() + 30)
+        assert _lineas(revision) == ["T-1-a: en web, la rama feat/T-1 tiene cambios sin commitear.",
+                                     "T-2-b: en db, la rama feat/T-2 tiene cambios sin commitear.",
+                                     "T-3-c: en web, la rama feat/T-1 tiene cambios sin commitear."], revision
+        assert falso.llamadas == [("status", _clave(carpeta))], falso.llamadas
+
+
+def test_si_el_plazo_vence_dentro_del_pool_el_ticket_que_no_alcanzo_y_los_que_siguen_quedan_sin_revisar_como_antes():
+    with Carpeta() as raiz:
+        carpetas = _tickets_con_worktree(raiz, 3)
+        ramas = {"web": [("feat/T-%d" % n, str(c), CABEZA) for n, c in carpetas.items()]}
+        with GitFalso(ramas, sucias=carpetas.values()):
+            assert m().confirmar(_config(raiz), "T-1-x", time.monotonic() + 30, "2026-11-25T10:00:00") == ("T-1-x", True)
+        quedaron = ("odd-ws: quedaron 2 tickets sin revisar (no alcanzó el tiempo), así que no cuentan como limpios: "
+                    "`entregas.py` los revisa todos.")
+        with GitFalso(ramas, sucias=carpetas.values(), lentas=[carpetas[2]]):
+            inicio = time.monotonic()
+            texto = m().aviso_de_inicio(_config(raiz), inicio + 1.0)
+            demoro = time.monotonic() - inicio
+        assert texto == quedaron, "el confirmado de antes calla y el lento corta: %r" % texto
+        assert demoro < 2.0, "el pool no espera más que el plazo: %.2f s" % demoro
+        os.remove(raiz / ".claude" / "estado" / "entregas.json")
+        with GitFalso(ramas, sucias=carpetas.values(), lentas=[carpetas[2]]):
+            texto = m().aviso_de_inicio(_config(raiz), time.monotonic() + 1.0)
+        assert texto == "\n".join([m().ENCABEZADO, "- T-1-x: en web, la rama feat/T-1 tiene cambios sin commitear.", m().CIERRE, quedaron]), \
+            "el T-3 ya leído no cuenta como limpio: %r" % texto
+
+
+def test_una_excepcion_en_un_hilo_deja_esa_lectura_como_ilegible_y_no_pierde_las_demas():
+    with Carpeta() as raiz:
+        carpetas = _tickets_con_worktree(raiz, 4)
+        ramas = {"web": [("feat/T-%d" % n, str(c), ATRAS if n == 4 else CABEZA) for n, c in carpetas.items()]}
+        rotas = [carpetas[2], RANGO % ("feat/T-4", "feat/T-4")]
+        with GitFalso(ramas, sucias=[carpetas[1], carpetas[3]], rotas=rotas):
+            revision = m().revisar(_config(raiz), time.monotonic() + 30)
+            try:
+                m().confirmar(_config(raiz), "T-2-x", time.monotonic() + 30, "2026-11-25T10:00:00")
+                raise AssertionError("sin pool, la excepción de git sigue subiendo y no confirma nada")
+            except OSError:
+                pass
+        assert _lineas(revision) == ["T-1-x: en web, la rama feat/T-1 tiene cambios sin commitear.",
+                                     "T-2-x: en web, la rama feat/T-2 su carpeta no se pudo leer con git status.",
+                                     "T-3-x: en web, la rama feat/T-3 tiene cambios sin commitear.",
+                                     "T-4-x: en web, la rama feat/T-4 tiene commits sin empujar."] and revision[1:] == (0, 0), revision
+        assert not (raiz / ".claude" / "estado" / "entregas.json").exists()
 
 
 def test_las_confirmadas_se_leen_solo_con_la_forma_que_se_escribe():
