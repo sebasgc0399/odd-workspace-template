@@ -45,6 +45,14 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     1. se numera la lista;
     2. se pregunta una vez cuáles no pueden volver («números, o "ninguno"»), como en `enlaces`;
     3. se pide el porqué solo de los elegidos.
+- **S7** (la huella del recibo por lotes). El autor: «Vale, sigue con el loop, ten los en cuenta para corregir esos 2 puntos», sobre los dos hallazgos de T3 (L4).
+  - `recibo.calcular` corre 3 procesos de git por archivo (`cat-file -e`, `ls-files --error-unmatch` y el diff con `--binary`): son unos 150 de los 169 del triaje con 50 archivos.
+  - **Decisión de diseño:** agruparlos por repo, con una restricción dura: la huella sale idéntica, byte a byte, para el mismo diff, así que los recibos que ya existen siguen valiendo. Lo prueba una diferencial de `recibo.py` (la huella calculada y `--check`) contra la base.
+- **S8** (el pathspec literal). Del mismo pedido: el diff y el `ls-files` por archivo de `armar_ctx` no usan `--literal-pathspecs`, así que para `x/[ab].sql` el diff trae también los hunks de `x/a.sql`. El defecto ya estaba en la base.
+  - **Decisión de diseño:**
+    - esas llamadas leen la ruta como literal;
+    - la salida del hook cambia solo para una ruta con comodines o con magia de pathspec, que es lo correcto;
+    - con eso sobra el camino archivo por archivo que el triaje dejó para esas rutas (L4), y se quita.
 - **S6** (la versión). Se actualizan:
   - el CHANGELOG de la `0.19.0`;
   - `Doc/actualizar.md`;
@@ -59,8 +67,9 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S3 (W2, A3, A6) | El historial, `fusionar_plantillas.py` y los seguimientos que tocan las huellas y las plantillas | un writer, en paralelo con T3 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `caf81df` |
-| T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | |
-| T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | pendiente | |
+| T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | `be1e7b7` |
+| T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | hecha (L6) | |
+| T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | en curso | |
 | T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -143,3 +152,20 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El orquestador integró el texto de T3 en `Doc/diseno.md`.**
   - **Risk: ítem 3.** `armar_ctx` y `verificar_archivo` los comparten los hooks, `revisar_turno` y `writer_stop`. Con `previo=None` no cambian.
   - **Scratch del writer:** `%TEMP%\t3-actualizar-5ytzfd`, más `triaje-plantilla-0slr59gv` y `triaje-test-i2sqwn4y`. Va a la limpieza del autor.
+- **L5** (2026-11-26) T3 quedó en `be1e7b7`. El autor pidió sumar los dos hallazgos de T3 a esta versión: son S7 y S8, en una tarea nueva, T5. T2 y T5 corren en paralelo: T2 toca el doctor y el bootstrap, y T5 toca `recibo`, `armar_ctx` y el triaje.
+- **L6** (2026-11-26) T2, un writer, desde `be1e7b7`, en paralelo con T5. Cubrió S2 y, de S3, A4 y A5.
+  - **S2:** el ítem nuevo `carga-entera` va después de `desviaciones`. Es AVISO sin arreglo y mide bytes: el `CLAUDE.md` raíz (16 KiB), el de cada ticket activo (32 KiB) y cada `SKILL.md` de la instancia (17 KiB). Con el tope justo, OK.
+  - **A4:** con el ítem `config` en FALTA, `plantillas` sale NO APLICA y `--arreglar plantillas` no escribe. Antes, con un `sin_capa` inválido, el arreglo reescribía la config rota.
+  - **A5:** al crear la instancia, `validar_spec` rechaza un `config.plantillas` distinto de la versión del plugin. Va al final, así que lo que la base ya rechazaba conserva su mensaje.
+  - **Las pruebas,** cada regla vista en RED y después GREEN, en el entorno normal y con un `GIT_INDEX_FILE` ajeno:
+    - `doctor` 251/251, `bootstrap` 214/214 y `bootstrap_cli` 19/19;
+    - `plantillas_instancia` 11/11 y `registro` 8/8.
+  - **La diferencial contra `be1e7b7`:** solo cambian la línea nueva, A4 y A5. Los códigos de salida son iguales, salvo A5.
+  - **Decisiones del writer que se aceptan:**
+    - AVISO solo si un archivo pasa estrictamente su tope;
+    - el peso es el del disco, con CRLF y BOM;
+    - solo se miden los `SKILL.md` de `.claude/skills/` de la instancia;
+    - A4 se arregla solo en el doctor, sin tocar `revisar` ni el aviso del inicio.
+  - **El orquestador integró el texto de T2 en `Doc/diseno.md`.**
+  - **Risk: none.** Cambia lo que el bootstrap acepta y el doctor suma una fila, pero las dos cosas se pidieron y ningún helper compartido cambió.
+  - **Scratch del writer:** `%TEMP%\t2-actualizar.p91xPQ`. Va a la limpieza del autor.

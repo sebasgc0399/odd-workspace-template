@@ -976,7 +976,7 @@ def test_leer_version():
 
 
 NUEVOS = ("config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
-          "plantillas", "desviaciones")
+          "plantillas", "desviaciones", "carga-entera")
 CLAVE_PLUGIN = "odd-ws@odd-workspace-template"
 ANTES_EN_INSTANCIA = ["repo-hooks", "lista-negra", "plugin-root", "writer-sql", "paquetes", "agentes-skills", "agentes-hooks", "python",
                       "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
@@ -1033,7 +1033,7 @@ PLANTILLA, MAQUINA, INSTANCIA = ENCABEZADOS = ("La plantilla (solo en un clon de
 RESUMEN = re.compile(r"\d+ FALTA, \d+ AVISO")
 DE_LA_MAQUINA = ["plugin-root", "python", "git-credenciales", "claude", "marketplace", "gentle-ai", "rdd", "telemetria", "engram", "jq"]
 DE_LA_INSTANCIA = ["config", "instancia-hooks", "instancia-eol", "instancia-plugin", "capas-cobertura", "hooks-apagados", "hooks-de-repos", "hooks-fallas",
-                   "plantillas", "desviaciones", "writer-sql",
+                   "plantillas", "desviaciones", "carga-entera", "writer-sql",
                    "paquetes", "agentes-skills", "agentes-hooks"]
 
 
@@ -1540,6 +1540,46 @@ def test_plantillas_sin_poder_leer_avisa_sin_arreglo_y_con_la_config_rota_no_apl
         assert "plantillas" not in por_id(Falso(e.base)), "fuera de una instancia no sale"
 
 
+def arbol_de_bytes(raiz):
+    return {ruta.relative_to(raiz).as_posix(): ruta.read_bytes() for ruta in sorted(raiz.rglob("*")) if ruta.is_file()}
+
+
+def con_claves(raiz, **claves):
+    ruta = raiz / "workspace.config.json"
+    ruta.write_text(json.dumps({**json.loads(ruta.read_text(encoding="utf-8")), **claves}), encoding="utf-8")
+
+
+def test_con_el_item_config_en_falta_plantillas_no_aplica_y_su_arreglo_no_escribe():
+    rotas = {"sin_capa": ".png", "disabled_hooks": ["otro"], "tickets": {"prefix": "1"}, "ask_before_commit": "si",
+             "porque_al_editar": "nunca", "repos": {"db": {}}}
+    for clave, valor in rotas.items():
+        with Escenario() as e:
+            raiz = instancia_copiada(e, "0.1.0", anotada="0.1.0")
+            con_claves(raiz, **{clave: valor})
+            ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+            r = por_id(ctx)
+            assert r["config"].estado == "FALTA", (clave, r["config"])
+            assert r["plantillas"] == d().resultado("plantillas", "NO APLICA", "la config está rota: lo dice el ítem config"), (clave, r["plantillas"])
+            antes = arbol_de_bytes(raiz)
+            codigo, salida = correr(["--arreglar", "plantillas"], ctx)
+            assert (codigo, salida) == (0, "plantillas: NO APLICA; no hay nada que arreglar\n"), (clave, codigo, salida)
+            assert arbol_de_bytes(raiz) == antes, (clave, "con la config rota, --arreglar plantillas no escribe nada")
+
+
+def test_con_la_config_sana_y_sus_claves_opcionales_plantillas_sigue_avisando_y_su_arreglo_escribe():
+    with Escenario() as e:
+        raiz = instancia_copiada(e, "0.1.0", anotada="0.1.0")
+        con_claves(raiz, sin_capa=[".png"], disabled_hooks=["revisar_turno"], tickets={"prefix": "T"}, ask_before_commit=True,
+                   porque_al_editar="indice")
+        ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
+        r = por_id(ctx)
+        assert r["config"].estado == "OK" and r["plantillas"].estado == "AVISO" and r["plantillas"].arreglo is not None, r
+        codigo, salida = correr(["--arreglar", "plantillas"], ctx)
+        assert codigo == 0 and salida.startswith("escribiendo: CLAUDE.md, .githooks/pre-commit con la plantilla de la 0.3.0"), salida
+        assert json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))["plantillas"] == "0.3.0"
+        assert (raiz / "CLAUDE.md").read_text(encoding="utf-8") == renderizada("CLAUDE.md", "0.3.0")
+
+
 DESVIACIONES = ".claude/reglas/desviaciones.csv"
 ENCABEZADO_DESVIACIONES = "id,ubicacion,resumen,porque,fecha\n"
 
@@ -1598,6 +1638,91 @@ def test_hooks_apagados_con_la_clave_invalida_no_aplica_y_lo_dice_el_item_config
         r = por_id(Falso(e.base, cwd=raiz))
         assert r["config"].estado == "FALTA", r["config"]
         assert r["hooks-apagados"].estado == "NO APLICA" and "config" in r["hooks-apagados"].detalle, r["hooks-apagados"]
+
+
+TOPES_DE_CARGA = {"CLAUDE.md": 16 * 1024, "tickets/T-2/CLAUDE.md": 32 * 1024, ".claude/skills/capa-sql/SKILL.md": 17 * 1024}
+LOS_TOPES = "16 KiB el CLAUDE.md raíz, 32 KiB el de cada ticket activo y 17 KiB cada SKILL.md de .claude/skills"
+
+
+def pasado_de(relativa, tope, tamano):
+    return f"{relativa} pesa {tamano} bytes y su tope es {tope} ({tope // 1024} KiB)"
+
+
+def de_tamano(relativa, tamano):
+    base = skill_con(Path(relativa).parent.name) if relativa.endswith("SKILL.md") else ""
+    return base + "x" * (tamano - len(base.encode("utf-8")))
+
+
+def test_carga_entera_es_ok_con_cada_archivo_en_su_tope_o_debajo():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        assert por_id(ctx)["carga-entera"] == d().resultado(
+            "carga-entera", "OK", "ningún archivo que se carga entero: ni el CLAUDE.md raíz, ni el de un ticket activo, ni un SKILL.md de "
+                                  ".claude/skills"), por_id(ctx)["carga-entera"]
+        poner(raiz, "CLAUDE.md", de_tamano("CLAUDE.md", TOPES_DE_CARGA["CLAUDE.md"]))
+        assert por_id(ctx)["carga-entera"] == d().resultado(
+            "carga-entera", "OK", f"1 archivo que se carga entero, y no pasa de su tope: {LOS_TOPES}"), por_id(ctx)["carga-entera"]
+        for relativa, tope in TOPES_DE_CARGA.items():
+            poner(raiz, relativa, de_tamano(relativa, tope))
+        poner(raiz, ".claude/skills/criterios/SKILL.md", "corta\n")
+        r = por_id(ctx)["carga-entera"]
+        assert r == d().resultado("carga-entera", "OK", f"4 archivos que se cargan enteros, y ninguno pasa de su tope: {LOS_TOPES}"), r
+
+
+def test_carga_entera_avisa_sin_arreglo_por_cada_archivo_que_pasa_su_tope():
+    for relativa, tope in TOPES_DE_CARGA.items():
+        with Escenario() as e:
+            raiz = e.instancia()
+            for otra, suyo in TOPES_DE_CARGA.items():
+                poner(raiz, otra, de_tamano(otra, suyo))
+            poner(raiz, relativa, de_tamano(relativa, tope + 1))
+            ctx = Falso(e.base, cwd=raiz)
+            r = por_id(ctx)["carga-entera"]
+            assert r.estado == "AVISO" and r.arreglo is None and r.comando is None, (relativa, r)
+            assert r.detalle == pasado_de(relativa, tope, tope + 1), (relativa, r.detalle)
+            assert "references/" in r.ayuda and "bitácora" in r.ayuda, r.ayuda
+            antes = arbol_de_bytes(raiz)
+            codigo, salida = correr(["--arreglar", "carga-entera"], ctx)
+            assert codigo == 2 and "no tiene arreglo automático" in salida, (relativa, salida)
+            assert arbol_de_bytes(raiz) == antes, relativa
+    with Escenario() as e:
+        raiz = instancia_sana(e)
+        ctx = Falso(e.base, cwd=raiz)
+        antes = [r for r in d().diagnosticar(ctx) if r.estado in ("FALTA", "AVISO")]
+        for relativa, tope in TOPES_DE_CARGA.items():
+            poner(raiz, relativa, de_tamano(relativa, tope + 100))
+        r = por_id(ctx)["carga-entera"]
+        assert r.detalle == "; ".join(pasado_de(relativa, tope, tope + 100) for relativa, tope in TOPES_DE_CARGA.items()), r.detalle
+        codigo, salida = correr([], ctx)
+        lineas = salida.splitlines()
+        i = next(i for i, linea in enumerate(lineas) if linea.startswith("carga-entera "))
+        assert lineas[i].split()[:2] == ["carga-entera", "AVISO"] and lineas[i + 1].strip() == "cómo: " + r.ayuda, lineas[i:i + 2]
+        faltas, avisos = (sum(r.estado == estado for r in antes) for estado in ("FALTA", "AVISO"))
+        assert codigo == 0 and faltas == 0 and lineas[-1] == f"0 FALTA, {avisos + 1} AVISO", (codigo, lineas[-1], antes)
+
+
+def test_carga_entera_mide_bytes_y_no_lineas():
+    with Escenario() as e:
+        raiz = e.instancia()
+        ctx = Falso(e.base, cwd=raiz)
+        poner(raiz, "CLAUDE.md", "x\n" * 1000)
+        assert por_id(ctx)["carga-entera"].estado == "OK", "1000 líneas en 2000 bytes no pasan del tope"
+        poner(raiz, "CLAUDE.md", "ñ" * 8193)
+        r = por_id(ctx)["carga-entera"]
+        assert r.estado == "AVISO" and r.detalle == pasado_de("CLAUDE.md", 16 * 1024, 16386), r
+
+
+def test_carga_entera_mide_solo_lo_que_la_instancia_carga_entero():
+    with Escenario() as e:
+        raiz = e.instancia()
+        grande = "x" * (64 * 1024)
+        for relativa in ("tickets/_plantilla/CLAUDE.md", "tickets/T-1/notas.md", ".claude/skills/capa-sql/references/largo.md",
+                         ".claude/skills/capa-sql/otra/SKILL.md", "docs/CLAUDE.md"):
+            poner(raiz, relativa, grande)
+        poner(e.base / "home", ".claude/skills/personal/SKILL.md", grande)
+        r = por_id(Falso(e.base, cwd=raiz))["carga-entera"]
+        assert r.estado == "OK" and r.detalle.startswith("ningún archivo que se carga entero"), r
 
 
 def test_instancia_hooks_no_aplica_si_la_raiz_no_esta_en_un_repo_git():

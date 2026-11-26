@@ -1932,11 +1932,6 @@ def test_al_crear_la_instancia_la_config_anota_en_plantillas_la_version_del_plug
         escrita = (e.raiz / "workspace.config.json").read_bytes()
         assert escrita == config_esperada(spec["config"]), escrita
         assert list(json.loads(escrita))[-1] == "plantillas", escrita
-        con_otra = e.spec()
-        con_otra["config"]["plantillas"] = "0.2.0"
-        raiz = e.base / "instancia-con-otra-version"
-        assert correr(["--spec", str(e.archivo_spec(con_otra)), "--raiz", str(raiz)])[0] == 0
-        assert json.loads((raiz / "workspace.config.json").read_bytes())["plantillas"] == VERSION_DEL_PLUGIN, "la copia es de esta versión"
     with Escenario() as e:
         for malo in ("0.2", "v0.2.0", 2, None):
             spec = e.spec()
@@ -1957,6 +1952,39 @@ def test_en_una_instancia_que_ya_existe_plantillas_no_cuenta_al_comparar_la_conf
             assert codigo == 0 and errores == "", (en_la_spec, codigo, errores)
             assert "ya existía workspace.config.json" in salida.splitlines(), salida
             assert (raiz / "workspace.config.json").read_bytes() == previa, en_la_spec
+
+
+def con_plantillas(spec, version):
+    spec["config"]["plantillas"] = version
+    return spec
+
+
+def test_al_crear_la_instancia_la_spec_no_puede_traer_otra_version_en_plantillas():
+    for otra in ("0.2.0", "99.0.0"):
+        mensaje = f"config.plantillas {otra!r} no va en la spec: al crear la instancia, el bootstrap anota la versión del plugin ({VERSION_DEL_PLUGIN})"
+        with Escenario() as e:
+            rechazada(e, con_plantillas(e.spec(), otra), mensaje)
+            try:
+                b().validar_spec(con_plantillas(e.spec(), otra))
+            except b().SpecInvalida as error:
+                assert str(error) == mensaje, str(error)
+            else:
+                raise AssertionError(f"validar_spec aceptó plantillas {otra}")
+    with Escenario() as e:
+        rechazada(e, con_plantillas(e.spec(), "0.2"), "la config no es válida: plantillas debe ser la versión del plugin con que se copiaron")
+    with Escenario() as e:
+        spec = e.spec()
+        spec["local"]["repos"]["repo-a"]["path"] = str(e.base / "no-existe")
+        rechazada(e, con_plantillas(spec, "0.2.0"), "la config no es válida: la ruta del repo 'repo-a' no existe")
+
+
+def test_al_crear_la_instancia_la_spec_puede_traer_en_plantillas_la_version_del_plugin_o_no_traerla():
+    for spec in (lambda e: con_plantillas(e.spec(), VERSION_DEL_PLUGIN), lambda e: e.spec()):
+        with Escenario() as e:
+            b().validar_spec(spec(e))
+            codigo, _, errores = correr(["--spec", str(e.archivo_spec(spec(e))), "--raiz", str(e.raiz)])
+            assert codigo == 0 and errores == "", (codigo, errores)
+            assert (e.raiz / "workspace.config.json").read_bytes() == config_esperada(e.spec()["config"])
 
 
 def test_la_spec_sigue_rechazando_plugin_root_en_local():

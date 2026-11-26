@@ -216,6 +216,16 @@ def _coincidir_con_lo_existente(spec, raiz):
             "el bootstrap no lo reescribe, así que la spec tiene que traerlo tal cual")
 
 
+def _validar_plantillas(config, raiz):
+    if config_loader.CLAVE_PLANTILLAS not in config or (raiz is not None and os.path.lexists(Path(raiz) / config_loader.NOMBRE)):
+        return
+    version, _ = plantillas_instancia.version_del_plugin(RAIZ_DEL_PLUGIN)
+    valor = config[config_loader.CLAVE_PLANTILLAS]
+    if valor != version:
+        raise SpecInvalida(f"config.{config_loader.CLAVE_PLANTILLAS} {valor!r} no va en la spec: al crear la instancia, el bootstrap anota "
+                           f"la versión del plugin ({version})")
+
+
 def validar_spec(spec, raiz=None):
     if not isinstance(spec, dict):
         raise SpecInvalida("la spec debe ser un objeto JSON")
@@ -239,6 +249,7 @@ def validar_spec(spec, raiz=None):
         if generador.validar is not None:
             generador.validar(spec)
     _validar_config(spec, raiz)
+    _validar_plantillas(spec["config"], raiz)
 
 
 def _config_con_plantillas(config):

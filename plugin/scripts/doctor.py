@@ -15,6 +15,7 @@ import plantilla_writer
 import verificar_capa
 from odd_ws import capas as convencion
 from odd_ws import desviaciones
+from odd_ws import entregas
 from odd_ws import fallas
 from odd_ws import hosts as registro_de_hosts
 from odd_ws import paquetes
@@ -110,6 +111,15 @@ AYUDA_DESVIACIONES = (f"Corrige esas filas en {desviaciones.ARCHIVO} (es tu arch
                       f"{','.join(desviaciones.ENCABEZADO)}; ubicacion es <repo>:<ruta>@<hash>:<ini>-<fin>, con un repo de "
                       f"{config_loader.NOMBRE}, o la <ruta> de un archivo de la instancia; fecha, AAAA-MM-DD, y cada id va una sola "
                       "vez. Mientras tanto, /odd-ws:revisar les pasa a los revisores solo las filas sanas.")
+CARGA_ENTERA = "carga-entera"
+TOPE_DEL_INDICE, TOPE_DEL_TICKET, TOPE_DE_UNA_SKILL = 16 * 1024, 32 * 1024, 17 * 1024
+LOS_TOPES = (f"{TOPE_DEL_INDICE // 1024} KiB el CLAUDE.md raíz, {TOPE_DEL_TICKET // 1024} KiB el de cada ticket activo y "
+             f"{TOPE_DE_UNA_SKILL // 1024} KiB cada SKILL.md de .claude/skills")
+SIN_CARGA_ENTERA = "ningún archivo que se carga entero: ni el CLAUDE.md raíz, ni el de un ticket activo, ni un SKILL.md de .claude/skills"
+AYUDA_CARGA_ENTERA = ("Cada sesión carga entero el CLAUDE.md raíz y el del ticket en que trabajas, y cada skill carga entero su SKILL.md: "
+                      "lo que pasa del tope se paga cada vez. Mueve el detalle a archivos que se leen a pedido: del CLAUDE.md raíz, a los "
+                      "docs que indexa; de un ticket, la bitácora vieja a un archivo aparte de su carpeta; de una skill, lo largo a su "
+                      "references/. Por ahora el tope no se configura.")
 GITATTRIBUTES = ".gitattributes"
 LINEA_EOL = f"{HOOKS_PATH}/* text eol=lf"
 AYUDA_PLUGIN = (f'Agrega "enabledPlugins": {{"{CLAVE_PLUGIN}": true}} a {SETTINGS} de la instancia (es tu archivo: el doctor no lo toca) '
@@ -403,8 +413,9 @@ def chequear_plantillas(ctx):
     if raiz is None:
         return []
     id = plantillas_instancia.ID
-    revision = plantillas_instancia.revisar(raiz, ctx.plugin)
-    if revision.rota:
+    config_rota = chequear_config(raiz).estado == FALTA
+    revision = None if config_rota else plantillas_instancia.revisar(raiz, ctx.plugin)
+    if config_rota or revision.rota:
         return [resultado(id, NO_APLICA, "la config está rota: lo dice el ítem config")]
     if revision.error:
         return [resultado(id, AVISO, revision.error, None, revision.ayuda)]
@@ -443,6 +454,36 @@ def chequear_desviaciones(ctx):
         return [resultado(id, OK, "sin desviaciones anotadas")]
     cuantas = "1 desviación anotada" if len(filas) == 1 else f"{len(filas)} desviaciones anotadas"
     return [resultado(id, OK, f"{cuantas} en {desviaciones.ARCHIVO}")]
+
+
+def cargados_enteros(raiz):
+    tickets = [(f"{convencion.TICKETS}/{ticket}/{convencion.INDICE}", TOPE_DEL_TICKET) for ticket in entregas.activos(raiz)]
+    skills = [(convencion.skill_de(ruta.parent.name), TOPE_DE_UNA_SKILL) for ruta in sorted(raiz.glob(convencion.skill_de("*")))]
+    return [(convencion.INDICE, TOPE_DEL_INDICE), *tickets, *skills]
+
+
+def tamano_de(ruta):
+    try:
+        return ruta.stat().st_size if ruta.is_file() else None
+    except OSError:
+        return None
+
+
+def chequear_carga_entera(ctx):
+    raiz = raiz_de_instancia(ctx)
+    if raiz is None:
+        return []
+    medidos = [(relativa, tope, tamano) for relativa, tope in cargados_enteros(raiz) for tamano in [tamano_de(raiz / relativa)]
+               if tamano is not None]
+    pasados = [f"{relativa} pesa {tamano} bytes y su tope es {tope} ({tope // 1024} KiB)" for relativa, tope, tamano in medidos
+               if tamano > tope]
+    if pasados:
+        return [resultado(CARGA_ENTERA, AVISO, "; ".join(pasados), None, AYUDA_CARGA_ENTERA)]
+    if not medidos:
+        return [resultado(CARGA_ENTERA, OK, SIN_CARGA_ENTERA)]
+    if len(medidos) == 1:
+        return [resultado(CARGA_ENTERA, OK, f"1 archivo que se carga entero, y no pasa de su tope: {LOS_TOPES}")]
+    return [resultado(CARGA_ENTERA, OK, f"{len(medidos)} archivos que se cargan enteros, y ninguno pasa de su tope: {LOS_TOPES}")]
 
 
 def chequear_perfil(ctx):
@@ -921,6 +962,7 @@ def diagnosticar(ctx):
         *chequear_fallas_de_hooks(ctx),
         *chequear_plantillas(ctx),
         *chequear_desviaciones(ctx),
+        *chequear_carga_entera(ctx),
         *chequear_writers(ctx),
         *chequear_paquetes(ctx),
         *chequear_agentes(ctx, versiones),
