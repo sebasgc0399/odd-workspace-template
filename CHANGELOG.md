@@ -22,10 +22,10 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 
 ### Detalle técnico
 
-- **El historial de las plantillas (I96).** `plugin/plantillas/historial/<hash>` guarda el texto de cada plantilla de cada versión publicada, sin renderizar. El nombre es el sha256 del contenido, el mismo de `huellas.json`, así que cada archivo se verifica solo. Lo escribe `tools/huellas.py`, que solo suma, y el pre-push exige que esté completo.
+- **El historial de las plantillas (I96).** `plugin/plantillas/historial/<hash>` guarda el texto de cada plantilla de cada versión publicada, con `{{nombre}}` sin renderizar. El nombre es el sha256 del contenido, el mismo de `huellas.json`, así que cada archivo se verifica solo. Lo escribe `tools/huellas.py`, que solo suma, y el pre-push exige que esté completo.
 - **`fusionar_plantillas.py`** usa `git merge-file -p` sobre temporales y respeta tu `merge.conflictStyle`. Sale con 0, con la cantidad de conflictos o con 255 por un error, y escribe de forma atómica, nunca a través de un enlace.
 - **El triaje sin un git por archivo (S4) y la huella por lotes (S7).**
-  - El triaje corre, por repo, un diff y un `cat-file --batch`, y les pasa a los chequeos lo que ya sabe.
+  - El triaje corre, por repo, dos diffs (el suyo, sin `textconv`, y el que ven los chequeos de capa, con la forma del hook) y un `cat-file --batch`, y les pasa a los chequeos lo que ya sabe.
   - `recibo.calcular` corre, por repo, un `cat-file --batch-check`, un `ls-files -s -z` y un diff con las rutas como pathspec literal. Cada bloque es el que da el diff de esa ruta sola, así que la huella sale idéntica byte a byte.
   - Con 50 archivos, de 466 a 22 procesos de git. Las rutas raras (saltos de línea, submódulos, conflictos) siguen archivo por archivo.
 - **El pathspec literal (S8).** El `ls-files` y el diff por archivo de `armar_ctx` leen la ruta como literal, y sin `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` ni `GIT_ICASE_PATHSPECS`, que junto al literal hacen fallar a git.
