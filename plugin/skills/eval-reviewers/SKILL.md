@@ -46,7 +46,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 
    - **CONTAMINADO** (un `Read` bajo una ruta prohibida): la corrida no cuenta, salvo que se demuestre que ese archivo no traía la verdad de terreno. Se puntúa `contaminado`.
    - **EXPOSICIÓN** (un `Grep` o un `Glob` cuyo alcance toca una ruta prohibida): significa «pudo ver», no «vio». Se resuelve leyendo el reporte. Un `Glob` solo revela nombres.
-   - **En Codex** las lecturas son comandos del shell (`CommandExecution`), y la auditoría no los sabe mirar: salen como «NO auditados» y no cuentan como lecturas auditadas. Esa corrida queda sin auditoría de su ceguera, y se dice.
+   - **SIN AUDITAR** (ninguna lectura auditada y alguna herramienta «NO auditada»): no se miró nada, así que la ceguera no está probada y la corrida no cuenta como limpia; sale con 1. Pasa en Codex, donde las lecturas son comandos del shell (`CommandExecution`) que la auditoría no sabe mirar. Al puntuarla, se dice que su ceguera no se auditó.
    - **`--ceguera-fisica`** baja a info solo lo que estaba fuera del disco (las rutas que pasan por una carpeta `revision`). Úsalo solo si la verdad de terreno estuvo de verdad fuera del disco.
 7. **Puntuar.** Un veredicto por celda (corrida × observación), con la cita del reporte, en `puntajes.json`. La escala es fija:
 
@@ -108,5 +108,5 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 | Script | Para qué | Salidas |
 |---|---|---|
 | `rescatar.py` | reporte, prompt, lecturas y comandos desde el `.jsonl` del subagente | 0 ok · 1 corrida sin reporte · 2 error |
-| `auditar_lecturas.py` | cruza `Read`, `Grep` y `Glob` con las rutas prohibidas | 0 limpio · 1 exposición o contaminado · 2 error |
+| `auditar_lecturas.py` | cruza `Read`, `Grep` y `Glob` con las rutas prohibidas | 0 limpio · 1 exposición, contaminado o sin auditar · 2 error |
 | `puntuar.py` | puntaje, brazos, tabla pareada y ratificación | 0 ok · 1 filas pendientes · 2 error |

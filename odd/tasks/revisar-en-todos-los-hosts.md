@@ -35,7 +35,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S3 | El rescate en Codex y las formas de veredicto, los dos en `rescatar.py` | un writer, en paralelo con T2 (motivo: dos unidades con superficies disjuntas, de varios minutos cada una) | hecha (L4) | `103eec9` |
 | T2 | S2 | Los tres textos que engañan | un writer, en paralelo con T1 | hecha (L3) | `300140a` |
-| T3 | S4 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L5); verificador en curso | |
+| T3 | S4 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | hecha (L5, L6): los tres bloqueantes corregidos | `09b8111` y la corrección |
 
 ## Log
 
@@ -104,3 +104,24 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - el roadmap da por hechas R22 e I53, y lleva las ideas hasta la I99;
     - `huellas.py`: 137 huellas de 31 versiones. Ninguna plantilla cambió: el historial sigue con 15 textos.
   - **Falta:** el verificador independiente sobre toda la feature, desde `5fbcfc7` (la `0.19.0` publicada), y el CI.
+- **L6** (2026-11-26) El verificador independiente, sobre `09b8111` contra `5fbcfc7` (la `0.19.0` publicada).
+  - **Veredicto:** S1 y S3 PASS en el código, con el rollout real de L2. S2 y S4 FAIL por tres bloqueantes.
+  - **B1.** `auditar_lecturas.py` todavía daba `[LIMPIO]` con exit 0 a una corrida de Codex sin ninguna lectura auditada, y el CHANGELOG decía que ya no. Exit 0 es «limpio» en la tabla de `eval-reviewers`, así que se corrigió el código: un archivo sin ninguna lectura auditada y con alguna `no_auditadas` sale `[SIN AUDITAR]`, con exit 1. Claude Code y Pi no cambian, salvo una corrida que solo usó el shell, que tampoco se miró.
+  - **B2.** El final nuevo del primer toque decía «la pausa de abajo», pero en un parche de Codex los textos siguen el orden del parche y la pausa puede quedar arriba. Ahora dice «(el reintento se frena en la pausa)», con una prueba de la pausa arriba.
+  - **B3.** `references/rescate.md` decía que una devolución de varias líneas sigue siendo el reporte, y la excepción es el encabezado con las cuentas en la línea siguiente. Ahora la nombra.
+  - **Dos advertencias que se corrigieron en la misma tanda:**
+    - A1: buscar el `thread_id` por el `agent_path` era ambiguo, porque el rollout del orquestador también lo nombra y una segunda ronda reusa el `task_name`. `hosts.md` dice ahora que se mira solo la primera línea de cada rollout y que cada corrida lleva un `task_name` con el ticket y la ronda;
+    - A2: `--corrida` aceptaba un pedazo del id, como su último grupo. Ahora exige el `thread_id` entero, con la forma de Codex.
+  - **La recomprobación, en el orquestador, limitada a los bloqueantes:**
+    - la reproducción de B1 del verificador da `[SIN AUDITAR]` y exit 1;
+    - `auditar_lecturas` 38/38, `rescatar` 82/82 y `verificar_capa` 172/172;
+    - no queda «pausa de abajo» fuera de este documento;
+    - `rescate.md` nombra la excepción.
+    - Los writers corrieron además `puntuar`, `registro`, los adaptadores de los tres hosts y node, en verde, con un `GIT_INDEX_FILE` ajeno; y dos mutantes por B1 y A2, atrapados.
+  - **Advertencias que quedan como seguimientos:**
+    - la línea `ok` del rescate dice «sin .prompt.txt» aunque el orquestador lo haya guardado;
+    - `--costo` con un `FAIL` escribe igual el `costo.json` (ya en la base);
+    - una línea de veredicto que no es la última del mensaje queda en el reporte;
+    - un `PostToolUse` de Claude Code sobre un archivo borrado del disco ahora muestra el porqué de `HEAD` (no es realista).
+  - **El CI** dio verde en los 3 sistemas sobre `09b8111`. Falta el de la punta con la corrección.
+  - **Scratch:** el del verificador, `%TEMP%\tmp.iizkwsSuuo`, y los de los writers, `%TEMP%\tmp.0QtEBnarWg` y `%TEMP%\tmp.g5uLRYZisd`. Van a la limpieza del autor.

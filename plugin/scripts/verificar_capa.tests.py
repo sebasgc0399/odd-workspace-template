@@ -3126,7 +3126,7 @@ def test_porque_en_pi_la_pausa_pregunta_con_pantalla_y_sin_ella_bloquea_con_el_t
 
 HERRAMIENTAS_DE_EDICION = {"claude-code": "Edit", "codex": "apply_patch", "pi": "edit"}
 REINTENTO_QUE_PASA = "(el reintento pasa)."
-REINTENTO_FRENADO = "(el reintento se frena en la pausa de abajo)."
+REINTENTO_FRENADO = "(el reintento se frena en la pausa)."
 
 
 def encabezado_del_primer_toque(herramienta, cierre=REINTENTO_QUE_PASA):
@@ -3209,6 +3209,24 @@ def test_codex_el_primer_toque_de_un_archivo_con_la_pausa_de_otro_tampoco_dice_q
         motivo = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
         primera = encabezado_del_primer_toque("apply_patch", REINTENTO_FRENADO).replace("capa-sql", "capa-web").replace("capa sql", "capa web")
         assert motivo == primera + "\n" + (REGLA % "WEB") + "\n\n" + pausa_de_ventas(w), motivo
+        reintento = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
+        assert reintento == pausa_de_ventas(w) + "\n" + de_codex.SIN_CONFIRMACION_DE_EDICION, reintento
+
+
+def test_codex_con_la_pausa_arriba_del_primer_toque_el_encabezado_no_la_ubica_abajo():
+    from odd_ws.hosts import codex as de_codex
+    with git_aislado(), Porque() as w:
+        for capa in ("sql", "web"):
+            escribir(w.raiz, ".claude/skills/capa-%s/SKILL.md" % capa, skill(capa))
+        w.desviacion(5, 6)
+        otro_sql = parche_codex("*** Update File: %s" % (w.db / "src" / "base.sql"), "@@", "-x", "+y")
+        assert negado_en_codex(M.correr(codex(otro_sql), raiz=w.raiz, plazo=25, host="codex")).startswith("primer toque (capa-sql)")
+        cs = escribir(w.web, "Core/A.cs", "int a;\n")
+        texto = parche_codex("*** Update File: %s" % w.ventas, "@@", " linea 04", "-redondeo 05", "+cinco",
+                             "*** Update File: %s" % cs, "@@", "-int a;", "+int b;")
+        motivo = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
+        primera = encabezado_del_primer_toque("apply_patch", REINTENTO_FRENADO).replace("capa-sql", "capa-web").replace("capa sql", "capa web")
+        assert motivo == pausa_de_ventas(w) + "\n\n" + primera + "\n" + (REGLA % "WEB"), motivo
         reintento = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
         assert reintento == pausa_de_ventas(w) + "\n" + de_codex.SIN_CONFIRMACION_DE_EDICION, reintento
 

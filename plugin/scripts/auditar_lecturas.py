@@ -18,6 +18,7 @@ from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, leer
 EQUIVALENTES = {**{h: h for h in LECTURA}, **{pi.HERRAMIENTAS[h]: h for h in LECTURA}}
 _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _MSYS = re.compile(r"^/([A-Za-z])(?:/|$)")
+SIN_AUDITAR = "sin_auditar"
 
 
 def _ruta_de_texto(ruta, cwd):
@@ -236,7 +237,7 @@ def _imprimir(informe, ver):
     print("auditar_lecturas: %d archivo(s); %d regla(s) prohibida(s), %d permitida(s); ceguera fisica: %s"
           % (len(informe["archivos"]), len(informe["reglas"]["prohibidas"]),
              len(informe["reglas"]["permitidas"]), "si" if informe["ceguera_fisica"] else "no"))
-    marca = {"contaminado": "CONTAMINADO", "exposicion": "EXPOSICION", "limpio": "LIMPIO"}
+    marca = {"contaminado": "CONTAMINADO", "exposicion": "EXPOSICION", "limpio": "LIMPIO", SIN_AUDITAR: "SIN AUDITAR"}
     for a in informe["archivos"]:
         print("\n[%s] %s  (agente %s, %d lecturas auditadas)" % (
             marca[a["estado"]], a["fuente"], a["agente"], a["total"]))
@@ -256,10 +257,13 @@ def _imprimir(informe, ver):
         if ocultos and not ver:
             print("   (%d hallazgo(s) en INFO por ceguera fisica; --v los lista)" % ocultos)
     r = informe["resumen"]
-    print("\nRESUMEN: %d limpio(s), %d con exposicion posible, %d contaminado(s)"
-          % (r["limpio"], r["exposicion"], r["contaminado"]))
+    print("\nRESUMEN: %d limpio(s), %d con exposicion posible, %d contaminado(s)%s"
+          % (r["limpio"], r["exposicion"], r["contaminado"], ", %d sin auditar" % r[SIN_AUDITAR] if r.get(SIN_AUDITAR) else ""))
     print("Recordatorio: EXPOSICION es «pudo ver», no «vio» -- se resuelve leyendo el reporte (¿cito algo")
     print("de esa ruta?). CONTAMINADO descarta la corrida de la medicion salvo prueba en contrario.")
+    if r.get(SIN_AUDITAR):
+        print("SIN AUDITAR es «no se miro»: ninguna lectura de la corrida se pudo auditar (en Codex, los comandos del")
+        print("shell), asi que su ceguera no queda probada y la corrida no cuenta como limpia.")
 
 
 def main(argv=None):
@@ -314,11 +318,13 @@ def main(argv=None):
             print("aviso %s: %d linea(s) no se pudieron leer y se saltearon" % (fuente, datos["salteadas"]), file=sys.stderr)
         informe = auditar(datos["lecturas"], reglas, cwd, args.ceguera_fisica)
         informe.update({"fuente": str(fuente), "agente": datos["agente"], "no_auditadas": datos["no_auditadas"]})
+        if not informe["total"] and informe["no_auditadas"]:
+            informe["estado"] = SIN_AUDITAR
         archivos.append(informe)
 
     conteo = {"limpio": 0, "exposicion": 0, "contaminado": 0}
     for a in archivos:
-        conteo[a["estado"]] += 1
+        conteo[a["estado"]] = conteo.get(a["estado"], 0) + 1
     informe_total = {"ceguera_fisica": args.ceguera_fisica, "cwd": cwd,
                      "reglas": {"prohibidas": prohibidas, "permitidas": permitidas},
                      "archivos": archivos, "resumen": conteo}
@@ -328,7 +334,7 @@ def main(argv=None):
         print(json.dumps(informe_total, ensure_ascii=False, indent=1))
     else:
         _imprimir(informe_total, args.v)
-    return 1 if (conteo["exposicion"] or conteo["contaminado"]) else 0
+    return 1 if (conteo["exposicion"] or conteo["contaminado"] or conteo.get(SIN_AUDITAR)) else 0
 
 
 if __name__ == "__main__":

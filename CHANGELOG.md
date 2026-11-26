@@ -11,7 +11,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
 - **En Codex, `/odd-ws:revisar` rescata a los revisores.** `rescatar.py --host codex --corrida <nombre>=<thread_id>` lee el rollout del revisor en tu `CODEX_HOME` y guarda su reporte, sus lecturas y su costo, como en los otros hosts.
   - En Codex, el prompt del revisor viaja cifrado: lo guarda el orquestador antes de lanzarlo, y el rescate tapa sus secretos.
   - `references/hosts.md` dice cómo lanzar al revisor a ciegas (`fork_turns: "none"`) y cómo encontrar su `thread_id`.
-- **La auditoría de lecturas ya no da limpio lo que no mira:** una lectura que no sabe auditar, como un comando de shell de Codex, sale como no auditada.
+- **La auditoría de lecturas ya no da limpio lo que no mira:** una lectura que no sabe auditar, como un comando de shell de Codex, sale como no auditada, y una corrida sin ninguna lectura auditada sale `SIN AUDITAR`, con código 1, porque su ceguera no está probada. Pasa también con una corrida de Claude Code o Pi que solo usó el shell.
 - **El primer toque con la pausa:** si la misma edición toca una desviación, el bloqueo del primer toque ya no te dice que el reintento pasa; te dice que se frena en la pausa.
 - **En Pi, el rechazo de una edición dice «esta edición queda bloqueada»,** no «este comando».
 - **En Codex, mover un archivo con un cambio ya no deja la edición sin su porqué:** sale el del origen, desde `HEAD`.
@@ -25,6 +25,8 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - Las lecturas son los `item_completed` de tipo `CommandExecution`.
   - El costo suma los `token_usage_record`. En Codex, la caché leída está dentro de la entrada.
   - El rescate exige un `agent_role` de revisor.
+  - `--corrida` pide el `thread_id` entero; uno parcial es un error de uso, porque por el glob podría encontrar el rollout de otro hilo.
+  - Para encontrar el `thread_id`, el orquestador mira solo la primera línea de cada rollout, y cada corrida lleva un `task_name` con el ticket y la ronda.
 - **Un límite de Codex:** el orquestador recibe el reporte entero del revisor, no solo el veredicto, así que ahí no se cumple el ahorro de la `0.15.0` (I35).
 - **La corrida real que lo sostiene** fue una sola, con Codex 0.171: el 0.144 esconde `agent_type`.
 - **`porque.contexto`** busca en `HEAD` el origen de un `Move to` con texto reemplazado, y calla si no está.

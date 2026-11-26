@@ -505,22 +505,55 @@ def test_lo_que_rescatar_guarda_llega_al_informe_de_auditar():
         assert codigo == 0 and json.loads(salida)["archivos"][0]["no_auditadas"] == {"Bash": 2}, (codigo, salida)
 
 
+COMANDO_DE_CODEX = {"tool": "CommandExecution", "input": {"command": ["powershell.exe", "-Command", "Get-Content -Raw secreto/x.md"],
+                                                          "cwd": "file:///C:/inst"}, "exit": 0}
+RECORDATORIO = ["Recordatorio: EXPOSICION es «pudo ver», no «vio» -- se resuelve leyendo el reporte (¿cito algo",
+                "de esa ruta?). CONTAMINADO descarta la corrida de la medicion salvo prueba en contrario."]
+
+
 def test_cli_las_lecturas_que_no_sabe_auditar_no_cuentan_como_auditadas_y_salen_como_no_auditadas():
-    comando = {"tool": "CommandExecution", "input": {"command": ["powershell.exe", "-Command", "Get-Content -Raw secreto/x.md"],
-                                                     "cwd": "file:///C:/inst"}, "exit": 0}
     with Temporal() as base:
-        de_codex = lecturas_json(base, "codex.lecturas.json", [comando, dict(comando, exit=1)], agente="hilo", no_auditadas={})
-        mezcla = lecturas_json(base, "mezcla.lecturas.json", [lectura("Read", file_path=SECRETO + "\\x.md"), comando],
+        de_codex = lecturas_json(base, "codex.lecturas.json", [COMANDO_DE_CODEX, dict(COMANDO_DE_CODEX, exit=1)], agente="hilo",
+                                 no_auditadas={})
+        mezcla = lecturas_json(base, "mezcla.lecturas.json", [lectura("Read", file_path=SECRETO + "\\x.md"), COMANDO_DE_CODEX],
                                no_auditadas={"Bash": 1})
         codigo, salida, error = cli(de_codex, mezcla, "--prohibida", SECRETO, "--cwd", CWD, "--json")
         assert (codigo, error) == (1, ""), (codigo, salida, error)
         codex, otra = json.loads(salida)["archivos"]
-        assert (codex["total"], codex["estado"], codex["hallazgos"], codex["no_auditadas"]) == (
-            0, "limpio", [], {"CommandExecution": 2}), codex
+        assert (codex["total"], codex["hallazgos"], codex["no_auditadas"]) == (0, [], {"CommandExecution": 2}), codex
         assert (otra["total"], otra["estado"], otra["no_auditadas"]) == (1, "contaminado", {"Bash": 1, "CommandExecution": 1}), otra
         assert [h["indice"] for h in otra["hallazgos"]] == [0], otra
-        codigo, salida, _ = cli(de_codex, "--prohibida", SECRETO, "--cwd", CWD)
-        assert codigo == 0 and "(agente hilo, 0 lecturas auditadas)\n   aviso: herramientas NO auditadas: CommandExecution x2" in salida, salida
+
+
+def test_cli_un_archivo_sin_ninguna_lectura_auditada_y_con_no_auditadas_queda_sin_auditar_y_sale_con_1():
+    with Temporal() as base:
+        de_codex = lecturas_json(base, "codex.lecturas.json", [COMANDO_DE_CODEX, dict(COMANDO_DE_CODEX, exit=1)], agente="hilo",
+                                 no_auditadas={})
+        vacio = lecturas_json(base, "vacio.lecturas.json", [], agente="v", no_auditadas={})
+        solo_bash = lecturas_json(base, "bash.lecturas.json", [], agente="b", no_auditadas={"Bash": 2})
+        codigo, salida, error = cli(de_codex, vacio, solo_bash, "--prohibida", SECRETO, "--cwd", CWD, "--json")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        informe = json.loads(salida)
+        codex, nada, bash = informe["archivos"]
+        assert (codex["total"], codex["estado"], codex["hallazgos"], codex["no_auditadas"]) == (
+            0, "sin_auditar", [], {"CommandExecution": 2}), codex
+        assert (nada["total"], nada["estado"], bash["estado"]) == (0, "limpio", "sin_auditar"), (nada, bash)
+        assert informe["resumen"] == {"limpio": 1, "exposicion": 0, "contaminado": 0, "sin_auditar": 2}, informe["resumen"]
+        codigo, salida, error = cli(de_codex, "--prohibida", SECRETO, "--cwd", CWD)
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        assert salida.splitlines() == [
+            "auditar_lecturas: 1 archivo(s); 1 regla(s) prohibida(s), 0 permitida(s); ceguera fisica: no",
+            "",
+            "[SIN AUDITAR] %s  (agente hilo, 0 lecturas auditadas)" % de_codex,
+            "   aviso: herramientas NO auditadas: CommandExecution x2",
+            "",
+            "RESUMEN: 0 limpio(s), 0 con exposicion posible, 0 contaminado(s), 1 sin auditar",
+            *RECORDATORIO,
+            "SIN AUDITAR es «no se miro»: ninguna lectura de la corrida se pudo auditar (en Codex, los comandos del",
+            "shell), asi que su ceguera no queda probada y la corrida no cuenta como limpia."], salida.splitlines()
+        codigo, salida, error = cli(vacio, "--prohibida", SECRETO, "--cwd", CWD)
+        assert (codigo, error) == (0, "") and salida.splitlines()[-3:] == [
+            "RESUMEN: 1 limpio(s), 0 con exposicion posible, 0 contaminado(s)", *RECORDATORIO], salida
 
 
 LECTURAS_CLAUDE_CODE = [lectura("Read", file_path=SECRETO + "\\x.md"), lectura("Read", file_path="C:\\inst\\a.md"),

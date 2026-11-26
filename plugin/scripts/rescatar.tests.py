@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import json
 import os
@@ -1217,6 +1218,11 @@ COSTO_CODEX = {"turnos": 3, "contexto_inicial": 21198, "contexto_final": 29649, 
                "costo_usd": None}
 
 
+def hilo_de(nombre):
+    h = hashlib.md5(nombre.encode("utf-8")).hexdigest()
+    return "%s-%s-%s-%s-%s" % (h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+
+
 def meta_codex(rol="revisor-capa-a", subagente=True):
     carga = {"session_id": PADRE_CODEX, "id": HILO_CODEX, "timestamp": "2026-11-26T16:23:40.111Z", "cwd": "C:\\inst",
              "originator": "codex_exec", "cli_version": "0.171.0-alpha.13.2", "model_provider": "openai"}
@@ -1369,35 +1375,37 @@ def test_codex_costo_cuenta_la_cache_leida_dentro_de_la_entrada_y_deja_al_orques
 def test_codex_un_hilo_que_no_es_de_un_revisor_falla_y_no_escribe_nada():
     with Temporal() as base:
         guardar_rollout(base / "codex", rollout_codex())
-        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex("writer-capa-a")), hilo="hilo-del-writer")
-        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(subagente=False)), hilo="hilo-con-historia")
-        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(None)), hilo="hilo-sin-rol")
-        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=hilo-del-writer",
-                                          "--corrida", "c3=hilo-con-historia", "--corrida", "c4=hilo-sin-rol")
+        writer, historia, sin_rol = hilo_de("writer"), hilo_de("historia"), hilo_de("sin-rol")
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex("writer-capa-a")), hilo=writer)
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(subagente=False)), hilo=historia)
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(None)), hilo=sin_rol)
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=" + writer,
+                                          "--corrida", "c3=" + historia, "--corrida", "c4=" + sin_rol)
         assert (codigo, error) == (1, ""), (codigo, salida, error)
         lanzar = 'lanza cada revisor con su agent_type y fork_turns "none"'
         assert salida.splitlines()[1:] == [
-            "FAIL c2: el hilo hilo-del-writer es de writer-capa-a, no de un revisor, no se escribio nada: %s" % lanzar,
-            "FAIL c3: el hilo hilo-con-historia es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % lanzar,
-            "FAIL c4: el hilo hilo-sin-rol es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % lanzar], salida
+            "FAIL c2: el hilo %s es de writer-capa-a, no de un revisor, no se escribio nada: %s" % (writer, lanzar),
+            "FAIL c3: el hilo %s es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % (historia, lanzar),
+            "FAIL c4: el hilo %s es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % (sin_rol, lanzar)], salida
         assert sorted(p.name for p in (base / "d").iterdir()) == ["c1.lecturas.json", "c1.md"]
 
 
 def test_codex_una_corrida_cortada_o_que_solo_devolvio_el_veredicto_falla_y_el_reporte_puede_ir_antes_del_veredicto():
     with Temporal() as base:
         solo = "VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION"
-        guardar_rollout(base / "codex", rollout_codex(fin=False), hilo="cortado")
-        guardar_rollout(base / "codex", rollout_codex(final=None), hilo="sin-mensaje")
-        guardar_rollout(base / "codex", rollout_codex(final=solo), hilo="solo")
+        cortado, sin_mensaje = hilo_de("cortado"), hilo_de("sin-mensaje")
+        guardar_rollout(base / "codex", rollout_codex(fin=False), hilo=cortado)
+        guardar_rollout(base / "codex", rollout_codex(final=None), hilo=sin_mensaje)
+        guardar_rollout(base / "codex", rollout_codex(final=solo), hilo=hilo_de("solo"))
         previo = items_codex(solo)
         previo.insert(-2, mensaje_codex("## Hallazgos\n[WARNING] sin ID a.ext:7 — divide por cero — valida la lista vacía"))
-        guardar_rollout(base / "codex", rollout_codex(final=solo, items=previo), hilo="previo")
-        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=cortado", "--corrida", "c2=sin-mensaje",
-                                          "--corrida", "c3=solo", "--corrida", "c4=previo")
+        guardar_rollout(base / "codex", rollout_codex(final=solo, items=previo), hilo=hilo_de("previo"))
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + cortado, "--corrida", "c2=" + sin_mensaje,
+                                          "--corrida", "c3=" + hilo_de("solo"), "--corrida", "c4=" + hilo_de("previo"))
         assert (codigo, error) == (1, ""), (codigo, salida, error)
         assert salida.splitlines() == [
-            "FAIL c1: hilo cortado sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada",
-            "FAIL c2: hilo sin-mensaje sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada",
+            "FAIL c1: hilo %s sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada" % cortado,
+            "FAIL c2: hilo %s sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada" % sin_mensaje,
             "FAIL c3: el revisor devolvio solo el veredicto y su reporte no quedo como texto antes de la devolucion, 2 lecturas, "
             "no se escribio nada",
             "ok   c4: 79 car., 2 lecturas, revisor-capa-a/%s%s" % (MODELO_CODEX, SIN_PROMPT_CODEX)], salida
@@ -1453,20 +1461,23 @@ def test_codex_busca_el_hilo_en_el_codex_home_y_sesion_lo_reemplaza():
 def test_codex_un_hilo_que_no_existe_o_no_se_lee_es_un_fail_y_sin_carpeta_o_con_un_id_raro_sale_con_2():
     with Temporal() as base:
         guardar_rollout(base / "codex", rollout_codex())
-        guardar_rollout(base / "codex", ["{roto", json.dumps({"type": "event_msg", "payload": {}})], hilo="roto")
-        guardar_rollout(base / "codex", [], hilo="vacio")
+        nada, roto, vacio_ = hilo_de("nada"), hilo_de("roto"), hilo_de("vacio")
+        guardar_rollout(base / "codex", ["{roto", json.dumps({"type": "event_msg", "payload": {}})], hilo=roto)
+        guardar_rollout(base / "codex", [], hilo=vacio_)
         sesiones = base / "codex" / "sessions"
-        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=nada",
-                                          "--corrida", "c3=roto", "--corrida", "c4=vacio")
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=" + nada,
+                                          "--corrida", "c3=" + roto, "--corrida", "c4=" + vacio_)
         assert (codigo, error) == (1, ""), (codigo, salida, error)
         assert salida.splitlines()[1:] == [
-            "FAIL c2: no existe rollout-*-nada.jsonl en %s" % sesiones,
-            "FAIL c3: rollout-*-roto.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada",
-            "FAIL c4: rollout-*-vacio.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada"], salida
+            "FAIL c2: no existe rollout-*-%s.jsonl en %s" % (nada, sesiones),
+            "FAIL c3: rollout-*-%s.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada" % roto,
+            "FAIL c4: rollout-*-%s.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada" % vacio_], salida
         vacio = base / "vacio"
         assert cli_codex(base, "--destino", base / "d2", "--corrida", "c=" + HILO_CODEX, entorno={"CODEX_HOME": str(vacio)}) == (
             2, "rescatar: no existe la carpeta de sesiones de Codex %s\n" % (vacio / "sessions"), "")
-        for corrida in ("c=../x", "c=*", "c=a?b", "c=[0-9]", "c=", "sin-igual"):
+        parciales = ("c=" + HILO_CODEX.rsplit("-", 1)[1], "c=" + HILO_CODEX[:-1], "c=" + HILO_CODEX + "0", "c=" + HILO_CODEX.upper(),
+                     "c=" + HILO_CODEX.replace("-", ""), "c=nada", "c=" + HILO_CODEX[:8] + "-*")
+        for corrida in ("c=../x", "c=*", "c=a?b", "c=[0-9]", "c=", "sin-igual") + parciales:
             assert cli_codex(base, "--destino", base / "d3", "--corrida", corrida) == (
                 2, "rescatar: --corrida espera <nombre>=<thread_id>, recibio %r\n" % corrida, ""), corrida
         assert not (base / "d2").exists() and not (base / "d3").exists()

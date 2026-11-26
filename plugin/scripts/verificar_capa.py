@@ -54,7 +54,7 @@ ESCAPES_DE_GIT = {ord(c): v for c, v in zip('abtnvfr"\\', b'\a\b\t\n\v\f\r"\\')}
 NOMBRE_DE_LA_FASE = {"pre": "PreToolUse", "post": "PostToolUse"}
 PATHSPECS_DEL_ENTORNO = ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
 REINTENTO_QUE_PASA = "el reintento pasa"
-REINTENTO_FRENADO = "el reintento se frena en la pausa de abajo"
+REINTENTO_FRENADO = "el reintento se frena en la pausa"
 
 _LIMITE = None
 _HOST = HOST_POR_DEFECTO

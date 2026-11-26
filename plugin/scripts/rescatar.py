@@ -24,6 +24,7 @@ LECTURA_PI = tuple(pi.HERRAMIENTAS[h] for h in LECTURA)
 SHELL_PI = tuple(pi.DIALECTOS)
 COMPLETADA = "completed"
 TAREA_RE = re.compile(r"[A-Za-z0-9-]+")
+HILO_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 SESIONES_CODEX = "sessions"
 ROLLOUT_CODEX = "*/*/*/rollout-*-%s.jsonl"
 REVISOR_RE = re.compile(r"revisor-[a-z0-9][a-z0-9-]*")
@@ -644,7 +645,8 @@ def _parsear_corridas(crudas, host=CLAUDE_CODE):
     for c in crudas:
         nombre, igual, agente = c.partition("=")
         nombre, agente = nombre.strip(), agente.strip()
-        if not igual or not nombre or not agente or (host in (PI, CODEX) and not TAREA_RE.fullmatch(agente)):
+        formato = {PI: TAREA_RE, CODEX: HILO_RE}.get(host)
+        if not igual or not nombre or not agente or (formato is not None and not formato.fullmatch(agente)):
             raise ValueError("--corrida espera %s, recibio %r" % (forma, c))
         if host == CLAUDE_CODE and agente.startswith("agent-"):
             agente = agente[len("agent-"):]
@@ -689,7 +691,7 @@ def _parser():
     parser.add_argument("--destino", help="carpeta donde se escriben los archivos de cada corrida")
     parser.add_argument("--corrida", action="append", metavar="NOMBRE=AGENTID",
                         help="repetible; el nombre es el de los archivos a escribir; con --host pi va el task_id; con --host "
-                             "codex, el thread_id")
+                             "codex, el thread_id entero (8-4-4-4-12 en hexadecimal)")
     parser.add_argument("--costo", action="store_true",
                         help="escribe tambien costo.json en --destino, que tiene que ser %s: el modo de la carpeta, "
                              "los motivos de entrada/triaje.json, el costo de cada corrida, las lineas de entrada/*.diff, "
