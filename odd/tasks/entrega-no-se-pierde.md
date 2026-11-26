@@ -61,9 +61,9 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | `83237a3` |
 | T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `7ae8339` |
-| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | hecha (L8) | |
+| T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | hecha (L8) | `1241b72` |
 | T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `f302ecb` |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | pendiente | |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L9); verificador pendiente; sin publicar | |
 
 ## Log
 
@@ -180,3 +180,12 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **La diferencial contra `f302ecb`:** 63 corridas, sin diferencias. Las huellas que confirmó la base siguen valiendo.
   - **Risk: ítem 4.** Un pool de hilos con un plazo compartido, que lanza procesos desde hilos en Windows. Lo revisa el verificador de la versión.
   - **Scratch del writer:** `%TEMP%\tmp.unH9Z3oBpB`. Va a la limpieza del autor.
+- **L9** (2026-11-25) T3, la versión, inline.
+  - **La `0.17.0` quedó en:**
+    - los dos `plugin.json` y el `package.json`;
+    - el README;
+    - `Doc/actualizar.md:28` y `Doc/uso.md:66`.
+  - **El CHANGELOG** suma su sección. Esta versión no cambia ninguna plantilla de la instancia.
+  - **`tools/huellas.py`** dio 122 huellas de 28 versiones, hasta la `0.17.0`, con `HEAD` sobre las etiquetas de la `0.14.0` a la `0.16.0`.
+  - **En el roadmap,** R19 queda «lista, sin publicar», con I83 e I84 «lista (`0.17.0`, sin publicar)».
+  - **Falta el verificador independiente,** por los ítems 1 (el `fetch` de la auditoría) y 4 (el pool de hilos del aviso). Publicar lleva el ok del autor: su autorización llegó solo hasta la `0.16.0`.
