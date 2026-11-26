@@ -293,6 +293,12 @@ def test_una_excepcion_en_un_hilo_deja_esa_lectura_como_ilegible_y_no_pierde_las
         assert not (raiz / ".claude" / "estado" / "entregas.json").exists()
 
 
+def test_la_confirmacion_se_escribe_con_archivos_reemplazar_y_no_con_una_copia_privada():
+    from odd_ws import archivos
+    assert not hasattr(m(), "_reemplazar"), "la copia privada se fue: la escritura atómica vive en odd_ws.archivos"
+    assert m().reemplazar is archivos.reemplazar
+
+
 def test_las_confirmadas_se_leen_solo_con_la_forma_que_se_escribe():
     with Carpeta() as raiz:
         ruta = raiz / ".claude" / "estado" / "entregas.json"

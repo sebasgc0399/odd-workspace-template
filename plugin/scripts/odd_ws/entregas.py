@@ -13,6 +13,7 @@ from collections import namedtuple
 
 import config_loader
 from odd_ws import capas
+from odd_ws.archivos import reemplazar
 from odd_ws.comun import entorno_git
 
 PLAZO_DEL_INICIO = 4
@@ -123,20 +124,6 @@ def confirmadas(raiz):
             if isinstance(entrada, dict) and isinstance(entrada.get("huella"), str)}
 
 
-def _reemplazar(ruta, contenido):
-    temporal = "%s.%d.tmp" % (ruta, os.getpid())
-    try:
-        with open(temporal, "wb") as archivo:
-            archivo.write(contenido)
-        os.replace(temporal, ruta)
-    except OSError:
-        try:
-            os.remove(temporal)
-        except OSError:
-            pass
-        raise
-
-
 def _guardar(raiz, ticket, huella, fecha):
     try:
         with open(_ruta_de_las_confirmadas(raiz), encoding="utf-8") as archivo:
@@ -150,7 +137,7 @@ def _guardar(raiz, ticket, huella, fecha):
     ruta = _ruta_de_las_confirmadas(raiz)
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     texto = json.dumps({"version": VERSION, "confirmadas": nuevas}, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    _reemplazar(ruta, texto.encode("utf-8"))
+    reemplazar(ruta, texto.encode("utf-8"))
 
 
 def _carpeta(fragmento):
