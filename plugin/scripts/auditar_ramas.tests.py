@@ -4,6 +4,7 @@ sys.dont_write_bytecode = True
 
 import contextlib
 import hashlib
+import http.server
 import importlib
 import io
 import json
@@ -12,6 +13,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -418,24 +420,75 @@ def _estado_del_repo(repo, arboles):
     for indice in sorted((gitdir / "worktrees").glob("*/index")):
         archivos[str(indice.relative_to(gitdir))] = hashlib.sha256(indice.read_bytes()).hexdigest()
     refs = [linea for linea in git(repo, "for-each-ref", "--format=%(refname) %(objectname)").splitlines()
-            if not linea.startswith("refs/remotes/")]
+            if not linea.startswith("refs/remotes/origin/")]
     return {"refs": refs, "archivos": archivos, "arboles": [_foto(a) for a in arboles]}
 
 
-def test_no_escribe_nada_salvo_las_refs_remotas():
+def test_no_escribe_nada_salvo_las_refs_de_origin_aunque_el_remoto_tenga_otros_mapeos_configurados():
     with Instancia() as w:
         carpeta = w.rama("web", "feat/T-7", worktree=True)
         commitear(carpeta)
         escribir(carpeta, "a.txt", "editado y sin commitear\n")
         escribir(carpeta, "nuevo.txt", "sin agregar\n")
         git(w.repos["web"], "tag", "v1")
+        git(w.repos["web"], "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/espejo/*")
+        git(w.repos["web"], "config", "--add", "remote.origin.fetch", "+refs/heads/feat/*:refs/heads/copia/feat/*")
+        git(w.repos["web"], "branch", "copia/feat/x", "main")
         w.ticket("T-7-algo", "`%s`" % carpeta)
         w.commit_en_otra("web", "main")
+        git(w.otra("web"), "push", "-q", "origin", "main:refs/heads/feat/x")
         antes = _estado_del_repo(w.repos["web"], [w.repos["web"], carpeta])
-        remotas = git(w.repos["web"], "for-each-ref", "refs/remotes/")
+        remotas = git(w.repos["web"], "for-each-ref", "refs/remotes/origin/")
         assert w.correr()[0] == 1
-        assert _estado_del_repo(w.repos["web"], [w.repos["web"], carpeta]) == antes
-        assert git(w.repos["web"], "for-each-ref", "refs/remotes/") != remotas, "control: el fetch sí movió origin/main"
+        despues = _estado_del_repo(w.repos["web"], [w.repos["web"], carpeta])
+        assert despues["refs"] == antes["refs"], "solo cambian las refs de origin: %s" % sorted(set(despues["refs"]) ^ set(antes["refs"]))
+        assert despues == antes
+        assert git(w.repos["web"], "for-each-ref", "refs/remotes/origin/") != remotas, "control: el fetch sí movió origin/main"
+
+
+class ServidorQuePideCredencial:
+    def __enter__(self):
+        class Pide(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="odd"')
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        self.servidor = http.server.HTTPServer(("127.0.0.1", 0), Pide)
+        threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
+        return "http://127.0.0.1:%d/db.git" % self.servidor.server_port
+
+    def __exit__(self, *_):
+        self.servidor.shutdown()
+        self.servidor.server_close()
+
+
+def test_un_remoto_que_pide_credencial_sale_en_rojo_enseguida_sin_llamar_al_askpass_del_entorno():
+    with Instancia() as w, ServidorQuePideCredencial() as url:
+        marca = w.base / "askpass-llamado"
+        askpass = escribir(w.base, "askpass.sh", "#!/bin/sh\necho llamado >> '%s'\nsleep 12\n" % marca.as_posix())
+        os.chmod(str(askpass), 0o755)
+        git(w.repos["db"], "remote", "set-url", "origin", url)
+        previo = {k: os.environ.get(k) for k in ("GIT_ASKPASS", "NO_PROXY", "no_proxy")}
+        os.environ.update(GIT_ASKPASS=askpass.as_posix(), NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
+        plazo = m().auditoria_de_ramas.PLAZO_POR_REPO
+        m().auditoria_de_ramas.PLAZO_POR_REPO = 10
+        try:
+            codigo, salida, error = w.correr()
+        finally:
+            m().auditoria_de_ramas.PLAZO_POR_REPO = plazo
+            for clave, valor in previo.items():
+                if valor is None:
+                    os.environ.pop(clave, None)
+                else:
+                    os.environ[clave] = valor
+        assert (codigo, error) == (1, "") and "En rojo: db, porque el fetch falló (" in salida, (codigo, salida, error)
+        assert "no terminó a tiempo" not in salida, "git falla solo, sin esperar al plazo: %s" % salida
+        assert not marca.exists(), "el askpass del entorno no se llama"
 
 
 def test_la_cli_como_proceso_sale_con_su_codigo_y_escribe_utf8_aunque_la_consola_no_lo_sea():

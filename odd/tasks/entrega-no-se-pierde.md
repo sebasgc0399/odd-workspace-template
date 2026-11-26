@@ -63,7 +63,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T1 | S1 | El aviso de lo que quedó sin subir | un explorador corto (L3) y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `7ae8339` |
 | T1b | S1 | La latencia del aviso: los `git status` en paralelo, con un pool acotado, y otra medición (L5, L6) | un writer, después de T2 (motivo: el respaldo de contexto del orquestador) | hecha (L8) | `1241b72` |
 | T2 | S2 | La auditoría de ramas | un writer (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `f302ecb` |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L9); verificador pendiente; sin publicar | |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L9); verificador: el bloqueante de S2 corregido y recomprobado (L10, L11); lista, sin publicar | `ab6248e` y la corrección |
 
 ## Log
 
@@ -189,3 +189,44 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **`tools/huellas.py`** dio 122 huellas de 28 versiones, hasta la `0.17.0`, con `HEAD` sobre las etiquetas de la `0.14.0` a la `0.16.0`.
   - **En el roadmap,** R19 queda «lista, sin publicar», con I83 e I84 «lista (`0.17.0`, sin publicar)».
   - **Falta el verificador independiente,** por los ítems 1 (el `fetch` de la auditoría) y 4 (el pool de hilos del aviso). Publicar lleva el ok del autor: su autorización llegó solo hasta la `0.16.0`.
+- **L10** (2026-11-26) El verificador independiente, sobre `1241b72` contra `225113f`. La versión `ab6248e` entró mientras trabajaba, y su copia, sin `odd/`, es idéntica byte a byte a la que probó.
+  - **S1: PASS.**
+    - Los tres hosts avisan en startup, resume y fork, y callan en compact y clear.
+    - La confirmación calla el ticket hasta que algo cambia.
+    - El tope de 20 y la línea del plazo se comportan como dice la Spec.
+    - Con el pool de hilos (ítem 4), 36 combinaciones de plazo y demoras con ruido mantienen las invariantes: los tickets juzgados son siempre los primeros, nunca uno sale limpio sin revisarse, ninguna carpeta se consulta dos veces y se usan 4 hilos.
+    - Las huellas confirmadas con `f302ecb` siguen valiendo.
+    - Latencia: de 3,79 s en serie a 1,37 s.
+  - **S3: PASS,** salvo tres frases de los docs que repiten la garantía falsa de S2.
+  - **S2: FAIL, por un bloqueante del ítem 1.** `git fetch`, aun con un refspec explícito, aplica las asignaciones de `remote.origin.fetch` de la config como actualizaciones oportunistas.
+    - Con una asignación como `+refs/heads/feat/*:refs/heads/copia/feat/*`, la auditoría movía a la fuerza una rama local.
+    - El arreglo es `--refmap=` vacío en `FETCH` (`odd_ws/auditoria_de_ramas.py:22`), y el verificador lo probó.
+    - Los docs que hoy dicen lo contrario: `Doc/diseno.md:1235`, `CHANGELOG.md:23`, `Doc/uso.md:222` y la ayuda de `auditar_ramas.py:19`.
+  - **Advertencias:**
+    1. `GIT_TERMINAL_PROMPT=0` no frena `GIT_ASKPASS`: con el askpass de VS Code colgado, el repo espera 61 s antes de salir en rojo. Entra en el mismo lote, con `GIT_ASKPASS` vacío.
+    2. Una rama que existe solo en `origin` (la local se borró) no se mira, y el ticket queda solo en `tickets_sin_ramas`. Sigue las decisiones de L3 y L7, y queda como seguimiento.
+    3. El chequeo de squash guarda en memoria `git log -p` de toda la rama principal desde el merge-base, y en un repo grande puede pasarse del plazo. Seguimiento: limitarlo a las rutas que toca la rama.
+    4. El ejemplo de `Doc/hooks.md:95` lista web antes que db, y el código ordena por nombre. Entra en el lote.
+    5. Un ticket escrito en prosa, sin backticks, no se revisa. Sigue la decisión de L3, y queda como seguimiento: la plantilla podría pedir los backticks.
+  - **Suites:** 59 de Python (2750 pruebas) y el shim (97) en verde, también con un `GIT_INDEX_FILE` ajeno.
+  - **La corrección** va en un solo lote, con el mismo writer de T2. Después se recomprueba solo el bloqueante.
+  - **Scratch del verificador:** `%TEMP%\tmp.Rp3U7gAbMC`. Va a la limpieza del autor.
+- **L11** (2026-11-26) La corrección, un solo lote con el writer de T2, y la recomprobación del bloqueante.
+  - **El bloqueante.** `FETCH` suma `--refmap=` vacío, así que git ignora las asignaciones de `remote.origin.fetch` de la config y aplica solo el refspec explícito.
+    - La prueba de que no escribe nada ahora tiene un repo con las dos asignaciones, una rama local `copia/feat/x` y un `feat/x` empujado desde otro clon, y solo excluye `refs/remotes/origin/`.
+    - RED: `copia/feat/x` se movía y aparecía `espejo/*`. GREEN con `--refmap=`.
+  - **La advertencia 1.** `SIN_PROMPTS` pone `GIT_ASKPASS` vacío, que corta también `core.askPass` y `SSH_ASKPASS`.
+    - La prueba usa un servidor 401 en loopback y un askpass que se cuelga.
+    - RED: el repo salía en rojo solo por «no terminó a tiempo». GREEN: sale en rojo enseguida, sin llamar al askpass.
+  - **La advertencia 4.** El ejemplo de `Doc/hooks.md` sigue el orden del código.
+  - **Los docs** dicen lo que hace el código. El CHANGELOG no cambia: «Solo escribe las refs de `origin`» ahora es cierto.
+  - **Las pruebas:** `auditar_ramas` 17/17, `auditoria_de_ramas` 13/13, `entregas` 14/14 y 10/10, y `registro` 7/7, también con un `GIT_INDEX_FILE` ajeno.
+  - **La recomprobación, en el orquestador:**
+    - **PASS.** En un repo con las dos asignaciones, el `FETCH` del módulo dejó intacto todo lo que no es `refs/remotes/origin/`, y actualizó `origin/main` y `origin/feat/x`.
+    - **Control:** el mismo fetch sin `--refmap=` movió `copia/feat/x` y creó `espejo/*`, así que el instrumento sí ve el cambio.
+  - **Seguimientos, sin arreglar en este lote:**
+    - la advertencia 2: las ramas que existen solo en `origin`;
+    - la advertencia 3: el `git log -p` del squash en un repo grande;
+    - la advertencia 5: los tickets en prosa.
+  - **Risk: ítem 1,** confinado a `refs/remotes/origin/*` y fijado por la prueba del repo con asignaciones.
+  - **La R19 queda lista, sin publicar.** Falta el ok del autor.
