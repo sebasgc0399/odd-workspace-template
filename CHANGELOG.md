@@ -2,6 +2,40 @@
 
 Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versión>`, y su contenido es el cuerpo del release que publica `.github/workflows/release.yml` cuando llega la etiqueta `odd-ws--v<versión>`. El pre-push no deja entregar una versión sin su sección.
 
+## 0.19.0
+
+**Actualizar sin miedo: el doctor te ayuda a fusionar las plantillas que editaste, avisa cuando lo que se carga entero crece de más, y revisar gasta menos.**
+
+### Lo que cambia para ti
+
+- **Fusionar una plantilla editada ya no es leerla a mano.** `fusionar_plantillas.py --diff <copia>` te muestra qué cambió la plantilla entre la versión de tu copia y la actual, con el nombre de tu proyecto. `--fusionar <copia>` te propone la fusión de 3 vías y, si sale limpia, `--escribir` la escribe. Si choca, te muestra solo los bloques en conflicto y no escribe nada. `/odd-ws:doctor` te lo ofrece cuando tienes copias editadas.
+- **El doctor avisa cuando un archivo que se carga entero pasa de un tope** (ítem `carga-entera`): el `CLAUDE.md` de la instancia (16 KiB), el de cada ticket activo (32 KiB, porque su bitácora crece) y cada `SKILL.md` de la instancia (17 KiB). Por ahora solo avisa.
+- **El ítem `plantillas` es más preciso:**
+  - el nombre de tu proyecto dentro del texto de una plantilla ya no la marca como editada;
+  - si tus copias coinciden con más de una versión, dice «de la X a la Y»;
+  - con la config rota sale NO APLICA, y `--arreglar plantillas` no escribe nada.
+- **El bootstrap rechaza una spec con otra versión en `config.plantillas`** al crear una instancia: la anota él, con la del plugin.
+- **Revisar gasta menos.** Con 50 archivos de una capa, el triaje pasó de 25,6 s a 2,0 s. La huella de los recibos no cambia: los que ya tienes siguen valiendo.
+- **Un archivo con corchetes en el nombre,** como `x/[ab].sql`, ya no mezcla en sus chequeos de capa los cambios de `x/a.sql`.
+- **`cerrar` pregunta una sola vez qué no puede volver** de lo que se quitó («números, o "ninguno"»), y pide el porqué solo de esos.
+- **Cómo actualizar:** con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión no cambia ninguna plantilla.
+
+### Detalle técnico
+
+- **El historial de las plantillas (I96).** `plugin/plantillas/historial/<hash>` guarda el texto de cada plantilla de cada versión publicada, sin renderizar. El nombre es el sha256 del contenido, el mismo de `huellas.json`, así que cada archivo se verifica solo. Lo escribe `tools/huellas.py`, que solo suma, y el pre-push exige que esté completo.
+- **`fusionar_plantillas.py`** usa `git merge-file -p` sobre temporales y respeta tu `merge.conflictStyle`. Sale con 0, con la cantidad de conflictos o con 255 por un error, y escribe de forma atómica, nunca a través de un enlace.
+- **El triaje sin un git por archivo (S4) y la huella por lotes (S7).**
+  - El triaje corre, por repo, un diff y un `cat-file --batch`, y les pasa a los chequeos lo que ya sabe.
+  - `recibo.calcular` corre, por repo, un `cat-file --batch-check`, un `ls-files -s -z` y un diff con las rutas como pathspec literal. Cada bloque es el que da el diff de esa ruta sola, así que la huella sale idéntica byte a byte.
+  - Con 50 archivos, de 466 a 22 procesos de git. Las rutas raras (saltos de línea, submódulos, conflictos) siguen archivo por archivo.
+- **El pathspec literal (S8).** El `ls-files` y el diff por archivo de `armar_ctx` leen la ruta como literal, y sin `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` ni `GIT_ICASE_PATHSPECS`, que junto al literal hacen fallar a git.
+- **Los seguimientos de la `0.14.0`:**
+  - W2: `Revision` suma `hasta`, el máximo de las versiones comunes, y la lógica sigue con el mínimo;
+  - A3: la copia se compara contra cada texto del historial, renderizado con su nombre;
+  - A4: `plantillas` pregunta a `chequear_config`, la misma validación del ítem `config`;
+  - A5: `bootstrap.validar_spec` rechaza la versión distinta, como ya rechaza `local.plugin_root`;
+  - A6: `huellas.py` y el pre-push salen con 2 si a una versión de la tabla le falta su etiqueta local, con «corre `git fetch --tags`».
+
 ## 0.18.0
 
 **Lo que sale de la máquina: nada secreto ni personal sale sin que lo veas, y queda escrito qué hace odd-ws con la red.**

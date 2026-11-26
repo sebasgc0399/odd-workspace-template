@@ -1,7 +1,7 @@
 # Actualizar sin miedo: el doctor no solo dice qué plantillas quedaron viejas, ayuda a fusionarlas, y avisa cuando lo que se carga siempre crece de más (R21)
 
 Objetivo: que fusionar una plantilla editada sea un diff exacto y una propuesta de 3 vías y no una lectura a mano (I96), que el doctor avise cuando lo que se carga entero pasa de un tope (I95), y cerrar los seguimientos de la `0.14.0` y dos de costo y uso.
-Rama: `feat/actualizar-sin-miedo`, en `D:/Project/odd-ws-wt/actualizar`. Está apilada sobre la punta de la R20 (la `0.18.0` sin publicar): lo que la R20 sume después se integra hacia acá con un merge. Entrega: un commit por unidad. Sale en la `0.19.0`, sin publicar: publicar lleva el ok del autor.
+Rama: `feat/actualizar-sin-miedo`, en `D:/Project/odd-ws-wt/actualizar`. Está apilada sobre la punta de la R20 (la `0.18.0` sin publicar): lo que la R20 sume después se integra hacia acá con un merge. Entrega: un commit por unidad. Sale en la `0.19.0`. El autor dio el ok para publicarla apenas esté lista (L8).
 Pruebas: `python plugin/scripts/<script>.tests.py`, `python plugin/plantillas/*.tests.py` y `python tools/<herramienta>.tests.py` (en Linux y macOS, `python3`), y `node --test plugin/shim/*.test.ts`. El pre-commit corre todas las suites, con el `GIT_INDEX_FILE` del commit en el entorno.
 
 ## Specs
@@ -69,8 +69,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T1 | S1, S3 (W2, A3, A6) | El historial, `fusionar_plantillas.py` y los seguimientos que tocan las huellas y las plantillas | un writer, en paralelo con T3 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `caf81df` |
 | T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | `be1e7b7` |
 | T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | hecha (L6) | `0817737` |
-| T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | hecha (L7) | |
-| T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
+| T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | hecha (L7) | `076b46e` |
+| T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | versión lista (L8); verificador en curso | |
 
 ## Log
 
@@ -187,3 +187,12 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El orquestador integró el texto de T5 en `Doc/diseno.md`,** y corrigió dos líneas del texto de S4 que quedaron viejas.
   - **Risk: ítem 3.** La huella del recibo y `armar_ctx` los comparten los hooks, `revisar_turno` y `writer_stop`. La huella se probó idéntica, y la salida del hook cambia solo para las rutas con comodines. Lo cubre el verificador de T4.
   - **Scratch del writer:** `%TEMP%\t5-actualizar-YmGMDC`. Va a la limpieza del autor.
+- **L8** (2026-11-26) La versión.
+  - La `0.18.0` se publicó (`fff9e8c`) y entró en esta rama con el merge `43791f0`, sin conflictos. `huellas.py`, corrido después del merge, no cambió nada.
+  - **T4:**
+    - el CHANGELOG de la `0.19.0`;
+    - la versión en los dos `plugin.json`, `package.json`, el README, `Doc/uso.md` y `Doc/actualizar.md`;
+    - el roadmap da por hechas R21, I95 e I96;
+    - `huellas.py`: 132 huellas de 30 versiones. Ninguna plantilla cambió, así que el historial no suma textos.
+  - **El autor dio el ok para publicar cada versión apenas esté lista:** «La idea es ya tienes mis Ok, para empezar a publicar, para que vayamos avanzando».
+  - **Falta:** el verificador independiente sobre toda la feature, desde `7823093`, y el CI.
