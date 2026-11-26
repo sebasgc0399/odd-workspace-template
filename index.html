@@ -325,7 +325,7 @@
           <a class="boton principal" href="#instalar">Instalar paso a paso</a>
           <a class="boton" href="https://github.com/sebasgc0399/odd-workspace-template">Ver en GitHub</a>
         </div>
-        <p class="version">Versión actual: <b>0.18.0</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
+        <p class="version">Versión actual: <b>0.19.0</b> · <a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">qué cambió en cada versión</a></p>
       </div>
       <figure class="demo">
         <img src="https://raw.githubusercontent.com/sebasgc0399/odd-workspace-template/main/Doc/img/odd-ws-portada.gif" width="960" height="640" alt="Ejemplo del ciclo de odd-ws: el agente escribe una vista sin el filtro WHERE activo = 1, el usuario lo corrige en el ticket, /odd-ws:cerrar lo vuelve la regla SQL-01 y en el próximo ticket el chequeo la marca solo como SQL-01 CRITICAL.">
@@ -529,7 +529,7 @@ Comando: «git push --force origin main»</code></pre>
             <li><b>Instala gentle-shell y el paquete de odd-ws.</b> El paquete no está en npm: se instala desde git, con la etiqueta de la versión actual, y necesita <code>npm</code> en el <code>PATH</code>.
               <div class="bloque">
                 <div class="barra"><span class="barra-etiqueta">gentle-shell</span><button type="button" class="copiar" hidden></button></div>
-                <pre><code><span class="l">npm i -g gentle-pi</span><span class="l">gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.18.0</span></code></pre>
+                <pre><code><span class="l">npm i -g gentle-pi</span><span class="l">gentle-shell install git:github.com/sebasgc0399/odd-workspace-template@odd-ws--v0.19.0</span></code></pre>
               </div>
             </li>
             <li><b>Crea o completa la instancia.</b> En una carpeta nueva, abre gentle-shell y corre <code>/skill:bootstrap</code>. En una instancia que ya existe, declara Pi en <code>workspace.config.json</code> con <code class="ajusta">"hosts": ["claude-code", "pi"]</code>, o solo <code>["pi"]</code>; los agentes de <code>.pi/agents</code> los genera el doctor en el paso 4.</li>
@@ -620,11 +620,11 @@ Comando: «git push --force origin main»</code></pre>
     <section id="novedades" aria-labelledby="titulo-novedades">
       <h2 id="titulo-novedades">Novedades</h2>
       <ul class="novedades">
+        <li><b>0.19.0</b><span>Actualizar sin miedo: el doctor te muestra qué cambió en una plantilla que editaste y te propone la fusión, avisa cuando lo que se carga entero crece de más, y revisar gasta menos.</span></li>
         <li><b>0.18.0</b><span>Lo que sale de la máquina: el commit frena un archivo de secretos o una clave privada pegada, un paquete de reglas se revisa antes de publicarlo, y <code>SECURITY.md</code> dice todo lo que odd-ws puede mandar a la red.</span></li>
         <li><b>0.17.0</b><span>Que la entrega no se pierda: al arrancar la sesión te avisa de cada ticket con algo sin commitear o sin subir, y antes de publicar una auditoría de ramas de solo lectura te muestra qué trabajo no llegó a la rama principal.</span></li>
         <li><b>0.16.0</b><span>El porqué antes de editar: después de cada edición, el agente ve la fecha y el porqué del commit que escribió esas líneas, sin modelo, y te pregunta antes de tocar el código que es raro a propósito. Y lo que un ticket quita no vuelve sin que alguien lo decida: al cerrar, se propone como regla.</span></li>
         <li><b>0.15.0</b><span>Revisar gasta menos: los chequeos de cada capa corren sobre el diff antes de lanzar a los revisores, sus reportes ya no llenan tu contexto, el código que es raro a propósito se anota una vez y no se vuelve a plantear, y lo que se guarda sale con los secretos tapados.</span></li>
-        <li><b>0.14.0</b><span>Lo que pasaba callado ahora se ve: la falla interna de un hook queda anotada y la sesión siguiente te la muestra, el doctor avisa cuando un repo trae hooks propios que desde la instancia no corren y te dice qué plantillas de tu instancia quedaron viejas. En Windows, un writer ya no puede saltarse el guard redirigiendo a <code>nul</code>.</span></li>
       </ul>
       <p><a href="https://github.com/sebasgc0399/odd-workspace-template/blob/main/CHANGELOG.md">Todas las versiones, en el CHANGELOG</a>.</p>
     </section>
@@ -670,7 +670,7 @@ Comando: «git push --force origin main»</code></pre>
 
 <footer class="pie">
   <div class="contenedor">
-    <p>odd-ws 0.18.0 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
+    <p>odd-ws 0.19.0 · <a href="https://github.com/sebasgc0399/odd-workspace-template">github.com/sebasgc0399/odd-workspace-template</a> · Licencia MIT</p>
     <p>Íconos de <a href="https://lucide.dev">Lucide</a>, con licencia ISC (<a href="assets/icons.txt">cuáles y su licencia</a>). Fuentes Shantell Sans y Red Hat Mono, con licencia OFL (<a href="assets/fonts/OFL-shantell-sans.txt">Shantell Sans</a>, <a href="assets/fonts/OFL-red-hat-mono.txt">Red Hat Mono</a>).</p>
   </div>
 </footer>
