@@ -16,6 +16,7 @@ ID = "plantillas"
 MANIFIESTO = ".claude-plugin/plugin.json"
 CARPETA = "plantillas"
 TABLA = CARPETA + "/huellas.json"
+HISTORIAL = CARPETA + "/historial"
 INDICE, INDICE_DE_CONTROLES, TICKET, PRE_COMMIT, PRUEBA = ("CLAUDE.md", "CLAUDE.controles.md", "ticket.md", "pre-commit",
                                                            "reglas/verificar.tests.py")
 PLANTILLAS = (INDICE, INDICE_DE_CONTROLES, TICKET, PRE_COMMIT, PRUEBA)
@@ -23,6 +24,7 @@ INDICES = (INDICE, INDICE_DE_CONTROLES)
 PRE_COMMIT_DE_LA_INSTANCIA = ".githooks/pre-commit"
 MARCA_NOMBRE, MARCA_TICKETS = "{{nombre}}", "{{tickets}}"
 BOM = b"\xef\xbb\xbf"
+PREFIJO_DE_LA_HUELLA = "sha256:"
 HUELLA_RE = re.compile(r"sha256:[0-9a-f]{64}")
 VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)(.*)")
 AL_DIA, SIN_TOCAR, EDITADA = "al día", "sin tocar", "editada"
@@ -32,8 +34,8 @@ AYUDA_DEL_PLUGIN = "Reinstala el plugin: le falta o tiene roto un archivo que tr
 
 Copia = namedtuple("Copia", "ruta plantilla")
 Revisada = namedtuple("Revisada", "ruta plantilla estado versiones nombre")
-Revision = namedtuple("Revision", "rota error ayuda actual anotada inferida base cambiaron pendientes",
-                      defaults=(None, None, None, None, None, None, None, False, ()))
+Revision = namedtuple("Revision", "rota error ayuda actual anotada inferida base cambiaron pendientes hasta revisadas",
+                      defaults=(None, None, None, None, None, None, None, False, (), None, ()))
 
 
 def orden(version):
@@ -56,6 +58,33 @@ def forma_de_la_plantilla(plantilla, contenido):
 
 def huella_de_la_plantilla(plantilla, contenido):
     return huella(forma_de_la_plantilla(plantilla, contenido))
+
+
+def texto_de_la_huella(plantilla, contenido):
+    return _normal(forma_de_la_plantilla(plantilla, contenido))
+
+
+def texto_del_historial(plugin, huella_buscada):
+    try:
+        contenido = (Path(plugin) / HISTORIAL / huella_buscada[len(PREFIJO_DE_LA_HUELLA):]).read_bytes()
+        texto = _normal(contenido).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return texto if huella(contenido) == huella_buscada else None
+
+
+def leer_texto(ruta):
+    return _normal(Path(ruta).read_bytes()).decode("utf-8")
+
+
+def texto_de_la_version(plugin, plantilla, version, actual, tabla):
+    if version == actual:
+        try:
+            return leer_texto(Path(plugin) / CARPETA / plantilla)
+        except (OSError, UnicodeDecodeError):
+            return None
+    huella_de_la_version = tabla.get(plantilla, {}).get(version)
+    return None if huella_de_la_version is None else texto_del_historial(plugin, huella_de_la_version)
 
 
 def version_del_plugin(plugin):
@@ -114,19 +143,6 @@ def nombre_de(copia, plantilla):
     return nombre if nombre == nombre.strip() and MARCA_NOMBRE not in nombre else None
 
 
-def _huella_de_la_copia(plantilla, contenido, texto_de_la_plantilla):
-    if plantilla not in INDICES:
-        return huella(contenido), None
-    try:
-        texto = _normal(contenido).decode("utf-8")
-    except UnicodeDecodeError:
-        return None, None
-    nombre = nombre_de(texto, texto_de_la_plantilla)
-    if nombre is None:
-        return None, None
-    return huella(texto.replace(nombre, MARCA_NOMBRE).encode("utf-8")), nombre
-
-
 def renderizar(plantilla, texto, nombre=None):
     if plantilla == INDICE:
         return texto.replace(MARCA_TICKETS, convencion.TICKETS).replace(MARCA_NOMBRE, nombre)
@@ -144,13 +160,30 @@ def contenido_nuevo(plugin, plantilla, nombre=None):
 
 def _base(anotada, revisadas):
     if anotada is not None:
-        return anotada, None
+        return anotada, None, None
     conjuntos = [set(r.versiones) for r in revisadas if r.versiones]
     if not conjuntos:
-        return None, None
+        return None, None, None
     comunes = set.intersection(*conjuntos) or set.union(*conjuntos)
     inferida = min(comunes, key=orden)
-    return inferida, inferida
+    return inferida, inferida, max(comunes, key=orden)
+
+
+def _coincidencias(plantilla, contenido, candidatas, viva):
+    if plantilla not in INDICES:
+        suya = huella(contenido)
+        return {suya} if suya in candidatas else set(), None
+    try:
+        texto = _normal(contenido).decode("utf-8")
+    except UnicodeDecodeError:
+        return set(), None
+    coinciden, nombre = set(), None
+    for huella_candidata, forma in candidatas.items():
+        suyo = nombre_de(texto, forma) if forma is not None else None
+        if suyo is not None and renderizar(plantilla, forma, suyo) == texto:
+            coinciden.add(huella_candidata)
+            nombre = nombre or suyo
+    return coinciden, nombre or nombre_de(texto, viva)
 
 
 def revisar(raiz, plugin):
@@ -175,6 +208,11 @@ def revisar(raiz, plugin):
         except (OSError, UnicodeDecodeError) as error:
             return Revision(error=f"no se puede leer la plantilla {ruta} del plugin ({error})", ayuda=AYUDA_DEL_PLUGIN, actual=actual)
         vivas[plantilla] = huella_de_la_plantilla(plantilla, contenido)
+    candidatas = {}
+    for plantilla, viva in vivas.items():
+        publicadas = dict.fromkeys(h for h in tabla.get(plantilla, {}).values() if h != viva)
+        candidatas[plantilla] = {h: texto_del_historial(plugin, h) if plantilla in INDICES else None for h in publicadas}
+        candidatas[plantilla][viva] = textos[plantilla]
     revisadas = []
     for copia in lista:
         ruta = raiz / copia.ruta
@@ -185,23 +223,24 @@ def revisar(raiz, plugin):
         except OSError as error:
             return Revision(error=f"no se puede leer {copia.ruta} de la instancia ({error.strerror or error})",
                             ayuda=f"Revisa que {copia.ruta} sea un archivo que se pueda leer y vuelve a correr el doctor.", actual=actual)
-        suya, nombre = (None, None) if os.path.islink(ruta) else _huella_de_la_copia(copia.plantilla, contenido, textos[copia.plantilla])
-        conocidas = tabla.get(copia.plantilla, {})
-        versiones = [v for v, h in conocidas.items() if h == suya and suya is not None]
-        if suya is not None and suya == vivas[copia.plantilla]:
+        coinciden, nombre = ((set(), None) if os.path.islink(ruta)
+                             else _coincidencias(copia.plantilla, contenido, candidatas[copia.plantilla], textos[copia.plantilla]))
+        versiones = [v for v, h in tabla.get(copia.plantilla, {}).items() if h in coinciden]
+        if vivas[copia.plantilla] in coinciden:
             versiones.append(actual)
             estado = AL_DIA
         else:
             estado = SIN_TOCAR if versiones else EDITADA
         revisadas.append(Revisada(copia.ruta, copia.plantilla, estado, tuple(dict.fromkeys(versiones)), nombre))
-    base, inferida = _base(anotada, revisadas)
+    base, inferida, hasta = _base(anotada, revisadas)
 
     def en(plantilla, version):
         return vivas[plantilla] if version == actual else tabla.get(plantilla, {}).get(version)
 
     cambiaron = [p for p in vivas if base is None or en(p, base) != vivas[p]]
     pendientes = tuple(r for r in revisadas if r.plantilla in cambiaron and r.estado != AL_DIA)
-    return Revision(actual=actual, anotada=anotada, inferida=inferida, base=base, cambiaron=bool(cambiaron), pendientes=pendientes)
+    return Revision(actual=actual, anotada=anotada, inferida=inferida, base=base, cambiaron=bool(cambiaron), pendientes=pendientes,
+                    hasta=hasta, revisadas=tuple(revisadas))
 
 
 def al_dia(revision):

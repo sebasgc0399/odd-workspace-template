@@ -564,12 +564,27 @@ def test_con_el_readme_los_docs_y_la_pagina_al_dia_la_entrega_pasa_en_main_y_en_
 
 HUELLAS = AQUI / "huellas.py"
 TABLA_DE_HUELLAS = "plugin/plantillas/huellas.json"
+HISTORIAL = "plugin/plantillas/historial"
+PLANTILLAS_DE_PRUEBA = {"plugin/plantillas/CLAUDE.md": "# {{nombre}}\n`{{tickets}}/`\n", "plugin/plantillas/pre-commit": "#!/bin/sh\n"}
 
 
 def generar_huellas(e):
     resultado = subprocess.run([sys.executable, str(HUELLAS)], cwd=e.obra, env=e.env, capture_output=True)
     assert resultado.returncode == 0, resultado
+    if (e.obra / HISTORIAL).is_dir():
+        e.git("add", HISTORIAL)
     return (e.obra / TABLA_DE_HUELLAS).read_text(encoding="utf-8")
+
+
+def entrega_con_huellas(e, version, plantillas, antes_de_commitear=None):
+    for ruta, contenido in {PLUGIN_JSON: plugin_json(version), **plantillas}.items():
+        destino = e.obra / ruta
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(contenido, encoding="utf-8")
+    tabla = generar_huellas(e)
+    if antes_de_commitear is not None:
+        antes_de_commitear()
+    return entrega_con(e, version, {**plantillas, TABLA_DE_HUELLAS: tabla})
 
 
 def entrega_con(e, version, archivos):
@@ -592,6 +607,48 @@ def test_la_tabla_de_huellas_desfasada_o_que_falta_bloquea_en_main_y_en_la_etiqu
         asegurar(e.correr([a_main(sha), a_etiqueta("0.3.0", e.git_salida("rev-parse", "odd-ws--v0.3.0"))]), 0, "entrega limpia\n")
         sha = entrega_con(e, "0.4.0", {"plugin/plantillas/pre-commit": "#!/bin/sh\necho 4\n"})
         asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", f"{TABLA_DE_HUELLAS} en {sha[:7]} no está al día")
+
+
+def test_el_historial_sin_el_texto_de_una_huella_o_con_uno_que_no_da_su_huella_bloquea_y_completo_pasa():
+    with Escenario() as e:
+        e.entrega_inicial()
+
+        def sin_historial():
+            e.git("rm", "-r", "-q", "--cached", HISTORIAL)
+
+        sha = entrega_con_huellas(e, "0.2.0", PLANTILLAS_DE_PRUEBA, sin_historial)
+        tabla = json.loads(e.git("show", f"{sha}:{TABLA_DE_HUELLAS}").stdout)
+        faltan = sorted(h[len("sha256:"):len("sha256:") + 12] for por_version in tabla.values() for h in set(por_version.values()))
+        for lineas in ([a_main(sha)], [a_etiqueta("0.2.0", e.git_salida("rev-parse", "odd-ws--v0.2.0"))]):
+            asegurar(e.correr(lineas), 1, "", "ENTREGA BLOQUEADA", f"{HISTORIAL} en {sha[:7]} no guarda bien el texto de cada huella",
+                     "faltan " + ", ".join(faltan), "Corre «python tools/huellas.py» y commitea el historial")
+        cambiada = {**PLANTILLAS_DE_PRUEBA, "plugin/plantillas/pre-commit": "#!/bin/sh\necho 3\n"}
+        romper = {}
+
+        def un_texto_roto():
+            huella = json.loads((e.obra / TABLA_DE_HUELLAS).read_text(encoding="utf-8"))["pre-commit"]["0.3.0"]
+            romper["prefijo"] = huella[len("sha256:"):len("sha256:") + 12]
+            (e.obra / HISTORIAL / huella[len("sha256:"):]).write_bytes(b"#!/bin/sh\necho otro\n")
+            e.git("add", HISTORIAL)
+
+        sha = entrega_con_huellas(e, "0.3.0", cambiada, un_texto_roto)
+        asegurar(e.correr([a_main(sha)]), 1, "", "ENTREGA BLOQUEADA", f"{HISTORIAL} en {sha[:7]}",
+                 f"no dan la huella de su nombre {romper['prefijo']}", "python tools/huellas.py")
+        sha = entrega_con_huellas(e, "0.4.0", {**cambiada, "plugin/plantillas/pre-commit": "#!/bin/sh\necho 4\n"})
+        asegurar(e.correr([a_main(sha), a_etiqueta("0.4.0", e.git_salida("rev-parse", "odd-ws--v0.4.0"))]), 0, "entrega limpia\n")
+
+
+def test_si_falta_la_etiqueta_local_de_una_version_de_la_tabla_el_push_queda_sin_verificar_y_pide_traerlas():
+    with Escenario() as e:
+        e.entrega_inicial()
+        entrega_con_huellas(e, "0.2.0", PLANTILLAS_DE_PRUEBA)
+        sha = entrega_con_huellas(e, "0.3.0", {**PLANTILLAS_DE_PRUEBA, "plugin/plantillas/pre-commit": "#!/bin/sh\necho 3\n"})
+        asegurar(e.correr([a_main(sha)]), 0, "entrega limpia\n")
+        e.git("tag", "-d", "odd-ws--v0.2.0")
+        codigo, salida, error = e.correr([a_main(sha)])
+        assert codigo == 2 and salida == "", (codigo, salida, error)
+        assert error.strip() == ("ENTREGA BLOQUEADA: faltan las etiquetas locales odd-ws--v0.2.0: corre `git fetch --tags`. "
+                                 "Sin verificar la entrega no se empuja a main."), error
 
 
 def test_con_la_pagina_y_el_readme_desfasados_una_etiqueta_ajena_a_su_version_sigue_frenando_con_su_mensaje():

@@ -1,5 +1,7 @@
 import re
+import shutil
 import sys
+import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -84,8 +86,10 @@ def _archivos(carpeta, patron):
 
 def archivos_del_producto(raiz=RAIZ):
     plugin = raiz / "plugin"
+    publicadas = plugin / "plantillas" / "historial"
+    plantillas = [r for r in _archivos(plugin / "plantillas", "**/*") if publicadas not in r.parents]
     archivos = (_archivos(plugin / "skills", "**/*") + _archivos(plugin / "scripts", "**/*.py")
-                + _archivos(plugin / "shim", "**/*.ts") + _archivos(plugin / "plantillas", "**/*")
+                + _archivos(plugin / "shim", "**/*.ts") + plantillas
                 + _archivos(raiz / "Doc", "*.md") + [raiz / "README.md", raiz / "SECURITY.md"])
     return sorted(set(archivos))
 
@@ -144,6 +148,19 @@ def test_el_barrido_alcanza_el_texto_del_producto_y_no_los_tests():
                      "plugin/plantillas/pre-commit", "Doc/diseno.md", "README.md", "SECURITY.md"):
         assert esperada in relativas, esperada
     assert not [r for r in relativas if r.endswith(".tests.py") or r.endswith(".test.ts")], relativas
+
+
+def test_el_barrido_no_alcanza_el_historial_de_las_plantillas_porque_son_textos_publicados():
+    raiz = Path(tempfile.mkdtemp(prefix="registro-"))
+    try:
+        for relativa in ("plugin/plantillas/CLAUDE.md", "plugin/plantillas/historial/" + "a" * 64):
+            (raiz / relativa).parent.mkdir(parents=True, exist_ok=True)
+            (raiz / relativa).write_text("Corré el doctor.\n", encoding="utf-8")
+        relativas = {r.relative_to(raiz).as_posix() for r in archivos_del_producto(raiz)}
+        assert "plugin/plantillas/CLAUDE.md" in relativas, "control positivo"
+        assert not [r for r in relativas if r.startswith("plugin/plantillas/historial/")], relativas
+    finally:
+        shutil.rmtree(raiz, ignore_errors=True)
 
 
 def test_el_texto_del_producto_esta_en_tuteo():

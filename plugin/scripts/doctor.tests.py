@@ -1358,6 +1358,11 @@ def plugin_falso(base, actual="0.3.0", tabla=None):
             poner(plugin, "plantillas/" + plantilla, plantilla_falsa(plantilla, actual))
     if tabla is None:
         tabla = {p: {v: huella_falsa(plantilla_falsa(p, v)) for v in hasta if plantilla_falsa(p, v) is not None} for p in CAMBIOS_FALSOS}
+        for plantilla in CAMBIOS_FALSOS:
+            for version in hasta:
+                if plantilla_falsa(plantilla, version) is not None:
+                    poner(plugin, "plantillas/historial/" + tabla[plantilla][version][len("sha256:"):],
+                          plantilla_falsa(plantilla, version).replace("{{tickets}}", "tickets"))
     poner(plugin, "plantillas/huellas.json", tabla if isinstance(tabla, (str, bytes)) else json.dumps(tabla))
     return plugin
 
@@ -1426,8 +1431,14 @@ def test_plantillas_compara_el_claude_md_raiz_con_el_nombre_de_la_instancia_vuel
             raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0", controles=controles, nombre="Acme — sede 2")
             r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
             assert "CLAUDE.md (sin tocar: se reemplaza)" in r.detalle, (controles, r.detalle)
-    casos = {"el nombre también sale en el texto de la plantilla": ("tickets", None),
-             "la primera línea ya no es la de la plantilla": (NOMBRE_DEL_PROYECTO, lambda texto: texto.replace("— guía", "- guía", 1)),
+    for nombre in ("tickets", "guía"):
+        with Escenario() as e:
+            raiz = instancia_copiada(e, "0.2.0", anotada="0.2.0", nombre=nombre)
+            r = por_id(con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))["plantillas"]
+            assert "CLAUDE.md (sin tocar: se reemplaza)" in r.detalle, ("el nombre también sale en el texto de la plantilla", nombre, r.detalle)
+            assert correr(["--arreglar", "plantillas"], con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base)))[0] == 0
+            assert (raiz / "CLAUDE.md").read_text(encoding="utf-8") == renderizada("CLAUDE.md", "0.3.0", nombre), nombre
+    casos = {"la primera línea ya no es la de la plantilla": (NOMBRE_DEL_PROYECTO, lambda texto: texto.replace("— guía", "- guía", 1)),
              "una línea de más": (NOMBRE_DEL_PROYECTO, lambda texto: texto + "mía\n"),
              "no es UTF-8": (NOMBRE_DEL_PROYECTO, lambda texto: b"\xff" + texto.encode("utf-8"))}
     for caso, (nombre, editar) in casos.items():
@@ -1454,7 +1465,8 @@ def test_plantillas_sin_la_clave_infiere_la_version_de_las_copias_sin_tocar_y_av
         ctx = con_plugin(Falso(e.base, cwd=raiz), plugin_falso(e.base))
         r = por_id(ctx)["plantillas"]
         assert r.estado == "AVISO" and r.arreglo is not None, r
-        assert r.detalle == ("sin versión anotada en workspace.config.json (por las copias sin tocar, la 0.2.0) y el plugin es la 0.3.0; "
+        assert r.detalle == ("sin versión anotada en workspace.config.json (por las copias sin tocar, de la 0.2.0 a la 0.2.1) y el plugin "
+                             "es la 0.3.0; "
                              "cambiaron: CLAUDE.md (sin tocar: se reemplaza), .githooks/pre-commit (sin tocar: se reemplaza); "
                              "lee en Doc/actualizar.md lo de después de la 0.2.0 hasta la 0.3.0"), r.detalle
     with Escenario() as e:

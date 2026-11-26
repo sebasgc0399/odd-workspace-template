@@ -1,4 +1,5 @@
 import fnmatch
+import hashlib
 import html
 import json
 import os
@@ -363,11 +364,39 @@ def tabla_desfasada(raiz, sha):
             escrita = json.loads(leer(raiz, sha, huellas.TABLA).decode("utf-8-sig"))
         except ValueError:
             escrita = None
+        try:
+            faltan = huellas.etiquetas_que_faltan(raiz, escrita, {version_del_plugin(raiz, sha)})
+        except huellas.NoSePuede as error:
+            raise NoSePuedeVerificar(str(error))
+        if faltan:
+            raise NoSePuedeVerificar(huellas.faltan_las_etiquetas(faltan))
     if escrita == esperada:
         return None
     return (
         f"{huellas.TABLA} en {sha[:7]} no está al día con las etiquetas {PATRON_ETIQUETA} y las plantillas de {huellas.CARPETA}: "
         "el doctor de una instancia no reconocería sus copias. Corre «python tools/huellas.py» después de subir la versión y commitea la tabla"
+    )
+
+
+def historial_incompleto(raiz, sha):
+    if not existe_en(raiz, sha, huellas.TABLA):
+        return None
+    tabla = json.loads(leer(raiz, sha, huellas.TABLA).decode("utf-8-sig"))
+    nombres = sorted({h[len("sha256:"):] for por_version in tabla.values() for h in por_version.values()})
+    objetos = {nombre: f"{sha}:{huellas.HISTORIAL}/{nombre}" for nombre in nombres}
+    try:
+        leidos = huellas.leer_en_lote(raiz, list(objetos.values()))
+    except huellas.NoSePuede as error:
+        raise NoSePuedeVerificar(str(error))
+    faltan = [nombre[:12] for nombre, objeto in objetos.items() if leidos[objeto] is None]
+    rotos = [nombre[:12] for nombre, objeto in objetos.items()
+             if leidos[objeto] is not None and hashlib.sha256(leidos[objeto]).hexdigest() != nombre]
+    if not faltan and not rotos:
+        return None
+    partes = ([f"faltan {', '.join(faltan)}"] if faltan else []) + ([f"no dan la huella de su nombre {', '.join(rotos)}"] if rotos else [])
+    return (
+        f"{huellas.HISTORIAL} en {sha[:7]} no guarda bien el texto de cada huella de {huellas.TABLA} ({'; '.join(partes)}): "
+        "sin él, el doctor no puede mostrar ni fusionar las copias de esas versiones. Corre «python tools/huellas.py» y commitea el historial"
     )
 
 
@@ -404,7 +433,7 @@ def revisar(entrada):
     pagina = la_pagina(raiz)
     avisos = [SIN_PAGINA] if pagina is None else []
     for commit in dict.fromkeys(commits):
-        problema = desfases_de_la_entrega(raiz, commit, pagina) or tabla_desfasada(raiz, commit)
+        problema = desfases_de_la_entrega(raiz, commit, pagina) or tabla_desfasada(raiz, commit) or historial_incompleto(raiz, commit)
         if problema:
             return revisadas, problema, avisos
     return revisadas, None, avisos

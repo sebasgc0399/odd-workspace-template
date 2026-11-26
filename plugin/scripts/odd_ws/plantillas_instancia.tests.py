@@ -2,6 +2,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import hashlib
 import importlib
 import json
 import os
@@ -80,6 +81,85 @@ def test_lo_que_copia_el_bootstrap_sale_al_dia_con_las_plantillas_reales_del_plu
             revision = m().revisar(raiz, PLUGIN)
         assert revision.error is None and revision.rota is None, revision
         assert revision.pendientes == () and revision.anotada is None, revision
+
+
+def tabla_real():
+    return json.loads((PLUGIN / "plantillas" / "huellas.json").read_text(encoding="utf-8"))
+
+
+def copiar(raiz, archivos):
+    for ruta, contenido in archivos.items():
+        destino = raiz / ruta
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(contenido.encode("utf-8") if isinstance(contenido, str) else contenido)
+
+
+def de_la_version(plantilla, version, nombre="Mi proyecto"):
+    texto = m().texto_del_historial(PLUGIN, tabla_real()[plantilla][version])
+    assert texto is not None, (plantilla, version)
+    return m().renderizar(plantilla, texto, nombre)
+
+
+def test_cada_huella_de_la_tabla_del_plugin_tiene_en_el_historial_su_texto_en_su_forma():
+    for plantilla, versiones in tabla_real().items():
+        for version, huella in versiones.items():
+            texto = m().texto_del_historial(PLUGIN, huella)
+            assert texto is not None, (plantilla, version, huella)
+            crudo = (PLUGIN / "plantillas" / "historial" / huella[len("sha256:"):]).read_bytes()
+            assert "sha256:" + hashlib.sha256(crudo).hexdigest() == huella, (plantilla, version)
+            assert b"\r" not in crudo and not crudo.startswith(m().BOM), (plantilla, version)
+            if plantilla in m().INDICES:
+                assert m().MARCA_NOMBRE in texto and m().MARCA_TICKETS not in texto, (plantilla, version)
+
+
+def test_el_historial_no_da_un_texto_que_falta_o_que_no_da_la_huella_de_su_nombre():
+    texto = "# {{nombre}}\nuno\n"
+    huella = m().huella(texto.encode("utf-8"))
+    with Instancia({}) as plugin:
+        assert m().texto_del_historial(plugin, huella) is None, "sin el archivo"
+        copiar(plugin, {f"plantillas/historial/{huella[len('sha256:'):]}": "# {{nombre}}\ndos\n"})
+        assert m().texto_del_historial(plugin, huella) is None, "con otro texto"
+        copiar(plugin, {f"plantillas/historial/{huella[len('sha256:'):]}": m().BOM + texto.replace("\n", "\r\n").encode("utf-8")})
+        assert m().texto_del_historial(plugin, huella) == texto, "el BOM y los CRLF de un checkout no lo rompen"
+
+
+def test_el_texto_de_la_huella_es_la_forma_que_da_la_huella_de_la_plantilla():
+    crudo = m().BOM + "# {{nombre}}\r\n`{{tickets}}/`\r\n".encode("utf-8")
+    for plantilla in m().PLANTILLAS:
+        forma = m().texto_de_la_huella(plantilla, crudo)
+        assert "sha256:" + hashlib.sha256(forma).hexdigest() == m().huella_de_la_plantilla(plantilla, crudo), plantilla
+    assert m().texto_de_la_huella("CLAUDE.md", crudo) == b"# {{nombre}}\n`tickets/`\n"
+    assert m().texto_de_la_huella("CLAUDE.controles.md", crudo) == b"# {{nombre}}\n`{{tickets}}/`\n"
+
+
+def test_una_copia_sin_tocar_se_reconoce_aunque_el_nombre_del_proyecto_salga_en_el_texto_de_la_plantilla():
+    spec = spec_de("completo", nombre="tickets")
+    with Instancia(spec["config"]) as raiz:
+        copiar(raiz, generado_por_el_bootstrap(spec))
+        revision = m().revisar(raiz, PLUGIN)
+        assert revision.error is None and revision.pendientes == (), revision
+        indice = next(r for r in revision.revisadas if r.ruta == "CLAUDE.md")
+        assert indice.estado == m().AL_DIA and indice.nombre == "tickets", indice
+        copiar(raiz, {"CLAUDE.md": de_la_version("CLAUDE.md", "0.9.0", "tickets")})
+        indice = next(r for r in m().revisar(raiz, PLUGIN).revisadas if r.ruta == "CLAUDE.md")
+        assert indice.estado == m().SIN_TOCAR and indice.versiones == ("0.9.0", "0.9.1") and indice.nombre == "tickets", indice
+
+
+def test_sin_la_clave_la_revision_dice_hasta_que_version_coinciden_las_copias_y_sigue_desde_la_menor():
+    spec = spec_de("completo")
+    with Instancia(spec["config"]) as raiz:
+        copiar(raiz, generado_por_el_bootstrap(spec))
+        copiar(raiz, {"CLAUDE.md": de_la_version("CLAUDE.md", "0.9.0"),
+                      "tickets/_plantilla/CLAUDE.md": de_la_version("ticket.md", "0.9.0"),
+                      ".githooks/pre-commit": de_la_version("pre-commit", "0.9.0"),
+                      ".claude/reglas/verificar_sql.tests.py": de_la_version("reglas/verificar.tests.py", "0.9.0"),
+                      ".claude/reglas/verificar_web.tests.py": de_la_version("reglas/verificar.tests.py", "0.9.0")})
+        revision = m().revisar(raiz, PLUGIN)
+        assert (revision.inferida, revision.base, revision.hasta) == ("0.9.0", "0.9.0", "0.9.1"), revision
+        config = json.loads((raiz / "workspace.config.json").read_text(encoding="utf-8"))
+        (raiz / "workspace.config.json").write_text(json.dumps({**config, "plantillas": "0.9.0"}), encoding="utf-8")
+        revision = m().revisar(raiz, PLUGIN)
+        assert (revision.anotada, revision.inferida, revision.base, revision.hasta) == ("0.9.0", None, "0.9.0", None), revision
 
 
 def test_una_copia_que_es_un_enlace_cuenta_como_editada_y_no_se_reemplaza():

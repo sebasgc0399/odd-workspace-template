@@ -389,8 +389,12 @@ def chequear_fallas_de_hooks(ctx):
 def _base_de_las_plantillas(revision):
     if revision.anotada is not None:
         return f"anotadas en la {revision.anotada}"
-    de_donde = (f"por las copias sin tocar, la {revision.inferida}" if revision.inferida is not None
-                else "ninguna copia coincide con una versión publicada")
+    if revision.inferida is None:
+        de_donde = "ninguna copia coincide con una versión publicada"
+    elif revision.hasta not in (None, revision.inferida):
+        de_donde = f"por las copias sin tocar, de la {revision.inferida} a la {revision.hasta}"
+    else:
+        de_donde = f"por las copias sin tocar, la {revision.inferida}"
     return f"sin versión anotada en {config_loader.NOMBRE} ({de_donde})"
 
 

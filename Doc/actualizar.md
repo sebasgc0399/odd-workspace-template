@@ -41,9 +41,9 @@ El bootstrap no pisa el `CLAUDE.md` de la raíz, la plantilla de los tickets (`t
 El ítem `plantillas` de `/odd-ws:doctor` te dice cuáles cambiaron desde la versión con que quedaron tus copias, anotada en `"plantillas"` de `workspace.config.json`:
 
 - **Sin tocar: se reemplaza.** La copia es igual a la plantilla de alguna versión publicada, así que no tiene nada tuyo. `--arreglar plantillas` la reemplaza por la de esta versión, con el nombre de tu proyecto en el `CLAUDE.md`.
-- **Editada: fusiónala a mano.** La copia tiene cambios tuyos, y el doctor no la toca. Lleva a mano lo nuevo de [`plugin/plantillas/`](../plugin/plantillas/), con la lista de abajo.
+- **Editada: fusiónala a mano.** La copia tiene cambios tuyos, y el doctor no la toca. `/odd-ws:doctor` te ofrece fusionarla con `plugin/scripts/fusionar_plantillas.py`: te muestra qué cambió la plantilla desde la versión de tu copia, con el nombre de tu proyecto (`--diff <copia>`), te propone la fusión de 3 vías (`--fusionar <copia>`) y la escribe solo con tu sí (`--escribir`). Si tu cambio y el de la plantilla chocan, te muestra solo los bloques en conflicto y no escribe nada: llévalos a mano, con la lista de abajo.
 - **Primero las editadas, después el arreglo.** `--arreglar plantillas` reemplaza las sin tocar y anota la versión nueva en `"plantillas"`; desde ahí el ítem sale OK. Después, commitea las copias.
-- **Sin la clave** (una instancia creada antes de la 0.14.0), el doctor dice «sin versión anotada» y deduce la versión de las copias sin tocar.
+- **Sin la clave** (una instancia creada antes de la 0.14.0), el doctor dice «sin versión anotada» y deduce la versión de las copias sin tocar. Si coinciden con más de una versión, porque la plantilla no cambió entre ellas, dice «de la X a la Y» y te manda a leer desde la más vieja.
 - **La primera sesión después de actualizar** ya te nombra las copias que cambiaron y te manda al doctor, si el plugin vive en una carpeta con su versión, como el caché de Claude Code o de Codex. Si la ruta no cambia con la versión, como en Pi instalado por git, ese aviso no sale: el doctor te avisa igual.
 
 Abajo está cada cambio, por versión, para fusionar las editadas: el doctor te dice desde qué versión leer. Copia lo de esa versión y lo de las que siguen.

@@ -88,7 +88,8 @@ def test_reproduce_la_huella_de_cada_plantilla_en_cada_etiqueta_publicada():
                          "reglas/verificar.tests.py": {"0.10.0": huella_de("print('prueba')\n")}}, tabla
         assert tabla["pre-commit"]["0.2.0"] == "sha256:" + hashlib.sha256(r.git("show", "odd-ws--v0.2.0:plugin/plantillas/pre-commit").stdout).hexdigest()
         assert list(tabla["pre-commit"]) == ["0.2.0", "0.10.0"], "por número de versión, no por texto"
-        assert salida.strip() == f"{TABLA}: 5 huellas de 2 versiones, de la 0.2.0 a la 0.10.0", salida
+        assert salida.splitlines() == [f"{TABLA}: 5 huellas de 2 versiones, de la 0.2.0 a la 0.10.0",
+                                       "plugin/plantillas/historial: 4 textos escritos; commitéalos con la tabla"], salida
 
 
 def test_la_version_sin_etiqueta_toma_las_plantillas_del_arbol_y_una_etiquetada_gana_al_arbol():
@@ -110,13 +111,74 @@ def test_la_version_sin_etiqueta_toma_las_plantillas_del_arbol_y_una_etiquetada_
         assert r.tabla()["pre-commit"] == {"0.2.0": huella_de(PRE_COMMIT_VIEJO), "0.10.0": huella_de("#!/bin/sh\necho nuevo\n")}
 
 
+HISTORIAL = "plugin/plantillas/historial"
+
+
+def historial_de(r):
+    carpeta = r.obra / HISTORIAL
+    return {ruta.name: ruta.read_bytes() for ruta in carpeta.iterdir()} if carpeta.is_dir() else {}
+
+
+def test_escribe_en_el_historial_el_texto_de_cada_huella_que_falta_con_su_huella_por_nombre_y_no_borra_nada():
+    with Repo() as r:
+        historia(r)
+        r.poner({PLUGIN_JSON: json.dumps({"name": "odd-ws", "version": "0.11.0"}),
+                 "plugin/plantillas/ticket.md": "﻿ticket\r\nnuevo\r\n"})
+        huerfano = r.obra / HISTORIAL / ("0" * 64)
+        r.poner({f"{HISTORIAL}/{'0' * 64}": "de otra versión\n"})
+        codigo, salida, error = r.correr()
+        assert codigo == 0 and error == "", (codigo, salida, error)
+        tabla = r.tabla()
+        huellas = {h for por_version in tabla.values() for h in por_version.values()}
+        escritos = historial_de(r)
+        assert set(escritos) == {h[len("sha256:"):] for h in huellas} | {huerfano.name}, sorted(escritos)
+        for nombre, contenido in escritos.items():
+            if nombre != huerfano.name:
+                assert hashlib.sha256(contenido).hexdigest() == nombre, nombre
+                assert b"\r" not in contenido and not contenido.startswith(b"\xef\xbb\xbf"), contenido
+        assert escritos[tabla["CLAUDE.md"]["0.2.0"][len("sha256:"):]] == INDICE.replace("{{tickets}}", "tickets").encode("utf-8")
+        assert escritos[tabla["ticket.md"]["0.11.0"][len("sha256:"):]] == b"ticket\nnuevo\n"
+        assert huerfano.read_bytes() == "de otra versión\n".encode("utf-8"), "solo suma: nunca borra ni cambia otro texto"
+        assert salida.splitlines() == [f"{TABLA}: 9 huellas de 3 versiones, de la 0.2.0 a la 0.11.0",
+                                       f"{HISTORIAL}: 5 textos escritos; commitéalos con la tabla"], salida
+        roto = r.obra / HISTORIAL / tabla["pre-commit"]["0.2.0"][len("sha256:"):]
+        roto.write_bytes(b"#!/bin/sh\necho otro\n")
+        antes = {nombre: (r.obra / HISTORIAL / nombre).stat().st_mtime_ns for nombre in escritos if nombre != roto.name}
+        codigo, salida, error = r.correr()
+        assert codigo == 0 and salida.splitlines()[1:] == [f"{HISTORIAL}: 1 texto escrito; commitéalo con la tabla"], (salida, error)
+        assert roto.read_bytes() == PRE_COMMIT_VIEJO.encode("utf-8"), "un texto que no da su huella se vuelve a escribir"
+        assert {n: (r.obra / HISTORIAL / n).stat().st_mtime_ns for n in antes} == antes, "los textos sanos no se tocan"
+        codigo, salida, error = r.correr()
+        assert codigo == 0 and len(salida.splitlines()) == 1, "sin textos nuevos, la salida de siempre"
+
+
+def test_si_falta_la_etiqueta_local_de_una_version_de_la_tabla_commiteada_sale_con_2_y_no_toca_la_tabla():
+    with Repo() as r:
+        historia(r)
+        r.poner({PLUGIN_JSON: json.dumps({"name": "odd-ws", "version": "0.11.0"})})
+        assert r.correr()[0] == 0
+        r.git("add", "-A")
+        r.git("commit", "-q", "--no-verify", "-m", "tabla con la 0.11.0 sin publicar")
+        r.poner({PLUGIN_JSON: json.dumps({"name": "odd-ws", "version": "0.12.0"})})
+        assert r.correr()[0] == 0, "la versión sin etiqueta de la tabla commiteada no es una etiqueta que falte"
+        assert "0.11.0" not in r.tabla()["CLAUDE.md"] and "0.12.0" in r.tabla()["CLAUDE.md"], r.tabla()
+        r.git("checkout", "-q", "--", TABLA)
+        r.git("tag", "-d", "odd-ws--v0.2.0")
+        r.git("tag", "-d", "odd-ws--v0.10.0")
+        antes = (r.obra / TABLA).read_bytes()
+        codigo, salida, error = r.correr()
+        assert codigo == 2 and salida == "", (codigo, salida, error)
+        assert error.strip() == "huellas.py: faltan las etiquetas locales odd-ws--v0.2.0, odd-ws--v0.10.0: corre `git fetch --tags`", error
+        assert (r.obra / TABLA).read_bytes() == antes, "no borra las entradas de las etiquetas que no ve"
+
+
 def test_sin_poder_leer_la_version_del_plugin_sale_con_error_y_no_escribe():
     with Repo() as r:
         historia(r)
         r.poner({PLUGIN_JSON: "{roto"})
         codigo, salida, error = r.correr()
         assert codigo == 2 and "plugin.json" in error and salida == "", (codigo, salida, error)
-        assert not (r.obra / TABLA).exists()
+        assert not (r.obra / TABLA).exists() and not (r.obra / HISTORIAL).exists()
 
 
 def main():
