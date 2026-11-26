@@ -165,6 +165,48 @@ def test_fuera_de_un_repo_git_el_contexto_dice_que_no_se_pudo_chequear():
         assert vencido is not None and m().NO_SE_PUDO in vencido and "a tiempo" in vencido, vencido
 
 
+@contextlib.contextmanager
+def git_aislado(base):
+    claves = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+    previo = {clave: os.environ.get(clave) for clave in claves}
+    os.environ.update(GIT_CONFIG_GLOBAL=str(base / "global"), GIT_CONFIG_SYSTEM=str(base / "sistema"), GIT_CONFIG_NOSYSTEM="1")
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+
+
+def _git_de_prueba(repo, *args, entrada=None):
+    entorno = {clave: valor for clave, valor in os.environ.items() if not clave.startswith("GIT_") or clave.startswith("GIT_CONFIG_")}
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false",
+                        *args], cwd=str(repo), input=entrada, capture_output=True, env=entorno)
+    assert r.returncode == 0, r.stderr
+
+
+def test_una_ruta_que_ya_no_existe_trae_el_porque_de_head_y_una_carpeta_calla():
+    with carpeta() as base, git_aislado(base):
+        repo = base / "repo"
+        (repo / "src").mkdir(parents=True)
+        _git_de_prueba(repo, "init", "-q")
+        (repo / "src" / "a.sql").write_text("uno\ndos\n", encoding="utf-8")
+        _git_de_prueba(repo, "add", "-A")
+        _git_de_prueba(repo, "commit", "-q", "-F", "-", entrada="asunto\n\nEl porqué de uno.\n".encode("utf-8"))
+        (repo / "src" / "a.sql").unlink()
+        texto = m().contexto(repo, repo / "src" / "a.sql", ["uno"], m().hasta(5))
+        assert texto is not None and texto.startswith(m().ENCABEZADO % "src/a.sql" + "\n"), texto
+        assert texto.endswith(": El porqué de uno.") and texto.count("\n") == 1, texto
+        assert m().contexto(repo, repo / "src" / "nunca.sql", ["uno"], m().hasta(5)) is None, "lo que no existe ni está en HEAD calla"
+        (repo / "src" / "carpeta.sql").mkdir()
+        with sin_subprocess() as llamadas:
+            assert m().contexto(repo, repo / "src" / "carpeta.sql", ["uno"], m().hasta(5)) is None, "una carpeta calla"
+            assert m().contexto(repo, repo / "src" / "a.sql", [None], m().hasta(5)) is None, "un archivo entero que ya no existe calla"
+        assert llamadas == []
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

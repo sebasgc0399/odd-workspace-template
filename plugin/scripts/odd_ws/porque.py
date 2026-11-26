@@ -288,9 +288,11 @@ def _blame(arbol, rel, rangos, limite):
     return _commits_del_blame(decodificar(r.stdout))
 
 
-def _porque(arbol, rel, fragmentos, limite):
+def _porque(arbol, rel, fragmentos, limite, en_disco):
     r = _git(arbol, limite, "cat-file", "blob", "HEAD:" + rel)
     if r.returncode != 0:
+        if not en_disco:
+            return None
         existe = _git(arbol, limite, "rev-parse", "-q", "--verify", "HEAD:" + rel)
         if existe.returncode == 1:
             return SIN_HISTORIA_EN % rel if any(fragmento is not None for fragmento in fragmentos) else None
@@ -314,13 +316,14 @@ def _porque(arbol, rel, fragmentos, limite):
 
 
 def contexto(arbol, ruta, fragmentos, limite):
-    if not os.path.isfile(ruta):
+    en_disco = os.path.isfile(ruta)
+    if not en_disco and (os.path.exists(ruta) or all(fragmento is None for fragmento in fragmentos)):
         return None
     rel = relativa(ruta, arbol)
     if rel is None:
         return None
     try:
-        return _porque(arbol, rel, fragmentos, limite)
+        return _porque(arbol, rel, fragmentos, limite, en_disco)
     except subprocess.TimeoutExpired:
         motivo = "git no terminó a tiempo"
     except OSError as error:

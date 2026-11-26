@@ -33,7 +33,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
-| T1 | S1, S3 | El rescate en Codex y las formas de veredicto, los dos en `rescatar.py` | un writer, en paralelo con T2 (motivo: dos unidades con superficies disjuntas, de varios minutos cada una) | hecha (L4) | |
+| T1 | S1, S3 | El rescate en Codex y las formas de veredicto, los dos en `rescatar.py` | un writer, en paralelo con T2 (motivo: dos unidades con superficies disjuntas, de varios minutos cada una) | hecha (L4) | `103eec9` |
 | T2 | S2 | Los tres textos que engañan | un writer, en paralelo con T1 | hecha (L3) | |
 | T3 | S4 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 

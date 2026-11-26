@@ -363,6 +363,29 @@ test("de punta a punta: preguntar con pantalla confirma con timeout, y sin panta
   assert.equal(sin.confirmaciones.length, 0, "sin pantalla no se pregunta");
 });
 
+const SIN_CONFIRMAR_LA_EDICION = "No se confirmó (el usuario dijo que no, cerró el diálogo o venció el plazo de 60 s), así que esta edición "
+  + "queda bloqueada.";
+
+test("un rechazo de la confirmación dice «esta edición» en un edit o un write, y «este comando» en lo demás", async () => {
+  const plugin = pluginFalso("rechazo", { "x.py": RESPONDE }, enTodo("x.py", [JSON.stringify({ accion: "preguntar", texto: "PREGUNTA" })]));
+  const pi = conPi(plugin);
+  const casos: [string, Record<string, unknown>, string, string][] = [
+    ["edit", { path: "a.sql", edits: [] }, SIN_CONFIRMAR_LA_EDICION, "esta edición queda bloqueada"],
+    ["write", { path: "a.sql", content: "x" }, SIN_CONFIRMAR_LA_EDICION, "esta edición queda bloqueada"],
+    ["bash", { command: "ls" }, SIN_CONFIRMAR, "este comando queda bloqueado"],
+    ["powershell", { command: "ls" }, SIN_CONFIRMAR, "este comando queda bloqueado"],
+  ];
+  for (const [herramienta, entrada, rechazo, frenado] of casos) {
+    const no = ctxFalso(BASE, { hasUI: true, responder: async () => false });
+    assert.deepEqual(await pi.emitir(llamada(herramienta, entrada), no), { block: true, reason: `PREGUNTA\n\n${rechazo}` }, herramienta);
+    const fallido = ctxFalso(BASE, { hasUI: true, responder: async () => { throw new Error("se cerró la pantalla"); } });
+    assert.deepEqual(await pi.emitir(llamada(herramienta, entrada), fallido),
+      { block: true, reason: `PREGUNTA\n\nodd-ws no pudo pedir la confirmación (se cerró la pantalla), así que ${frenado}.` }, herramienta);
+    const si = ctxFalso(BASE, { hasUI: true, responder: async () => true });
+    assert.equal(await pi.emitir(llamada(herramienta, entrada), si), undefined, herramienta);
+  }
+});
+
 test("de punta a punta: el contexto de inicio llega al modelo y a un puente, y se renueva en cada inicio", async () => {
   const { inst } = mundo("inicio");
   escribir(inst, "workspace.config.json", "{roto");

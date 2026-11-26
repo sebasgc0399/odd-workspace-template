@@ -3124,6 +3124,134 @@ def test_porque_en_pi_la_pausa_pregunta_con_pantalla_y_sin_ella_bloquea_con_el_t
         assert datos["accion"] == "contexto" and "2026-02-15" in datos["texto"], datos
 
 
+HERRAMIENTAS_DE_EDICION = {"claude-code": "Edit", "codex": "apply_patch", "pi": "edit"}
+REINTENTO_QUE_PASA = "(el reintento pasa)."
+REINTENTO_FRENADO = "(el reintento se frena en la pausa de abajo)."
+
+
+def encabezado_del_primer_toque(herramienta, cierre=REINTENTO_QUE_PASA):
+    return ("primer toque (capa-sql): este %s no se aplicó. Antes de escribir en la capa sql, leer sus no negociables y reintentar "
+            "el mismo cambio, ajustado a ellos %s" % (herramienta, cierre))
+
+
+def antes_de_editar_ventas(host, w, viejo, pantalla=False):
+    if host == "claude-code":
+        codigo, out, err = w.correr(editar(w.ventas, viejo, nombre="PreToolUse"))
+        if (codigo, out) == (2, ""):
+            return "bloquear", err.decode("utf-8")[:-1]
+        motivo = preguntado((codigo, out, err))
+        return ("preguntar", motivo) if motivo is not None else (None, (codigo, out, err))
+    if host == "codex":
+        lineas = viejo.split("\n")
+        texto = parche_codex("*** Update File: %s" % w.ventas, "@@", *(" " + linea for linea in lineas[:-1]), "-" + lineas[-1], "+cinco")
+        salida = M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex")
+        motivo = negado_en_codex(salida)
+        return ("bloquear", motivo) if motivo is not None else (None, salida)
+    entrada = {"path": str(w.ventas), "edits": [{"oldText": viejo, "newText": "cinco"}]}
+    codigo, salida, error = M.correr(pi_evento("tool_call", "edit", entrada, w.raiz, pantalla), raiz=w.raiz, plazo=25, host="pi")
+    if (codigo, error) != (0, b"") or not salida:
+        return None, (codigo, salida, error)
+    datos = json.loads(salida)
+    return datos["accion"], datos["texto"]
+
+
+def pausa_de_ventas(w):
+    from odd_ws import porque
+    desviacion = "- D-01, anotada el 2026-02-15, hoy en las líneas 5-6 (db:src/ventas.sql@%s:5-6): Redondeo a dos decimales. Porqué: %s" % (
+        w.hashes["B"][:7], PORQUE_DE_LA_DIAN)
+    return "\n".join([porque.PAUSA % ("src/ventas.sql", ".claude/reglas/desviaciones.csv"), desviacion, porque.CIERRE_DE_LA_PAUSA])
+
+
+def test_el_primer_toque_con_la_pausa_no_dice_que_el_reintento_pasa_en_los_tres_hosts():
+    from odd_ws.hosts import codex as de_codex
+    from odd_ws.hosts import pi as de_pi
+    reintentos = {"claude-code": lambda pausa: ("preguntar", pausa),
+                  "codex": lambda pausa: ("bloquear", pausa + "\n" + de_codex.SIN_CONFIRMACION_DE_EDICION),
+                  "pi": lambda pausa: ("bloquear", pausa + "\n" + de_pi.SIN_PANTALLA_DE_EDICION)}
+    for host, herramienta in HERRAMIENTAS_DE_EDICION.items():
+        with git_aislado(), Porque() as w:
+            escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", skill("sql"))
+            w.desviacion(5, 6)
+            pausa = pausa_de_ventas(w)
+            esperado = encabezado_del_primer_toque(herramienta, REINTENTO_FRENADO) + "\n" + (REGLA % "SQL") + "\n\n" + pausa
+            assert antes_de_editar_ventas(host, w, "linea 04\nredondeo 05") == ("bloquear", esperado), host
+            assert antes_de_editar_ventas(host, w, "linea 04\nredondeo 05") == reintentos[host](pausa), "el reintento se frena en la pausa"
+            if host == "pi":
+                assert antes_de_editar_ventas(host, w, "linea 04\nredondeo 05", pantalla=True) == ("preguntar", pausa)
+
+
+def test_el_primer_toque_solo_y_la_pausa_sola_dicen_lo_mismo_que_antes_en_los_tres_hosts():
+    from odd_ws.hosts import codex as de_codex
+    from odd_ws.hosts import pi as de_pi
+    pausas = {"claude-code": lambda pausa: ("preguntar", pausa),
+              "codex": lambda pausa: ("bloquear", pausa + "\n" + de_codex.SIN_CONFIRMACION_DE_EDICION),
+              "pi": lambda pausa: ("bloquear", pausa + "\n" + de_pi.SIN_PANTALLA_DE_EDICION)}
+    for host, herramienta in HERRAMIENTAS_DE_EDICION.items():
+        with git_aislado(), Porque() as w:
+            escribir(w.raiz, ".claude/skills/capa-sql/SKILL.md", skill("sql"))
+            w.desviacion(5, 6)
+            esperado = encabezado_del_primer_toque(herramienta) + "\n" + (REGLA % "SQL")
+            assert antes_de_editar_ventas(host, w, "linea 07\nlinea 08") == ("bloquear", esperado), host
+            assert antes_de_editar_ventas(host, w, "linea 04\nredondeo 05") == pausas[host](pausa_de_ventas(w)), host
+
+
+def test_codex_el_primer_toque_de_un_archivo_con_la_pausa_de_otro_tampoco_dice_que_el_reintento_pasa():
+    from odd_ws.hosts import codex as de_codex
+    with git_aislado(), Porque() as w:
+        for capa in ("sql", "web"):
+            escribir(w.raiz, ".claude/skills/capa-%s/SKILL.md" % capa, skill(capa))
+        w.desviacion(5, 6)
+        otro_sql = parche_codex("*** Update File: %s" % (w.db / "src" / "base.sql"), "@@", "-x", "+y")
+        assert negado_en_codex(M.correr(codex(otro_sql), raiz=w.raiz, plazo=25, host="codex")).startswith("primer toque (capa-sql)")
+        cs = escribir(w.web, "Core/A.cs", "int a;\n")
+        texto = parche_codex("*** Update File: %s" % cs, "@@", "-int a;", "+int b;",
+                             "*** Update File: %s" % w.ventas, "@@", " linea 04", "-redondeo 05", "+cinco")
+        motivo = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
+        primera = encabezado_del_primer_toque("apply_patch", REINTENTO_FRENADO).replace("capa-sql", "capa-web").replace("capa sql", "capa web")
+        assert motivo == primera + "\n" + (REGLA % "WEB") + "\n\n" + pausa_de_ventas(w), motivo
+        reintento = negado_en_codex(M.correr(codex(texto), raiz=w.raiz, plazo=25, host="codex"))
+        assert reintento == pausa_de_ventas(w) + "\n" + de_codex.SIN_CONFIRMACION_DE_EDICION, reintento
+
+
+def test_codex_un_move_con_edicion_trae_el_porque_del_origen_en_el_post():
+    with git_aislado(), Porque() as w:
+        destino = w.db / "src" / "ventas_movida.sql"
+        texto = parche_codex("*** Update File: %s" % w.ventas, "*** Move to: %s" % destino, "@@", " linea 04", "-redondeo 05", "+cinco")
+        escribir(w.db, "src/ventas_movida.sql", w.ventas.read_text(encoding="utf-8").replace("redondeo 05", "cinco"))
+        w.ventas.unlink()
+        salida = M.correr(codex(texto, nombre="PostToolUse"), raiz=w.raiz, plazo=25, host="codex")
+        texto_post = (_json_de_codex(salida) or {}).get("hookSpecificOutput", {}).get("additionalContext")
+        from odd_ws import porque
+        esperado = "\n".join([porque.ENCABEZADO % "src/ventas.sql",
+                              w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15"),
+                              w.linea("A", "La base que copia el SP de la central.", "2026-01-10")])
+        assert texto_post == esperado, salida
+
+
+def test_codex_un_move_sin_trackear_o_sin_edicion_y_una_edicion_comun_dicen_lo_mismo_que_antes():
+    with git_aislado(), Porque() as w:
+        suelto = escribir(w.db, "src/suelto.sql", "uno\ndos\n")
+        movido = w.db / "src" / "suelto_movido.sql"
+        texto = parche_codex("*** Update File: %s" % suelto, "*** Move to: %s" % movido, "@@", "-uno", "+UNO", " dos")
+        escribir(w.db, "src/suelto_movido.sql", "UNO\ndos\n")
+        suelto.unlink()
+        assert M.correr(codex(texto, nombre="PostToolUse"), raiz=w.raiz, plazo=25, host="codex") == (0, "", b""), "sin historia que mostrar"
+        destino = w.db / "src" / "ventas_movida.sql"
+        solo_move = parche_codex("*** Update File: %s" % w.ventas, "*** Move to: %s" % destino)
+        escribir(w.db, "src/ventas_movida.sql", w.ventas.read_text(encoding="utf-8"))
+        w.ventas.unlink()
+        assert M.correr(codex(solo_move, nombre="PostToolUse"), raiz=w.raiz, plazo=25, host="codex") == (0, "", b"")
+    with git_aislado(), Porque() as w:
+        texto = parche_codex("*** Update File: %s" % w.ventas, "@@", " linea 04", "-redondeo 05", "+cinco")
+        escribir(w.db, "src/ventas.sql", w.ventas.read_text(encoding="utf-8").replace("redondeo 05", "cinco"))
+        salida = M.correr(codex(texto, nombre="PostToolUse"), raiz=w.raiz, plazo=25, host="codex")
+        from odd_ws import porque
+        esperado = "\n".join([porque.ENCABEZADO % "src/ventas.sql",
+                              w.linea("B", "Se redondea a dos decimales porque la DIAN rechaza tres.", "2026-02-15"),
+                              w.linea("A", "La base que copia el SP de la central.", "2026-01-10")])
+        assert (_json_de_codex(salida) or {}).get("hookSpecificOutput", {}).get("additionalContext") == esperado, salida
+
+
 SP_CON_DOS_CATCH = """CREATE PROCEDURE ventas.registrar_venta
 AS
 BEGIN

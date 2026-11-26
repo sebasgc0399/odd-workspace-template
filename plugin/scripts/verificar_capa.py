@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import replace
 
 import config_loader
 from odd_ws import calibracion
@@ -52,6 +53,8 @@ ENCABEZADO_DEL_DIFF = b"diff --git "
 ESCAPES_DE_GIT = {ord(c): v for c, v in zip('abtnvfr"\\', b'\a\b\t\n\v\f\r"\\')}
 NOMBRE_DE_LA_FASE = {"pre": "PreToolUse", "post": "PostToolUse"}
 PATHSPECS_DEL_ENTORNO = ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
+REINTENTO_QUE_PASA = "el reintento pasa"
+REINTENTO_FRENADO = "el reintento se frena en la pausa de abajo"
 
 _LIMITE = None
 _HOST = HOST_POR_DEFECTO
@@ -635,22 +638,25 @@ def _primer_read_de_una(evento, config):
 def _pre_tool_use(evento, config):
     if not _edicion_verificable(evento):
         return Permitir()
-    return por_ruta(evento, lambda una: _antes_de_editar_una(una, config), _al_fallar(evento, config))
+    al_fallar = _al_fallar(evento, config)
+    pausas = {ruta: _aislada(lambda una: _pausa_de_una(una, config), replace(evento, rutas=(ruta,)), al_fallar) for ruta in evento.rutas}
+    frenado = any(isinstance(pausa, Preguntar) for pausa in pausas.values())
+    return por_ruta(evento, lambda una: _antes_de_editar_una(una, config, pausas, frenado), al_fallar)
 
 
-def _antes_de_editar_una(evento, config):
-    pausa_del_porque = _aislada(lambda una: _pausa_de_una(una, config), evento, _al_fallar(evento, config))
-    return combinar([_primer_toque_de_una(evento, config), pausa_del_porque])
+def _antes_de_editar_una(evento, config, pausas, frenado):
+    pausa_del_porque = pausas.get(evento.rutas[0], Permitir()) if evento.rutas else Permitir()
+    return combinar([_primer_toque_de_una(evento, config, frenado), pausa_del_porque])
 
 
-def _primer_toque_de_una(evento, config):
+def _primer_toque_de_una(evento, config, frenado):
     toque = _tocar(evento, config)
     if toque is None:
         return Permitir()
     capa, bloque = toque
     encabezado = ("primer toque (capa-%s): este %s no se aplicó. Antes de escribir en la capa %s, leer sus no "
-                  "negociables y reintentar el mismo cambio, ajustado a ellos (el reintento pasa)."
-                  % (capa, evento.herramienta, capa))
+                  "negociables y reintentar el mismo cambio, ajustado a ellos (%s)."
+                  % (capa, evento.herramienta, capa, REINTENTO_FRENADO if frenado else REINTENTO_QUE_PASA))
     return Bloquear(_texto_primer_toque(capa, config["raiz"], encabezado, bloque))
 
 
