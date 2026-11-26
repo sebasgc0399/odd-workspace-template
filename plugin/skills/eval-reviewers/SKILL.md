@@ -46,6 +46,7 @@ Mide a los revisores LLM de la instancia contra la revisión real de un líder, 
 
    - **CONTAMINADO** (un `Read` bajo una ruta prohibida): la corrida no cuenta, salvo que se demuestre que ese archivo no traía la verdad de terreno. Se puntúa `contaminado`.
    - **EXPOSICIÓN** (un `Grep` o un `Glob` cuyo alcance toca una ruta prohibida): significa «pudo ver», no «vio». Se resuelve leyendo el reporte. Un `Glob` solo revela nombres.
+   - **En Codex** las lecturas son comandos del shell (`CommandExecution`), y la auditoría no los sabe mirar: salen como «NO auditados» y no cuentan como lecturas auditadas. Esa corrida queda sin auditoría de su ceguera, y se dice.
    - **`--ceguera-fisica`** baja a info solo lo que estaba fuera del disco (las rutas que pasan por una carpeta `revision`). Úsalo solo si la verdad de terreno estuvo de verdad fuera del disco.
 7. **Puntuar.** Un veredicto por celda (corrida × observación), con la cita del reporte, en `puntajes.json`. La escala es fija:
 

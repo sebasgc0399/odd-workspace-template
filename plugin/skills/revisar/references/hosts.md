@@ -15,4 +15,22 @@ Detalle de las secciones 4 y 6 del `SKILL.md` de `/odd-ws:revisar` para Pi y par
 
 ## Codex
 
+**Las corridas.** En Codex, cada corrida es un `spawn_agent` con `agent_type` igual al nombre del revisor (`revisor-diseno`, `revisor-<capa>`), un `task_name` por corrida (el nombre de la corrida con `_` en lugar de `-`, como `revisor_diseno_r1`) y `fork_turns: "none"`: con `"all"`, el revisor hereda tu historia y deja de revisar a ciegas. El prompt viaja cifrado y el rescate no lo puede reconstruir, así que, antes de lanzar, guarda el de cada corrida en `corridas/<nombre>.prompt.txt`.
+
+**El `thread_id`.** `spawn_agent` devuelve solo el `task_name`. El hilo de cada revisor queda en `<CODEX_HOME>/sessions/<año>/<mes>/<día>/rollout-<fecha>T<hora>-<thread_id>.jsonl` (`CODEX_HOME` es `~/.codex` por defecto, y la fecha va en hora local), y su primera línea lleva `"agent_path":"/root/<task_name>"`: búscalo en la carpeta de hoy (por ejemplo, con `rg -l`) y toma el `thread_id` del final del nombre del archivo. En Codex, la tabla lleva el `thread_id`.
+
+**Un límite (I35).** En Codex, el reporte y el veredicto llegan en un solo mensaje, y tú recibes la devolución entera, no solo el veredicto: el ahorro de I35 no se cumple. Igual, los hallazgos se leen del `<nombre>.md` rescatado.
+
+**El rescate.** Es el comando de la sección 6 con `--host codex` y `--corrida <nombre>=<thread_id>`, sin `--sesion`:
+
+```bash
+python3 "<S>/rescatar.py" --host codex --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<thread_id> --corrida … --costo
+```
+
+- Lee el rollout del revisor en `CODEX_HOME`; `--sesion <carpeta>` lo reemplaza con otro `CODEX_HOME` o con su carpeta `sessions`. Comprueba que su `agent_role` sea el de un revisor: si no, `FAIL … no de un revisor`, porque el hilo es otro o el revisor se lanzó sin `agent_type` o con `fork_turns: "all"`.
+- El reporte es el mensaje final del revisor (el de `task_complete`) sin su última línea, la del veredicto; si el mensaje es solo el veredicto, es el texto que escribió después de su último comando. No escribe `.prompt.txt`: el que guardaste antes de lanzar queda como está, salvo sus secretos, que tapa como en los otros hosts, y la línea `ok` los cuenta.
+- Las lecturas son los comandos del shell (`CommandExecution`), con el comando, la carpeta y el código de salida, porque Codex lee con el shell. `auditar_lecturas.py` no los sabe auditar y los cuenta como «NO auditados». Lo que no es un comando ni un mensaje, como una edición, sale como herramienta «NO auditada».
+- En `costo.json`, la caché leída de Codex ya está dentro de la entrada: `contexto_final` es la entrada de la última llamada, sin sumarle la caché, y `orquestador` queda en `null`, con un aviso.
+- Sin `task_complete` con su mensaje final, es una corrida cortada: `FAIL … sin task_complete`. **Si el rescate de una corrida falla**, su reporte entero ya llegó en la devolución: guárdalo en `corridas/<nombre>.md` sin la línea del veredicto y dile al usuario que esa corrida salió de la devolución, sin lecturas ni costo.
+
 **El límite de concurrencia.** Codex responde «agent thread limit reached» cuando se pasa de `agents.max_threads`, que Gentle AI pone en 4, o, en V2, de `max_concurrent_threads_per_session - 1`, que es 3, y un `completo` con 2 capas o más lanza 5 corridas o más. Ante ese rechazo, espera a que termine una corrida en marcha, ciérrala (en Codex, `close_agent` libera su lugar), relanza la rechazada y dile al usuario que la revisión va por tandas. La regla es la misma en todos los hosts.

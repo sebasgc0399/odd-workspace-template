@@ -14,16 +14,24 @@ from pathlib import Path
 
 from odd_ws import secretos
 from odd_ws.capas import TICKETS
-from odd_ws.hosts import pi
-from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, comandos, costo, en_serie, lanzamientos, leer
+from odd_ws.hosts import codex, pi
+from odd_ws.transcripcion import HANDBACK, LECTURA, bloques, comandos, costo, costo_codex, en_serie, lanzamientos, leer
 
-HOSTS = ("claude-code", "pi")
-CLAUDE_CODE, PI = HOSTS
+HOSTS = ("claude-code", "pi", "codex")
+CLAUDE_CODE, PI, CODEX = HOSTS
 SHELL = ("Bash", "PowerShell")
 LECTURA_PI = tuple(pi.HERRAMIENTAS[h] for h in LECTURA)
 SHELL_PI = tuple(pi.DIALECTOS)
 COMPLETADA = "completed"
 TAREA_RE = re.compile(r"[A-Za-z0-9-]+")
+SESIONES_CODEX = "sessions"
+ROLLOUT_CODEX = "*/*/*/rollout-*-%s.jsonl"
+REVISOR_RE = re.compile(r"revisor-[a-z0-9][a-z0-9-]*")
+LECTURA_CODEX = "CommandExecution"
+MENSAJE_CODEX = "AgentMessage"
+SIN_HERRAMIENTA_CODEX = (MENSAJE_CODEX, "UserMessage", "Reasoning")
+SIN_PROMPT_CODEX = "  (sin .prompt.txt: en Codex el prompt viaja cifrado y lo guarda el orquestador antes de lanzar)"
+CARPETAS = {CLAUDE_CODE: "subagentes", PI: "tareas de gentle-shell", CODEX: "sesiones de Codex"}
 USO_PI = {"salida": "output", "cache_escrita": "cacheWrite", "cache_leida": "cacheRead"}
 CAMPOS_DE_TOKENS = ("contexto_inicial", "contexto_final", "salida", "cache_escrita", "cache_leida", "tokens_total")
 CAMPOS_DEL_ANUNCIO = (("contexto final", "contexto_final"), ("salida", "salida"), ("caché escrita", "cache_escrita"),
@@ -33,8 +41,11 @@ MAX_SALIDA = 2000
 CODIGO_DE_SALIDA_RE = re.compile(r"Exit code (-?[0-9]+)")
 CLAVES_REPORTE = ("message", "result", "report")
 MARCAS_DE_MARKDOWN_RE = re.compile(r"[*_`]")
-VEREDICTO_RE = re.compile(r"[\s#>-]*veredicto\s*:", re.IGNORECASE)
-SOLO_EL_VEREDICTO_RE = re.compile(r"(?:veredicto\s*:\s*)?\d+ critical, \d+ warning, \d+ suggestion\.?", re.IGNORECASE)
+ENCABEZADO_DEL_VEREDICTO = r"[\W\d_]*(?:veredicto(?:\s+final)?|verdict)\s*:"
+CUENTAS_DEL_VEREDICTO = r"\d+ critical, \d+ warning, \d+ suggestion"
+VEREDICTO_RE = re.compile(ENCABEZADO_DEL_VEREDICTO, re.IGNORECASE)
+CUENTAS_RE = re.compile(CUENTAS_DEL_VEREDICTO, re.IGNORECASE)
+SOLO_EL_VEREDICTO_RE = re.compile(r"(?:%s\s*)?%s\.?" % (ENCABEZADO_DEL_VEREDICTO, CUENTAS_DEL_VEREDICTO), re.IGNORECASE)
 MODOS = ("0", "rapido", "completo")
 CARPETA_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-(0|rapido|completo)(?:-([2-9]|[1-9][0-9]+))?")
 COSTO = "costo.json"
@@ -61,7 +72,7 @@ def es_veredicto(texto):
     if not isinstance(texto, str):
         return False
     limpio = MARCAS_DE_MARKDOWN_RE.sub("", texto.strip())
-    if "\n" not in limpio and VEREDICTO_RE.match(limpio):
+    if "\n" not in limpio and (VEREDICTO_RE.match(limpio) or CUENTAS_RE.search(limpio)):
         return True
     return bool(SOLO_EL_VEREDICTO_RE.fullmatch(" ".join(limpio.split())))
 
@@ -156,7 +167,13 @@ def resolver_dir_subagents(sesion):
     return sesion
 
 
-def _guardar(destino, nombre, agente, meta, datos, costos):
+def _prompt_guardado(ruta):
+    if not ruta.is_file():
+        return None, 0
+    return secretos.tapar(_leer_texto(ruta))
+
+
+def _guardar(destino, nombre, agente, meta, datos, costos, con_prompt=True):
     if costos is not None:
         costos.append({"corrida": nombre, "agente": agente, "estado": "ok" if datos["reporte"] else "sin_reporte",
                        "agentType": meta.get("agentType"), "model": meta.get("model"), "costo": datos["costo"]})
@@ -164,13 +181,15 @@ def _guardar(destino, nombre, agente, meta, datos, costos):
         return {"corrida": nombre, "agente": agente, "estado": "solo_veredicto" if datos.get("origen") == "solo_veredicto" else "sin_reporte",
                 "lecturas": len(datos["lecturas"]), "salteadas": datos["salteadas"]}
     reporte, tapados = secretos.tapar(datos["reporte"])
-    prompt, en_el_prompt = secretos.tapar(datos["prompt"] or "")
+    ruta_del_prompt = destino / ("%s.prompt.txt" % nombre)
+    prompt, en_el_prompt = secretos.tapar(datos["prompt"] or "") if con_prompt else _prompt_guardado(ruta_del_prompt)
     lecturas, en_las_lecturas = secretos.tapar_valores({"agente": agente, "meta": meta, "lecturas": datos["lecturas"],
                                                         "no_auditadas": datos["no_auditadas"], "costo": datos["costo"]})
     tapados += en_el_prompt + en_las_lecturas
     destino.mkdir(parents=True, exist_ok=True)
     (destino / ("%s.md" % nombre)).write_text(reporte, encoding="utf-8", newline="\n")
-    (destino / ("%s.prompt.txt" % nombre)).write_text(prompt, encoding="utf-8", newline="\n")
+    if con_prompt or en_el_prompt:
+        ruta_del_prompt.write_text(prompt, encoding="utf-8", newline="\n")
     (destino / ("%s.lecturas.json" % nombre)).write_text(
         json.dumps(lecturas, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     if datos["comandos"]:
@@ -309,6 +328,102 @@ def rescatar_pi(tareas, destino, corridas, costos=None):
         resultado = _guardar(destino, nombre, id_, meta, _corrida_de_tarea(tarea, hilo), costos)
         resultado["tarea"] = tarea["status"]
         resultados.append(resultado)
+    return resultados
+
+
+def _rol_codex(meta):
+    origen = meta.get("source") if isinstance(meta, dict) else None
+    subagente = origen.get("subagent") if isinstance(origen, dict) else None
+    lanzado = subagente.get("thread_spawn") if isinstance(subagente, dict) else None
+    rol = lanzado.get("agent_role") if isinstance(lanzado, dict) else None
+    return rol if isinstance(rol, str) else None
+
+
+def _texto_codex(item):
+    contenido = item.get("content")
+    if not isinstance(contenido, list):
+        return ""
+    return "\n".join(b["text"] for b in contenido if isinstance(b, dict) and isinstance(b.get("text"), str))
+
+
+def _sin_el_veredicto(texto):
+    lineas = texto.rstrip().split("\n")
+    for n in (2, 1):
+        cola = "\n".join(lineas[-n:])
+        if len(lineas) >= n and es_veredicto(cola):
+            return "\n".join(lineas[:-n]).rstrip(), cola.strip()
+    return texto, None
+
+
+def _corrida_de_rollout(registros, salteadas):
+    lecturas, no_auditadas, textos, final, modelo = [], {}, [], None, None
+    for registro in registros:
+        carga = registro.get("payload") if isinstance(registro.get("payload"), dict) else {}
+        if registro.get("type") == "turn_context" and isinstance(carga.get("model"), str):
+            modelo = carga["model"]
+        if registro.get("type") != "event_msg":
+            continue
+        if carga.get("type") == "task_complete":
+            final = carga.get("last_agent_message")
+            continue
+        item = carga.get("item")
+        if carga.get("type") != "item_completed" or not isinstance(item, dict):
+            continue
+        tipo = item.get("type") if isinstance(item.get("type"), str) else "sin tipo"
+        if tipo == MENSAJE_CODEX:
+            textos.append(_texto_codex(item))
+        elif tipo == LECTURA_CODEX:
+            lecturas.append({"tool": tipo, "input": {"command": item.get("command"), "cwd": item.get("cwd")}, "exit": item.get("exit_code")})
+            textos = []
+        elif tipo not in SIN_HERRAMIENTA_CODEX:
+            no_auditadas[tipo] = no_auditadas.get(tipo, 0) + 1
+            textos = []
+    reporte, veredicto = _sin_el_veredicto(final) if isinstance(final, str) and final.strip() else (None, None)
+    origen = "task_complete" if reporte else None
+    if veredicto is not None and not reporte:
+        previos = [t for t in textos if t.strip() and t.strip() != final.strip() and not es_veredicto(t)]
+        reporte = "\n\n".join(_sin_el_veredicto(t)[0] for t in previos) or None
+        origen = "texto_previo" if reporte else "solo_veredicto"
+    return {"prompt": None, "reporte": reporte, "origen": origen, "veredicto": veredicto, "lecturas": lecturas, "comandos": [],
+            "no_auditadas": no_auditadas, "salteadas": salteadas, "costo": costo_codex(registros),
+            "rol": _rol_codex(registros[0].get("payload")), "modelo": modelo}
+
+
+def _rollout(ruta):
+    leidos = leer(ruta)
+    if leidos is None or not leidos[0] or leidos[0][0].get("type") != "session_meta":
+        return None
+    return _corrida_de_rollout(*leidos)
+
+
+def extraer_corrida_codex(ruta):
+    datos = _rollout(ruta)
+    if datos is None:
+        raise OSError("%s no es un rollout de Codex que se pueda leer" % ruta)
+    return datos
+
+
+def carpeta_de_sesiones(sesion=None):
+    if sesion is not None:
+        sesion = Path(sesion)
+        return sesion if sesion.name == SESIONES_CODEX else sesion / SESIONES_CODEX
+    return codex.carpeta_de_codex(types.SimpleNamespace(home=Path.home(), entorno=os.environ)) / SESIONES_CODEX
+
+
+def rescatar_codex(sesiones, destino, corridas, costos=None):
+    sesiones, destino = Path(sesiones), Path(destino)
+    resultados = []
+    for nombre, hilo in corridas.items():
+        rollouts = sorted(sesiones.glob(ROLLOUT_CODEX % hilo))
+        datos = _rollout(rollouts[-1]) if rollouts else None
+        if datos is None:
+            resultados.append({"corrida": nombre, "agente": hilo, "estado": "ilegible" if rollouts else "no_encontrado"})
+            continue
+        if not REVISOR_RE.fullmatch(datos["rol"] or ""):
+            resultados.append({"corrida": nombre, "agente": hilo, "estado": "no_es_revisor", "rol": datos["rol"]})
+            continue
+        meta = {"agentType": datos["rol"], "model": datos["modelo"]}
+        resultados.append(_guardar(destino, nombre, hilo, meta, datos, costos, con_prompt=False))
     return resultados
 
 
@@ -524,12 +639,12 @@ def ultimo_costo(ticket):
 
 
 def _parsear_corridas(crudas, host=CLAUDE_CODE):
-    forma = "<nombre>=<task_id>" if host == PI else "<nombre>=<agentId>"
+    forma = {PI: "<nombre>=<task_id>", CODEX: "<nombre>=<thread_id>"}.get(host, "<nombre>=<agentId>")
     corridas = {}
     for c in crudas:
         nombre, igual, agente = c.partition("=")
         nombre, agente = nombre.strip(), agente.strip()
-        if not igual or not nombre or not agente or (host == PI and not TAREA_RE.fullmatch(agente)):
+        if not igual or not nombre or not agente or (host in (PI, CODEX) and not TAREA_RE.fullmatch(agente)):
             raise ValueError("--corrida espera %s, recibio %r" % (forma, c))
         if host == CLAUDE_CODE and agente.startswith("agent-"):
             agente = agente[len("agent-"):]
@@ -555,24 +670,31 @@ def _parser():
     parser = argparse.ArgumentParser(
         usage="%(prog)s --sesion SESION --destino DESTINO --corrida NOMBRE=AGENTID [--corrida ...] [--costo]\n"
               "       %(prog)s --host pi --destino DESTINO --corrida NOMBRE=TASK_ID [--corrida ...] [--sesion CARPETA] [--costo]\n"
+              "       %(prog)s --host codex --destino DESTINO --corrida NOMBRE=THREAD_ID [--corrida ...] [--sesion CODEX_HOME] "
+              "[--costo]\n"
               "       %(prog)s --ultimo-costo TICKET",
-        description="Rescata reporte, prompt, lecturas y costo de corridas de subagentes desde su JSONL de Claude Code o "
-                    "desde la tarea que guarda gentle-shell.")
+        description="Rescata reporte, prompt, lecturas y costo de corridas de subagentes desde su JSONL de Claude Code, "
+                    "desde la tarea que guarda gentle-shell o desde el rollout de Codex.")
     parser.add_argument("--host", choices=HOSTS, default=CLAUDE_CODE,
                         help="claude-code (por defecto) lee subagents/agent-<agentId>.jsonl; pi lee la tarea que guarda "
                              "gentle-shell, <agentHome>/gentle-agents/tasks/<task_id>.json, con agentHome "
-                             "GENTLE_PI_AGENT_HOME, si no PI_CODING_AGENT_DIR, si no ~/.pi/agent")
+                             "GENTLE_PI_AGENT_HOME, si no PI_CODING_AGENT_DIR, si no ~/.pi/agent; codex lee el rollout del "
+                             "revisor, <CODEX_HOME>/sessions/*/*/*/rollout-*-<thread_id>.jsonl, con CODEX_HOME por defecto "
+                             "~/.codex, si su agent_role es el de un revisor (revisor-<...>), y no escribe .prompt.txt, porque "
+                             "el prompt viaja cifrado")
     parser.add_argument("--sesion", help="carpeta subagents (o la de la sesion que la contiene); con --host pi es opcional: "
                                          "la carpeta de tareas de gentle-shell (<agentHome>/gentle-agents/tasks), o el "
-                                         "agentHome que la contiene; si no la tiene, sale con 2")
+                                         "agentHome que la contiene; si no la tiene, sale con 2; con --host codex es "
+                                         "opcional: el CODEX_HOME o su carpeta sessions")
     parser.add_argument("--destino", help="carpeta donde se escriben los archivos de cada corrida")
     parser.add_argument("--corrida", action="append", metavar="NOMBRE=AGENTID",
-                        help="repetible; el nombre es el de los archivos a escribir; con --host pi va el task_id")
+                        help="repetible; el nombre es el de los archivos a escribir; con --host pi va el task_id; con --host "
+                             "codex, el thread_id")
     parser.add_argument("--costo", action="store_true",
                         help="escribe tambien costo.json en --destino, que tiene que ser %s: el modo de la carpeta, "
                              "los motivos de entrada/triaje.json, el costo de cada corrida, las lineas de entrada/*.diff, "
-                             "el costo del orquestador desde el ultimo triaje.py, leido de <sesion>.jsonl (en Pi queda en "
-                             "null), y si las corridas corrieron en serie" % DESTINO_DE_COSTO)
+                             "el costo del orquestador desde el ultimo triaje.py, leido de <sesion>.jsonl (en Pi y en Codex "
+                             "queda en null), y si las corridas corrieron en serie" % DESTINO_DE_COSTO)
     parser.add_argument("--ultimo-costo", metavar="TICKET",
                         help="imprime en una linea el ultimo costo medido del ticket o, si no tiene, de la instancia; "
                              "sale con 1 si no hay ninguno")
@@ -586,13 +708,23 @@ def _avisar_fallo(r, sub, host):
     elif r["estado"] == "sin_reporte" and host == PI:
         print("FAIL %s: tarea %s en estado %s, sin reporte (corrida cortada), %d lecturas, no se escribio nada" % (
             r["corrida"], r["agente"], r["tarea"], r.get("lecturas", 0)))
+    elif r["estado"] == "sin_reporte" and host == CODEX:
+        print("FAIL %s: hilo %s sin task_complete con su mensaje final (corrida cortada), %d lecturas, no se escribio nada" % (
+            r["corrida"], r["agente"], r.get("lecturas", 0)))
     elif r["estado"] == "sin_reporte":
         print("FAIL %s: sin SubagentHandback (corrida cortada), %d lecturas, no se escribio nada" % (
             r["corrida"], r.get("lecturas", 0)))
+    elif r["estado"] == "no_es_revisor":
+        print("FAIL %s: el hilo %s es de %s, no de un revisor, no se escribio nada: lanza cada revisor con su agent_type y "
+              "fork_turns \"none\"" % (r["corrida"], r["agente"], r["rol"] or "un agente sin agent_role"))
+    elif r["estado"] == "ilegible" and host == CODEX:
+        print("FAIL %s: rollout-*-%s.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada" % (r["corrida"], r["agente"]))
     elif r["estado"] == "ilegible":
         print("FAIL %s: %s.json no es una tarea de gentle-shell que se pueda leer, no se escribio nada" % (r["corrida"], r["agente"]))
     elif host == PI:
         print("FAIL %s: no existe %s.json en %s" % (r["corrida"], r["agente"], sub))
+    elif host == CODEX:
+        print("FAIL %s: no existe rollout-*-%s.jsonl en %s" % (r["corrida"], r["agente"], sub))
     else:
         print("FAIL %s: no existe agent-%s.jsonl en %s" % (r["corrida"], r["agente"], sub))
 
@@ -615,14 +747,15 @@ def main(argv=None):
     if args.costo and revision_del_destino(args.destino) is None:
         print("rescatar: --costo espera --destino %s, recibio %s" % (DESTINO_DE_COSTO, args.destino))
         return 2
-    sub = carpeta_de_tareas(args.sesion) if args.host == PI else resolver_dir_subagents(args.sesion)
+    carpeta, rescate = {PI: (carpeta_de_tareas, rescatar_pi), CODEX: (carpeta_de_sesiones, rescatar_codex)}.get(
+        args.host, (resolver_dir_subagents, rescatar))
+    sub = carpeta(args.sesion)
     if not sub.is_dir():
-        print("rescatar: no existe la carpeta de %s %s" % ("tareas de gentle-shell" if args.host == PI else "subagentes", sub))
+        print("rescatar: no existe la carpeta de %s %s" % (CARPETAS[args.host], sub))
         return 2
 
     fallos = 0
     costos = [] if args.costo else None
-    rescate = rescatar_pi if args.host == PI else rescatar
     for r in rescate(sub, args.destino, corridas, costos):
         if r["estado"] == "ok":
             extra = ""
@@ -633,6 +766,8 @@ def main(argv=None):
                 extra += "  (comandos Bash/PowerShell: %d en %s.comandos.json)" % (r["comandos"], r["corrida"])
             if r.get("tapados"):
                 extra += "  (%d secreto(s) tapado(s) antes de guardar)" % r["tapados"]
+            if args.host == CODEX:
+                extra += SIN_PROMPT_CODEX
             print("ok   %s: %d car., %d lecturas, %s/%s%s" % (
                 r["corrida"], r["caracteres"], r["lecturas"], r["agentType"], r["model"], extra))
         else:
@@ -642,8 +777,8 @@ def main(argv=None):
             print("aviso %s: gentle-shell descarto %d elemento(s) del hilo de la tarea %s (dropped): las lecturas y las "
                   "herramientas pueden estar incompletas" % (r["corrida"], r["salteadas"], r["agente"]), file=sys.stderr)
         elif r.get("salteadas"):
-            print("aviso %s: %d linea(s) de agent-%s.jsonl no se pudieron leer y se saltearon" % (
-                r["corrida"], r["salteadas"], r["agente"]), file=sys.stderr)
+            print("aviso %s: %d linea(s) de %s.jsonl no se pudieron leer y se saltearon" % (
+                r["corrida"], r["salteadas"], ("rollout-*-%s" if args.host == CODEX else "agent-%s") % r["agente"]), file=sys.stderr)
     if costos is not None:
         ruta, datos, avisos = escribir_costo(args.destino, costos, sub, list(corridas.values()), args.host)
         for aviso in avisos:

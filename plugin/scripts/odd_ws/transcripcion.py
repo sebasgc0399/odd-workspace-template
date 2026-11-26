@@ -12,6 +12,10 @@ SALIDA = "output_tokens"
 LANZAR = "Agent"
 RESULTADO = "toolUseResult"
 ID_DEL_AGENTE = "agentId"
+USO_DE_CODEX = "token_usage_record"
+CACHE_LEIDA_DE_CODEX = "cached_input_tokens"
+CACHE_ESCRITA_DE_CODEX = "cache_write_input_tokens"
+TOTAL_DE_CODEX = "total_tokens"
 
 
 def leer(transcript):
@@ -73,12 +77,20 @@ def _usos_por_mensaje(registros):
     return list(usos.values())
 
 
+def _tiempos(registros):
+    instantes = sorted((i, r["timestamp"]) for i, r in ((_instante(r.get("timestamp")), r) for r in registros) if i)
+    pausas = [(b[0] - a[0]).total_seconds() for a, b in zip(instantes, instantes[1:])]
+    return {
+        "inicio": instantes[0][1] if instantes else None,
+        "fin": instantes[-1][1] if instantes else None,
+        "pausa_mayor": round(max(pausas), 3) if pausas else None,
+    }
+
+
 def costo(registros):
     usos = _usos_por_mensaje(registros)
     if not usos:
         return None
-    instantes = sorted((i, r["timestamp"]) for i, r in ((_instante(r.get("timestamp")), r) for r in registros) if i)
-    pausas = [(b[0] - a[0]).total_seconds() for a, b in zip(instantes, instantes[1:])]
     return {
         "turnos": len(usos),
         "contexto_inicial": _contexto(usos[0]),
@@ -86,9 +98,34 @@ def costo(registros):
         "salida": sum(_tokens(u, SALIDA) for u in usos),
         "cache_escrita": sum(_tokens(u, CACHE_ESCRITA) for u in usos),
         "cache_leida": sum(_tokens(u, CACHE_LEIDA) for u in usos),
-        "inicio": instantes[0][1] if instantes else None,
-        "fin": instantes[-1][1] if instantes else None,
-        "pausa_mayor": round(max(pausas), 3) if pausas else None,
+        **_tiempos(registros),
+    }
+
+
+def _usos_de_codex(registros):
+    usos = {}
+    for i, registro in enumerate(registros):
+        carga = registro.get("payload")
+        if registro.get("type") != USO_DE_CODEX or not isinstance(carga, dict) or not isinstance(carga.get(USO), dict):
+            continue
+        usos[carga.get("response_id") or ("sin-id", i)] = carga[USO]
+    return list(usos.values())
+
+
+def costo_codex(registros):
+    usos = _usos_de_codex(registros)
+    if not usos:
+        return None
+    return {
+        "turnos": len(usos),
+        "contexto_inicial": _tokens(usos[0], ENTRADA),
+        "contexto_final": _tokens(usos[-1], ENTRADA),
+        "salida": sum(_tokens(u, SALIDA) for u in usos),
+        "cache_escrita": sum(_tokens(u, CACHE_ESCRITA_DE_CODEX) for u in usos),
+        "cache_leida": sum(_tokens(u, CACHE_LEIDA_DE_CODEX) for u in usos),
+        **_tiempos(registros),
+        "tokens_total": sum(_tokens(u, TOTAL_DE_CODEX) for u in usos),
+        "costo_usd": None,
     }
 
 

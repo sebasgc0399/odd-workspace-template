@@ -67,13 +67,13 @@ La primera línea cubre los archivos trackeados (commiteados o no); la segunda v
 
 ## 4. Las corridas
 
-Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**; en Pi (gentle-shell), antes de lanzar, lee «Pi» en `references/hosts.md`.
+Cada corrida es un `Agent` en segundo plano (`run_in_background`), todas en el **mismo mensaje**; en Pi (gentle-shell) o en Codex, antes de lanzar, lee su sección en `references/hosts.md`.
 
 Son las del costo anunciado: `revisor-diseno` ×1 en `rapido` y ×3 en `completo`, más `revisor-<capa>` ×1 por cada capa tocada.
 
 **El prompt** de cada corrida sale de la plantilla de `references/prompt.md`, con el orden de lectura de cada corrida de diseño: léela antes de lanzar. Lleva copiadas las decisiones del ticket y pide el ID de la regla, pero nunca un ID de ejemplo.
 
-Anota la tabla `nombre de corrida → agentId` (en Pi, `task_id`), con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). **No leas reportes parciales:** espera a que terminen todas.
+Anota la tabla `nombre de corrida → agentId` (en Pi, `task_id`; en Codex, `thread_id`), con nombres `<revisor>-r<i>` (`revisor-diseno-r1`, `revisor-capa-a-r1`…). **No leas reportes parciales:** espera a que terminen todas.
 
 **Un lanzamiento que el host rechaza por su límite de concurrencia no es una corrida cortada.** En Codex dice «agent thread limit reached». Ante ese rechazo, espera a que termine una corrida en marcha, ciérrala (en Codex, `close_agent` libera su lugar), relanza la rechazada y dile al usuario que la revisión va por tandas. La regla es la misma en todos los hosts, y sus límites están en `references/hosts.md`.
 
@@ -89,7 +89,7 @@ Cuando terminan todas las corridas:
 python3 "<S>/rescatar.py" --sesion "<carpeta subagents de esta sesión>" --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<agentId> --corrida … --costo
 ```
 
-`--sesion` es `~/.claude/projects/<proyecto>/<sesión>/subagents` (si no la encuentras, lee `references/rescate.md`). **En Pi**, antes de rescatar, lee «Pi» en `references/hosts.md`:
+`--sesion` es `~/.claude/projects/<proyecto>/<sesión>/subagents` (si no la encuentras, lee `references/rescate.md`). **En Pi**, antes de rescatar, lee «Pi» en `references/hosts.md` (en Codex, «Codex»):
 
 ```bash
 python3 "<S>/rescatar.py" --host pi --destino "<ticket>/revision/<fecha>-<modo>/corridas" --corrida <nombre>=<task_id> --corrida … --costo

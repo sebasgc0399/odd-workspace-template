@@ -195,8 +195,16 @@ def leer_lecturas(ruta):
     datos = json.loads(ruta.read_text(encoding="utf-8"))
     if not isinstance(datos, dict) or "lecturas" not in datos:
         raise ValueError("%s no tiene la clave 'lecturas'" % ruta)
+    previas = datos.get("no_auditadas")
+    lecturas, no_auditadas = [], dict(previas) if isinstance(previas, dict) else {}
+    for lectura in datos["lecturas"]:
+        herramienta = lectura.get("tool") if isinstance(lectura, dict) else None
+        if herramienta in EQUIVALENTES:
+            lecturas.append(lectura)
+        else:
+            no_auditadas[str(herramienta)] = no_auditadas.get(str(herramienta), 0) + 1
     return {"agente": datos.get("agente"), "meta": datos.get("meta", {}),
-            "lecturas": datos["lecturas"], "no_auditadas": datos.get("no_auditadas", {}), "salteadas": 0}
+            "lecturas": lecturas, "no_auditadas": no_auditadas, "salteadas": 0}
 
 
 def rutas_de_manifest(manifest, scratch):

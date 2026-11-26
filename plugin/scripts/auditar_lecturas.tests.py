@@ -505,6 +505,24 @@ def test_lo_que_rescatar_guarda_llega_al_informe_de_auditar():
         assert codigo == 0 and json.loads(salida)["archivos"][0]["no_auditadas"] == {"Bash": 2}, (codigo, salida)
 
 
+def test_cli_las_lecturas_que_no_sabe_auditar_no_cuentan_como_auditadas_y_salen_como_no_auditadas():
+    comando = {"tool": "CommandExecution", "input": {"command": ["powershell.exe", "-Command", "Get-Content -Raw secreto/x.md"],
+                                                     "cwd": "file:///C:/inst"}, "exit": 0}
+    with Temporal() as base:
+        de_codex = lecturas_json(base, "codex.lecturas.json", [comando, dict(comando, exit=1)], agente="hilo", no_auditadas={})
+        mezcla = lecturas_json(base, "mezcla.lecturas.json", [lectura("Read", file_path=SECRETO + "\\x.md"), comando],
+                               no_auditadas={"Bash": 1})
+        codigo, salida, error = cli(de_codex, mezcla, "--prohibida", SECRETO, "--cwd", CWD, "--json")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        codex, otra = json.loads(salida)["archivos"]
+        assert (codex["total"], codex["estado"], codex["hallazgos"], codex["no_auditadas"]) == (
+            0, "limpio", [], {"CommandExecution": 2}), codex
+        assert (otra["total"], otra["estado"], otra["no_auditadas"]) == (1, "contaminado", {"Bash": 1, "CommandExecution": 1}), otra
+        assert [h["indice"] for h in otra["hallazgos"]] == [0], otra
+        codigo, salida, _ = cli(de_codex, "--prohibida", SECRETO, "--cwd", CWD)
+        assert codigo == 0 and "(agente hilo, 0 lecturas auditadas)\n   aviso: herramientas NO auditadas: CommandExecution x2" in salida, salida
+
+
 LECTURAS_CLAUDE_CODE = [lectura("Read", file_path=SECRETO + "\\x.md"), lectura("Read", file_path="C:\\inst\\a.md"),
                         lectura("Grep", pattern="x", path=CWD, glob="*.sql"), lectura("Glob", pattern="**/*.md", path=SECRETO),
                         lectura("Glob", pattern="secreto/*.md"), lectura("Grep", pattern="x", path="C:\\inst\\docs")]

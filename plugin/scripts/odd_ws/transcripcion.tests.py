@@ -179,6 +179,49 @@ def test_costo_sin_tiempos_o_con_uno_solo():
     assert (c["inicio"], c["fin"], c["pausa_mayor"]) == ("2026-11-18T10:00:00.000Z", "2026-11-18T10:00:00.000Z", None), c
 
 
+def uso_codex(respuesta, entrada, cacheada, escrita, salida, ts=None):
+    usado = {"input_tokens": entrada, "cached_input_tokens": cacheada, "cache_write_input_tokens": escrita, "output_tokens": salida,
+             "reasoning_output_tokens": 0, "total_tokens": entrada + salida}
+    registro = {"type": "token_usage_record", "payload": {"thread_id": "hilo", "response_id": respuesta, "usage": usado,
+                                                         "turn_token_usage": {"input_tokens": 999999}, "thread_token_usage": {"input_tokens": 999999}}}
+    if ts:
+        registro["timestamp"] = ts
+    return registro
+
+
+def test_constantes_del_uso_de_codex():
+    assert (m().USO_DE_CODEX, m().CACHE_LEIDA_DE_CODEX, m().CACHE_ESCRITA_DE_CODEX, m().TOTAL_DE_CODEX) == (
+        "token_usage_record", "cached_input_tokens", "cache_write_input_tokens", "total_tokens")
+
+
+def test_costo_codex_cuenta_cada_respuesta_una_vez_y_la_cache_leida_va_dentro_de_la_entrada():
+    registros = [
+        {"type": "session_meta", "timestamp": "2026-11-26T16:23:40.000Z", "payload": {}},
+        uso_codex("r1", 21198, 0, 0, 182, "2026-11-26T16:23:46.000Z"),
+        {"type": "event_msg", "timestamp": "2026-11-26T16:23:47.000Z", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"input_tokens": 5, "output_tokens": 5}}}},
+        uso_codex("r2", 22462, 20992, 300, 108, "2026-11-26T16:24:01.000Z"),
+        uso_codex("r2", 22462, 20992, 300, 108, "2026-11-26T16:24:01.500Z"),
+        uso_codex("r3", 29649, 29184, 0, 150, "2026-11-26T16:24:31.000Z"),
+        {"type": "token_usage_record", "payload": {"usage": None}},
+        mensaje("m9", 1, 1, 1, 1, "2026-11-26T16:24:32.000Z"),
+    ]
+    assert m().costo_codex(registros) == {
+        "turnos": 3, "contexto_inicial": 21198, "contexto_final": 29649, "salida": 440, "cache_escrita": 300,
+        "cache_leida": 50176, "inicio": "2026-11-26T16:23:40.000Z", "fin": "2026-11-26T16:24:32.000Z", "pausa_mayor": 29.5,
+        "tokens_total": 73749, "costo_usd": None}, m().costo_codex(registros)
+    assert m().costo_codex([uso_codex(None, 10, 0, 0, 1), uso_codex(None, 20, 0, 0, 1)])["turnos"] == 2
+    assert m().costo_codex([]) is None and m().costo_codex([mensaje("m1", 1, 1, 1, 1)]) is None
+
+
+def test_costo_de_claude_code_no_cambia_con_el_de_codex():
+    registros = [mensaje("m1", 3, 40000, 0, 100, "2026-11-18T10:00:05.000Z"), uso_codex("r1", 21198, 0, 0, 182, "2026-11-18T10:00:06.000Z"),
+                 mensaje("m2", 2, 5000, 40000, 300, "2026-11-18T10:00:09.000Z")]
+    assert m().costo(registros) == {
+        "turnos": 2, "contexto_inicial": 40003, "contexto_final": 45002, "salida": 400, "cache_escrita": 45000,
+        "cache_leida": 40000, "inicio": "2026-11-18T10:00:05.000Z", "fin": "2026-11-18T10:00:09.000Z", "pausa_mayor": 3.0}, m().costo(registros)
+
+
 def lanzamiento(id_, nombre="Agent"):
     return {"type": "assistant", "message": {"id": "m-" + id_, "content": [{"type": "tool_use", "id": id_, "name": nombre, "input": {}}]}}
 

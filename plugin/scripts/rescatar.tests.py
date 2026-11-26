@@ -189,9 +189,15 @@ def test_rescatar_solo_el_veredicto_falla_en_voz_alta_y_no_escribe():
         assert codigo == 1 and "FAIL c1: el revisor devolvio solo el veredicto" in out and not dest.exists(), (codigo, out, err)
 
 
-FORMAS_DEL_VEREDICTO = (VEREDICTO, "**VEREDICTO:** 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
-                        "`VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION`", "Veredicto: 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
-                        "0 CRITICAL, 1 WARNING, 0 SUGGESTION", "**VEREDICTO:**\n0 CRITICAL, 1 WARNING, 0 SUGGESTION")
+FORMAS_DE_ANTES = (VEREDICTO, "**VEREDICTO:** 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                   "`VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION`", "Veredicto: 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                   "0 CRITICAL, 1 WARNING, 0 SUGGESTION", "**VEREDICTO:**\n0 CRITICAL, 1 WARNING, 0 SUGGESTION")
+FORMAS_QUE_SE_ESCAPABAN = ("Veredicto final: 0 CRITICAL, 1 WARNING, 0 SUGGESTION", "**Veredicto final:** 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                           "✅ VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION", "Verdict: 0 critical, 1 warning, 0 suggestion",
+                           "\U0001f7e1 **Verdict:** 0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                           "Cierro con 0 CRITICAL, 1 WARNING, 0 SUGGESTION en total.", "Veredicto final:\n0 CRITICAL, 1 WARNING, 0 SUGGESTION",
+                           "Verdict: no findings", "✅ Veredicto final: sin hallazgos")
+FORMAS_DEL_VEREDICTO = FORMAS_DE_ANTES + FORMAS_QUE_SE_ESCAPABAN
 
 
 def test_rescatar_reconoce_el_veredicto_en_negrita_entre_comillas_en_minusculas_o_por_sus_cuentas():
@@ -233,7 +239,10 @@ def test_pi_reconoce_el_veredicto_en_negrita_entre_comillas_en_minusculas_o_por_
 
 def test_una_devolucion_que_no_es_solo_el_veredicto_sigue_siendo_el_reporte():
     for devolucion in (VEREDICTO + "\n## Hallazgos\n[WARNING] sin ID a.sql:3", "**Veredicto:** 1 WARNING\n## Hallazgos\n- a.sql:3",
-                       "El veredicto: revisa a.sql antes del commit", "Sin hallazgos."):
+                       "El veredicto: revisa a.sql antes del commit", "Sin hallazgos.",
+                       "Veredicto final: 0 CRITICAL, 1 WARNING, 0 SUGGESTION\n## Hallazgos\n[WARNING] sin ID a.sql:3",
+                       "✅ Verdict: 0 critical, 1 warning, 0 suggestion\n- a.sql:3", "El veredicto final: revisa a.sql antes del commit",
+                       "## Hallazgos\n- a.sql:3 deja 0 critical, 1 warning, 0 suggestion"):
         with Temporal() as base:
             r = m().extraer_corrida(agente(base, "a", [
                 usuario("p"), asistente({"type": "text", "text": "previo"}, uso("SubagentHandback", {"message": devolucion}))]))
@@ -1191,6 +1200,305 @@ def test_pi_sesion_con_una_carpeta_sin_la_de_tareas_sale_con_2_sin_escribir_nada
         assert not (base / "d").exists()
 
 
+HILO_CODEX = "01a218ab-7693-7ba0-a3cc-8e22dfc00781"
+PADRE_CODEX = "01a218ab-3f79-7c11-b26b-6252fa646d66"
+TURNO_CODEX = "01a218ab-7770-7fc0-86ee-382e6c538347"
+MODELO_CODEX = "gpt-6-luna"
+POWERSHELL_CODEX = "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+INST_CODEX = "file:///C:/inst"
+REPO_CODEX = "file:///C:/repo-a"
+LEER_SKILLS = "Get-Content -Raw .claude/skills/criterios/SKILL.md; Get-Content -Raw tickets/T1-prueba/CLAUDE.md"
+LEER_REPO = 'Get-Content src/a.ext; rg -n "\\b(total|promedio)\\b" src'
+REPORTE_CODEX = "Sin hallazgos.\n\n**Alcance y límites:** revisé el diff de `src/a.ext`, el archivo completo y el ticket."
+FINAL_CODEX = REPORTE_CODEX + "\n\nVEREDICTO: 0 CRITICAL, 0 WARNING, 0 SUGGESTION"
+SIN_PROMPT_CODEX = "  (sin .prompt.txt: en Codex el prompt viaja cifrado y lo guarda el orquestador antes de lanzar)"
+COSTO_CODEX = {"turnos": 3, "contexto_inicial": 21198, "contexto_final": 29649, "salida": 440, "cache_escrita": 0, "cache_leida": 50176,
+               "inicio": "2026-11-26T16:23:40.000Z", "fin": "2026-11-26T16:23:52.000Z", "pausa_mayor": 1.0, "tokens_total": 73749,
+               "costo_usd": None}
+
+
+def meta_codex(rol="revisor-capa-a", subagente=True):
+    carga = {"session_id": PADRE_CODEX, "id": HILO_CODEX, "timestamp": "2026-11-26T16:23:40.111Z", "cwd": "C:\\inst",
+             "originator": "codex_exec", "cli_version": "0.171.0-alpha.13.2", "model_provider": "openai"}
+    if subagente:
+        lanzado_ = {"parent_thread_id": PADRE_CODEX, "depth": 1, "agent_path": "/root/revisor_capa_a", "agent_nickname": "Harvey",
+                    "agent_role": rol}
+        carga.update({"parent_thread_id": PADRE_CODEX, "source": {"subagent": {"thread_spawn": lanzado_}}, "thread_source": "subagent",
+                      "agent_nickname": "Harvey", "agent_role": rol, "agent_path": "/root/revisor_capa_a"})
+    else:
+        carga.update({"id": PADRE_CODEX, "source": "exec"})
+    return ("session_meta", carga)
+
+
+def item_codex(item):
+    return ("event_msg", {"type": "item_completed", "thread_id": HILO_CODEX, "turn_id": TURNO_CODEX, "item": item})
+
+
+def mensaje_codex(texto, fase="commentary"):
+    return item_codex({"type": "AgentMessage", "id": "msg_" + str(len(texto)), "content": [{"type": "Text", "text": texto}], "phase": fase})
+
+
+def comando_codex(cmd, salida="", codigo=0, cwd=INST_CODEX):
+    return item_codex({"type": "CommandExecution", "id": "exec-" + str(len(cmd)), "process_id": "76147",
+                       "command": [POWERSHELL_CODEX, "-Command", cmd], "cwd": cwd, "parsed_cmd": [{"type": "unknown", "cmd": cmd}],
+                       "source": "unified_exec_startup", "status": "completed" if codigo == 0 else "failed", "aggregated_output": salida,
+                       "exit_code": codigo, "duration": {"secs": 0, "nanos": 446673000}})
+
+
+def uso_codex(respuesta, entrada, cacheada, salida):
+    return ("token_usage_record", {"thread_id": HILO_CODEX, "turn_id": TURNO_CODEX, "session_id": PADRE_CODEX, "response_id": respuesta,
+                                   "usage": {"input_tokens": entrada, "cached_input_tokens": cacheada, "cache_write_input_tokens": 0,
+                                             "output_tokens": salida, "reasoning_output_tokens": 0, "total_tokens": entrada + salida}})
+
+
+def items_codex(final=FINAL_CODEX):
+    return [mensaje_codex("Voy a leer las skills y el ticket."), uso_codex("resp_1", 21198, 0, 182),
+            comando_codex(LEER_SKILLS, "CENTINELA criterios"), uso_codex("resp_2", 22462, 20992, 108),
+            comando_codex(LEER_REPO, "Get-Content : No se encuentra la ruta de acceso", 1, REPO_CODEX), uso_codex("resp_3", 29649, 29184, 150),
+            *([mensaje_codex(final, "final_answer")] if final is not None else []),
+            ("event_msg", {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 73309, "output_tokens": 440}}})]
+
+
+def rollout_codex(final=FINAL_CODEX, items=None, meta=None, fin=True):
+    lineas = [meta or meta_codex(),
+              ("event_msg", {"type": "task_started", "turn_id": TURNO_CODEX, "started_at": 1795710220, "model_context_window": 258400}),
+              ("response_item", {"type": "agent_message", "author": "/root", "recipient": "/root/revisor_capa_a", "content": [
+                  {"type": "input_text", "text": "Message Type: NEW_TASK\nTask name: /root/revisor_capa_a\nSender: /root\nPayload:\n"},
+                  {"type": "encrypted_content", "encrypted_content": "gAAAAA-cifrado-por-codex"}]}),
+              ("turn_context", {"turn_id": TURNO_CODEX, "cwd": "C:\\inst", "model": MODELO_CODEX, "effort": "low",
+                                "sandbox_policy": {"type": "read-only"}})]
+    lineas += items_codex(final) if items is None else items
+    if fin:
+        lineas.append(("event_msg", {"type": "task_complete", "turn_id": TURNO_CODEX, "last_agent_message": final,
+                                     "started_at": 1795710220, "completed_at": 1795710271, "duration_ms": 51745}))
+    return lineas
+
+
+def guardar_rollout(home, lineas, hilo=HILO_CODEX, dia=("2026", "11", "26"), hora="11-23-40"):
+    carpeta = home.joinpath("sessions", *dia)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    acumulado, texto = {}, []
+    for i, linea in enumerate(lineas):
+        if isinstance(linea, str):
+            texto.append(linea)
+            continue
+        tipo, carga = linea[0], dict(linea[1])
+        if tipo == "token_usage_record":
+            for clave, valor in carga["usage"].items():
+                acumulado[clave] = acumulado.get(clave, 0) + valor
+            carga.update({"turn_token_usage": dict(acumulado), "thread_token_usage": dict(acumulado)})
+        texto.append(json.dumps({"timestamp": "2026-11-26T16:%02d:%02d.000Z" % (23 + (40 + i) // 60, (40 + i) % 60), "ordinal": i,
+                                 "type": tipo, "payload": carga}, ensure_ascii=False))
+    ruta = carpeta / ("rollout-%s-%s-%sT%s-%s.jsonl" % (dia[0], dia[1], dia[2], hora, hilo))
+    ruta.write_bytes(("\n".join(texto) + "\n").encode("utf-8"))
+    return ruta
+
+
+def cli_codex(base, *args, entorno=None):
+    env = {k: v for k, v in os.environ.items() if k != "CODEX_HOME"}
+    env.update({"HOME": str(base / "casa"), "USERPROFILE": str(base / "casa")})
+    env.update(entorno if entorno is not None else {"CODEX_HOME": str(base / "codex")})
+    r = subprocess.run([sys.executable, "-W", "error", str(SCRIPT), "--host", "codex", *map(str, args)], capture_output=True, env=env)
+    return r.returncode, r.stdout.decode("utf-8").replace("\r\n", "\n"), r.stderr.decode("utf-8").replace("\r\n", "\n")
+
+
+LECTURAS_CODEX = [{"tool": "CommandExecution", "input": {"command": [POWERSHELL_CODEX, "-Command", LEER_SKILLS], "cwd": INST_CODEX}, "exit": 0},
+                  {"tool": "CommandExecution", "input": {"command": [POWERSHELL_CODEX, "-Command", LEER_REPO], "cwd": REPO_CODEX}, "exit": 1}]
+
+
+def test_codex_rescata_el_reporte_sin_el_veredicto_las_lecturas_y_el_costo_y_no_escribe_el_prompt():
+    with Temporal() as base:
+        guardar_rollout(base / "codex", rollout_codex())
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "revisor-capa-a-r1=" + HILO_CODEX)
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == "ok   revisor-capa-a-r1: %d car., 2 lecturas, revisor-capa-a/%s%s\n" % (
+            len(REPORTE_CODEX), MODELO_CODEX, SIN_PROMPT_CODEX), repr(salida)
+        assert (base / "d" / "revisor-capa-a-r1.md").read_bytes() == REPORTE_CODEX.encode("utf-8")
+        assert sorted(p.name for p in (base / "d").iterdir()) == ["revisor-capa-a-r1.lecturas.json", "revisor-capa-a-r1.md"]
+        lecturas = leer_json(base / "d" / "revisor-capa-a-r1.lecturas.json")
+        assert list(lecturas) == ["agente", "meta", "lecturas", "no_auditadas", "costo"], list(lecturas)
+        assert (lecturas["agente"], lecturas["meta"]) == (HILO_CODEX, {"agentType": "revisor-capa-a", "model": MODELO_CODEX}), lecturas
+        assert lecturas["lecturas"] == LECTURAS_CODEX, lecturas["lecturas"]
+        assert lecturas["no_auditadas"] == {} and lecturas["costo"] == COSTO_CODEX, lecturas
+        (base / "o").mkdir()
+        (base / "o" / "c1.prompt.txt").write_bytes("El prompt que guardó el orquestador.\n".encode("utf-8"))
+        assert cli_codex(base, "--destino", base / "o", "--corrida", "c1=" + HILO_CODEX)[0] == 0
+        assert (base / "o" / "c1.prompt.txt").read_bytes() == "El prompt que guardó el orquestador.\n".encode("utf-8")
+        r = m().extraer_corrida_codex(next((base / "codex" / "sessions").glob("*/*/*/rollout-*.jsonl")))
+        assert (r["prompt"], r["reporte"], r["veredicto"], r["rol"]) == (
+            None, REPORTE_CODEX, "VEREDICTO: 0 CRITICAL, 0 WARNING, 0 SUGGESTION", "revisor-capa-a"), r
+
+
+def test_codex_tapa_los_secretos_del_prompt_que_guardo_el_orquestador_y_no_toca_uno_limpio():
+    with Temporal() as base:
+        guardar_rollout(base / "codex", rollout_codex())
+        (base / "d").mkdir()
+        sucio = "Revisa el diff; la clave de prueba es %s.\n" % AWS
+        limpio = "Revisa el diff, sin secretos.\r\n".encode("utf-8")
+        (base / "d" / "c1.prompt.txt").write_bytes(sucio.encode("utf-8"))
+        (base / "d" / "c2.prompt.txt").write_bytes(limpio)
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=" + HILO_CODEX,
+                                          "--corrida", "c3=" + HILO_CODEX)
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        ok = "ok   %s: %d car., 2 lecturas, revisor-capa-a/%s%s%s"
+        assert salida.splitlines() == [
+            ok % ("c1", len(REPORTE_CODEX), MODELO_CODEX, "  (1 secreto(s) tapado(s) antes de guardar)", SIN_PROMPT_CODEX),
+            ok % ("c2", len(REPORTE_CODEX), MODELO_CODEX, "", SIN_PROMPT_CODEX),
+            ok % ("c3", len(REPORTE_CODEX), MODELO_CODEX, "", SIN_PROMPT_CODEX)], salida
+        assert (base / "d" / "c1.prompt.txt").read_bytes() == sucio.replace(AWS, "<AWS_ACCESS_KEY_ID>").encode("utf-8")
+        assert (base / "d" / "c2.prompt.txt").read_bytes() == limpio
+        assert not (base / "d" / "c3.prompt.txt").exists()
+
+
+def test_codex_costo_cuenta_la_cache_leida_dentro_de_la_entrada_y_deja_al_orquestador_en_null():
+    with Temporal() as base:
+        rev = revision(base)
+        guardar_rollout(base / "codex", rollout_codex())
+        codigo, salida, error = cli_codex(base, "--destino", rev / "corridas", "--corrida", "c1=" + HILO_CODEX, "--costo")
+        assert (codigo, error) == (0, SIN_ORQUESTADOR_PI), (codigo, salida, error)
+        assert salida.splitlines()[-1] == "costo: 1 corrida(s) en %s" % (rev / "corridas" / "costo.json"), salida
+        assert leer_json(rev / "corridas" / "costo.json") == {"modo": "completo", "motivos": TRIAJE["motivos"], "corridas": [
+            {"corrida": "c1", "agente": HILO_CODEX, "estado": "ok", "agentType": "revisor-capa-a", "model": MODELO_CODEX,
+             "costo": COSTO_CODEX}], "lineas_diff": 4, "orquestador": None, "en_serie": None}
+        assert cli("--ultimo-costo", base.joinpath(*TICKET_T1)) == (0, (
+            "último costo medido, del ticket: tickets/T1-a/revision/2026-11-18-completo: modo completo, 1 corrida(s), 4 líneas "
+            "de diff; por corrida, en promedio: 3 turnos, contexto final 29 649, salida 440, caché escrita 0 y caché leída "
+            "50 176 tokens\n"), "")
+
+
+def test_codex_un_hilo_que_no_es_de_un_revisor_falla_y_no_escribe_nada():
+    with Temporal() as base:
+        guardar_rollout(base / "codex", rollout_codex())
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex("writer-capa-a")), hilo="hilo-del-writer")
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(subagente=False)), hilo="hilo-con-historia")
+        guardar_rollout(base / "codex", rollout_codex(meta=meta_codex(None)), hilo="hilo-sin-rol")
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=hilo-del-writer",
+                                          "--corrida", "c3=hilo-con-historia", "--corrida", "c4=hilo-sin-rol")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        lanzar = 'lanza cada revisor con su agent_type y fork_turns "none"'
+        assert salida.splitlines()[1:] == [
+            "FAIL c2: el hilo hilo-del-writer es de writer-capa-a, no de un revisor, no se escribio nada: %s" % lanzar,
+            "FAIL c3: el hilo hilo-con-historia es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % lanzar,
+            "FAIL c4: el hilo hilo-sin-rol es de un agente sin agent_role, no de un revisor, no se escribio nada: %s" % lanzar], salida
+        assert sorted(p.name for p in (base / "d").iterdir()) == ["c1.lecturas.json", "c1.md"]
+
+
+def test_codex_una_corrida_cortada_o_que_solo_devolvio_el_veredicto_falla_y_el_reporte_puede_ir_antes_del_veredicto():
+    with Temporal() as base:
+        solo = "VEREDICTO: 0 CRITICAL, 1 WARNING, 0 SUGGESTION"
+        guardar_rollout(base / "codex", rollout_codex(fin=False), hilo="cortado")
+        guardar_rollout(base / "codex", rollout_codex(final=None), hilo="sin-mensaje")
+        guardar_rollout(base / "codex", rollout_codex(final=solo), hilo="solo")
+        previo = items_codex(solo)
+        previo.insert(-2, mensaje_codex("## Hallazgos\n[WARNING] sin ID a.ext:7 — divide por cero — valida la lista vacía"))
+        guardar_rollout(base / "codex", rollout_codex(final=solo, items=previo), hilo="previo")
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=cortado", "--corrida", "c2=sin-mensaje",
+                                          "--corrida", "c3=solo", "--corrida", "c4=previo")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        assert salida.splitlines() == [
+            "FAIL c1: hilo cortado sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada",
+            "FAIL c2: hilo sin-mensaje sin task_complete con su mensaje final (corrida cortada), 2 lecturas, no se escribio nada",
+            "FAIL c3: el revisor devolvio solo el veredicto y su reporte no quedo como texto antes de la devolucion, 2 lecturas, "
+            "no se escribio nada",
+            "ok   c4: 79 car., 2 lecturas, revisor-capa-a/%s%s" % (MODELO_CODEX, SIN_PROMPT_CODEX)], salida
+        assert (base / "d" / "c4.md").read_text(encoding="utf-8") == (
+            "## Hallazgos\n[WARNING] sin ID a.ext:7 — divide por cero — valida la lista vacía"), salida
+        assert sorted(p.name for p in (base / "d").iterdir()) == ["c4.lecturas.json", "c4.md"]
+
+
+def test_codex_reconoce_las_formas_del_veredicto_al_final_del_reporte_y_un_reporte_sin_veredicto_queda_entero():
+    reporte = "## Hallazgos\n[WARNING] sin ID a.ext:3 — x — y"
+    with Temporal() as base:
+        for i, forma in enumerate(FORMAS_DEL_VEREDICTO):
+            ruta = guardar_rollout(base / "codex", rollout_codex(final="%s\n\n%s\n" % (reporte, forma)), hilo="f%d" % i)
+            r = m().extraer_corrida_codex(ruta)
+            assert (r["reporte"], r["veredicto"]) == (reporte, forma.strip()), (forma, r)
+            r = m().extraer_corrida_codex(guardar_rollout(base / "codex", rollout_codex(final=forma), hilo="s%d" % i))
+            assert (r["reporte"], r["origen"]) == (None, "solo_veredicto"), (forma, r)
+        for devolucion in (VEREDICTO + "\n## Hallazgos\n[WARNING] sin ID a.sql:3", "Sin hallazgos.", "El veredicto final: revisa a.sql"):
+            r = m().extraer_corrida_codex(guardar_rollout(base / "codex", rollout_codex(final=devolucion), hilo="g"))
+            assert (r["reporte"], r["veredicto"]) == (devolucion, None), (devolucion, r)
+
+
+def test_codex_lo_que_no_es_un_comando_ni_un_mensaje_sale_como_no_auditado():
+    with Temporal() as base:
+        items = items_codex()
+        items[1:1] = [item_codex({"type": "Reasoning", "id": "rs_1", "summary": []}),
+                      item_codex({"type": "FileChange", "id": "fc_1", "changes": [], "status": "completed"}), item_codex({"id": "sin-tipo"})]
+        guardar_rollout(base / "codex", rollout_codex(items=items))
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX)
+        assert (codigo, error) == (0, ""), (codigo, salida, error)
+        assert salida == "ok   c1: %d car., 2 lecturas, revisor-capa-a/%s  (herramientas NO auditadas: FileChange x1, sin tipo x1)%s\n" % (
+            len(REPORTE_CODEX), MODELO_CODEX, SIN_PROMPT_CODEX), repr(salida)
+        assert leer_json(base / "d" / "c1.lecturas.json")["no_auditadas"] == {"FileChange": 1, "sin tipo": 1}
+
+
+def test_codex_busca_el_hilo_en_el_codex_home_y_sesion_lo_reemplaza():
+    with Temporal() as base:
+        guardar_rollout(base / "codex", rollout_codex(final="desde codex\n\n" + VEREDICTO))
+        guardar_rollout(base / "casa" / ".codex", rollout_codex(final="desde casa\n\n" + VEREDICTO), dia=("2026", "11", "27"), hora="00-05-01")
+        guardar_rollout(base / "otro", rollout_codex(final="desde otro\n\n" + VEREDICTO))
+        casos = (({"CODEX_HOME": str(base / "codex")}, "desde codex"), ({}, "desde casa"), ({"CODEX_HOME": ""}, "desde casa"))
+        for i, (entorno, esperado) in enumerate(casos):
+            destino = base / ("d%d" % i)
+            codigo, salida, error = cli_codex(base, "--destino", destino, "--corrida", "c=" + HILO_CODEX, entorno=entorno)
+            assert (codigo, error) == (0, ""), (entorno, codigo, salida, error)
+            assert (destino / "c.md").read_text(encoding="utf-8") == esperado, entorno
+        for i, sesion in enumerate((base / "otro", base / "otro" / "sessions")):
+            destino = base / ("s%d" % i)
+            assert cli_codex(base, "--sesion", sesion, "--destino", destino, "--corrida", "c=" + HILO_CODEX)[0] == 0, sesion
+            assert (destino / "c.md").read_text(encoding="utf-8") == "desde otro", sesion
+
+
+def test_codex_un_hilo_que_no_existe_o_no_se_lee_es_un_fail_y_sin_carpeta_o_con_un_id_raro_sale_con_2():
+    with Temporal() as base:
+        guardar_rollout(base / "codex", rollout_codex())
+        guardar_rollout(base / "codex", ["{roto", json.dumps({"type": "event_msg", "payload": {}})], hilo="roto")
+        guardar_rollout(base / "codex", [], hilo="vacio")
+        sesiones = base / "codex" / "sessions"
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX, "--corrida", "c2=nada",
+                                          "--corrida", "c3=roto", "--corrida", "c4=vacio")
+        assert (codigo, error) == (1, ""), (codigo, salida, error)
+        assert salida.splitlines()[1:] == [
+            "FAIL c2: no existe rollout-*-nada.jsonl en %s" % sesiones,
+            "FAIL c3: rollout-*-roto.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada",
+            "FAIL c4: rollout-*-vacio.jsonl no es un rollout de Codex que se pueda leer, no se escribio nada"], salida
+        vacio = base / "vacio"
+        assert cli_codex(base, "--destino", base / "d2", "--corrida", "c=" + HILO_CODEX, entorno={"CODEX_HOME": str(vacio)}) == (
+            2, "rescatar: no existe la carpeta de sesiones de Codex %s\n" % (vacio / "sessions"), "")
+        for corrida in ("c=../x", "c=*", "c=a?b", "c=[0-9]", "c=", "sin-igual"):
+            assert cli_codex(base, "--destino", base / "d3", "--corrida", corrida) == (
+                2, "rescatar: --corrida espera <nombre>=<thread_id>, recibio %r\n" % corrida, ""), corrida
+        assert not (base / "d2").exists() and not (base / "d3").exists()
+        codigo, salida, error = cli_codex(base)
+        assert (codigo, salida) == (2, "") and error.splitlines()[-1] == (
+            "rescatar.py: error: the following arguments are required: --destino, --corrida"), error
+
+
+def test_codex_tolera_la_linea_rota_y_la_avisa_por_stderr():
+    with Temporal() as base:
+        lineas = rollout_codex()
+        lineas.insert(5, '{"timestamp": "2026-11-26T16:23:45.000Z", "type": "event_m')
+        guardar_rollout(base / "codex", lineas)
+        codigo, salida, error = cli_codex(base, "--destino", base / "d", "--corrida", "c1=" + HILO_CODEX)
+        assert codigo == 0 and salida.startswith("ok   c1: %d car., 2 lecturas" % len(REPORTE_CODEX)), (codigo, salida)
+        assert error == "aviso c1: 1 linea(s) de rollout-*-%s.jsonl no se pudieron leer y se saltearon\n" % HILO_CODEX, repr(error)
+
+
+def test_codex_no_cambia_lo_que_escriben_claude_code_y_pi():
+    with Temporal() as base:
+        agente(base / "subagents", "abc", tipica())
+        codigo, salida, error = cli("--sesion", base / "subagents", "--destino", base / "cc", "--corrida", "c1=abc")
+        assert (codigo, salida, error) == (0, "ok   c1: 32 car., 3 lecturas, revisor-x/opus  (herramientas NO auditadas: Bash x1)  "
+                                              "(comandos Bash/PowerShell: 1 en c1.comandos.json)\n", ""), (codigo, salida, error)
+        assert sorted(p.name for p in (base / "cc").iterdir()) == ["c1.comandos.json", "c1.lecturas.json", "c1.md", "c1.prompt.txt"]
+        assert (base / "cc" / "c1.prompt.txt").read_text(encoding="utf-8") == "Revisa el cambio antes del commit."
+        guardar_tarea(base / "agente", tarea_pi())
+        codigo, salida, error = cli_pi(base, "--destino", base / "pi", "--corrida", "c1=t1")
+        assert (codigo, salida, error) == (0, "ok   c1: 14 car., 3 lecturas, revisor-diseno/%s\n" % MODELO_PI, ""), (codigo, salida, error)
+        assert (base / "pi" / "c1.prompt.txt").read_text(encoding="utf-8") == PROMPT_PI
+
+
 OPCION_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
 REFERENCIA_RE = re.compile(r"references/([\w.-]+\.md)")
@@ -1203,16 +1511,18 @@ def texto_de_revisar():
     return "\n\n".join([nucleo, *referencias])
 
 
-def test_los_rescates_que_da_la_skill_revisar_usan_opciones_que_existen_y_traen_el_de_pi():
+def test_los_rescates_que_da_la_skill_revisar_usan_opciones_que_existen_y_traen_el_de_pi_y_el_de_codex():
     texto = texto_de_revisar()
     lineas = [l.split("rescatar.py", 1)[1] for l in texto.split("\n") if "rescatar.py\"" in l and "--destino" in l]
-    assert len(lineas) == 2, lineas
+    assert len(lineas) == 3, lineas
     opciones = {o for accion in m()._parser()._actions for o in accion.option_strings}
     for linea in lineas:
         assert set(OPCION_RE.findall(linea)) <= opciones, (linea, set(OPCION_RE.findall(linea)) - opciones)
     assert any("--host pi" in l and "--sesion" not in l and "<task_id>" in l for l in lineas), lineas
     assert any("--host" not in l and "--sesion" in l and "<agentId>" in l for l in lineas), lineas
-    for frase in ("subagent_run", "background", "task_id", "subagent_result", "16 KB"):
+    assert any("--host codex" in l and "--sesion" not in l and "<thread_id>" in l for l in lineas), lineas
+    for frase in ("subagent_run", "background", "task_id", "subagent_result", "16 KB", 'fork_turns: "none"', "agent_type", "CODEX_HOME",
+                  ".prompt.txt", "I35"):
         assert frase in texto, frase
 
 
