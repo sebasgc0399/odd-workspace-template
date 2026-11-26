@@ -529,7 +529,10 @@ def _reclama(capa, extension):
 
 
 def _relativa(archivo, carpeta):
-    return Path(os.path.relpath(archivo, carpeta)).as_posix()
+    try:
+        return Path(os.path.relpath(archivo, carpeta)).as_posix()
+    except ValueError:
+        return None
 
 
 def _dueno(archivo, config):
@@ -554,14 +557,16 @@ def clasificar(ruta, config):
     if dueno is not None:
         clave, arbol, _ = dueno
         relativa = _relativa(archivo, arbol)
+        if relativa is None:
+            return None
         for nombre, capa in config["layers"].items():
             if clave in (capa.get("repos") or []) and _reclama(capa, extension):
                 if "match" not in capa or any(coincide(relativa, patron) for patron in capa["match"]):
                     return (nombre, clave)
         return None
     raiz = canonica(config["raiz"])
-    if _dentro(archivo, raiz):
-        relativa = _relativa(archivo, raiz)
+    relativa = _relativa(archivo, raiz) if _dentro(archivo, raiz) else None
+    if relativa is not None:
         for nombre, capa in config["layers"].items():
             if _reclama(capa, extension) and any(coincide(relativa, patron) for patron in capa.get("workshop") or []):
                 return (nombre, "taller")

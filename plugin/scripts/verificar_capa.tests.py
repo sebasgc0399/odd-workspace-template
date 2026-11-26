@@ -2858,6 +2858,78 @@ def test_porque_una_falla_del_subchequeo_no_borra_el_primer_toque_ni_los_hallazg
         assert codigo == 2 and err.startswith(esperado[2].rstrip(b"\n")) and b"sin historia" in err, err
 
 
+def anotada_de(raiz):
+    [anotada] = fallas_anotadas(raiz)
+    return anotada["hook"], anotada["evento"], anotada["tipo"], anotada["mensaje"]
+
+
+def test_porque_una_falla_del_subchequeo_queda_anotada_y_el_veredicto_no_cambia():
+    with git_aislado(), Toque() as w:
+        escribir(w.db, "src/Proc_X.sql", "a\n")
+        esperado = w.correr(editar(w.sql, "a", nombre="PreToolUse", session_id="s1"))
+        assert esperado[0] == 2 and fallas_anotadas(w.raiz) == [], esperado
+        with que_falle(M.porque, "pausa"):
+            assert w.correr(editar(w.sql, "a", nombre="PreToolUse", session_id="s2")) == esperado
+        assert anotada_de(w.raiz) == ("verificar_capa", "PreToolUse", "RuntimeError", "el porqué se rompió")
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        ruta = escribir(w.web, "Core/A.cs", "int a; // MALO BLOQ\n")
+        esperado = w.correr(evento(ruta))
+        with que_falle(M.porque, "contexto"):
+            assert w.correr(editar(ruta, "int a;")) == esperado
+        assert anotada_de(w.raiz) == ("verificar_capa", "PostToolUse", "RuntimeError", "el porqué se rompió")
+
+
+def test_codex_un_archivo_del_parche_que_revienta_queda_anotado_y_los_otros_deciden_igual():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        w.calibrar("web")
+        escribir(w.web, "Core/A.cs", "a = MALO BLOQ;\n")
+        escribir(w.web, "Core/B.cs", "b = 1;\n")
+        texto = parche_codex("*** Update File: Core/B.cs", "@@", "+b = 1;", "*** Update File: Core/A.cs", "@@", "+a = MALO BLOQ;")
+        esperado = M.correr(codex(texto, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex")
+        assert "Core/A.cs tiene 1 problema(s)" in (bloqueado_en_codex(esperado) or ""), esperado
+        original = M._verificar_ruta
+
+        def revienta_en_b(una, config):
+            if una.rutas[0].endswith("B.cs"):
+                raise RuntimeError("B se rompió")
+            return original(una, config)
+
+        M._verificar_ruta = revienta_en_b
+        try:
+            assert M.correr(codex(texto, "PostToolUse", cwd=w.web), raiz=w.raiz, plazo=25, host="codex") == esperado
+        finally:
+            M._verificar_ruta = original
+        assert anotada_de(w.raiz) == ("verificar_capa", "PostToolUse", "RuntimeError", "B se rompió")
+
+
+def test_inicio_una_falla_del_aviso_de_plantillas_queda_anotada_y_los_demas_avisos_salen_en_orden():
+    with git_aislado(), Toque() as w, plugin_actualizado(w.raiz) as (local, datos, vieja, vigente):
+        con_plantillas_del_salto(w.raiz, vigente, "viejas")
+        escribir(w.raiz, "tickets/T-7-algo/CLAUDE.md", TICKET_ACTIVO)
+        marcar_activo(w.raiz, "tickets/T-7-algo")
+        original = M.plantillas_instancia.aviso_de_inicio
+
+        def rota(*_a, **_k):
+            raise RuntimeError("las plantillas se rompieron")
+
+        M.plantillas_instancia.aviso_de_inicio = rota
+        try:
+            codigo, out, err = w.correr(inicio_en("startup", w.raiz))
+        finally:
+            M.plantillas_instancia.aviso_de_inicio = original
+        assert codigo == 0 and err == b"", (codigo, err)
+        texto = aviso_de(out)
+        anotada = "- %s verificar_capa (SessionStart): RuntimeError: las plantillas se rompieron" % fallas_anotadas(w.raiz)[0]["momento"]
+        partes = ["apuntaba a la versión 0.13.1", "desde el último aviso hubo 1 falla", anotada, ENCABEZADO_DEL_RESUMEN]
+        posiciones = [texto.find(parte) for parte in partes]
+        assert -1 not in posiciones and posiciones == sorted(posiciones), (posiciones, texto)
+        assert "cambiaron plantillas" not in texto and texto.endswith(CIERRE_DEL_TICKET), texto
+        assert anotada_de(w.raiz) == ("verificar_capa", "SessionStart", "RuntimeError", "las plantillas se rompieron")
+
+
 def test_porque_en_codex_la_pausa_bloquea_con_el_texto_de_una_edicion_y_el_contexto_llega_en_post():
     from odd_ws.hosts import codex as adaptador
     with git_aislado(), Porque() as w:

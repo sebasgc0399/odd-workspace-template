@@ -58,8 +58,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | ID | Specs | Qué | Ruta | Estado | Commit |
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
-| T1 | S1, S2 (pre-commit) | El punto de entrada del pre-commit, los archivos secretos y las claves pegadas | un writer, en paralelo con T2 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | |
-| T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | pendiente | |
+| T1 | S1, S2 (pre-commit) | El punto de entrada del pre-commit, los archivos secretos y las claves pegadas | un writer, en paralelo con T2 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `a1b9349` |
+| T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | hecha (L4) | |
 | T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 | pendiente | |
 | T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 
@@ -121,3 +121,27 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **La diferencial contra `b4f8a16`,** con la plantilla y el plugin viejos contra los nuevos, da el mismo código, la misma cantidad de commits y la misma salida de las reglas (verde, rojo y sin config).
   - **Risk: ítem 2.** Es un guard nuevo que frena commits en el pre-commit de cada instancia y falla cerrado. El cambio de plantilla toca además el ítem 3, que fue pedido.
   - **Scratch del writer**, en `%TEMP%`: `tmp.CRQTJNKuqV`, `tmp.Oi3TRGBUTV`, `tmp.fhTS1w97mK` y `tmp.H9Z5HX87YC`. Va a la limpieza del autor.
+- **L4** (2026-11-25) T2, un writer, desde `b4f8a16`. Lo cortaron el reinicio de la sesión y el límite de 5 horas, y se lo retomó con su contexto. Cubrió S5 y S6.
+  - **S5:**
+    - el módulo hoja `odd_ws/archivos.py`, con `reemplazar` (un temporal hermano y `os.replace`);
+    - lo usan `tapar.py` y `fallas`, en lugar de su `_reemplazar` privado;
+    - `entregas._reemplazar` se migra después del merge de la R19.
+  - **S6:**
+    - `clasificar` devuelve `None` si `relpath` lanza;
+    - la A7: `verificar_capa._plantillas_cambiadas` atrapa la excepción del aviso de plantillas y la anota;
+    - la W2: `_aislada` y `por_ruta` aceptan un `al_fallar` opcional, que `verificar_capa` usa para anotar sus fallas.
+  - **Decisiones del writer que se aceptan:**
+    - `por_ruta` también lleva `al_fallar`, porque si no, la falla de un archivo de un parche de varios callaba;
+    - `reemplazar` sigue los enlaces simbólicos, para no dejar el secreto en el destino real;
+    - un `al_fallar` que lanza se traga;
+    - el temporal se limpia con un `chmod` antes, porque en Windows `copymode` le copia el solo lectura.
+  - **Un cambio de comportamiento que no se pidió, a ratificar:** en POSIX, `tapar.py` ahora reemplaza un archivo de solo lectura en una carpeta con escritura; antes salía con 2. En Windows sigue saliendo con 2 y deja el archivo intacto. Se acepta, porque el objetivo es tapar el secreto.
+  - **Las pruebas,** cada regla vista en RED y después GREEN, en el entorno normal y con un `GIT_INDEX_FILE` ajeno:
+    - `archivos` 8/8, `tapar` 11/11, `fallas` 3/3, `config_loader` 123/123, `verificar_capa` 160/160 y `comun` 65/65;
+    - los llamadores de `clasificar` en verde;
+    - `doctor` 245/245 y `writer_stop` 61/61. Este último falló una vez con tres suites a la vez y pasa solo: era carga.
+    - Tres mutantes, todos atrapados.
+  - **La diferencial contra `b4f8a16`:** 16 casos sin diferencias, entre el inicio de sesión en los tres hosts y `tapar.py`.
+  - **Los docs:** el orquestador integró el texto de T2 en `Doc/diseno.md`. El writer editó `Doc/hooks.md` y `references/recibo.md`.
+  - **Risk: ítem 3.** `_aislada`, `por_ruta` y `clasificar` se comparten con otros hooks. Sus valores por defecto conservan el comportamiento de antes, y lo fijan las pruebas de cada llamador.
+  - **Scratch del writer:** en el scratchpad de la sesión, `mut-6bZN`, `verif-yp2c` y los `dif-*`; además, `%TEMP%\tmpveiuqpfw`. Va a la limpieza del autor.

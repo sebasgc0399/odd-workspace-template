@@ -103,17 +103,22 @@ def combinar(decisiones):
     return Permitir()
 
 
-def _aislada(decidir, evento):
+def _aislada(decidir, evento, al_fallar=None):
     try:
         return decidir(evento)
-    except Exception:
+    except Exception as falla:
+        if al_fallar is not None:
+            try:
+                al_fallar(falla)
+            except Exception:
+                pass
         return Permitir()
 
 
-def por_ruta(evento, decidir):
+def por_ruta(evento, decidir, al_fallar=None):
     if len(evento.rutas) < 2:
         return decidir(evento)
-    return combinar([_aislada(decidir, replace(evento, rutas=(ruta,))) for ruta in evento.rutas])
+    return combinar([_aislada(decidir, replace(evento, rutas=(ruta,)), al_fallar) for ruta in evento.rutas])
 
 
 def temporal(entorno):

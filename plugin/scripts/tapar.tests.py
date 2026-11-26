@@ -2,8 +2,10 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import builtins
 import codecs
 import contextlib
+import errno
 import importlib
 import io
 import json
@@ -146,6 +148,65 @@ def test_un_error_interno_al_tapar_sale_con_2_sin_escribir_nada():
         assert error.startswith("tapar: error interno al tapar %s (" % sucio.as_posix()), error
         assert error.endswith("; no se escribio nada\n"), error
         assert sucio.read_bytes() == antes
+
+
+@contextlib.contextmanager
+def escritura_que_falla_en(nombre):
+    original = builtins.open
+
+    class Lleno:
+        def __init__(self, real):
+            self.real = real
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.real.close()
+
+        def write(self, datos):
+            self.real.write(datos[: len(datos) // 2])
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    def abrir(ruta, modo="r", *a, **k):
+        archivo = original(ruta, modo, *a, **k)
+        return Lleno(archivo) if modo == "wb" and os.path.basename(str(ruta)).startswith(nombre) else archivo
+
+    builtins.open = abrir
+    try:
+        yield
+    finally:
+        builtins.open = original
+
+
+def test_si_falla_la_escritura_de_un_archivo_queda_como_estaba_sin_temporales_y_los_anteriores_tapados():
+    with Temporal() as base:
+        primero = escribir(base / "a.diff", "+token %s\n" % GITHUB)
+        segundo = escribir(base / "b.diff", "+clave %s\n" % AWS)
+        antes = segundo.read_bytes()
+        with escritura_que_falla_en("b.diff"):
+            codigo, salida, error = correr([primero, segundo])
+        assert codigo == 2 and salida == linea(primero, 1), (codigo, salida)
+        assert error == "tapar: no se pudo escribir %s (No space left on device)\n" % segundo.as_posix(), error
+        assert primero.read_bytes() == b"+token <GITHUB_TOKEN>\n", primero.read_bytes()
+        assert segundo.read_bytes() == antes, segundo.read_bytes()
+        assert sorted(p.name for p in base.iterdir()) == ["a.diff", "b.diff"], list(base.iterdir())
+
+
+def test_en_windows_un_archivo_de_solo_lectura_sale_con_2_sin_tocarlo_ni_dejar_temporales():
+    if os.name != "nt":
+        return
+    with Temporal() as base:
+        ruta = escribir(base / "a.diff", "+token %s\n" % GITHUB)
+        antes = ruta.read_bytes()
+        os.chmod(ruta, stat.S_IREAD)
+        try:
+            codigo, salida, error = correr([ruta])
+        finally:
+            os.chmod(ruta, stat.S_IREAD | stat.S_IWRITE)
+        assert codigo == 2 and salida == "", (codigo, salida)
+        assert error.startswith("tapar: no se pudo escribir %s (" % ruta.as_posix()), error
+        assert ruta.read_bytes() == antes and sorted(p.name for p in base.iterdir()) == ["a.diff"], list(base.iterdir())
 
 
 def test_los_comodines_se_expanden_aunque_el_shell_no_lo_haga_y_un_archivo_repetido_va_una_vez():

@@ -377,6 +377,47 @@ def test_por_ruta_aisla_la_ruta_que_revienta_y_las_demas_deciden():
         raise AssertionError("con una sola ruta la excepción sigue llegando a correr, como en Claude Code")
 
 
+def test_aislada_sin_al_fallar_calla_y_con_al_fallar_le_pasa_la_falla_sin_cambiar_el_veredicto():
+    E = eventos()
+    evento = E.Herramienta(fase="post", tipo="edicion", rutas=("/a",))
+    error = RuntimeError("roto")
+
+    def revienta(_evento):
+        raise error
+
+    def al_fallar_que_revienta(_falla):
+        raise ValueError("tampoco")
+
+    vistas = []
+    assert m()._aislada(revienta, evento) == E.Permitir()
+    assert m()._aislada(revienta, evento, al_fallar=vistas.append) == E.Permitir() and vistas == [error], vistas
+    assert m()._aislada(lambda _e: E.Bloquear("b"), evento, al_fallar=vistas.append) == E.Bloquear("b")
+    assert vistas == [error], "sin falla no se llama"
+    assert m()._aislada(revienta, evento, al_fallar=al_fallar_que_revienta) == E.Permitir()
+
+
+def test_por_ruta_con_al_fallar_lo_llama_por_cada_ruta_que_revienta_y_decide_lo_mismo():
+    E = eventos()
+    errores = {"/roto": RuntimeError("uno"), "/roto2": KeyError("dos")}
+
+    def decidir(evento):
+        if evento.rutas[0] in errores:
+            raise errores[evento.rutas[0]]
+        return {"/a": E.Bloquear("A")}.get(evento.rutas[0], E.Permitir())
+
+    tres = E.Herramienta(fase="post", tipo="edicion", rutas=("/roto", "/a", "/roto2"))
+    vistas = []
+    assert m().por_ruta(tres, decidir, al_fallar=vistas.append) == m().por_ruta(tres, decidir) == E.Bloquear("A")
+    assert vistas == [errores["/roto"], errores["/roto2"]], vistas
+    try:
+        m().por_ruta(E.Herramienta(fase="pre", tipo="edicion", rutas=("/roto",)), decidir, al_fallar=vistas.append)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("con una sola ruta la excepción sigue llegando a correr, que ya la anota")
+    assert len(vistas) == 2, vistas
+
+
 def test_temporal_sigue_el_orden_de_os_tmpdir_de_node():
     if os.name == "nt":
         assert m().temporal({"TEMP": "C:\\a", "TMP": "C:\\b", "SYSTEMROOT": "C:\\w"}) == "C:\\a"

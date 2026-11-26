@@ -46,6 +46,7 @@ TOPE_DE_ENLACES = 5
 TOPE_DEL_ENLACE = 120
 CERCAS = ("```", "~~~")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+NOMBRE_DE_LA_FASE = {"pre": "PreToolUse", "post": "PostToolUse"}
 
 _LIMITE = None
 _HOST = HOST_POR_DEFECTO
@@ -331,14 +332,20 @@ def _verificar_ruta(evento, config):
     return _salida(*resultado)
 
 
+def _al_fallar(evento, config):
+    crudo = {"hook_event_name": NOMBRE_DE_LA_FASE.get(evento.fase)}
+    return lambda falla: fallas.anotar("verificar_capa", crudo, falla, config["raiz"])
+
+
 def _post_tool_use(evento, config):
     if not _edicion_verificable(evento) or not evento.rutas:
         return Permitir()
-    return por_ruta(evento, lambda una: _despues_de_editar_una(una, config))
+    return por_ruta(evento, lambda una: _despues_de_editar_una(una, config), _al_fallar(evento, config))
 
 
 def _despues_de_editar_una(evento, config):
-    return combinar([_verificar_ruta(evento, config), _aislada(lambda una: _porque_de_una(una, config), evento)])
+    contexto_del_porque = _aislada(lambda una: _porque_de_una(una, config), evento, _al_fallar(evento, config))
+    return combinar([_verificar_ruta(evento, config), contexto_del_porque])
 
 
 def _lo_reemplazado(evento, config, modos):
@@ -528,7 +535,7 @@ def _texto_primer_toque(capa, raiz, encabezado, bloque):
 
 
 def _primer_read(evento, config):
-    return por_ruta(evento, lambda una: _primer_read_de_una(una, config))
+    return por_ruta(evento, lambda una: _primer_read_de_una(una, config), _al_fallar(evento, config))
 
 
 def _primer_read_de_una(evento, config):
@@ -544,11 +551,12 @@ def _primer_read_de_una(evento, config):
 def _pre_tool_use(evento, config):
     if not _edicion_verificable(evento):
         return Permitir()
-    return por_ruta(evento, lambda una: _antes_de_editar_una(una, config))
+    return por_ruta(evento, lambda una: _antes_de_editar_una(una, config), _al_fallar(evento, config))
 
 
 def _antes_de_editar_una(evento, config):
-    return combinar([_primer_toque_de_una(evento, config), _aislada(lambda una: _pausa_de_una(una, config), evento)])
+    pausa_del_porque = _aislada(lambda una: _pausa_de_una(una, config), evento, _al_fallar(evento, config))
+    return combinar([_primer_toque_de_una(evento, config), pausa_del_porque])
 
 
 def _primer_toque_de_una(evento, config):
@@ -694,6 +702,14 @@ def _entregas_pendientes(evento, config):
         return None
 
 
+def _plantillas_cambiadas(config):
+    try:
+        return plantillas_instancia.aviso_de_inicio(config["raiz"], raiz_del_plugin.vigente())
+    except Exception as falla:
+        fallas.anotar("verificar_capa", {"hook_event_name": "SessionStart"}, falla, config["raiz"])
+        return None
+
+
 def _session_start(evento, config):
     sesion = evento.sesion
     if evento.origen in ("compact", "clear") and id_valido(sesion):
@@ -706,7 +722,7 @@ def _session_start(evento, config):
                     except OSError:
                         pass
     aviso = raiz_del_plugin.seguir_al_vigente(config["raiz"])
-    plantillas = plantillas_instancia.aviso_de_inicio(config["raiz"], raiz_del_plugin.vigente()) if aviso else None
+    plantillas = _plantillas_cambiadas(config) if aviso else None
     anotadas = fallas.aviso_de_inicio(config["raiz"])
     pendientes = _entregas_pendientes(evento, config)
     ticket = _ticket_activo(evento, config)

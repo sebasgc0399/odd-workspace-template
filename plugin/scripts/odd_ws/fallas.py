@@ -4,7 +4,7 @@ import re
 import time
 import uuid
 
-from odd_ws import capas
+from odd_ws import archivos, capas
 
 TOPE = 20
 TOPE_DEL_MENSAJE = 200
@@ -55,20 +55,6 @@ def _mensaje(error):
     return texto if len(texto) <= TOPE_DEL_MENSAJE else texto[:TOPE_DEL_MENSAJE] + "..."
 
 
-def _reemplazar(ruta, contenido):
-    temporal = "%s.%d.tmp" % (ruta, os.getpid())
-    try:
-        with open(temporal, "wb") as archivo:
-            archivo.write(contenido)
-        os.replace(temporal, ruta)
-    except OSError:
-        try:
-            os.remove(temporal)
-        except OSError:
-            pass
-        raise
-
-
 def _agregar(raiz, entrada):
     ruta = _ruta(raiz, capas.FALLAS_DE_HOOKS)
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
@@ -80,7 +66,7 @@ def _agregar(raiz, entrada):
     with open(ruta, "rb") as archivo:
         lineas = archivo.read().splitlines(keepends=True)
     if len(lineas) > TOPE:
-        _reemplazar(ruta, b"".join(lineas[-TOPE:]))
+        archivos.reemplazar(ruta, b"".join(lineas[-TOPE:]))
 
 
 def anotar(hook, crudo, error, inicio=None, entorno=None):
@@ -152,7 +138,7 @@ def aviso_de_inicio(raiz):
         if not nuevas:
             return None
         try:
-            _reemplazar(_ruta(raiz, capas.FALLAS_VISTAS), nuevas[-1]["id"].encode("ascii"))
+            archivos.reemplazar(_ruta(raiz, capas.FALLAS_VISTAS), nuevas[-1]["id"].encode("ascii"))
         except OSError:
             pass
         return _texto(nuevas)

@@ -755,6 +755,48 @@ def test_una_extension_sin_capa_no_se_clasifica():
         assert m().clasificar(i.repo / "notas.txt", cargada) is None
 
 
+@contextlib.contextmanager
+def relpath_que_no_alcanza():
+    original = os.path.relpath
+
+    def falla(*_a, **_k):
+        raise ValueError("path is on mount '\\\\.\\nul', start on mount 'c:'")
+
+    os.path.relpath = falla
+    try:
+        yield
+    finally:
+        os.path.relpath = original
+
+
+def test_una_ruta_de_adentro_que_relpath_no_alcanza_no_se_clasifica_y_no_lanza():
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        del_repo, del_taller = i.repo / "sp" / "Uno.sql", i.ticket / "SQL" / "dos.sql"
+        assert m().clasificar(del_repo, cargada) == ("sql", "db") and m().clasificar(del_taller, cargada) == ("sql", "taller")
+        with relpath_que_no_alcanza():
+            assert m().clasificar(del_repo, cargada) is None
+            assert m().clasificar(del_taller, cargada) is None
+            assert m().extensiones_sin_capa([del_repo, del_taller], cargada) == {".sql": 2}
+        assert m().clasificar(del_repo, cargada) == ("sql", "db"), "sin la falla, clasifica como antes"
+
+
+def test_en_windows_un_nombre_reservado_dentro_de_la_instancia_no_se_clasifica_y_no_lanza():
+    if not EN_WINDOWS:
+        return
+    with Instancia() as i:
+        cargada = m().cargar(i.raiz)
+        for ruta in (i.repo / "NUL", i.repo / "sp" / "NUL", i.ticket / "NUL", i.raiz / "NUL"):
+            try:
+                os.path.relpath(m().canonica(ruta), m().canonica(i.raiz))
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("control: relpath tiene que lanzar con %s" % ruta)
+            assert m().clasificar(ruta, cargada) is None, ruta
+        assert m().clasificar("C:/x/NUL", {**cargada, "raiz": "C:/x"}) is None
+
+
 def test_repo_de_dice_el_repo_y_su_arbol_aunque_el_archivo_no_tenga_capa():
     with Instancia() as i:
         cargada = m().cargar(i.raiz)

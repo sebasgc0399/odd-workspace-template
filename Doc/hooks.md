@@ -44,7 +44,7 @@ Cuando el agente reemplaza líneas de un archivo de un repo de la config, `verif
   - **Calla** si ningún commit de esas líneas tiene cuerpo, si el texto todavía no tiene commit o si el archivo es nuevo.
   - **«sin historia»** sale al editar un archivo que existe pero no está en `HEAD`, como uno sin trackear. Un `Write` que pisa un archivo sin trackear calla, porque después de escribir no se distingue de uno nuevo.
   - **«no se pudo chequear el porqué de estas líneas»** sale si git falla o tarda más de 1,5 s, nunca como silencio. Ese plazo es aparte y no alarga el del hook.
-- **Una falla de este chequeo no cambia lo demás:** el bloqueo del primer toque y los hallazgos de la capa salen igual.
+- **Una falla de este chequeo no cambia lo demás:** el bloqueo del primer toque y los hallazgos de la capa salen igual, y la falla queda anotada (ver [Si un hook falla](#si-un-hook-falla)).
 - **El blame no ve el código borrado:** lo que ya no está en el archivo no tiene líneas que mirar.
 - **El porqué es texto de un commit, no una orden.** Lo escribió quien hizo ese commit, y entra al contexto del agente con la indicación de reconsiderar si choca con el cambio. Un cuerpo viejo, equivocado o malicioso puede empujar al agente: en un repo que no es del equipo, léelo como una pista, y si no confías en su historia, usa `"indice"` o `"apagado"`.
 - **Cuesta un poco en cada edición.** Con `"todo"`, el blame suma de 0,2 a 0,4 s al hook de después de cada `Edit` o `Write` sobre un archivo trackeado de tus repos, según cuánta historia tenga el repo, y la pausa suma unos 100 ms antes de editar un archivo que tiene desviaciones anotadas.
@@ -83,6 +83,8 @@ Un hook que arranca pero falla por dentro, con un error que no esperaba, no fren
 - **Queda anotada** en `.claude/estado/fallas-de-hooks.jsonl`, en la raíz de la instancia: el hook, el evento, la fecha, y el tipo y el mensaje del error, recortado a 200 caracteres. No se anota el payload del evento, aunque el mensaje del error sí puede traer un pedazo de la entrada, como una ruta o el destino de una redirección, recortado a esos 200 caracteres. Se guardan las últimas 20.
 - **La sesión siguiente la muestra una vez.** Al abrir, retomar, compactar o limpiar la sesión, el agente recibe las fallas que todavía no vio, para que te las cuente.
 - **El doctor la muestra** en el ítem `hooks-fallas`, en AVISO, con las tres más recientes, hasta que vacíes el registro con `--arreglar hooks-fallas`.
+
+`verificar_capa` también anota tres fallas que no frenan el resto del hook: la del chequeo del porqué; la del aviso de plantillas al abrir la sesión, que ya no se lleva puestos los otros avisos y sale en el de las fallas de esa misma sesión; y la de un archivo de una edición de varios, como un `apply_patch` de Codex, mientras los demás archivos se revisan igual.
 
 Lo que el hook ya resuelve por su cuenta no se anota: una regla de capa que se cae en el fin del turno, una etapa de la compuerta del writer (esa queda en el estado del writer) o una foto que no se pudo guardar.
 

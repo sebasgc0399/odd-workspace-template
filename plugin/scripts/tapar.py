@@ -8,6 +8,7 @@ import glob
 import os
 
 from odd_ws import secretos
+from odd_ws.archivos import reemplazar
 
 DESCRIPCION = ("Tapa en el lugar los secretos de cada archivo (tokens y claves con un formato concreto), cada uno con su "
                "marcador, como <GITHUB_TOKEN>; conserva la codificacion y los fines de linea, y dice cuantos tapo en cada uno.")
@@ -81,8 +82,7 @@ def main(argv=None):
     for ruta, nuevo, cuantos in plan:
         if nuevo is not None:
             try:
-                with open(ruta, "wb") as f:
-                    f.write(nuevo)
+                reemplazar(ruta, nuevo)
             except OSError as exc:
                 print("tapar: no se pudo escribir %s (%s)" % (_visible(ruta), exc.strerror or exc), file=sys.stderr)
                 return 2

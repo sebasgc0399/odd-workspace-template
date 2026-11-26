@@ -53,7 +53,7 @@ python3 "<S>/tapar.py" "<ticket>/revision/<fecha>-<modo>/entrada/*.diff" "<ticke
 - El comodín va entre comillas, porque `tapar.py` lo expande él mismo, también en PowerShell y en cmd.
 - Se tapa después del rescate y nunca antes de lanzar: los revisores ven los diffs crudos, porque un secreto en el código es un hallazgo `CRITICAL`. Los reportes de `corridas/` ya salen tapados del rescate, y el recibo tapa su texto libre (`--verificacion`, `--derivado` y `--bajada`).
 - No invalida el recibo, que guarda la huella del diff de los repos y no la de `entrada/`; `triaje.json` no se toca, y sus `chequeos` ya salen tapados del triaje.
-- Sale con 0; con 2, sin escribir nada, si un archivo no existe, es una carpeta, el comodín no encuentra nada o un archivo no se puede leer. Si falla la escritura de un archivo, sale con 2: los anteriores ya quedaron tapados y el que falló puede quedar a medias. Muestra el mensaje y no digas «listo».
+- Sale con 0; con 2, sin escribir nada, si un archivo no existe, es una carpeta, el comodín no encuentra nada o un archivo no se puede leer. Si falla la escritura de un archivo, sale con 2: los anteriores ya quedaron tapados y el que falló queda como estaba, sin temporales. Muestra el mensaje y no digas «listo».
 
 ## `--check`
 
