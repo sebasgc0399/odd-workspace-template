@@ -68,8 +68,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S3 (W2, A3, A6) | El historial, `fusionar_plantillas.py` y los seguimientos que tocan las huellas y las plantillas | un writer, en paralelo con T3 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `caf81df` |
 | T3 | S4, S5 | El triaje sin un git por archivo y el atajo de `quitado` | un writer, en paralelo con T1 | hecha (L4) | `be1e7b7` |
-| T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | hecha (L6) | |
-| T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | en curso | |
+| T2 | S2, S3 (A4, A5) | El tope de lo que se carga y los seguimientos del doctor y el bootstrap | un writer, después de T1, porque los dos tocan `doctor.py` | hecha (L6) | `0817737` |
+| T5 | S7, S8 | La huella del recibo por lotes y el pathspec literal | un writer, en paralelo con T2 (motivo: superficies disjuntas, de varios minutos cada una) | hecha (L7) | |
 | T4 | S6 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -169,3 +169,21 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **El orquestador integró el texto de T2 en `Doc/diseno.md`.**
   - **Risk: none.** Cambia lo que el bootstrap acepta y el doctor suma una fila, pero las dos cosas se pidieron y ningún helper compartido cambió.
   - **Scratch del writer:** `%TEMP%\t2-actualizar.p91xPQ`. Va a la limpieza del autor.
+- **L7** (2026-11-26) T5, un writer, desde `be1e7b7`, en paralelo con T2. Cubrió S7 y S8.
+  - **S7:** `recibo.diffs_de_rutas` hace, por repo, un `cat-file --batch-check`, un `ls-files -s -z` y un `git diff` con las rutas como pathspec literal, en tandas, partido con `verificar_capa.partir_el_diff`. Lo usan `calcular`, `--sellar` y el rechequeo.
+    - **La huella sale idéntica:** 84 comparaciones contra `be1e7b7` dieron iguales, entre ellas `--check` de un recibo escrito por la base.
+    - Con 50 archivos, el triaje pasó de 169 a 22 procesos de git y de 9,4 s a 2,0 s, con la misma salida. La huella sola, de 152 a 5.
+    - Siguen archivo por archivo: los saltos de línea, los bytes que no son UTF-8, un espacio al final o una ruta que no está en NFC, los submódulos, las carpetas, los conflictos y una tanda que falla. Los sin trackear, uno por archivo.
+  - **S8:** el `ls-files` y el diff por archivo de `armar_ctx` van con `--literal-pathspecs`, y sin `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` ni `GIT_ICASE_PATHSPECS`, que junto al literal hacen fallar a git. El triaje ya no deja fuera del lote las rutas con comodines.
+    - La diferencial: 7 salidas cambian, todas por la única ruta con corchetes. La base daba un hallazgo falso que venía de otro archivo.
+  - **Las pruebas,** cada regla vista en RED y después GREEN, en el entorno normal y con un `GIT_INDEX_FILE` ajeno:
+    - `recibo` 120/120, `verificar_capa` 166/166 y `triaje` 115/115;
+    - `revisar_turno` 34/34, `writer_stop` 61/61 y `registro` 8/8.
+    - Nueve mutantes, atrapados.
+  - **Decisiones del writer que se aceptan:**
+    - `recibo.py` importa `verificar_capa`, unos 55 ms más al arrancar;
+    - `--sellar` y el rechequeo también van por lotes;
+    - los casos de más que siguen archivo por archivo (NFC, espacio al final, conflictos).
+  - **El orquestador integró el texto de T5 en `Doc/diseno.md`,** y corrigió dos líneas del texto de S4 que quedaron viejas.
+  - **Risk: ítem 3.** La huella del recibo y `armar_ctx` los comparten los hooks, `revisar_turno` y `writer_stop`. La huella se probó idéntica, y la salida del hook cambia solo para las rutas con comodines. Lo cubre el verificador de T4.
+  - **Scratch del writer:** `%TEMP%\t5-actualizar-YmGMDC`. Va a la limpieza del autor.

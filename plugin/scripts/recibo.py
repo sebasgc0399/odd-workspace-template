@@ -10,8 +10,10 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 
 import config_loader
+import verificar_capa
 from odd_ws import secretos
 from odd_ws.comun import entorno_git
 
@@ -43,6 +45,10 @@ CONFIG_FIJA = (
     "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.renames=false",
     "--literal-pathspecs",
 )
+TOPE_DE_LA_TANDA = 16000
+GITLINK = b"160000"
+DE_SUBMODULO_RE = re.compile(rb"^(?:(?:old|new|deleted file|new file) mode 160000|index [0-9a-f]+\.\.[0-9a-f]+ 160000)$", re.M)
+AJENO_AL_BLOQUE_RE = re.compile(rb"^(?:\* |Submodule )", re.M)
 
 
 class ErrorUso(Exception):
@@ -60,9 +66,9 @@ def _entorno():
     return env
 
 
-def git(repo, *args):
+def git(repo, *args, entrada=None):
     try:
-        return subprocess.run(["git", *CONFIG_FIJA, "-C", repo, *args], capture_output=True,
+        return subprocess.run(["git", *CONFIG_FIJA, "-C", repo, *args], capture_output=True, input=entrada,
                               timeout=TIMEOUT_GIT, env=_entorno())
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ErrorEntorno("no se pudo correr git en %s (%s)" % (repo, exc))
@@ -181,13 +187,19 @@ def _con_las_mayusculas_del_repo(raiz, limpia):
     return "/".join(partes)
 
 
-def diff_de_ruta(repo, base, rel, permitir_ausente=False):
+def diff_de_ruta(repo, base, rel, permitir_ausente=False, sabido=None):
     completa = os.path.join(repo, rel)
     if os.path.isdir(completa):
         raise ErrorUso("%s es una carpeta: pasa archivos, no carpetas" % rel)
-    en_base = git(repo, "cat-file", "-e", "%s:%s" % (base, rel)).returncode == 0
-    trackeado = git(repo, "ls-files", "--error-unmatch", "--", rel).returncode == 0
+    if sabido is None:
+        en_base = git(repo, "cat-file", "-e", "%s:%s" % (base, rel)).returncode == 0
+        trackeado = git(repo, "ls-files", "--error-unmatch", "--", rel).returncode == 0
+        diff = None
+    else:
+        en_base, trackeado, diff = sabido
     if en_base or trackeado:
+        if diff is not None:
+            return diff
         r = git(repo, "diff", *OPCIONES_DIFF, base, "--", rel)
         if r.returncode != 0:
             raise ErrorEntorno("git diff fallo en %s: %s" % (rel, r.stderr.decode("utf-8", errors="replace")))
@@ -202,13 +214,119 @@ def diff_de_ruta(repo, base, rel, permitir_ausente=False):
     raise ErrorUso("%s no existe en %s (ni en la base, ni trackeado, ni en el working tree)" % (rel, repo))
 
 
+def _cabe_en_el_lote(rel):
+    if any(c in rel for c in ("\n", "\r", "\ufffd")) or rel[-1:].isspace() or not unicodedata.is_normalized("NFC", rel):
+        return False
+    try:
+        rel.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _tipos_en_la_base(repo, base, rels):
+    try:
+        r = git(repo, "cat-file", "--batch-check", entrada="".join("%s:%s\n" % (base, rel) for rel in rels).encode("utf-8"))
+    except ErrorEntorno:
+        return None
+    lineas = r.stdout.split(b"\n")
+    if r.returncode != 0 or len(lineas) != len(rels) + 1 or lineas[-1]:
+        return None
+    tipos = {}
+    for rel, linea in zip(rels, lineas):
+        partes = linea.split(b" ")
+        tipos[rel] = partes[1].decode("ascii", "replace") if len(partes) == 3 and partes[2].isdigit() else None
+    return tipos
+
+
+def _indice(repo):
+    try:
+        r = git(repo, "ls-files", "-s", "-z")
+    except ErrorEntorno:
+        return None
+    if r.returncode != 0:
+        return None
+    entradas, carpetas = {}, set()
+    for registro in r.stdout.split(b"\0"):
+        if not registro:
+            continue
+        meta, tab, ruta = registro.partition(b"\t")
+        campos = meta.split(b" ")
+        if not tab or len(campos) != 3:
+            return None
+        entradas.setdefault(ruta, set()).add((campos[0], campos[2]))
+        carpeta = ruta.rpartition(b"/")[0]
+        while carpeta and carpeta not in carpetas:
+            carpetas.add(carpeta)
+            carpeta = carpeta.rpartition(b"/")[0]
+    return entradas, carpetas
+
+
+def _tandas(rels):
+    tanda, largo = [], 0
+    for rel in rels:
+        costo = 2 * len(rel) + 3
+        if tanda and largo + costo > TOPE_DE_LA_TANDA:
+            yield tanda
+            tanda, largo = [], 0
+        tanda.append(rel)
+        largo += costo
+    if tanda:
+        yield tanda
+
+
+def _diffs_en_lote(repo, base, rels):
+    diffs = {}
+    for tanda in _tandas(rels):
+        try:
+            r = git(repo, "diff", *OPCIONES_DIFF, "--submodule=short", base, "--", *tanda)
+        except ErrorEntorno:
+            continue
+        partes = verificar_capa.partir_el_diff(r.stdout) if r.returncode == 0 else None
+        if partes is None or not set(partes) <= set(tanda) or AJENO_AL_BLOQUE_RE.search(r.stdout):
+            continue
+        for rel in tanda:
+            diff = partes.get(rel, b"")
+            if not DE_SUBMODULO_RE.search(diff):
+                diffs[rel] = diff
+    return diffs
+
+
+def _lo_sabido_en_lote(repo, base, rels):
+    candidatos = [rel for rel in rels if _cabe_en_el_lote(rel) and not os.path.isdir(os.path.join(repo, rel))]
+    if not candidatos:
+        return {}
+    tipos = _tipos_en_la_base(repo, base, candidatos)
+    indice = _indice(repo) if tipos is not None else None
+    if indice is None:
+        return {}
+    entradas, carpetas = indice
+    sabidos, al_diff = {}, []
+    for rel in candidatos:
+        clave = rel.encode("utf-8")
+        en_base, trackeado = tipos[rel] is not None, clave in entradas or clave in carpetas
+        sabidos[rel] = (en_base, trackeado, None)
+        comunes = all(modo != GITLINK and etapa == b"0" for modo, etapa in entradas.get(clave, ()))
+        if (en_base or trackeado) and tipos[rel] in (None, "blob") and clave not in carpetas and comunes:
+            al_diff.append(rel)
+    for rel, diff in _diffs_en_lote(repo, base, al_diff).items():
+        sabidos[rel] = sabidos[rel][:2] + (diff,)
+    return sabidos
+
+
+def diffs_de_rutas(repo, base, rels, permitir_ausentes=False):
+    sabidos = _lo_sabido_en_lote(repo, base, rels)
+    return {rel: diff_de_ruta(repo, base, rel, permitir_ausentes, sabidos.get(rel)) for rel in rels}
+
+
 def calcular(repo, base, rutas, permitir_ausentes=False):
     raiz = raiz_del_repo(repo)
     base = resolver_base(raiz, base)
     archivos = sorted({normalizar(raiz, r) for r in rutas})
+    diffs = diffs_de_rutas(raiz, base, archivos, permitir_ausentes)
     por_archivo, total = {}, hashlib.sha256()
     for rel in archivos:
-        diff = diff_de_ruta(raiz, base, rel, permitir_ausentes)
+        diff = diffs[rel]
         if diff is None:
             por_archivo[rel] = AUSENTE
             total.update(b"<ausente>\0" + rel.encode("utf-8"))
@@ -338,7 +456,9 @@ def armar_rechequeo(args, carpeta):
         nombres = sorted({normalizar(raiz, r) for r in rutas})
         previos = sorted(previa["archivos"]) if previa else []
         heredados = [a for a in previos if a not in nombres]
-        retirados = [a for a in nombres if a in previos and diff_de_ruta(raiz, base, a, permitir_ausente=True) is None]
+        ya_estaban = [a for a in nombres if a in previos]
+        diffs = diffs_de_rutas(raiz, base, ya_estaban, permitir_ausentes=True)
+        retirados = [a for a in ya_estaban if diffs[a] is None]
         if heredados:
             guardado = previa.get("sha256_por_archivo") or {}
             ahora = calcular(raiz, base, heredados, permitir_ausentes=True)["sha256_por_archivo"]
@@ -853,7 +973,8 @@ def chequear_recibo(ruta, modo=None, recibo=None):
 
 
 def sin_commitear(raiz, head, archivos):
-    return [rel for rel in archivos if diff_de_ruta(raiz, head, rel, permitir_ausente=True)]
+    diffs = diffs_de_rutas(raiz, head, archivos, permitir_ausentes=True)
+    return [rel for rel in archivos if diffs[rel]]
 
 
 def fuera_de_lo_revisado(raiz, base, head, archivos):

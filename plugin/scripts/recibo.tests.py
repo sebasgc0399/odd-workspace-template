@@ -48,8 +48,31 @@ def temporal():
             SOBRANTES.append(str(raiz))
 
 
+AISLAMIENTO_GIT = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+
+
 def _entorno_sin_git():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_") or k in AISLAMIENTO_GIT}
+
+
+@contextlib.contextmanager
+def git_aislado(config=""):
+    carpeta = Path(os.path.realpath(tempfile.mkdtemp(prefix="recibo-git-")))
+    (carpeta / "global").write_text(config, encoding="utf-8")
+    (carpeta / "sistema").write_text("", encoding="utf-8")
+    previo = {k: os.environ.get(k) for k in AISLAMIENTO_GIT}
+    os.environ.update(GIT_CONFIG_GLOBAL=str(carpeta / "global"), GIT_CONFIG_SYSTEM=str(carpeta / "sistema"), GIT_CONFIG_NOSYSTEM="1")
+    try:
+        yield
+    finally:
+        for clave, valor in previo.items():
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
+                os.environ[clave] = valor
+        shutil.rmtree(carpeta, onexc=_quitar)
+        if carpeta.exists():
+            SOBRANTES.append(str(carpeta))
 
 
 def _git(cwd, *args):
@@ -1525,7 +1548,154 @@ def test_write_check_y_sellar_de_una_unidad_limpia_salen_como_antes():
         assert json.loads(recibo.read_text(encoding="utf-8")) == dict(datos, repos=[dict(datos["repos"][0], sellado=head)])
 
 
-SKILL_REVISAR = AQUI.parent / "skills" / "revisar" / "SKILL.md"
+CONFIG_GIT_RARA = ("[diff]\n\tnoprefix = true\n\tmnemonicPrefix = true\n\tsubmodule = log\n\talgorithm = patience\n\tcontext = 7\n"
+                   "\tinterHunkContext = 5\n\trenames = copies\n[core]\n\tquotepath = true\n\tabbrev = 12\n[color]\n\tui = always\n"
+                   "[diff \"mayus\"]\n\ttextconv = tr a-z A-Z <\n")
+GLOB = "x/[ab].sql"
+NFD = "x/an\u0303o nfd.sql"
+BINARIO = b"\x00\x01binario\x00"
+RUTAS_MIXTAS = ["x/a.sql", GLOB, "x/año.sql", NFD, "con espacio/b c.sql", "bin.dat", "borrado.sql", "quitado.sql", "viejo.sql",
+                "nuevo.sql", "carpeta", "igual.sql", "conflicto.sql", "agregado.sql", "suelto.sql", "era_submodulo", "submodulo_nuevo",
+                "mayus.cs"]
+
+
+def repo_mixto(t):
+    repo = Path(t) / "mixto"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    escribir(repo, {"x/a.sql": "a 1\na 2\na 3\n", GLOB: "g 1\ng 2\n", "x/año.sql": "ñ 1\n", NFD: "n 1\n", "con espacio/b c.sql": "e 1\n",
+                    "bin.dat": BINARIO, "borrado.sql": "d\n", "quitado.sql": "q\n", "viejo.sql": "v\n", "carpeta/dentro.sql": "c\n",
+                    "igual.sql": "igual\n", "conflicto.sql": "c\n", ".gitattributes": "mayus.cs diff=mayus\n", "mayus.cs": "uno\n"})
+    _git(repo, "add", "-A")
+    _git(repo, "update-index", "--add", "--cacheinfo", "160000,%s,era_submodulo" % ("e" * 40))
+    _git(repo, "commit", "-q", "-m", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "update-ref", "refs/remotes/origin/main", base)
+    _git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    escribir(repo, {"x/a.sql": "a 1\nA 2\na 3\n", GLOB: "g 1\nG 2\n", "x/año.sql": "ñ 1\nÑ 2\n", NFD: "n 1\nN 2\n", "con espacio/b c.sql": "e 1\nE 2\n",
+                    "bin.dat": BINARIO + b"\x02", "agregado.sql": "nuevo\n", "suelto.sql": "suelto\n", "mayus.cs": "uno\ndos\n"})
+    _git(repo, "--literal-pathspecs", "add", "--", "agregado.sql")
+    os.remove(repo / "borrado.sql")
+    _git(repo, "--literal-pathspecs", "rm", "-q", "--", "quitado.sql")
+    _git(repo, "--literal-pathspecs", "mv", "viejo.sql", "nuevo.sql")
+    shutil.rmtree(repo / "carpeta")
+    escribir(repo, {"carpeta": "ahora un archivo\n"})
+    _git(repo, "--literal-pathspecs", "rm", "-q", "--cached", "--", "era_submodulo")
+    escribir(repo, {"era_submodulo": "ahora un archivo\n"})
+    _git(repo, "--literal-pathspecs", "add", "--", "era_submodulo")
+    _git(repo, "update-index", "--add", "--cacheinfo", "160000,%s,submodulo_nuevo" % base)
+    return repo, base
+
+
+def con_un_conflicto(repo, rel):
+    viejo = _git(repo, "rev-parse", "HEAD:" + rel)
+    escribir(repo, {rel: "conflicto\n"})
+    nuevo = _git(repo, "hash-object", "-w", "--", rel)
+    _git(repo, "update-index", "--force-remove", "--", rel)
+    subprocess.run(["git", "update-index", "--index-info"], cwd=str(repo), capture_output=True, check=True, env=_entorno_sin_git(),
+                   input="".join("100644 %s %d\t%s\n" % (o, n, rel) for n, o in ((1, viejo), (2, nuevo), (3, viejo))).encode("utf-8"))
+    assert "%s 2\t%s" % (nuevo, rel) in indice(repo), indice(repo)
+
+
+def huella_archivo_por_archivo(repo, base, rutas, permitir_ausentes=False):
+    raiz = M.raiz_del_repo(str(repo))
+    archivos = sorted({M.normalizar(raiz, r) for r in rutas})
+    por_archivo, total = {}, hashlib.sha256()
+    for rel in archivos:
+        diff = M.diff_de_ruta(raiz, base, rel, permitir_ausentes)
+        if diff is None:
+            por_archivo[rel] = M.AUSENTE
+            total.update(b"<ausente>\0" + rel.encode("utf-8"))
+        else:
+            por_archivo[rel] = hashlib.sha256(diff).hexdigest()
+            total.update(diff)
+    return {"base": base, "archivos": archivos, "sha256": total.hexdigest(), "sha256_por_archivo": por_archivo}
+
+
+def git_lanzados(funcion):
+    lanzados, original = [], M.subprocess.run
+
+    def espia(args, *a, **k):
+        lanzados.append(list(args))
+        return original(args, *a, **k)
+
+    M.subprocess.run = espia
+    try:
+        resultado = funcion()
+    finally:
+        M.subprocess.run = original
+    return resultado, lanzados
+
+
+def test_la_huella_lanza_los_mismos_git_con_dos_archivos_que_con_ocho():
+    cuentas = []
+    for n in (2, 8):
+        with git_aislado(), temporal() as t:
+            archivos = {"m%d.sql" % i: "uno\n" for i in range(n)}
+            repo, base = repo_con_principal(t, archivos)
+            escribir(repo, {rel: "uno\ndos\n" for rel in archivos})
+            huella, lanzados = git_lanzados(lambda: calc(repo, base, list(archivos)))
+            assert huella == huella_archivo_por_archivo(repo, base, list(archivos)), huella
+            cuentas.append(len(lanzados))
+    assert cuentas[0] == cuentas[1] <= 5, "la huella lanza un git por archivo: %s" % cuentas
+
+
+def test_la_huella_por_lotes_es_la_de_archivo_por_archivo_en_un_repo_mixto():
+    for config in ("", CONFIG_GIT_RARA):
+        with git_aislado(config), temporal() as t:
+            repo, base = repo_mixto(t)
+            con_un_conflicto(repo, "conflicto.sql")
+            raiz = M.raiz_del_repo(str(repo))
+            rutas = RUTAS_MIXTAS + ["nunca.sql"]
+            esperada, por_archivo = git_lanzados(lambda: huella_archivo_por_archivo(repo, base, rutas, permitir_ausentes=True))
+            huella, por_lotes = git_lanzados(lambda: M.calcular(str(repo), base, rutas, permitir_ausentes=True))
+            assert huella == esperada, (config, huella, esperada)
+            assert huella["sha256_por_archivo"]["nunca.sql"] == M.AUSENTE, huella
+            assert len(por_lotes) < len(por_archivo) / 3, (len(por_lotes), len(por_archivo))
+            assert b"G 2" in M.diff_de_ruta(raiz, base, GLOB) and b"A 2" not in M.diff_de_ruta(raiz, base, GLOB)
+            if config:
+                assert b"Submodule era_submodulo" in M.diff_de_ruta(raiz, base, "era_submodulo"), "control positivo: diff.submodule=log"
+
+
+def test_un_recibo_con_la_huella_archivo_por_archivo_sigue_valiendo_y_nombra_solo_lo_que_cambio():
+    with git_aislado(CONFIG_GIT_RARA), temporal() as t:
+        repo, base = repo_mixto(t)
+        viejo = huella_archivo_por_archivo(repo, base, RUTAS_MIXTAS)
+        ticket = Path(t) / "T-90-h"
+        recibo = ticket / "revision" / "2026-10-21-rapido" / "recibo.json"
+        recibo.parent.mkdir(parents=True)
+        entrada = {"ruta": M.raiz_del_repo(str(repo)), "base": base, "archivos": viejo["archivos"], "sha256": viejo["sha256"],
+                   "sha256_por_archivo": viejo["sha256_por_archivo"], "modo": "rapido", "reviewers": [], "verificacion": [], "estado": "limpio"}
+        recibo.write_text(json.dumps({"version": 1, "fecha": "2026-10-21", "ticket": ticket.name, "repos": [entrada]}), encoding="utf-8")
+        codigo, salida, error = correr(["--check", str(recibo)])
+        assert codigo == 0 and salida.split("\n")[0] == "recibo vale: 1 repo(s), %d archivo(s) (%s)" % (len(RUTAS_MIXTAS), recibo.as_posix()), (salida, error)
+        escribir(repo, {"x/a.sql": "a 1\nA 2\nOTRA\n"})
+        codigo, salida, _ = correr(["--check", str(recibo)])
+        assert codigo == 1 and "  repo %s: divergen x/a.sql\n" % entrada["ruta"] in salida, salida
+
+
+def test_sellar_mira_cada_ruta_como_literal_con_la_huella_por_lotes():
+    with git_aislado(), temporal() as t:
+        repo, base = repo_con_principal(t, {"x/a.sql": "a\n", GLOB: "g\n"})
+        escribir(repo, {"x/a.sql": "a\nA\n", GLOB: "g\nG\n"})
+        ticket = Path(t) / "T-91-s"
+        ticket.mkdir()
+        codigo, salida, error = correr(args_write(ticket, [repo], [repo / "x" / "a.sql", repo / "x" / "[ab].sql"],
+                                                  ["--fecha", "2026-10-21", "--estado", "limpio"]))
+        assert codigo == 0, (salida, error)
+        _git(repo, "--literal-pathspecs", "add", "--", "x/a.sql")
+        _git(repo, "commit", "-q", "-m", "solo a")
+        codigo, salida, _ = correr(["--sellar", str(ticket)])
+        raiz = M.raiz_del_repo(str(repo))
+        assert codigo == 1 and salida.split("\n")[:2] == [
+            "recibo NO se sella (%s): hay archivos revisados sin commitear" % (ticket / "revision" / "2026-10-21-rapido" / "recibo.json").as_posix(),
+            "  repo %s: %s" % (raiz, GLOB)], salida
+        head = commitear(repo, {})
+        codigo, salida, _ = correr(["--sellar", str(ticket)])
+        assert codigo == 0 and "(%s en 1 repo(s))" % head[:10] in salida, salida
+
+
+SKILL_REVISAR =AQUI.parent / "skills" / "revisar" / "SKILL.md"
 REFERENCIAS_DE_REVISAR = SKILL_REVISAR.parent / "references"
 REFERENCIA_RE = re.compile(r"references/([\w.-]+\.md)")
 NUCLEO_MAXIMO = 17 * 1024

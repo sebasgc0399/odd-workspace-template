@@ -499,13 +499,9 @@ def _se_chequea(c):
     return bool(c["capa"]) and not recibo.es_doc(c["ruta"]) and os.path.isfile(c["abs"])
 
 
-def _pathspec_literal(rel):
-    return not rel.startswith(":") and not any(c in rel for c in "*?[\\")
-
-
 def _previos(r, config):
     candidatos = [c for c in r["cambios"] if _se_chequea(c) and c["origen"] != "taller" and c["estado"] in ("M", "A", "?")
-                  and _va_en_el_lote(c["ruta"]) and _pathspec_literal(c["ruta"])]
+                  and _va_en_el_lote(c["ruta"])]
     diffs = None
     if any(c["estado"] == "M" for c in candidatos):
         diffs = verificar_capa.diffs_por_archivo(r["ruta"], r["base"], recibo.TIMEOUT_GIT)

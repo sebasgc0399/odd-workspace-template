@@ -1125,6 +1125,50 @@ def test_armar_ctx_no_usa_lo_previo_de_otro_archivo_ni_en_el_taller():
         assert esperado["es_nuevo"] is False and esperado["agregadas"] == [(4, "\tSELECT 2;")], esperado
 
 
+def test_armar_ctx_lee_la_ruta_como_literal_y_no_como_comodin():
+    with git_aislado(), Mundo() as w:
+        escribir(w.web, "Core/a.cs", "a 1\na 2\n")
+        escribir(w.web, "Core/[ab].cs", "g 1\ng 2\n")
+        commitear(w.web)
+        base = git(w.web, "rev-parse", "HEAD")
+        escribir(w.web, "Core/a.cs", "a 1\nA MALO\n")
+        ruta = escribir(w.web, "Core/[ab].cs", "g 1\ng 2\ng 3\n")
+        config = w.config()
+        ctx = M.armar_ctx(ruta, "web", "repo", config, contra=base)
+        assert ctx["es_nuevo"] is False and ctx["agregadas"] == [(3, "g 3")] and ctx["hunks"] == [{"agregadas": [(3, "g 3")], "quitadas": []}], ctx
+        git(w.web, "--literal-pathspecs", "rm", "-q", "--cached", "--", "Core/[ab].cs")
+        ctx = M.armar_ctx(ruta, "web", "repo", config, contra=base)
+        assert ctx["es_nuevo"] is True and ctx["agregadas"] == [(1, "g 1"), (2, "g 2"), (3, "g 3")], ctx
+
+
+def test_el_hook_y_la_revision_del_turno_de_una_ruta_comun_salen_como_antes():
+    with git_aislado(), Mundo() as w:
+        w.modulo("web", STUB_MALO)
+        escribir(w.web, "Core/a.cs", "uno\n")
+        escribir(w.web, "Core/[ab].cs", "g\n")
+        commitear(w.web)
+        base = git(w.web, "rev-parse", "HEAD")
+        ruta = escribir(w.web, "Core/a.cs", "uno\ndos MALO\n")
+        escribir(w.web, "Core/[ab].cs", "g\nh\nx = MALO BLOQ;\n")
+        codigo, out, err = w.correr(evento(ruta, session_id="s-antes"))
+        assert codigo == 0 and err == b"" and "linea 2 en «MALO»:" in contexto(out), (out, err)
+        config = w.config()
+        esperado = M.armar_ctx(ruta, "web", "repo", config, contra=base)
+        assert esperado["es_nuevo"] is False and esperado["agregadas"] == [(2, "dos MALO")], esperado
+        assert [h["linea"] for h in M.verificar_archivo(str(ruta), config, time.monotonic() + 20, aislar_la_capa=True, contra=base)[1]] == [2]
+        previo = {k: os.environ.get(k) for k in ("GIT_GLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")}
+        os.environ.update(GIT_GLOB_PATHSPECS="1", GIT_ICASE_PATHSPECS="1")
+        try:
+            assert M.armar_ctx(ruta, "web", "repo", config, contra=base) == esperado, "el entorno del usuario no cambia los pathspecs"
+            assert w.correr(evento(ruta, session_id="s-con-entorno")) == (codigo, out, err)
+        finally:
+            for clave, valor in previo.items():
+                if valor is None:
+                    os.environ.pop(clave, None)
+                else:
+                    os.environ[clave] = valor
+
+
 def test_los_diffs_por_archivo_son_los_de_cada_archivo_con_cualquier_config_de_git():
     with git_aislado(), Mundo() as w:
         _con_config_rara()

@@ -780,11 +780,10 @@ Antes de elegir la revisión, el triaje calcula sobre el diff las señales de ri
     - el taller, dentro de un repo o con `--taller`;
     - un archivo cuya ruta por `realpath` no es la de git;
     - una ruta con salto de línea, retorno de carro o bytes que no son UTF-8;
-    - una ruta con `*`, `?`, `[`, `\` o un `:` al principio, porque el pathspec del diff por archivo del hook la lee como glob o como magia, y esa salida es la que se conserva;
     - un estado que no es «M», «A» ni «?»;
     - un objeto de la base que no es un blob;
     - un repo donde el diff o el `cat-file` fallan o dan un encabezado que no se entiende.
-  - **Medido** con 50 archivos modificados de una capa (mediana de 3): de 25,6 s a 9,7 s, y de 466 a 169 procesos de git. Los 150 que quedan por archivo son la huella del recibo (`recibo.calcular`: `cat-file -e`, `ls-files --error-unmatch` y el diff con `--binary` de cada uno). Es el contrato de `recibo.py --check` y de la bajada, y no se tocó.
+  - **Medido** con 50 archivos modificados de una capa (mediana de 3): de 25,6 s a 9,7 s, y de 466 a 169 procesos de git. Los 150 que quedaban por archivo eran la huella del recibo, que S7 agrupó por repo (abajo): con las dos cosas, 22 procesos y 2,0 s.
   - **Las pruebas.** Una compara la salida por lotes con la de archivo por archivo sobre un mundo con:
     - tres repos y el taller;
     - un renombre, un borrado, un archivo sin trackear y uno nuevo stageado;
@@ -793,6 +792,14 @@ Antes de elegir la revisión, el triaje calcula sobre el diff las señales de ri
     - marcadores de conflicto y un `textconv`.
 
     Otra cuenta los procesos: son los mismos con un archivo de cada estado que con tres.
+  - **La huella del recibo, por lotes (R21, S7).** `recibo.calcular` corría tres procesos por archivo: `cat-file -e`, `ls-files --error-unmatch` y el diff con `--binary`. Ahora corre tres por repo, con `recibo.diffs_de_rutas`, que usan también `--sellar` y el rechequeo:
+    - si la ruta está en la base sale de un solo `cat-file --batch-check`, que responde lo mismo que `cat-file -e`;
+    - si está trackeada sale de un solo `ls-files -s -z`: lo está si es una entrada del índice o una carpeta de entradas, que es lo que cuenta `ls-files --error-unmatch` con el pathspec literal;
+    - el diff sale de un `git diff` con las mismas opciones, más `--submodule=short`, y las rutas como pathspec literal, en tandas que no pasan el largo de la línea de comandos de Windows, partido con `verificar_capa.partir_el_diff`.
+    - **La huella no cambia, byte a byte.** Cada bloque es el que da el diff de esa ruta sola, así que los recibos que ya existen siguen valiendo. Lo prueba una diferencial contra `be1e7b7`: la huella, `--write`, `--check` de un recibo escrito por la base, `--sellar` y el rechequeo salen iguales.
+    - **Lo que sigue archivo por archivo,** con el camino de antes: una ruta con salto de línea, retorno de carro, bytes que no son UTF-8, un espacio al final o que no está en NFC (en macOS, git compone la ruta del argumento y no la de la entrada estándar); un submódulo en el índice, en la base o en el bloque (`160000`), porque su formato depende de `diff.submodule`; una ruta que es carpeta en la base o en el índice; una ruta en conflicto; una tanda cuyo diff falla o trae una línea que no es de un bloque. Los archivos sin trackear siguen con su `diff --no-index`, uno por archivo, porque no se pueden pedir juntos con los mismos bytes.
+    - **Medido** con 50 archivos modificados de una capa (mediana de 3): el triaje pasó de 169 a 22 procesos de git y de 9,4 s a 2,0 s, con la misma salida. La huella sola pasó de 152 procesos (2 más 3 por archivo) a 5.
+  - **El pathspec literal (R21, S8).** El `ls-files` y el diff por archivo de `armar_ctx` leían la ruta como pathspec, así que para `x/[ab].sql` el diff traía también los hunks de `x/a.sql`. Ahora van con `--literal-pathspecs` y sin `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` ni `GIT_ICASE_PATHSPECS` del entorno, que junto al literal hacen fallar a git. La salida del hook cambia solo para una ruta con comodines o con magia de pathspec, que es lo correcto, y el triaje ya no la deja fuera del lote.
 - **Lo de la instancia**, en `.claude/reglas/senales.py` (opcional): `MARCADORES` (cada uno con `id`, `patron`, `ejemplo`, `fuente` y `ancla`, más su `descripcion`), `DINERO_NOMBRES` (palabras), `COTA` (texto) y `NO_DETECTABLE` (textos que se suman a la lista del motor). Al cargarlo, el motor valida cada marcador: `id` único, `patron` que compila, un `ejemplo` que su propio `patron` detecta y un `ancla` dentro de la línea `fuente` (`<ruta relativa a la raíz de la instancia>:<línea>`). Si un marcador no cumple, o el módulo no carga, `efecto` y `dinero` quedan inválidas y la salida dice por qué. Sin el módulo, `efecto` sale negativa con «0 marcadores en la instancia», y la salida lo declara entre lo que no detecta.
 
 ### Medir revisores (`rescatar.py`, `auditar_lecturas.py`, `puntuar.py`, L87)

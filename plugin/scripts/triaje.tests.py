@@ -1695,6 +1695,32 @@ def test_el_triaje_lanza_los_mismos_git_con_un_archivo_de_capa_por_estado_que_co
     assert cuentas[0] == cuentas[1] <= 12, "el triaje lanza un git por archivo: %s" % cuentas
 
 
+def test_el_triaje_lleva_al_lote_las_rutas_con_comodines_y_cada_una_con_sus_lineas():
+    cuentas = []
+    for otra in ("Data/c.cs", "Data/[ab].cs"):
+        with git_aislado(), Mundo() as w:
+            con_chequeo(w, "web", calibrar=False)
+            commitear(w.web, {"Data/a.cs": "class A { }\n", otra: "class G { }\n"})
+            publicar(w.web)
+            escribir(w.web, {"Data/a.cs": "class A { } // MALO\n", otra: "class G { }\n// MALO\n"})
+            config = M.config_loader.cargar(str(w.raiz))
+            lanzados, original = [], M.subprocess.run
+
+            def espia(args, *a, **k):
+                lanzados.append(list(args))
+                return original(args, *a, **k)
+
+            M.subprocess.run = espia
+            try:
+                r = M.recolectar_repo(str(w.web), None, config)
+                ch = M.chequear([r], [], config)
+            finally:
+                M.subprocess.run = original
+            assert sorted((h["ruta"], h["linea"]) for h in ch["hallazgos"]) == sorted([("Data/a.cs", 1), (otra, 2)]), ch
+            cuentas.append(len([a for a in lanzados if "--check" not in a and "--name-only" not in a]))
+    assert cuentas[0] == cuentas[1], "las rutas con comodines van archivo por archivo: %s" % cuentas
+
+
 VARIADO_BINARIO = b"\x00\x01CREATE PROCEDURE esq.Proc_Datos\x00"
 VARIADO_ANO = "src/ventas/Proc Año [v2].sql"
 VARIADO_GLOB = "src/ventas/Proc Año 2.sql"

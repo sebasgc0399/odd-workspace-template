@@ -51,6 +51,7 @@ DIFF_POR_REPO = ("--no-renames", "--diff-filter=M", "--submodule=short", "--src-
 ENCABEZADO_DEL_DIFF = b"diff --git "
 ESCAPES_DE_GIT = {ord(c): v for c, v in zip('abtnvfr"\\', b'\a\b\t\n\v\f\r"\\')}
 NOMBRE_DE_LA_FASE = {"pre": "PreToolUse", "post": "PostToolUse"}
+PATHSPECS_DEL_ENTORNO = ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
 
 _LIMITE = None
 _HOST = HOST_POR_DEFECTO
@@ -62,11 +63,16 @@ def _restante(tope):
     return min(tope, _LIMITE - time.monotonic())
 
 
-def _git(cwd, *args):
+def _git(cwd, *args, literal=False):
     timeout = _restante(TIMEOUT_GIT)
     if timeout <= 0:
         raise subprocess.TimeoutExpired(["git", *args], 0)
-    return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, timeout=timeout, env=entorno_git())
+    env = entorno_git()
+    if literal:
+        for clave in PATHSPECS_DEL_ENTORNO:
+            env.pop(clave, None)
+        args = ("--literal-pathspecs", *args)
+    return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, timeout=timeout, env=env)
 
 
 def _hunks_del_diff(salida):
@@ -215,7 +221,7 @@ def armar_ctx(ruta, capa, origen, config, contra=None, previo=None):
     contraparte = _contraparte(ruta, base_cfg, config) if base_cfg else None
     revision = contra or "HEAD"
     if previo is None:
-        sin_trackear = _git(raiz, "ls-files", "--error-unmatch", "--", rel_git).returncode != 0
+        sin_trackear = _git(raiz, "ls-files", "--error-unmatch", "--", rel_git, literal=True).returncode != 0
         es_nuevo = sin_trackear or _git(raiz, "cat-file", "-e", revision + ":" + rel_git).returncode != 0
     else:
         es_nuevo = previo["es_nuevo"]
@@ -229,7 +235,7 @@ def armar_ctx(ruta, capa, origen, config, contra=None, previo=None):
         hunks = [{"agregadas": agregadas, "quitadas": []}] if agregadas else []
     else:
         if previo is None:
-            d = _git(raiz, "diff", *OPCIONES_DEL_DIFF, revision, "--", rel_git)
+            d = _git(raiz, "diff", *OPCIONES_DEL_DIFF, revision, "--", rel_git, literal=True)
             if d.returncode != 0:
                 return None
             diff = d.stdout.decode("utf-8", errors="replace")
