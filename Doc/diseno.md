@@ -1229,13 +1229,13 @@ Antes de publicar, un comando de solo lectura dice qué ramas de los tickets no 
 
   ```
   git -c gc.auto=0 -c maintenance.auto=false -c fetch.writeCommitGraph=false fetch --quiet --no-tags --no-prune
-      --no-recurse-submodules --no-write-fetch-head origin +refs/heads/*:refs/remotes/origin/*
+      --no-recurse-submodules --no-write-fetch-head --refmap= origin +refs/heads/*:refs/remotes/origin/*
   ```
 
-  - El refspec explícito escribe solo en `refs/remotes/origin/*`, aunque el remoto tenga configurado otro.
+  - El refspec explícito con `--refmap=` vacío escribe solo en `refs/remotes/origin/*`. Sin `--refmap=`, git aplica además los `remote.origin.fetch` configurados como actualizaciones oportunistas, y un mapeo a otra carpeta de refs remotas, o hasta a ramas locales, las movería.
   - `--no-tags`, `--no-write-fetch-head` y los `-c` dejan quietos los tags, `FETCH_HEAD`, el `gc`, el mantenimiento y el `commit-graph`.
   - `--no-prune` conserva el `origin/<rama>` de una rama que el remoto borró después del merge; sin él, saldría como «nunca se empujó».
-  - Va con `comun.entorno_git()`, `GIT_TERMINAL_PROMPT=0` y `GCM_INTERACTIVE=never`, para que una credencial no lo cuelgue.
+  - Va con `comun.entorno_git()`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` y `GIT_ASKPASS` vacío, para que una credencial no lo cuelgue. `GIT_TERMINAL_PROMPT=0` no frena un `GIT_ASKPASS` como el que define VS Code, y el vacío corta también `core.askPass` y `SSH_ASKPASS`: sin él, un askpass que no contesta deja el repo esperando todo el plazo antes de salir en rojo.
   - Su stderr va a un archivo temporal y no a un pipe: si vence el plazo, un hijo de git que siga vivo no deja colgada la lectura.
 - **En rojo.** Si el `fetch` falla o no termina, el repo sale en rojo con la primera línea de su error (o «no terminó a tiempo»), y sus ramas quedan sin juzgar: con refs viejas, «llegó» podría ser falso. Un repo en rojo sin ramas de tickets igual cuenta. Las refs de los demás se leen después de todos los `fetch`.
 - **La clasificación** (`clasificar_rama(datos) -> Estado(llego, faltas)`). Es una función pura sobre `Datos(sin_commitear, origen, sin_empujar, principal, cabezas)`, probada con datos sintéticos. Cada `Cabeza(cherry, squash)` lleva las líneas de `git cherry <principal> <cabeza>` y si la rama entera ya está en la principal como squash. La E/S que llena los datos vive aparte, en el mismo módulo:
@@ -1249,7 +1249,7 @@ Antes de publicar, un comando de solo lectura dice qué ramas de los tickets no 
 - **El caso sembrado.** «Un push a una rama cuyo PR ya se mergeó sale bien, no corre CI y el commit nunca llega a la rama principal.» El commit nuevo queda con `+`, y con él el diff entero ya no coincide con el squash, así que sale «no llegó» aunque esté empujado. Después del squash de varios commits se cuentan todos los de la rama, no solo el nuevo: el número es una cota, no el exacto.
 - **La salida.** Una línea por ticket y repo: `<ticket>: en <repo>, la rama <rama> <estado>; la rama …`. Después, una línea por repo en rojo, la de los tickets que no alcanzó a revisar y el `Resumen:`. Con `--json`, un objeto con `todo_llego`, `repos` (`repo`, `rojo`, `motivo`), `ramas` (`ticket`, `repo`, `rama`, `carpeta`, `principal`, `estado` = `llego`, `pendiente` o `sin_juzgar`, `motivo` = `repo_en_rojo`, `sin_tiempo` o `null`, `faltas` con `tipo` y `commits`, y `texto`), `tickets_sin_ramas` y `tickets_sin_revisar`. Sale con 0 si todo llegó; con 1 si hay una rama pendiente o sin juzgar, un ticket sin revisar o un repo en rojo; con 2 por un error de uso o de entorno.
 - **El tiempo.** Leer las ramas de los tickets tiene su propio plazo, y lo que no alcanza sale en «Tickets sin revisar». El juicio de cada repo tiene otro, y una rama que no alcanza «queda sin juzgar, porque no alcanzó el tiempo». Nada de eso cuenta como llegado.
-- **Lo que no hace.** No corre `pull`, `merge`, `checkout`, `reset`, `gc` ni `fetch --prune`, y el `status` va sin locks opcionales. La prueba lo comprueba comparando, antes y después, las refs que no son de `origin`, el índice de cada árbol, `HEAD`, `config`, `FETCH_HEAD`, el reflog de `HEAD` y los archivos de cada árbol, y que el `fetch` sí movió `origin/main`.
+- **Lo que no hace.** No corre `pull`, `merge`, `checkout`, `reset`, `gc` ni `fetch --prune`, y el `status` va sin locks opcionales. La prueba lo comprueba en un repo cuyo `remote.origin.fetch` también mapea a `refs/remotes/espejo/*` y a ramas locales `copia/feat/*`, comparando, antes y después, las refs que no son de `refs/remotes/origin/`, el índice de cada árbol, `HEAD`, `config`, `FETCH_HEAD`, el reflog de `HEAD` y los archivos de cada árbol, y que el `fetch` sí movió `origin/main`.
 - **En `cerrar`,** `references/entrega.md` lo nombra en «Antes de publicar», para correrlo con el sí del usuario, porque habla con el remoto de cada repo.
 
 ### El porqué antes de editar (`odd_ws/porque.py`, I90)

@@ -92,7 +92,7 @@ Al abrir o retomar una sesión, el agente recibe una línea por cada ticket acti
 
 ```text
 odd-ws: hay trabajo de los tickets que todavía no llegó a origin (mirado con las refs locales, sin fetch):
-- T-7-lector: en web, la rama feat/T-7 tiene cambios sin commitear y 2 commits sin empujar; en db, la rama feat/T-7 nunca se empujó.
+- T-7-lector: en db, la rama feat/T-7 nunca se empujó; en web, la rama feat/T-7 tiene cambios sin commitear y 2 commits sin empujar.
 ```
 
 - **Qué cuenta.** Por cada repo de «Worktree y rama» del ticket: un cambio sin commitear en la carpeta que tiene esa rama, un commit que no está en `origin/<rama>` o una rama sin `origin/<rama>`, porque nunca se empujó. Los tickets archivados (más hondos que `tickets/<id>-<slug>/`) no cuentan.

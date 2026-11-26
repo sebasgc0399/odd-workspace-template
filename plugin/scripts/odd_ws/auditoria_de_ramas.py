@@ -20,8 +20,8 @@ CABEZA_DEL_ORIGEN = ORIGEN + "HEAD"
 PRINCIPALES = ("main", "master")
 FORMATO = "--format=%(refname)%00%(objectname)%00%(symref)"
 FETCH = ("-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "fetch.writeCommitGraph=false", "fetch", "--quiet", "--no-tags",
-         "--no-prune", "--no-recurse-submodules", "--no-write-fetch-head", "origin", "+%s*:%s*" % (RAMAS, ORIGEN))
-SIN_PROMPTS = {"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+         "--no-prune", "--no-recurse-submodules", "--no-write-fetch-head", "--refmap=", "origin", "+%s*:%s*" % (RAMAS, ORIGEN))
+SIN_PROMPTS = {"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never", "GIT_ASKPASS": ""}
 DIFF = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/")
 
 SIN_COMMITEAR = "sin_commitear"
