@@ -17,7 +17,7 @@ Las notas de cada entrega de `odd-ws`. Cada versión es una sección `## <versi�
   - todo lo que odd-ws puede mandar fuera de tu máquina. Una prueba lo mantiene al día.
 - **`tapar.py` ya no deja un archivo a medio escribir:** si una escritura falla, ese archivo queda como estaba.
 - **Lo que antes fallaba callado ahora queda en el rastro de fallas:** el aviso de plantillas del inicio y el porqué de las líneas que editas. Una falla del aviso de plantillas ya no se lleva puestos los demás avisos del inicio.
-- **Code Mode de Claude Code:** las pruebas confirman que los guards siguen frenando dentro de sus scripts. La corrida real con Code Mode prendido sigue pendiente, porque solo anda en la terminal.
+- **Code Mode de Claude Code:** los guards siguen frenando dentro de sus scripts. Lo fijan las pruebas, y lo confirmó una corrida real en la terminal: en un solo script, odd-ws bloqueó un push forzado y un `reset --hard`.
 - **Cómo actualizar:** con los comandos de [Doc/actualizar.md](Doc/actualizar.md). Esta versión cambia una plantilla, el `.githooks/pre-commit`, y el doctor te dice si tienes que copiarla.
 
 ### Detalle técnico
