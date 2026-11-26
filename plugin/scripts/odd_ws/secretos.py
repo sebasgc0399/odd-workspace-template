@@ -11,6 +11,9 @@ BLOQUE_RE = re.compile(r"(-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----)(
 CUERPO_DE_CLAVE_RE = re.compile(r"[A-Za-z0-9+/=]+")
 ENCABEZADO_DE_CLAVE_RE = re.compile(r"(?:Proc-Type|DEK-Info|Version|Comment|Hash):")
 ESCAPES_RE = re.compile(r"\\[nr]")
+RUTA_PERSONAL_RE = re.compile(r"(?<![\w.-])/(?:home|[Uu]sers)/([^\W_][\w.-]*)/"
+                              r"|(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(?i:users)[\\/]+([^\W_][\w.-]*)[\\/]+")
+CARPETAS_COMUNES = frozenset({"shared", "public", "default"})
 MARCAS_DE_DIFF = "+- "
 SEPARADORES_DE_DIFF = ("@@", "\\ ")
 PATRONES = tuple((nombre, re.compile(patron)) for nombre, patron in (
@@ -93,6 +96,23 @@ def _tapar_bloques(texto):
     if not cuantos:
         return texto, 0
     return "".join(partes + [texto[hecho:]]), cuantos
+
+
+def claves_privadas(texto):
+    return _tapar_bloques(texto)[1] if isinstance(texto, str) else 0
+
+
+def rutas_personales(texto):
+    if not isinstance(texto, str):
+        return []
+    hallazgos, linea, desde = [], 1, 0
+    for m in RUTA_PERSONAL_RE.finditer(texto):
+        if (m.group(1) or m.group(2)).lower() in CARPETAS_COMUNES:
+            continue
+        linea += texto.count("\n", desde, m.start())
+        desde = m.start()
+        hallazgos.append((linea, m.group(0)))
+    return hallazgos
 
 
 def intentar_tapar(texto):

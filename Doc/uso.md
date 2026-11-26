@@ -294,7 +294,7 @@ Cómo se escribe un paquete, qué revisa el doctor y por qué funciona así: [Pa
 | `.claude/agents/` | `writer-<capa>.md`, `revisor-<capa>.md` y `revisor-diseno.md` |
 | `.claude/skills/` | `capa-<capa>/SKILL.md` (las convenciones de cada capa) y `criterios/SKILL.md` |
 | `.claude/reglas/` | `matriz.csv` (solo el encabezado), `evidencia.md`, `verificar_<capa>.py` (vacío) y `verificar_<capa>.tests.py` |
-| `.githooks/pre-commit` | Corre las pruebas de las reglas de cada capa (`reglas.py --test`) |
+| `.githooks/pre-commit` | Llama a `pre_commit.py` del plugin: frena un archivo de secretos stageado (`.env`, una clave o un `credentials*.json`, salvo sus variantes de ejemplo) o una clave privada pegada, avisa de las rutas personales sin frenar y corre las pruebas de las reglas de cada capa (`reglas.py --test`) |
 | `.gitattributes` | Deja `.githooks/*` en LF, aunque Git convierta los saltos de línea (en Windows, `core.autocrlf` viene activado) |
 | `.claude/settings.json` | El `enabledPlugins` de la raíz |
 | `.gitignore`, `git init` y `core.hooksPath` | Para que el pre-commit corra desde el primer commit |

@@ -148,10 +148,18 @@ class Instancia:
         datos = json.dumps(contenido) if isinstance(contenido, dict) else contenido
         (self.raiz / "workspace.local.json").write_text(datos, encoding="utf-8")
 
+    def poner(self, relativa, contenido):
+        ruta = self.raiz / relativa
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(contenido, encoding="utf-8")
+
     def commit(self, extra=None):
         (self.raiz / "a.txt").write_text("cambio\n", encoding="utf-8")
         self.git("add", "-A")
-        r = subprocess.run(["git", "commit", "-q", "-m", "prueba"], cwd=self.raiz, capture_output=True,
+        return self.commit_con(extra=extra)
+
+    def commit_con(self, *opciones, extra=None):
+        r = subprocess.run(["git", "commit", "-q", "-m", "prueba", *opciones], cwd=self.raiz, capture_output=True,
                            env={**entorno(self.base), **(extra or {})})
         return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
 
@@ -327,6 +335,72 @@ def test_la_copia_de_emergencia_gana_aunque_plugin_root_este_viejo():
         codigo, salida = w.commit()
         assert codigo == 0 and "suite sql corrio" in salida, salida
         assert w.commits() == 1
+
+
+def clave_privada():
+    cuerpo = ("MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7Qk" * 3)
+    return "\n".join(["-----BEGIN PRIVATE KEY-----", *(cuerpo[i * 64:i * 64 + 64] for i in range(3)),
+                      "-----END PRIVATE KEY-----"]) + "\n"
+
+
+def test_un_env_stageado_frena_el_commit_y_dice_como_sacarlo_del_stage():
+    with Instancia() as w:
+        w.local({"plugin_root": str(PLUGIN)})
+        w.poner(".env", "TOKEN=abc\n")
+        codigo, salida = w.commit()
+        assert codigo != 0 and w.commits() == 0, salida
+        assert "commit frenado" in salida and "git restore --staged .env" in salida and "suite sql corrio" not in salida, salida
+
+
+def test_la_variante_de_ejemplo_de_un_env_se_commitea():
+    with Instancia() as w:
+        w.local({"plugin_root": str(PLUGIN)})
+        w.poner(".env.example", "TOKEN=<tu-token>\n")
+        codigo, salida = w.commit()
+        assert codigo == 0 and w.commits() == 1 and "suite sql corrio" in salida, salida
+
+
+def test_una_clave_privada_pegada_frena_el_commit():
+    with Instancia() as w:
+        w.local({"plugin_root": str(PLUGIN)})
+        w.poner("notas/acceso.md", "Pega esto en el servidor:\n" + clave_privada())
+        codigo, salida = w.commit()
+        assert codigo != 0 and w.commits() == 0, salida
+        assert "notas/acceso.md: tiene una clave privada pegada" in salida and "git restore --staged notas/acceso.md" in salida, salida
+
+
+def test_una_ruta_personal_avisa_y_el_commit_sigue_con_las_reglas():
+    with Instancia() as w:
+        w.local({"plugin_root": str(PLUGIN)})
+        w.poner("notas/maquina.md", "El repo vive en /home/ana/trabajo\n")
+        codigo, salida = w.commit()
+        assert codigo == 0 and w.commits() == 1, salida
+        assert "notas/maquina.md:1: /home/ana/" in salida and "no frena el commit" in salida and "suite sql corrio" in salida, salida
+
+
+def test_el_commit_con_menos_a_revisa_el_indice_del_commit_y_no_el_del_repo():
+    with Instancia() as w:
+        w.local({"plugin_root": str(PLUGIN)})
+        w.poner(".env", "TOKEN=abc\n")
+        w.git("add", ".env")
+        w.git("commit", "-q", "--no-verify", "-m", "base")
+        w.poner(".env", "TOKEN=otro\n")
+        codigo, salida = w.commit_con("-a")
+        assert codigo != 0 and w.commits() == 1, salida
+        assert "git restore --staged .env" in salida, salida
+        codigo, salida = w.commit_con("--", ".env")
+        assert codigo != 0 and w.commits() == 1 and "git restore --staged .env" in salida, salida
+
+
+def test_un_plugin_root_sin_pre_commit_py_bloquea_con_el_arreglo():
+    with Instancia() as w:
+        viejo = w.base / "odd-ws" / "0.16.0"
+        (viejo / "scripts").mkdir(parents=True)
+        (viejo / "scripts" / "reglas.py").write_text("", encoding="utf-8")
+        w.local({"plugin_root": str(viejo)})
+        codigo, salida = w.commit()
+        assert codigo != 0 and w.commits() == 0, salida
+        assert "0.16.0" in salida and "/odd-ws:doctor --arreglar plugin-root" in salida, salida
 
 
 def test_la_plantilla_es_ascii_con_fin_de_linea_lf_y_empieza_con_sh():

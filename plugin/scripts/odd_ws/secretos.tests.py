@@ -198,6 +198,24 @@ def test_tapar_valores_recorre_dicts_y_listas_sin_tocar_las_claves_ni_lo_que_no_
     assert m().tapar_valores(copia["meta"]) == (copia["meta"], 0)
 
 
+def test_claves_privadas_cuenta_las_que_tienen_cuerpo_de_clave_y_no_las_de_ejemplo():
+    assert m().claves_privadas(clave_privada()) == 1
+    assert m().claves_privadas("antes\n" + clave_privada() + clave_privada(tipo="", fin="\r\n")) == 2
+    for ejemplo in ("-----BEGIN PRIVATE KEY-----\n<PRIVATE_KEY>\n-----END PRIVATE KEY-----\n",
+                    "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----\n",
+                    NEGATIVOS["un bloque de clave sin fin"], NEGATIVOS["prosa"], "", None, b"bytes"):
+        assert m().claves_privadas(ejemplo) == 0, ejemplo
+
+
+def test_rutas_personales_da_la_linea_y_el_fragmento_y_no_cuenta_marcadores_ni_carpetas_comunes():
+    texto = "a /home/ana/x\nb\nC:\\Users\\beto\\y y /Users/u/z\n" + '"D:\\\\Users\\\\ana\\\\w"\n'
+    assert m().rutas_personales(texto) == [(1, "/home/ana/"), (3, "C:\\Users\\beto\\"), (3, "/Users/u/"),
+                                           (4, "D:\\\\Users\\\\ana\\\\")], m().rutas_personales(texto)
+    for limpio in ("/home/<usuario>/x", "/Users/$USER/x", "C:\\Users\\%USERNAME%\\x", "/home/{user}/x", "/home/.../x",
+                   "/Users/Shared/x", "C:\\Users\\Public\\x", "C:\\Users\\Default\\x", "/api/home/ana/x", "/home/ana", "", None):
+        assert m().rutas_personales(limpio) == [], limpio
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

@@ -85,6 +85,10 @@ En la `0.14.0`:
 - **La prueba de las reglas de cada capa**: cópiala encima desde `plugin/plantillas/reglas/verificar.tests.py`. Ahora apaga el bytecode, así que correrla a mano ya no deja `.claude/reglas/__pycache__/`.
 - **La clave `"plantillas"`**: no la escribas a mano. La anota `--arreglar plantillas`, que corres después de fusionar las copias editadas: el arreglo no sabe si ya las fusionaste, y desde ahí el ítem sale OK.
 
+En la `0.18.0`:
+
+- **El `.githooks/pre-commit`**: cópialo encima desde `plugin/plantillas/pre-commit`. Si lo editaste, cambia `reglas.py` por `pre_commit.py` en la línea que comprueba que encontró el plugin (`[ ! -f "$plugin/scripts/reglas.py" ]`), y deja la última así: `exec "$python" "$plugin/scripts/pre_commit.py" --raiz "$raiz"`. El nuevo frena un `.env` (o un `.env.*`), una clave (`*.pem`, `*.key`, `id_rsa`, `id_ed25519`) o un `credentials*.json` stageado, salvo sus variantes `.example`, `.sample` y `.template`, y un archivo con una clave privada pegada; avisa, sin frenar, de las rutas personales (`/home/<usuario>/`, `/Users/<usuario>/`, `C:\Users\<usuario>\`). Después corre las pruebas de las reglas, como antes. Hasta que lo actualices, tu copia corre solo las pruebas.
+
 ## Después de actualizar: regenerar los writers
 
 Corre `/odd-ws:doctor` (en Codex, `$doctor`). Si una versión cambia la plantilla de los writers, cada `writer-<capa>` sale en AVISO, con el motivo «está en la plantilla v1 y el plugin trae la v2» (o las versiones que toquen). Aplica su arreglo, `--arreglar writer-<capa>`. Si usas Codex, `codex-agentes` sale en FALTA porque sus TOML quedaron atrás: aplica también `--arreglar codex-agentes`. Si usas gentle-shell, lo mismo con `pi-agentes`: aplica `--arreglar pi-agentes`. Regenerar conserva la `description` y los bloques `<!-- instancia:... -->` de cada writer.
