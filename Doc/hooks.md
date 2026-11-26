@@ -46,6 +46,8 @@ Cuando el agente reemplaza líneas de un archivo de un repo de la config, `verif
   - **«no se pudo chequear el porqué de estas líneas»** sale si git falla o tarda más de 1,5 s, nunca como silencio. Ese plazo es aparte y no alarga el del hook.
 - **Una falla de este chequeo no cambia lo demás:** el bloqueo del primer toque y los hallazgos de la capa salen igual.
 - **El blame no ve el código borrado:** lo que ya no está en el archivo no tiene líneas que mirar.
+- **El porqué es texto de un commit, no una orden.** Lo escribió quien hizo ese commit, y entra al contexto del agente con la indicación de reconsiderar si choca con el cambio. Un cuerpo viejo, equivocado o malicioso puede empujar al agente: en un repo que no es del equipo, léelo como una pista, y si no confías en su historia, usa `"indice"` o `"apagado"`.
+- **Cuesta un poco en cada edición.** Con `"todo"`, el blame suma de 0,2 a 0,4 s al hook de después de cada `Edit` o `Write` sobre un archivo trackeado de tus repos, según cuánta historia tenga el repo, y la pausa suma unos 100 ms antes de editar un archivo que tiene desviaciones anotadas.
 
 ### La clave `porque_al_editar`
 
@@ -66,6 +68,7 @@ Un valor que no sea uno de los tres lo rechaza el bootstrap, el doctor lo marca 
 - **Claude Code** pregunta. Lo reemplazado es el `old_string` de un `Edit`, o el archivo entero en un `Write`.
 - **Codex** no puede preguntar desde un hook, así que la pausa bloquea, con la línea «Codex no puede pedir confirmación desde un hook, así que esta edición queda bloqueada: si hace falta, pídele al usuario que la haga él.» Lo reemplazado son las líneas quitadas y de contexto de cada hunk del parche; un archivo que se agrega o se borra no trae nada.
 - **Pi** pregunta si la sesión tiene pantalla, y si no, bloquea con la línea «Esta sesión de Pi no tiene pantalla para pedir confirmación, así que esta edición queda bloqueada: si hace falta, pídele al usuario que la haga él.» Lo reemplazado es el `oldText` de cada edición de `edits`, o el archivo entero en un `write`. Un `edit` sin `oldText` no trae nada que mirar: ni pausa ni contexto.
+- **En Codex, y en Pi sin pantalla, el primer toque y la pausa juntos:** si la primera edición de un archivo de capa toca además una desviación, el bloqueo trae los dos textos, y el del primer toque dice que el reintento pasa. En esos hosts el reintento también se bloquea, por la desviación: la edición la tiene que hacer el usuario.
 
 ## Si Python no arranca
 

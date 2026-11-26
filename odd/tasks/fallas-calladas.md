@@ -59,7 +59,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S1 | La falla de un hook a la vista | delegada: writer A en `D:/Project/odd-ws-wt/fallas-hooks`, en paralelo con T3 (motivo: el respaldo de contexto del orquestador y dos unidades independientes de más de 100 líneas; comparten `doctor.py`, `doctor.tests.py` y el SKILL del doctor, que integra el orquestador) | hecha (L7) | `b0e7093`, integrada en `ffce153` |
 | T3 | S2, S3 | Los hooks de un repo y las extensiones sin capa | delegada: writer B en `D:/Project/odd-ws-wt/fallas-cobertura`, en paralelo con T2 | hecha (L6) | `b9f00f6`, integrada en `fd94d72` |
 | T4 | S4 | Las plantillas viejas | delegada: un solo writer en `D:/Project/odd-ws-wt/fallas-plantillas`, desde `ffce153` (motivo: el respaldo de contexto del orquestador) | hecha (L9) | `4b39845`, integrada en `649cd7f` |
-| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); sin publicar, espera al autor y su auditor | `9412353` y la corrección |
+| T5 | S7 | El CHANGELOG, la versión, el verificador independiente y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L10); verificador hecho y su bloqueante corregido (L11); `main` integrado y la A1 arreglada (L12); auditada y publicada como `0.14.0` (L13, L14) | `9412353` y la corrección |
 
 ## Log
 
@@ -202,3 +202,48 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
     - **A7.** `aviso_de_inicio` de las plantillas no está dentro de un `try` en `_session_start`. Si lanzara, se perderían el aviso de versión y el resumen del ticket. El verificador no encontró un disparador realista.
     - **A8.** La redacción de una instancia sin copias, y el tope de 20 en la cuenta del inicio.
   - **El scratch del verificador va a la limpieza del autor:** `%TEMP%\tmp.hgPegvIkB7`.
+- **L12** (2026-11-25) Antes de publicar: el merge de `main`, la decisión de la A1 y la auditoría.
+  - **El autor:**
+    - dejó la R19 en pausa y pidió auditar las tres versiones listas: «Dejalo que termine su T1, vale hagamos esos 4 pasos y si hagamoslo de la siguiente manera, acabo de crear una sesion nueva para que hables con el le das el prompt para que el sea el auditor mejor que este separado con su contexto y trabajando en conjunto»;
+    - decidió la A1: «Arréglala ahora en la 0.14.0»;
+    - autorizó publicar: «Por tiene tienes el OK, para publicar las versiones cuando ya lo esten».
+  - **El merge de `main`** (`907f430`) trae solo el roadmap, con I93 a I97. El choque de la tabla se resolvió con las filas de esta rama más las cinco nuevas, y la fecha y la cuenta de ideas de `main`. Contra `f915b0b`, el diff es igual al que trae `main`.
+  - **La A1, arreglada.**
+    - **La causa.** `rutas.ubicar` vuelve absoluto el `NUL` relativo (`C:/<cwd>/NUL`), así que ya no calza con `NULOS`. `realpath` lo lleva a `\\.\nul`, y `config_loader.clasificar` termina en un `relpath` entre montajes distintos, que lanza `ValueError`.
+    - **El arreglo.** `_es_nulo` acepta `NULOS` como antes y, solo en Windows, una ruta cuyo último tramo es `nul` o `nul:`. En Windows, `<carpeta>/NUL` es el dispositivo nulo y no puede existir como archivo. En Linux y macOS, `NUL` sigue siendo un archivo común y el guard lo sigue mirando. Se usa en los tres lugares que miraban `NULOS`.
+    - **RED y GREEN.** La prueba nueva cubre `> NUL`, `> nul`, `2> NUL`, `> NUL:` y `> /dev/null` en Bash, y `> NUL` y `2> nul` en PowerShell. Pide que cada uno pase con `(0, "", b"")` sin anotar ninguna falla. RED: anotaban `ValueError: path is on mount '\\.\nul', start on mount 'c:'`. GREEN: `writer_guard.tests.py` en 126/126.
+    - **Risk: ítem 2.** Toca un guard. El veredicto de estos comandos no cambia, porque ya pasaban por fallar abierto; lo recomprueba el auditor.
+  - **La auditoría** la hace una sesión aparte, de a una versión. Sus hallazgos y su corrección se anotan acá.
+- **L13** (2026-11-25) La auditoría de publicación, sobre `f915b0b`: **PUBLICABLE CON NOTAS**, sin bloqueantes causados por la versión.
+  - **La A1 era un bypass, no solo ruido.** Ya estaba en la base.
+    - Con `2>nul`, todo `decidir` se caía y el guard dejaba pasar.
+    - Con un writer, `git commit -m x 2>nul`, `git push 2>NUL` y `git -C <repo> reset --hard 2>nul` salían con 0 en Bash y en PowerShell.
+    - `guard_comandos` no tenía el problema.
+  - **El primer arreglo** (`be2bfeb`, en L12) miraba el último tramo `nul`. El auditor barrió los destinos en Windows 11:
+    - se caían `NUL`, `nul:`, `x\nul` y, en Bash, `\\.\nul`;
+    - `CON`, `PRN`, `AUX`, `COM1` y `nul.txt` no se caen en Windows 11, pero en Windows Server, que corre el CI y se comporta como Windows 10, `GetFullPathNameW` también los vuelve `\\.\…`.
+  - **El arreglo final.** `_es_dispositivo` sigue aceptando `NULOS`, y en Windows también toda ruta cuya `abspath` empieza con `\\.\`, que es justo el caso que hacía caer el `relpath`. Así cubre Windows 10 y 11 sin listar nombres. Se usa en los mismos tres lugares.
+  - **La prueba del bypass:** con un writer, `git commit -m x` con `2>nul`, `2>NUL`, `>nul 2>&1` y `2> NUL:`, y `git push 2>NUL`, en Bash y en PowerShell, bloquean sin anotar fallas.
+    - En la base dio RED en 10 de 12.
+    - Con el arreglo, `writer_guard.tests.py` da 127/127, también con un `GIT_INDEX_FILE` ajeno.
+    - Las pruebas usan solo formas de `NUL`, que son dispositivo en los dos Windows, como sugirió el auditor.
+  - **`config_loader.clasificar`** sigue lanzando si `_dentro` y `relpath` no coinciden. El auditor no encontró otro camino que le llegue con un dispositivo. Queda como seguimiento (ítem 3), por ser una función compartida.
+  - **W1, en el mismo lote.** El CHANGELOG, `Doc/actualizar.md` y `Doc/uso.md` decían que la primera sesión después de actualizar nombra las copias que cambiaron. Eso pasa solo si el plugin vive en una carpeta con su versión; en Pi instalado por git, avisa el doctor. Ahora lo dicen.
+  - **Seguimientos:**
+    - W2: el doctor nombra la 0.12.0 en una instancia de la 0.13.3 sin clave.
+    - W3: rutas locales en los documentos de `odd/tasks/`.
+    - A3 a A8, con la nota del auditor sobre la A7: un `try` alrededor de `aviso_de_inicio` es barato.
+  - **Risk: ítem 2.** Toca un guard. La recomprobación de la A1 y la W1 la hace el auditor.
+- **L14** (2026-11-25) La recomprobación y la publicación.
+  - **El auditor recomprobó `5ad9149`:**
+    - A1 PASS:
+      - 28 destinos de `git commit -m x 2><destino>` bloquean en Bash y en PowerShell sin anotar fallas;
+      - los comandos inocentes con `nul` pasan sin anotar;
+      - el diferencial de `guard_comandos` contra `f915b0b` (758 corridas) solo cambia una falsa alarma: `echo x > x\nul` desde un repo protegido ya no pregunta.
+    - W1 PASS.
+    - Veredicto: **PUBLICABLE CON NOTAS.**
+  - **El CI** de la rama dio verde en Windows, Ubuntu y macOS (run `45696650498`).
+  - **Publicada como `0.14.0`:**
+    - `main` avanzó de `5c3de25` a `5ad9149`, con la etiqueta `odd-ws--v0.14.0`;
+    - `release.yml` creó el release;
+    - la página dice la `0.14.0` desde `8cb1a37`.

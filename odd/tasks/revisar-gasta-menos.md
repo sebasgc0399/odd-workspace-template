@@ -55,7 +55,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T2 | S4 | Los secretos tapados (toca `rescatar._guardar`, después de T1) | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L4) | |
 | T3 | S1 | Los chequeos antes de los revisores | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L5, L6) | `a70cd94` |
 | T4 | S3 | Las desviaciones conocidas | delegada: un solo writer en este worktree (motivo: el respaldo de contexto del orquestador) | hecha (L7) | `b37a860` |
-| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador hecho y sus dos bloqueantes corregidos (L9); sin publicar, espera al autor y su auditor | `44fffdf` y la corrección |
+| T5 | S5 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L8); verificador hecho y sus dos bloqueantes corregidos (L9); auditoría: B1 y B2 corregidos (L10) y recomprobados; publicada como `0.15.0` (L11) | `44fffdf` y la corrección |
 
 El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el skill `revisar` lo tocan las cuatro. Va de a una unidad, sin writers en paralelo (L1).
 
@@ -199,3 +199,48 @@ El orden sigue los archivos compartidos: `rescatar.py` lo tocan S2 y S4, y el sk
     6. A los núcleos les queda poco margen: 96 bytes a `revisar` y 15 a `cerrar`.
     7. Una corrida `solo_veredicto` queda como `sin_reporte` en `costo.json`.
   - **El scratch del verificador y de la recomprobación va a la limpieza del autor:** `%TEMP%\r16-verif-24Toof` y `%TEMP%\r16-recheck-b1-faqsc8h2`.
+- **L10** (2026-11-25) La auditoría de publicación, sobre `0b7255f`: **BLOQUEADA**, por dos bloqueantes chicos.
+  - **El autor** pidió auditar antes de publicar, con una sesión aparte, y dio el ok para publicar cuando esté lista: «Por tiene tienes el OK, para publicar las versiones cuando ya lo esten». El detalle, en L12 de `fallas-calladas.md`.
+  - **B1** (era la advertencia 3). `triaje.json` guardaba sin tapar el secreto que cita una regla de capa, en `chequeos.hallazgos[].texto`. Choca con «lo que se guarda sale con los secretos tapados».
+  - **B2** (era la advertencia 1). Un veredicto con otra forma, como `**VEREDICTO:** …`, `` `VEREDICTO: …` `` o `Veredicto: …`, se guardaba como el reporte y el reporte real se perdía, con salida 0. Pasaba también en Pi.
+  - **Advertencias del auditor:**
+    - W1: en Codex no hay un camino de rescate, y el prompt pide solo el veredicto. Queda como seguimiento documentado.
+    - W2: el costo del triaje.
+    - W3: el texto de la salida 2 de `tapar.py`.
+    - W4: el ejemplo «contrato con el POS».
+  - **La corrección, un solo lote con un writer:**
+    - B1: `chequear` devuelve los `chequeos` pasados por `secretos.tapar_valores`, así que el JSON y el texto salen tapados. `recibo` y `rescatar` no leen `chequeos`.
+    - B2: `es_veredicto` ignora `*`, `_`, los backticks y las mayúsculas, y también reconoce una línea que solo trae las cuentas, aunque venga partida en dos. La forma exacta sigue igual, en Claude Code y en Pi. Una prueba de guarda comprueba que un reporte de verdad no se confunde con un veredicto.
+    - W2 entra como una línea del CHANGELOG: unos 250 ms más por archivo con capa.
+    - W3: `references/recibo.md` y `Doc/diseno.md` dicen la verdad sobre la salida 2.
+    - W4: «contrato con el cliente».
+    - El orquestador sumó los `chequeos` a la lista de lo que se tapa en `Doc/uso.md`.
+  - **RED y GREEN.** B1: el token salía literal, y ahora sale `<GITHUB_TOKEN>`. B2: en la base, las dos pruebas fallaban con la forma en negrita, y ahora pasan las seis formas.
+  - **Las suites, también con un `GIT_INDEX_FILE` ajeno:** `triaje` 112, `rescatar` 71, `recibo` 116, `registro` 7, `desviaciones` 5 y 13, `secretos` 13, `tapar` 9, `entrega` 43 y `notas` 11.
+  - **La diferencial contra `0b7255f`:** sin secretos y con la forma exacta, triaje (JSON y texto) y rescatar (Claude Code y Pi) dan lo mismo byte a byte.
+  - **Seguimientos:**
+    - `references/rescate.md:8` sigue diciendo «una línea `VEREDICTO:`», que sigue siendo cierto.
+    - `tapar.py` puede dejar a medias el archivo que falla al escribir.
+    - Los detalles de `senales` citan identificadores sin tapar, como antes.
+    - Las advertencias 4 a 7.
+  - **Risk: ítem 3.** `rescatar` acepta más formas de veredicto, y los `chequeos` de `triaje.json` salen tapados. La recomprobación de B1 y B2 la hace el auditor.
+  - **Scratch del writer:** `%TEMP%\r16-correccion-NQ1G4q`. Va a la limpieza del autor.
+- **L11** (2026-11-25) La recomprobación y la publicación.
+  - **El auditor recomprobó `16196a7`:**
+    - B1 PASS: con un `ghp_` y un `AKIA` falsos en la línea que cita una regla, el JSON y el texto del triaje salen con `<GITHUB_TOKEN>` y `<AWS_ACCESS_KEY_ID>`, y los hallazgos conservan su regla, su línea y su mensaje.
+    - B2 PASS: 11 variantes; la negrita, los backticks, `Veredicto:`, el veredicto partido en dos líneas y la línea de solo cuentas toman el reporte previo, y los dos casos de guarda siguen siendo reporte.
+    - W2, W3 y W4 PASS.
+    - Las suites con un `GIT_INDEX_FILE` ajeno dieron verde: 61, que son 58 de Python y 3 del shim.
+    - Veredicto: **PUBLICABLE CON NOTAS.**
+  - **Las notas, como seguimientos:**
+    - las formas de veredicto que todavía pasan como reporte (`Veredicto final:`, un emoji delante, `Verdict:`), que van en la R22;
+    - la W1 de Codex;
+    - las cifras del costo, que se midieron con la CPU compartida.
+  - **Las ramas:**
+    - `8db8d99` integró la `0.14.0` publicada, y el auditor confirmó que trae solo eso.
+    - `e7682c6` suma a `huellas.json` las 5 huellas de la `0.14.0`. `huellas.py` cuenta las etiquetas alcanzables desde `HEAD`, así que regenerar durante un merge `--no-commit` no las veía.
+  - **El CI** dio verde en los 3 sistemas (run `45714391632`).
+  - **Publicada como `0.15.0`:**
+    - `main` avanzó de `5ad9149` a `e7682c6`, con la etiqueta `odd-ws--v0.15.0`;
+    - `release.yml` creó el release;
+    - la página dice la `0.15.0` desde `9ae30f7`.

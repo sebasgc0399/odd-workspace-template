@@ -67,7 +67,7 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1 | El blame antes de editar | un explorador y después un solo writer (motivo: el respaldo de contexto del orquestador) | hecha (L4) | `bfd7115` |
 | T2 | S2 | Lo que se quita vuelve como regla | un solo writer, después de T1 (motivo: el respaldo de contexto del orquestador) | hecha (L5) | `e49fdbc` |
-| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L6); verificador: B1 y B2 corregidos y recomprobados (L7, L8); sin publicar | `1419e9e`, y la corrección de L8 |
+| T3 | S3 | El CHANGELOG, la versión, el verificador y publicar con el ok del autor | docs inline; verificador delegado | versión lista (L6); verificador: B1 y B2 corregidos y recomprobados (L7, L8); auditoría PUBLICABLE CON NOTAS, notas aplicadas (L9); con el ok del autor para publicar | `1419e9e`, y la corrección de L8 |
 
 ## Log
 
@@ -213,3 +213,28 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **Risk: ítem 2.** La pausa del guard de edición dispara en menos casos.
   - **Scratch del writer:** `%TEMP%\tmp.fRaj0LvP1h`. Va a la limpieza del autor.
   - **R18 queda lista, sin publicar.** Falta el ok del autor y su auditor.
+- **L9** (2026-11-25) La auditoría de publicación, sobre `3aff040`: **PUBLICABLE CON NOTAS**, sin bloqueantes. Una sesión aparte la hizo para el autor, que dio el ok para publicar cuando esté lista: «Por tiene tienes el OK, para publicar las versiones cuando ya lo esten».
+  - **Lo que verificó:**
+    - la pausa pregunta con la desviación sobre el CATCH y calla sobre el TRY;
+    - el post trae el contexto;
+    - con `"apagado"`, la salida es idéntica a la 0.15.0 en 5 casos;
+    - `codex.reemplazos_del_parche` nunca arma un par inválido;
+    - `quitado` solo lee y usa el entorno limpio;
+    - las versiones dicen lo mismo en todos lados.
+  - **Las notas, aplicadas en los docs:**
+    - W1: el costo de `"todo"` (unos 200 ms en el post de cada edición, y unos 100 ms en el pre de un archivo con desviaciones) va en el CHANGELOG y en `Doc/hooks.md`, con cómo evitarlo;
+    - W4: el porqué es texto de un commit y no una orden, así que un cuerpo viejo o malicioso puede empujar al agente. Lo dice `Doc/hooks.md`;
+    - en Codex, y en Pi sin pantalla, el primer toque más la pausa dicen que el reintento pasa, pero el reintento también se bloquea. Lo dice `Doc/hooks.md`, y el arreglo del texto va en la R22.
+  - **Seguimientos:**
+    - W2: `comun._aislada` traga las fallas del porqué sin anotarlas en el rastro de la 0.14.0. Va en la R20.
+    - W3: MultiEdit no pasa por la pausa, como ya está documentado.
+    - Un valor inválido corre como `"todo"`.
+    - poetry y Go.
+    - El move con edición en Codex.
+    - El texto de Pi al rechazar.
+    - Los límites de L8.
+  - **Las ramas:**
+    - `f261bd2` integró la 0.14.0 publicada y la corrección de la 0.15.0, sin choques.
+    - `2a9f9b3` integró las huellas de la 0.14.0. El choque de `huellas.json` se resolvió regenerándolo.
+    - El auditor confirmó que los dos merges traen solo lo de la 0.14.0, la 0.15.0 y `main`.
+  - **El nit del costo:** el auditor señaló que «unos 200 ms» se queda corto en un repo con mucha historia; L7 midió 0,29 s → 0,72 s en el de odd-ws. El CHANGELOG y `Doc/hooks.md` dicen ahora «de 0,2 a 0,4 s».

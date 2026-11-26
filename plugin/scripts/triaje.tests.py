@@ -1616,6 +1616,19 @@ def test_chequeos_un_chequeo_que_falla_sale_como_no_se_pudo_chequear_y_nunca_com
             assert "chequeos: sin hallazgos" not in texto, (nombre, texto)
 
 
+def test_chequeos_tapan_el_secreto_que_cita_una_regla_en_el_json_y_en_el_texto():
+    token = "gh" + "p_" + ("aB3dE5fG7h" * 4)[:36]
+    with Mundo() as w:
+        con_chequeo(w, "sql", CHEQUEO_MALO.replace('"fragmento": "MALO"', '"fragmento": t'))
+        escribir(w.db, {SQL_ALFA: ALFA.replace("SELECT 1", "SELECT 1 -- MALO " + token)})
+        datos, texto = triado(w)
+        [hallazgo] = datos["chequeos"]["hallazgos"]
+        citado = "[T-02 CRITICAL] linea 6 en «SELECT 1 -- MALO <GITHUB_TOKEN>»: MALO no va"
+        assert hallazgo["texto"] == citado, hallazgo
+        assert "  %s [sql] %s" % (en_el_repo(datos, SQL_ALFA), citado) in texto.splitlines(), texto
+        assert token not in json.dumps(datos, ensure_ascii=False) and token not in texto, "el token sale sin tapar"
+
+
 def test_chequeos_el_taller_se_mide_contra_su_contraparte_aunque_este_commiteado_en_la_instancia():
     with Mundo() as w:
         instancia_versionada(w)

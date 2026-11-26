@@ -44,7 +44,7 @@ El ítem `plantillas` de `/odd-ws:doctor` te dice cuáles cambiaron desde la ver
 - **Editada: fusiónala a mano.** La copia tiene cambios tuyos, y el doctor no la toca. Lleva a mano lo nuevo de [`plugin/plantillas/`](../plugin/plantillas/), con la lista de abajo.
 - **Primero las editadas, después el arreglo.** `--arreglar plantillas` reemplaza las sin tocar y anota la versión nueva en `"plantillas"`; desde ahí el ítem sale OK. Después, commitea las copias.
 - **Sin la clave** (una instancia creada antes de la 0.14.0), el doctor dice «sin versión anotada» y deduce la versión de las copias sin tocar.
-- **La primera sesión después de actualizar** ya te nombra las copias que cambiaron y te manda al doctor.
+- **La primera sesión después de actualizar** ya te nombra las copias que cambiaron y te manda al doctor, si el plugin vive en una carpeta con su versión, como el caché de Claude Code o de Codex. Si la ruta no cambia con la versión, como en Pi instalado por git, ese aviso no sale: el doctor te avisa igual.
 
 Abajo está cada cambio, por versión, para fusionar las editadas: el doctor te dice desde qué versión leer. Copia lo de esa versión y lo de las que siguen.
 

@@ -19,9 +19,9 @@ sys.path.insert(0, str(AQUI))
 
 ENCABEZADO = "id,ubicacion,resumen,porque,fecha\n"
 REPO = "db:src/ventas.sql@abc1234:10-14"
-CATCH = "catch-silencioso,%s,El CATCH no relanza el error,Lo pide el contrato con el POS,2026-11-25\n" % REPO
+CATCH = "catch-silencioso,%s,El CATCH no relanza el error,Lo pide el contrato con el cliente,2026-11-25\n" % REPO
 GLOSARIO = "typo-congelado,docs/glosario.md,Dice Reponse,Otro sistema consume ese nombre,2026-01-02\n"
-LINEA_CATCH = "catch-silencioso %s — El CATCH no relanza el error: Lo pide el contrato con el POS" % REPO
+LINEA_CATCH = "catch-silencioso %s — El CATCH no relanza el error: Lo pide el contrato con el cliente" % REPO
 LINEA_GLOSARIO = "typo-congelado docs/glosario.md — Dice Reponse: Otro sistema consume ese nombre"
 SOBRANTES = []
 
