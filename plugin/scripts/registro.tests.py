@@ -86,7 +86,7 @@ def archivos_del_producto(raiz=RAIZ):
     plugin = raiz / "plugin"
     archivos = (_archivos(plugin / "skills", "**/*") + _archivos(plugin / "scripts", "**/*.py")
                 + _archivos(plugin / "shim", "**/*.ts") + _archivos(plugin / "plantillas", "**/*")
-                + _archivos(raiz / "Doc", "*.md") + [raiz / "README.md"])
+                + _archivos(raiz / "Doc", "*.md") + [raiz / "README.md", raiz / "SECURITY.md"])
     return sorted(set(archivos))
 
 
@@ -141,7 +141,7 @@ def test_el_barrido_alcanza_el_texto_del_producto_y_no_los_tests():
     relativas = {r.relative_to(RAIZ).as_posix() for r in archivos_del_producto()}
     for esperada in ("plugin/skills/abrir/SKILL.md", "plugin/skills/revisar/references/prompt.md", "plugin/scripts/doctor.py",
                      "plugin/scripts/odd_ws/hosts/pi.py", "plugin/shim/pi.ts", "plugin/plantillas/CLAUDE.md",
-                     "plugin/plantillas/pre-commit", "Doc/diseno.md", "README.md"):
+                     "plugin/plantillas/pre-commit", "Doc/diseno.md", "README.md", "SECURITY.md"):
         assert esperada in relativas, esperada
     assert not [r for r in relativas if r.endswith(".tests.py") or r.endswith(".test.ts")], relativas
 

@@ -109,6 +109,25 @@ Un paquete es un conjunto de reglas de una capa que viene de otro repo git, fija
 - **La fuente.** Una URL con usuario o contraseña (cualquier `...@` antes del host) se rechaza con 1, sin repetirla: quedaría en el lock, que se commitea; las credenciales van en git. Una ruta local se guarda absoluta y normalizada, para que `actualizar` funcione desde cualquier carpeta, y el importador avisa que el lock solo sirve en esa máquina; para un equipo, una URL.
 - **Dónde escribe.** Antes de escribir nada, también en `--ensayo`, la carpeta más honda que ya existe entre `.claude/reglas/paquetes/<nombre>` y la raíz no puede ser un enlace ni apuntar fuera de la instancia (`destino_enlazado`): si lo es, rechaza con 1 y no toca el árbol.
 - **La skill `/odd-ws:paquetes`** (D6) la invoca solo el usuario (`disable-model-invocation`). Corre el ensayo y muestra el plan tal cual, escribe con un sí, pide leer el código copiado antes del commit y lo ofrece con las rutas exactas (`git add -- ':/.claude/reglas/paquetes/<nombre>' ':/.claude/reglas/paquetes.json'`) y un segundo sí. Nunca corre el código ni la suite del paquete por su cuenta: la suite corre en el pre-commit que el usuario dispara al commitear. Un arreglo va al repo del paquete y se trae con `actualizar`; lo copiado no se edita.
+- **Revisar antes de publicar (I94).** `paquetes.py revisar <carpeta>` lee la carpeta del repo de un paquete antes de etiquetarlo y empujarlo.
+  - **Qué lee:** solo los archivos de la lista blanca (`paquetes.presentes`), los mismos que copia el importador.
+  - **Qué busca en cada uno:**
+    - rutas personales y claves privadas, con los detectores de `odd_ws.secretos` (`rutas_personales` y `claves_privadas`), los mismos del pre-commit de la instancia;
+    - una `fuente` local guardada como ruta absoluta: el valor de una clave `"fuente"` de JSON o de una línea `fuente:`, como los que imprime `importar --ensayo`, que empieza con una unidad, una barra, `\\` o `file://`.
+  - **Un archivo de la lista que es un enlace** (`paquetes.enlaces_en`) también es un hallazgo: no se lee sin seguirlo, y el importador lo rechaza.
+  - **La línea de una clave.** Se cuenta `claves_privadas` sobre el texto hasta cada línea con un `-----END`: la cuenta sube en la línea que la cierra, y el hallazgo va a la línea de su `-----BEGIN`. Así, la detección sigue siendo una sola.
+  - **Las salidas:**
+    - 0 si está limpio;
+    - 1 si hay hallazgos, con archivo y línea, y sin mostrar nunca la clave;
+    - 2 por el uso: la carpeta no existe o no tiene archivos de un paquete.
+
+    No necesita instancia ni escribe nada.
+  - **Por qué ahí y no en un pre-push.** Las instancias no tienen pre-push, y publicar un paquete es una etiqueta y un push a mano. Por eso el chequeo va en un paso de «Publicar un paquete».
+  - **Por qué no mira el lock de la instancia.** Reimportar desde la URL solo se puede después de empujar la etiqueta, así que frenar la publicación por el lock no tendría salida.
+  - **Los límites:**
+    - lee el disco y no la etiqueta, así que se corre con el árbol limpio, sobre el commit que se va a etiquetar;
+    - el resto del repo, como un README, sale con la etiqueta y no se revisa;
+    - un usuario de Windows con espacio en el nombre no se detecta, que es el límite de `rutas_personales`.
 
 ### Núcleo y adaptadores de host (`odd_ws.eventos`, `odd_ws.hosts`, F0a, F1a, F1b, F1c y F2a)
 
@@ -605,6 +624,16 @@ Corre en `PreToolUse` de `Bash` y `PowerShell` (`--plazo 8`, timeout 10) para la
 
     Esos casos los ve la revisión al final del turno (abajo).
 - **Fallas:** sin repos marcados, una excepción o el plazo vencido callan (la Capa 1 falla abierta). Con algún repo marcado, preguntan con el motivo (R-5: un guard que lanza sale con 1, y eso es permitir); el plazo también corta el análisis de las menciones, que crece lineal con el comando (un script en línea de 1000 líneas tarda alrededor de un segundo). **Con la config rota, excepción a P3 (L49):** la Capa 1 sigue, y la Capa 2 pregunta ante todo git que no sea de lectura, en cualquier repo, con el error de la config en el motivo; una config que revienta al leerla cuenta como rota.
+- **Code Mode de Claude Code (R20).** Con Code Mode, que es experimental, Claude escribe JavaScript que hace varias llamadas a herramientas. Según la documentación de Claude Code, cada llamada dispara `PreToolUse` con su nombre de siempre, y un comando compuesto llega unido (`cd 'app' && git push`).
+  - **Lo que fijan las pruebas, con payloads:**
+    - `guard_comandos` pregunta por un push a un repo de solo lectura detrás de `cd '<repo>' &&`, con la ruta relativa, absoluta y con la grafía de Git Bash, y bloquea el push forzado con el motivo y la cita de siempre;
+    - `writer_guard` bloquea la redirección, el `git commit`, el `git push` y el `Set-Content` de un writer detrás de un `cd`;
+    - un comando con la forma de PowerShell que llega como `Bash` se lee con el dialecto POSIX: `git --git-dir C:\ blame` solo pregunta en Bash.
+
+    Cuatro mutantes lo confirman, dos por guard: el adaptador que leyera `Bash` como PowerShell, y un guard que leyera un solo tramo del comando compuesto.
+  - **Lo que no miran los hooks:** el JavaScript (`REPL`).
+  - **El tiempo.** El plazo de 8 s, con un timeout de 10, termina antes de que Code Mode rechace por tiempo. `onFailure: block` rechaza también un hook que no arranca.
+  - **Lo que queda para el autor:** la corrida real con `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`. Pide una terminal, porque no anda en el panel de VS Code, y Claude Code 2.1.323 o más.
 
 ### Revisión del fin del turno (`revisar_turno.py`, R1b)
 
@@ -1476,6 +1505,30 @@ Además:
 La lista negra vive fuera del repo, en `~/.odd-ws/denylist.txt` (o donde diga `ODD_WS_DENYLIST`).
 
 **Riesgo residual:** un clon sin `core.hooksPath .githooks` no corre ningún hook, porque git no los instala solo. Lo cubre `/odd-ws:doctor` (ítem `repo-hooks`), verificado con un clon nuevo: lo marca FALTA y `--arreglar repo-hooks` lo configura. Un escaneo del lado del servidor obligaría a subir la lista negra, lo que contradice el principio 3.
+
+### El inventario de red (`SECURITY.md`, I97)
+
+`SECURITY.md`, en la raíz, trae tres cosas:
+- cómo reportar una vulnerabilidad en privado, con el reporte privado de GitHub que el autor habilita en la config del repo;
+- un resumen del modelo de amenaza del [guard de comandos](#guard-de-comandos-guard_comandospy-l48-l49-l52-l53), que sigue siendo la fuente;
+- el inventario de lo que puede salir de la máquina:
+  - el `ls-remote` y el `clone` de `paquetes.py`;
+  - el `fetch` de la auditoría de ramas;
+  - el `claude plugin marketplace add` y el `gentle-ai review mode disable` del doctor;
+  - los CLI que el doctor solo consulta;
+  - el `gh` del CI.
+
+**La prueba** (`tools/inventario_de_red.tests.py`) lee con el AST los `.py` de `plugin/` y `tools/`, sin las pruebas.
+- **Qué marca un archivo:**
+  - un string que es un verbo de red entero: `fetch`, `push`, `pull`, `ls-remote`, `clone`, `marketplace`, `curl`, `wget` o `gh`;
+  - un string que trae `http://` o `https://`;
+  - un import de red: `socket`, `http`, `requests`, `urllib.request` y parecidos.
+- **Dónde tiene que estar un archivo marcado:** nombrado en la sección del inventario, o en `EXCEPCIONES` con su porqué. Hoy las excepciones son los dos guards, que leen esos verbos como datos.
+- **Por qué junta constantes y no llamadas:** los verbos llegan por envoltorios y tuplas, como `_git("ls-remote", …)` y `*FETCH`.
+- **Cuándo más falla:** si una excepción ya no hace falta, si el inventario nombra un archivo que no existe, o si un enlace de `SECURITY.md` a `Doc/` apunta a un título que no está.
+- **Por qué el verbo entero y no dentro de un texto:** los mensajes nombran `fetch` o `push` en prosa (`afirmaciones`, `triaje`, `entregas`), y contarlos llenaría las excepciones de ruido. El costo es que un comando entero en un solo string, como `"git fetch origin"`, no se ve. odd-ws no usa `shell=True`.
+
+`registro.tests.py` barre `SECURITY.md` en busca de voseo, como el README.
 
 ### Los marcadores de conflicto en el pre-commit (`odd_ws/marcadores.py`, R6)
 

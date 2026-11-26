@@ -3,9 +3,11 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import codecs
 import contextlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -14,7 +16,7 @@ from urllib.parse import urlsplit
 
 from config_loader import NOMBRE as CONFIG
 import config_loader
-from odd_ws import paquetes
+from odd_ws import paquetes, secretos
 from odd_ws.comun import entorno_git, raiz_de_instancia
 
 PLAZO_DE_GIT = 120
@@ -27,6 +29,13 @@ REVISAR = ("Antes de commitear, revisa en el diff lo copiado, sobre todo %s y %s
 CON_CREDENCIALES = ("la fuente trae usuario o contraseña en la URL y quedaría en el lock, que se commitea: configura las credenciales "
                     "en git (un credential helper o ssh) y pasa la URL sin ellas")
 AVISO_LOCAL = "aviso: la fuente es una ruta local (%s): el lock solo sirve en esta máquina; para un equipo, importa desde una URL"
+FUENTE_EN_JSON_RE = re.compile(r'"fuente"[ \t]*:[ \t]*("(?:[^"\\\n]|\\.)*")')
+FUENTE_EN_LINEA_RE = re.compile(r"(?m)^[ \t>*-]*fuente:[ \t]*(\S[^\n]*?)[ \t\r]*$")
+RUTA_ABSOLUTA_RE = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|/|file://)")
+CON_BOM = ((codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"))
+PISTAS = {"ruta": "Cambia cada ruta personal por un marcador como <usuario>.",
+          "clave": "Borra la clave del archivo, y si llegó a un commit, cámbiala por una nueva: sigue en la historia del repo.",
+          "fuente": "Una fuente local solo sirve en tu máquina y dice dónde guardas tus repos: nombra la URL del repo publicado."}
 
 
 class Rechazo(Exception):
@@ -351,6 +360,82 @@ def listar(raiz, args):
     return 0
 
 
+def _texto_de(ruta):
+    with open(ruta, "rb") as f:
+        datos = f.read()
+    for bom, codificacion in CON_BOM:
+        if datos.startswith(bom):
+            return datos[len(bom):].decode(codificacion, "replace")
+    return datos.decode("utf-8-sig", "replace")
+
+
+def _linea_de(texto, posicion):
+    return texto.count("\n", 0, posicion) + 1
+
+
+def _lineas_con_clave(texto):
+    if not secretos.claves_privadas(texto):
+        return []
+    lineas, vistas, fin = [], 0, 0
+    for linea in texto.splitlines(keepends=True):
+        inicio, fin = fin, fin + len(linea)
+        cierre = linea.find("-----END")
+        if cierre < 0:
+            continue
+        cuantas = secretos.claves_privadas(texto[:fin])
+        if cuantas > vistas:
+            vistas = cuantas
+            lineas.append(_linea_de(texto, texto.rfind("-----BEGIN", 0, inicio + cierre)))
+    return lineas
+
+
+def _fuentes_locales(texto):
+    fuentes = []
+    for m in FUENTE_EN_JSON_RE.finditer(texto):
+        try:
+            fuentes.append((m.start(1), json.loads(m.group(1))))
+        except ValueError:
+            pass
+    fuentes += [(m.start(1), m.group(1).strip("`'\"")) for m in FUENTE_EN_LINEA_RE.finditer(texto)]
+    return [(_linea_de(texto, posicion), valor) for posicion, valor in sorted(fuentes) if RUTA_ABSOLUTA_RE.match(valor)]
+
+
+def _hallazgos_de(texto):
+    return ([(linea, "ruta", "ruta personal: %s" % fragmento) for linea, fragmento in dict.fromkeys(secretos.rutas_personales(texto))]
+            + [(linea, "clave", "clave privada pegada") for linea in _lineas_con_clave(texto)]
+            + [(linea, "fuente", "fuente local guardada como ruta absoluta: %s" % valor) for linea, valor in _fuentes_locales(texto)])
+
+
+def revisar(args):
+    carpeta = args.carpeta
+    if not os.path.isdir(carpeta):
+        raise ErrorEntorno("%s no es una carpeta" % carpeta)
+    archivos, enlazados = paquetes.presentes(carpeta), paquetes.enlaces_en(carpeta)
+    if not archivos and not enlazados:
+        raise ErrorEntorno("%s no tiene ningún archivo de un paquete (%s)" % (carpeta, ", ".join(sorted(paquetes.LISTA_BLANCA))))
+    hallazgos = [(nombre, 0, "enlace", "es un enlace: no se revisa, y el importador lo rechaza (un paquete solo lleva archivos)")
+                 for nombre in enlazados]
+    for nombre in archivos:
+        hallazgos += [(nombre, *hallazgo) for hallazgo in _hallazgos_de(_texto_de(os.path.join(carpeta, nombre)))]
+    print("revisado: %s" % carpeta)
+    print("archivos: %s" % (", ".join(archivos) or "ninguno"))
+    if not hallazgos:
+        print("sin rutas personales, claves privadas ni fuentes locales en esos archivos")
+        return 0
+    orden = sorted(paquetes.LISTA_BLANCA)
+    hallazgos.sort(key=lambda hallazgo: (orden.index(hallazgo[0]), hallazgo[1]))
+    uno = len(hallazgos) == 1
+    print("%d %s: %s en el repo del paquete y haz un commit antes de etiquetar y empujar:"
+          % (len(hallazgos), "hallazgo" if uno else "hallazgos", "corrígelo" if uno else "corrígelos"))
+    for nombre, linea, _, texto in hallazgos:
+        print("  %s: %s" % ("%s:%d" % (nombre, linea) if linea else nombre, texto))
+    tipos = {tipo for _, _, tipo, _ in hallazgos}
+    for tipo, pista in PISTAS.items():
+        if tipo in tipos:
+            print(pista)
+    return 1
+
+
 COMANDOS = {"importar": importar, "actualizar": actualizar, "quitar": quitar, "listar": listar}
 
 
@@ -361,7 +446,7 @@ def construir_parser():
                                 description="Paquetes de reglas importados desde git por etiqueta: los copia a %s/<nombre> y los "
                                             "fija en %s. Nunca ejecuta código del paquete." % (paquetes.carpeta("").rstrip("/"),
                                                                                               paquetes.LOCK))
-    sub = p.add_subparsers(dest="comando", metavar="{importar,actualizar,quitar,listar}")
+    sub = p.add_subparsers(dest="comando", metavar="{importar,actualizar,quitar,listar,revisar}")
     sub.required = True
     importar_ = sub.add_parser("importar", parents=[comun], allow_abbrev=False,
                                help="trae un paquete de <fuente> en la etiqueta dada y lo suma a una capa")
@@ -377,6 +462,10 @@ def construir_parser():
     quitar_ = sub.add_parser("quitar", parents=[comun], allow_abbrev=False, help="borra la carpeta del paquete y su entrada del lock")
     quitar_.add_argument("nombre")
     sub.add_parser("listar", parents=[comun], allow_abbrev=False, help="cada paquete con su capa, prefijo, etiqueta, commit y huella")
+    revisar_ = sub.add_parser("revisar", allow_abbrev=False,
+                              help="antes de publicar un paquete, busca en sus archivos rutas personales, claves privadas y fuentes "
+                                   "locales; no escribe nada ni necesita una instancia")
+    revisar_.add_argument("carpeta", help="la carpeta del repo del paquete, con los archivos que vas a etiquetar")
     return p
 
 
@@ -386,6 +475,8 @@ def main(argv=None):
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
     try:
+        if args.comando == "revisar":
+            return revisar(args)
         raiz = args.raiz or raiz_de_instancia(os.environ, os.getcwd())
         if raiz is None:
             raise ErrorEntorno("no hay %s en la carpeta de la sesión ni en sus padres (pasa --raiz)" % CONFIG)

@@ -520,6 +520,131 @@ def test_uso_y_ayuda():
         assert codigo == 0 and "--ensayo" in out and "--etiqueta" in out and "--capa" in out, out
 
 
+BASE64 = ("MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u"
+          "+qKhbwKfBstIs+bMY2Zkp18gnTxKLxoS2tFczGkPLPgizskuemMghRniWaoLcyehkd3qqGElvW/VDL5AaWTg0nLVkjRo9z+40RQ")
+ARCHIVOS_DEL_PAQUETE = "archivos: evidencia.md, matriz.csv, no-negociables.md, odd-ws-paquete.json, verificar.py, verificar.tests.py"
+LIMPIO = "sin rutas personales, claves privadas ni fuentes locales en esos archivos"
+
+
+def clave_privada(prefijo=""):
+    lineas = ["-----BEGIN RSA PRIVATE KEY-----", *[BASE64[i * 7:i * 7 + 64] for i in range(4)], "-----END RSA PRIVATE KEY-----"]
+    return "".join(prefijo + linea + "\n" for linea in lineas)
+
+
+@contextlib.contextmanager
+def paquete_suelto(**cambios):
+    base = Path(tempfile.mkdtemp(prefix="paquetes-revisar-"))
+    try:
+        carpeta = base / "alfa"
+        escribir(carpeta, {**archivos("regla"), **cambios})
+        yield base, carpeta
+    finally:
+        shutil.rmtree(base, onexc=_quitar)
+        if base.exists():
+            SOBRANTES.append(str(base))
+
+
+def revisar(base, *argv):
+    entorno = dict(_entorno(), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, str(_RUTA), "revisar", *argv], capture_output=True, env=entorno, timeout=60, cwd=str(base))
+    return r.returncode, r.stdout.decode("utf-8").replace("\r\n", "\n"), r.stderr.decode("utf-8").replace("\r\n", "\n")
+
+
+def test_revisar_un_paquete_limpio_sale_con_0_y_dice_que_archivos_miro():
+    otros = {"README.md": "Clonado en /home/ana/paquetes/alfa\n", "sub/notas.md": "C:\\Users\\beto\\x\n"}
+    with paquete_suelto(**{"evidencia.md": "# Evidencia\nCalibrada en /home/<usuario>/repo y en C:\\Users\\Public\\repo.\n"
+                                           "Importada desde https://example.invalid/org/alfa.git con fuente: git@example.invalid:org/alfa.git\n"
+                                           "-----BEGIN PRIVATE KEY-----\n<PRIVATE_KEY>\n-----END PRIVATE KEY-----\n"}, **otros) as (base, carpeta):
+        codigo, out, err = revisar(base, "alfa")
+        assert (codigo, err) == (0, ""), (codigo, out, err)
+        assert out.splitlines() == ["revisado: alfa", ARCHIVOS_DEL_PAQUETE, LIMPIO], out
+
+
+def test_revisar_nombra_cada_ruta_personal_con_su_archivo_y_su_linea():
+    with paquete_suelto(**{"evidencia.md": "# Evidencia\n\nCalibrada en /home/ana/repos/db/src con reglas.py.\n",
+                           "verificar.tests.py": SUITE + 'RUTA = "C:\\\\Users\\\\beto\\\\repo"\nOTRA = "/Users/beto/x"\n'}) as (base, carpeta):
+        codigo, out, err = revisar(base, str(carpeta))
+        assert (codigo, err) == (1, ""), (codigo, out, err)
+        linea = SUITE.count("\n") + 1
+        assert out.splitlines() == [
+            "revisado: %s" % carpeta, ARCHIVOS_DEL_PAQUETE,
+            "3 hallazgos: corrígelos en el repo del paquete y haz un commit antes de etiquetar y empujar:",
+            "  evidencia.md:3: ruta personal: /home/ana/",
+            "  verificar.tests.py:%d: ruta personal: C:\\\\Users\\\\beto\\\\" % linea,
+            "  verificar.tests.py:%d: ruta personal: /Users/beto/" % (linea + 1),
+            "Cambia cada ruta personal por un marcador como <usuario>.",
+        ], out
+
+
+def test_revisar_frena_una_clave_privada_pegada_sin_mostrarla():
+    with paquete_suelto(**{"verificar.tests.py": SUITE + "CLAVE = '''\n" + clave_privada() + "'''\n",
+                           "evidencia.md": "# Evidencia\n" + clave_privada("> ")}) as (base, carpeta):
+        codigo, out, err = revisar(base, "alfa")
+        assert (codigo, err) == (1, ""), (codigo, out, err)
+        assert out.splitlines() == [
+            "revisado: alfa", ARCHIVOS_DEL_PAQUETE,
+            "2 hallazgos: corrígelos en el repo del paquete y haz un commit antes de etiquetar y empujar:",
+            "  evidencia.md:2: clave privada pegada",
+            "  verificar.tests.py:%d: clave privada pegada" % (SUITE.count("\n") + 2),
+            "Borra la clave del archivo, y si llegó a un commit, cámbiala por una nueva: sigue en la historia del repo.",
+        ], out
+        assert BASE64[:20] not in out, "la clave nunca se muestra"
+
+
+def test_revisar_frena_una_fuente_local_guardada_como_ruta_absoluta():
+    entrada = json.dumps({"alfa": {"capa": "sql", "fuente": "D:\\paquetes\\alfa", "etiqueta": "v1"}}, indent=2)
+    with paquete_suelto(**{"evidencia.md": "# Evidencia\nensayo: no se escribe nada\nfuente: /srv/git/alfa.git\n"
+                                           "entrada del lock:\n" + entrada + "\n- fuente: `file:///srv/git/alfa.git`\n"
+                                           "fuente: https://example.invalid/org/alfa.git\n"}) as (base, carpeta):
+        codigo, out, err = revisar(base, "alfa")
+        assert (codigo, err) == (1, ""), (codigo, out, err)
+        assert out.splitlines() == [
+            "revisado: alfa", ARCHIVOS_DEL_PAQUETE,
+            "3 hallazgos: corrígelos en el repo del paquete y haz un commit antes de etiquetar y empujar:",
+            "  evidencia.md:3: fuente local guardada como ruta absoluta: /srv/git/alfa.git",
+            "  evidencia.md:8: fuente local guardada como ruta absoluta: D:\\paquetes\\alfa",
+            "  evidencia.md:12: fuente local guardada como ruta absoluta: file:///srv/git/alfa.git",
+            "Una fuente local solo sirve en tu máquina y dice dónde guardas tus repos: nombra la URL del repo publicado.",
+        ], out
+
+
+def test_revisar_un_enlace_del_paquete_es_un_hallazgo_porque_no_se_puede_mirar():
+    with paquete_suelto() as (base, carpeta):
+        afuera = base / "afuera.py"
+        afuera.write_text("RUTA = '/home/ana/x'\n", encoding="utf-8")
+        os.remove(carpeta / "verificar.py")
+        try:
+            os.symlink(str(afuera), str(carpeta / "verificar.py"))
+        except OSError:
+            print("      (sin permiso para crear enlaces: se salta)")
+            return
+        codigo, out, err = revisar(base, "alfa")
+        assert (codigo, err) == (1, ""), (codigo, out, err)
+        assert out.splitlines() == [
+            "revisado: alfa", "archivos: evidencia.md, matriz.csv, no-negociables.md, odd-ws-paquete.json, verificar.tests.py",
+            "1 hallazgo: corrígelo en el repo del paquete y haz un commit antes de etiquetar y empujar:",
+            "  verificar.py: es un enlace: no se revisa, y el importador lo rechaza (un paquete solo lleva archivos)",
+        ], out
+
+
+def test_revisar_sin_carpeta_o_sin_paquete_sale_con_2_y_no_necesita_instancia():
+    with paquete_suelto() as (base, carpeta):
+        (base / "suelto.txt").write_text("x\n", encoding="utf-8")
+        (base / "vacia").mkdir()
+        casos = {("no-existe",): "paquetes: no-existe no es una carpeta\n",
+                 ("suelto.txt",): "paquetes: suelto.txt no es una carpeta\n",
+                 ("vacia",): "paquetes: vacia no tiene ningún archivo de un paquete (%s)\n" % ", ".join(sorted(B.LISTA_BLANCA))}
+        for argv, esperado in casos.items():
+            assert revisar(base, *argv) == (2, "", esperado), (argv, revisar(base, *argv))
+        for argv in ((), ("alfa", "otra"), ("alfa", "--raiz", str(base))):
+            codigo, out, err = revisar(base, *argv)
+            assert codigo == 2 and out == "" and err, (argv, codigo, out, err)
+        assert not (base / "workspace.config.json").exists() and revisar(base, "alfa")[0] == 0, "revisar no busca una instancia"
+        entorno = dict(_entorno(), PYTHONIOENCODING="utf-8")
+        ayuda = subprocess.run([sys.executable, str(_RUTA), "--help"], capture_output=True, env=entorno, timeout=60)
+        assert ayuda.returncode == 0 and "revisar" in ayuda.stdout.decode("utf-8"), ayuda
+
+
 def main():
     for flujo in (sys.stdout, sys.stderr):
         flujo.reconfigure(encoding="utf-8", errors="replace")

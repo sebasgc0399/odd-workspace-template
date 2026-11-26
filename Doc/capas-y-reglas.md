@@ -162,7 +162,14 @@ Y `evidencia.md`, con lo que respalda cada regla, por ejemplo su calibración co
 
 1. **Un repo git** con esos archivos en la raíz.
 2. **Pruébalo antes de publicar.** El importador solo acepta etiquetas, así que crea una local sin empujarla (`git tag v1.0.0-rc1`) e impórtala en una instancia de prueba con la ruta local del repo: `reglas.py --test` corre su suite, `matriz.py --destinos --capa <capa>` valida su matriz (abajo) y `reglas.py --calibrar <capa> <carpeta> --guardar` dice qué regla puede bloquear y por qué no las demás.
-3. **Etiqueta cada versión,** anotada o liviana: `git tag -a v1.0.0 -m "go-basico 1.0.0"` y `git push origin v1.0.0`. Una instancia se fija a una etiqueta: una rama o un hash no se importan. Para cambiar algo, haz una etiqueta nueva.
+3. **Revísalo antes de etiquetar,** con el árbol limpio, sobre el commit que vas a etiquetar: `python3 "<plugin_root>/scripts/paquetes.py" revisar <carpeta del repo>`. Busca en los archivos del paquete, los de la lista de arriba:
+   - rutas personales (`/home/<usuario>/`, `/Users/<usuario>/`, `C:\Users\<usuario>\`);
+   - claves privadas pegadas, que nunca muestra;
+   - una fuente local guardada como ruta absoluta, como la del ensayo del paso 2 si la copias a `evidencia.md`;
+   - un archivo que es un enlace, que no se puede revisar y el importador rechaza.
+
+   Da cada hallazgo con su archivo y su línea, y sale con 0 si no hay ninguno, con 1 si hay alguno y con 2 si la carpeta no existe o no tiene archivos de un paquete. No escribe nada ni necesita una instancia. El resto del repo, como un README, también sale con la etiqueta y no lo revisa: míralo tú.
+4. **Etiqueta cada versión,** anotada o liviana: `git tag -a v1.0.0 -m "go-basico 1.0.0"` y `git push origin v1.0.0`. Una instancia se fija a una etiqueta: una rama o un hash no se importan. Para cambiar algo, haz una etiqueta nueva.
 
 Fuera de esta versión: textos para el revisor (`reviewer-PR`) o los `criterios` desde un paquete, subcarpetas dentro del paquete, dependencias entre paquetes y un índice de paquetes de la comunidad.
 

@@ -119,6 +119,18 @@ Un plugin no puede quitar un hook en un solo proyecto, así que se apaga desde l
 - **Apagar `guard_comandos` es el riesgo mayor:** nada frena un force push, un `reset --hard`, un `clean -f`, un borrado recursivo fuera del scratch ni la escritura por shell de un archivo de capa, y el git de escritura en un repo con `agent_readonly: true` ya no pregunta. Apágalo solo si otra herramienta cumple ese papel, por ejemplo el sandbox de tu CLI.
 - **El perfil `controles` no apaga ninguno.** Una instancia con `"profile": "controles"` corre los mismos cinco hooks, que no dependen de tickets, recibos ni de `/odd-ws:revisar`. Como no tiene writers, `writer_guard` y `writer_stop` quedan dormidos; ver [el perfil `controles`](uso.md#el-perfil-controles).
 
+## En Code Mode de Claude Code
+
+Code Mode es experimental: Claude escribe JavaScript que hace varias llamadas a herramientas en un paso, y Claude Code lo corre. Para los hooks de odd-ws no cambia nada:
+
+- **Cada llamada del script dispara `PreToolUse` con su nombre de siempre** (`Bash`, `Edit`, `Write`), así que los guards y el primer toque corren igual. odd-ws no mira el JavaScript (la herramienta `REPL`): juzga cada llamada.
+- **Un comando compuesto llega unido,** como `cd 'app' && git push`. Las pruebas lo fijan con payloads de esa forma:
+  - `guard_comandos` pregunta por un `git push` a un repo de solo lectura y bloquea un push forzado, aunque lleguen detrás de un `cd`;
+  - `writer_guard` bloquea la escritura de un writer que llega igual: una redirección, un `git commit` o un `Set-Content`;
+  - un comando con la forma de PowerShell que sale de un script llega como `Bash` y se lee como Bash.
+- **El plazo.** Los guards terminan en 8 s, antes de su timeout de 10 s, así que la decisión es de ellos y no del rechazo de Code Mode cuando un hook no termina. Si un hook igual no terminara o no arrancara, la llamada se rechaza, porque los hooks de odd-ws tienen `onFailure: block`.
+- **Lo que queda a mano:** una corrida real, en una terminal, con `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` y Claude Code 2.1.323 o más (Code Mode no anda en el panel de VS Code). Pídele al agente un push forzado dentro de un script: tiene que llegar bloqueado con el mensaje de siempre.
+
 ## En Codex
 
 - **Lo que en Claude Code pregunta, en Codex se bloquea,** porque Codex no puede pedir confirmación desde un hook. El motivo llega con una línea más: «Codex no puede pedir confirmación desde un hook, así que este comando queda bloqueado: si hace falta, pídele al usuario que lo corra él.» En una edición, como la pausa de una desviación conocida, la línea habla de la edición (ver [En cada CLI](#en-cada-cli)).

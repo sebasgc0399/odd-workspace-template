@@ -2034,6 +2034,53 @@ def cita(comando):
     return "\nComando: «%s»" % comando
 
 
+def _pregunta(salida):
+    codigo, texto, error = salida
+    if (codigo, error) != (0, b"") or not texto:
+        return None
+    hso = json.loads(texto)["hookSpecificOutput"]
+    return hso["permissionDecisionReason"] if hso["permissionDecision"] == "ask" else None
+
+
+def test_code_mode_un_push_que_llega_compuesto_desde_un_script_sigue_preguntando_o_bloqueando():
+    with mundo() as m:
+        entorno, db = entorno_de(m.inst), m.repos["db"]
+        for comando, cwd in (("cd 'db' && git push -u origin F_x", m.equipo), ("cd '%s' && git push -u origin F_x" % fw(db), m.inst),
+                             ("cd '%s' && git push -u origin F_x" % para_bash(db), m.inst),
+                             ("cd 'db' && git commit -m x && git push", m.equipo)):
+            motivo = _pregunta(G.correr(evento(comando, cwd=str(cwd)), entorno=entorno))
+            assert motivo and "en el repo «db»" in motivo and motivo.endswith(cita(comando)), (comando, motivo)
+        for comando, cwd in (("cd 'db' && git push --force origin main", m.equipo),
+                             ("cd 'app' && git push --force-with-lease origin main", m.base)):
+            codigo, salida, error = G.correr(evento(comando, cwd=str(cwd)), entorno=entorno)
+            assert (codigo, salida) == (2, "") and error.decode("utf-8") == "%s%s\n" % (
+                "guard-comandos bloqueó el comando: %s. Si la operación es deliberada, que la corra el usuario a mano." % PUSH_FORZADO,
+                cita(comando)), (comando, codigo, error)
+        assert G.correr(evento("cd 'db' && git status", cwd=str(m.equipo)), entorno=entorno) == (0, "", b""), "la lectura sigue pasando"
+
+
+def test_code_mode_un_comando_de_powershell_que_llega_como_bash_se_lee_como_bash():
+    with mundo() as m:
+        entorno, db = entorno_de(m.inst), m.repos["db"]
+        dialectos, original = [], G.decidir
+
+        def espia(leido, *args, **kwargs):
+            dialectos.append(leido.dialecto)
+            return original(leido, *args, **kwargs)
+
+        G.decidir = espia
+        try:
+            motivo = _pregunta(G.correr(evento("Set-Location '%s'; git push -u origin F_x" % fw(db), cwd=str(m.inst)), entorno=entorno))
+            borrado = G.correr(evento("Remove-Item -Recurse -Force '%s'" % fw(m.base / "afuera"), cwd=str(m.inst)), entorno=entorno)
+            escape = G.correr(evento("git --git-dir C:\\ blame f.sql", cwd=str(db)), entorno=entorno)
+        finally:
+            G.decidir = original
+        assert dialectos == ["posix"] * 3, dialectos
+        assert motivo and "en el repo «db»" in motivo, motivo
+        assert borrado[0] == 2 and "Remove-Item -Recurse -Force fuera del scratch" in borrado[2].decode("utf-8"), borrado
+        assert _pregunta(escape), "como Bash, la barra seguida de un espacio une «C:\\ blame»: %r" % (escape,)
+
+
 def test_cada_bloqueo_y_cada_pregunta_cita_el_comando_literal():
     with carpeta() as base:
         inst, app, db = instancia_con_todo(base)

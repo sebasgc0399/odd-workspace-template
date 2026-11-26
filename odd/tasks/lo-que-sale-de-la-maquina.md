@@ -59,8 +59,8 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
 |----|-------|-----|------|--------|--------|
 | T0 | todas | Este documento y su espejo en engram | inline | hecha | |
 | T1 | S1, S2 (pre-commit) | El punto de entrada del pre-commit, los archivos secretos y las claves pegadas | un writer, en paralelo con T2 (motivo: dos unidades independientes con superficies disjuntas, de varios minutos cada una) | hecha (L3) | `a1b9349` |
-| T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | hecha (L4) | |
-| T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 | pendiente | |
+| T2 | S5, S6 | `odd_ws/archivos.py`, `tapar.py` atómico y los seguimientos de la auditoría | un writer, en paralelo con T1 | hecha (L4) | `a1df267` |
+| T3 | S2 (paquetes), S3, S4 | El chequeo de un paquete antes de publicarlo, `SECURITY.md` con su prueba, y la verificación con Code Mode | un writer, después de T1 y T2 (motivo: el respaldo de contexto del orquestador) | hecha (L6) | |
 | T4 | S7 | El CHANGELOG, la versión y el verificador | docs inline; verificador delegado | pendiente | |
 
 ## Log
@@ -145,3 +145,42 @@ El origen es el plan que aprobó el autor (L1). Cada Spec cita el texto de su id
   - **Los docs:** el orquestador integró el texto de T2 en `Doc/diseno.md`. El writer editó `Doc/hooks.md` y `references/recibo.md`.
   - **Risk: ítem 3.** `_aislada`, `por_ruta` y `clasificar` se comparten con otros hooks. Sus valores por defecto conservan el comportamiento de antes, y lo fijan las pruebas de cada llamador.
   - **Scratch del writer:** en el scratchpad de la sesión, `mut-6bZN`, `verif-yp2c` y los `dif-*`; además, `%TEMP%\tmpveiuqpfw`. Va a la limpieza del autor.
+- **L5** (2026-11-26) La R19 y el cierre de S5.
+  - **La R19 entró con un merge limpio** (`487dc62`, desde `ab6248e`, la versión `0.17.0`). Así T3 ve el `fetch` de la auditoría de ramas para el inventario de red.
+  - **S5 queda completo.** `entregas._reemplazar`, la última copia privada, se cambió por `archivos.reemplazar` (`f530976`): la prueba nueva se vio en RED y después en GREEN, `entregas` 11/11 y 14/14, y `archivos` 8/8.
+  - **Sigue T3:** el chequeo de un paquete, `SECURITY.md` con su prueba, y Code Mode. Un writer.
+  - **Lo que cambia T3:** el verificador de la R19 encontró que el `fetch` de la auditoría podía escribir refs fuera de `origin`. Se corrige en la R19 (`--refmap=`) y llega acá con el próximo merge, antes del verificador de esta versión.
+- **L6** (2026-11-26) T3, un writer, desde `f530976`. Lo cortó el límite de 5 horas y se lo retomó con su contexto. Cubrió la parte de S2 de los paquetes, S3 y S4.
+  - **S2:** `paquetes.py revisar <carpeta>`, de solo lectura y sin instancia.
+    - Mira solo los archivos de la lista blanca del importador.
+    - Busca rutas personales y claves pegadas con los detectores de `secretos`, una `fuente` local absoluta y los enlaces.
+    - Sale con 0, 1 o 2, y nunca muestra la clave.
+    - «Publicar un paquete» suma el paso.
+  - **S3:**
+    - `SECURITY.md`, en español: el reporte privado de GitHub, el resumen del modelo de amenaza y el inventario de lo que sale de la máquina;
+    - `tools/inventario_de_red.tests.py`, que lee con el AST los strings de los `.py` de `plugin/` y `tools/` y exige que cada archivo con un verbo de red entero, una URL o un import de red esté en el inventario o en `EXCEPCIONES` (solo los dos guards).
+  - **S4:** pruebas de payloads de Code Mode en `guard_comandos` y `writer_guard`. **No hay bug de seguridad:**
+    - el compuesto `cd '…' && git push` se pregunta, y el forzado se bloquea;
+    - las escrituras de un writer detrás de un `cd` se bloquean;
+    - la forma de PowerShell que llega como `Bash` se lee como POSIX.
+    - La documentación de Code Mode no dice «Git Bash» literalmente, así que `Doc/hooks.md` tampoco lo dice.
+  - **Decisiones del writer que se aceptan:**
+    - una `fuente` local es un valor dentro de los archivos del paquete, no el lock de la instancia: el lock no se puede arreglar antes de empujar la etiqueta;
+    - un enlace en el paquete es un hallazgo;
+    - la prueba cuenta solo verbos enteros, para no llenar las excepciones con prosa;
+    - `SECURITY.md` lista también las consultas de versión que corre el doctor.
+  - **Las pruebas,** cada regla vista en RED (con un mutante por regla en el chequeo de paquetes, y una sonda que planta una llamada de red sin inventario) y después GREEN, en el entorno normal y con un `GIT_INDEX_FILE` ajeno:
+    - `paquetes` 23/23 y 23/23;
+    - `inventario_de_red` 4/4;
+    - `registro` 7/7;
+    - `guard_comandos` 85/85;
+    - `writer_guard` 128/128.
+  - **La diferencial contra `f530976`:** 14 pasos de `paquetes`. Solo cambia la línea de uso de argparse, que ahora nombra `revisar`.
+  - **Lo que queda para el autor:**
+    - habilitar el reporte privado de vulnerabilidades en la config del repo;
+    - hacer la corrida real con Code Mode en una terminal.
+  - **Seguimientos:**
+    - la skill `/odd-ws:paquetes` no nombra `revisar`;
+    - `revisar` no mira el resto del repo del paquete, como un README.
+  - **Risk: ítem 5.** La prueba del inventario pasa a ser una compuerta del pre-commit y del CI.
+  - **Scratch del writer:** `%TEMP%\tmp.5EsAOKrLE9` y la carpeta `t3\` del scratchpad de la sesión. Va a la limpieza del autor.

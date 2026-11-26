@@ -319,6 +319,34 @@ def test_el_bloqueo_de_un_comando_cita_el_comando_literal():
     comprobar(fallos)
 
 
+def test_code_mode_la_escritura_de_un_writer_que_llega_compuesta_desde_un_script_sigue_bloqueada():
+    fallos, dialectos, original = [], [], G.decidir
+
+    def espia(leido, *args, **kwargs):
+        dialectos.append(leido.dialecto)
+        return original(leido, *args, **kwargs)
+
+    casos = [("cd 'movil' && echo x > app/src/main/java/com/x/A.java", EQUIPO, "redirección (>) a app/src/main/java/com/x/A.java"),
+             ("cd '%s' && echo x > app/A.java" % fw(MOVIL), INST, "redirección (>) a app/A.java"),
+             ("cd '%s' && echo x > app/A.java" % gb(MOVIL), INST, "redirección (>) a app/A.java"),
+             ("cd 'db' && git commit -m x", EQUIPO, "`git commit`"), ("cd 'db' && git push -u origin F_x", EQUIPO, "`git push`"),
+             ("cd 'db' && Set-Content 'Current/esq.Proc_X.sql' x", EQUIPO, "set-content sobre Current/esq.Proc_X.sql"),
+             ("Set-Content -Path %s -Value x" % JAVA_W, INST, "set-content sobre")]
+    G.decidir = espia
+    try:
+        for comando, cwd, parte in casos:
+            c, o, e = correr(evento_bash(comando, cwd=str(cwd)))
+            texto = e.decode("utf-8") if isinstance(e, bytes) else ""
+            esperar(fallos, c == 2 and o == "" and texto.startswith("writer-guard bloqueó el comando. ") and parte in texto
+                    and texto.endswith("\nComando: «%s»\n" % comando), "bloquea y cita el comando: %r -> %r" % (comando, (c, o, texto)))
+        for comando in ("cd 'db' && cat Current/esq.Proc_X.sql", "cd 'db' && git status"):
+            esperar(fallos, correr(evento_bash(comando, cwd=str(EQUIPO))) == (0, "", b""), "la lectura pasa: %s" % comando)
+    finally:
+        G.decidir = original
+    esperar(fallos, dialectos == ["posix"] * (len(casos) + 2), "un comando que llega como Bash se lee como Bash: %r" % dialectos)
+    comprobar(fallos)
+
+
 def test_lo_que_pasa_sale_en_silencio():
     fallos = []
     for comando in ("git status", 'grep -r "push" .', "dotnet test X.csproj"):
