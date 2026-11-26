@@ -129,7 +129,7 @@ Code Mode es experimental: Claude escribe JavaScript que hace varias llamadas a 
   - `writer_guard` bloquea la escritura de un writer que llega igual: una redirección, un `git commit` o un `Set-Content`;
   - un comando con la forma de PowerShell que sale de un script llega como `Bash` y se lee como Bash.
 - **El plazo.** Los guards terminan en 8 s, antes de su timeout de 10 s, así que la decisión es de ellos y no del rechazo de Code Mode cuando un hook no termina. Si un hook igual no terminara o no arrancara, la llamada se rechaza, porque los hooks de odd-ws tienen `onFailure: block`.
-- **Lo que queda a mano:** una corrida real, en una terminal, con `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` y Claude Code 2.1.323 o más (Code Mode no anda en el panel de VS Code). Pídele al agente un push forzado dentro de un script: tiene que llegar bloqueado con el mensaje de siempre.
+- **Lo que queda a mano:** una corrida real, en una terminal, con `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` y Claude Code 2.1.323 o más (Code Mode no anda en el panel de VS Code). Pídele al agente un push forzado dentro de un script: tiene que llegar bloqueado con el mensaje de siempre. Verificado en una corrida real (Claude Code 2.1.328, `--permission-mode manual`): en un solo script, el guard bloqueó un `cd … && git push --force` y un `git reset --hard`, y un `git log` corrió. En el modo automático, antes que los hooks, el clasificador de Claude Code rechaza entero un script destructivo. El shell de Code Mode es Git Bash: una ruta de Windows va entre comillas.
 
 ## En Codex
 

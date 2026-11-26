@@ -1228,6 +1228,7 @@ Antes de guardar texto en la instancia, odd-ws tapa los secretos que encuentra c
   - **Un archivo nuevo** queda con el umask, como antes en `fallas`.
   - **Quién la usa:** `tapar.py`, `fallas` y `entregas`.
   - **El solo lectura:** en POSIX, un destino de solo lectura en una carpeta con escritura se reemplaza. En Windows falla con `PermissionError` y queda intacto.
+  - **Lo que cambia con el reemplazo:** un archivo en una carpeta sin escritura ya no se puede tapar, porque el temporal va al lado; `os.replace` corta un enlace duro, y no conserva el dueño en POSIX ni las ACL en Windows.
 
 ### Las desviaciones conocidas (`odd_ws/desviaciones.py` y `desviaciones.py`, I92)
 
